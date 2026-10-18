@@ -166,3 +166,30 @@ fn prepared_media_snapshot_output_is_preflighted_before_any_input_is_used() {
         assert!(out.is_null());
     }
 }
+
+#[test]
+fn existing_account_direct_conversation_preflights_and_clears_output() {
+    use marmot_c::commands::marmot_existing_account_direct_conversation;
+    unsafe {
+        assert_eq!(
+            marmot_existing_account_direct_conversation(
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        let mut out = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_existing_account_direct_conversation(
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                &raw mut out
+            ),
+            MarmotStatus::NullPointer
+        );
+        assert!(out.is_null());
+    }
+}

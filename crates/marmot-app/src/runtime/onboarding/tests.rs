@@ -210,6 +210,255 @@ async fn single_device_ignores_unusable_owned_slots_but_preserves_foreign_eviden
     runtime.shutdown_and_close().await.unwrap();
 }
 
+async fn companion_notice_fixture(
+    unknown: bool,
+) -> (
+    tempfile::TempDir,
+    MarmotAppRuntime,
+    Arc<Network>,
+    String,
+    u64,
+) {
+    let (directory, runtime, network, keys, id) = fixture().await;
+    let manager = runtime.accounts();
+    let mut checkpoint = manager.onboarding_checkpoint(&id).unwrap().unwrap();
+    for step in [
+        OnboardingStep::Profile,
+        OnboardingStep::Follows,
+        OnboardingStep::Relays,
+        OnboardingStep::InboxRelays,
+    ] {
+        checkpoint.set(step, OnboardingStatus::Passed, vec![]);
+    }
+    if unknown {
+        network.fail_reads.store(true, Ordering::SeqCst);
+    } else {
+        network.events.lock().push(signed(
+            &keys,
+            30443,
+            vec![vec!["d".into(), "other-installation".into()]],
+            "malformed",
+            unix_now_seconds(),
+        ));
+    }
+    manager
+        .check_onboarding_single_device(&mut checkpoint)
+        .await
+        .unwrap();
+    network.fail_reads.store(false, Ordering::SeqCst);
+    manager.save_onboarding(&mut checkpoint).unwrap();
+    let revision = checkpoint.snapshot.revision;
+    (directory, runtime, network, id, revision)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn companion_sign_in_preserves_other_installation_without_publication() {
+    let (_directory, runtime, network, id, revision) = companion_notice_fixture(false).await;
+    let snapshot = runtime
+        .accounts()
+        .acknowledge_onboarding_single_device(&id, revision)
+        .await
+        .unwrap();
+    assert!(
+        runtime
+            .accounts()
+            .app
+            .account_home()
+            .public_key_package_publication_disabled(&id)
+            .unwrap(),
+        "continuing sign-in must preserve the existing public invitation receiver"
+    );
+    assert!(snapshot.ready);
+    assert_eq!(
+        snapshot.steps[OnboardingStep::KeyPackage.index()].status,
+        OnboardingStatus::Skipped
+    );
+    assert!(network.attempts.lock().is_empty());
+    assert!(
+        runtime
+            .accounts()
+            .app
+            .account_home()
+            .account_setup_state(&id)
+            .unwrap()
+            .is_none()
+    );
+    runtime.shutdown_and_close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn companion_sign_in_unknown_discovery_stays_held_after_reopen() {
+    let (directory, first, network, id, revision) = companion_notice_fixture(true).await;
+    let snapshot = first
+        .accounts()
+        .acknowledge_onboarding_single_device(&id, revision)
+        .await
+        .unwrap();
+    assert!(snapshot.ready);
+    first.shutdown_and_close().await.unwrap();
+    let reopened = runtime(directory.path(), network.clone());
+    reopened.start().await.unwrap();
+    assert!(
+        reopened
+            .accounts()
+            .app
+            .account_home()
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    assert!(
+        reopened
+            .accounts()
+            .onboarding_snapshot(&id)
+            .unwrap()
+            .unwrap()
+            .ready
+    );
+    assert!(network.attempts.lock().is_empty());
+    reopened.shutdown_and_close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn companion_sign_in_rejects_stale_and_cancelled_notice_before_persisting_hold() {
+    let (_directory, runtime, network, id, revision) = companion_notice_fixture(false).await;
+    let manager = runtime.accounts();
+    assert!(
+        manager
+            .acknowledge_onboarding_single_device(&id, revision.saturating_sub(1))
+            .await
+            .is_err()
+    );
+    assert!(
+        !manager
+            .app
+            .account_home()
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    manager.cancel_onboarding(&id).await.unwrap();
+    assert!(
+        manager
+            .acknowledge_onboarding_single_device(&id, revision)
+            .await
+            .is_err()
+    );
+    assert!(
+        !manager
+            .app
+            .account_home()
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    assert!(network.attempts.lock().is_empty());
+    runtime.shutdown_and_close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn companion_sign_in_cancelled_during_cleanup_keeps_hold_and_cannot_finish_stale_attempt() {
+    let (directory, first, network, id, revision) = companion_notice_fixture(false).await;
+    let manager = first.accounts();
+    let hold = manager.install_onboarding_setup_cleanup_hold();
+    let running = tokio::spawn({
+        let manager = manager.clone();
+        let account = id.clone();
+        async move {
+            manager
+                .acknowledge_onboarding_single_device(&account, revision)
+                .await
+        }
+    });
+    hold.wait_until_entered().await;
+    assert!(manager.onboarding_snapshot(&id).unwrap().unwrap().ready);
+    assert_eq!(
+        manager
+            .app
+            .account_home()
+            .account_setup_state(&id)
+            .unwrap()
+            .unwrap()
+            .phase,
+        AccountSetupPhase::CompanionReady
+    );
+    manager.cancel_onboarding(&id).await.unwrap();
+    hold.release.notify_one();
+    assert!(
+        timeout(Duration::from_secs(2), running)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        manager
+            .app
+            .account_home()
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    assert!(manager.app.account_home().account(&id).unwrap().signed_out);
+    assert!(network.attempts.lock().is_empty());
+    first.shutdown_and_close().await.unwrap();
+    let reopened = runtime(directory.path(), network.clone());
+    reopened.start().await.unwrap();
+    assert!(
+        reopened
+            .accounts()
+            .app
+            .account_home()
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    assert!(network.attempts.lock().is_empty());
+    reopened.shutdown_and_close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn companion_sign_in_confirmed_empty_discovery_retains_primary_publication() {
+    let (_directory, runtime, network, _keys, id) = fixture().await;
+    let manager = runtime.accounts();
+    let mut checkpoint = manager.onboarding_checkpoint(&id).unwrap().unwrap();
+    for step in [
+        OnboardingStep::Profile,
+        OnboardingStep::Follows,
+        OnboardingStep::Relays,
+        OnboardingStep::InboxRelays,
+    ] {
+        checkpoint.set(step, OnboardingStatus::Passed, vec![]);
+    }
+    manager
+        .check_onboarding_single_device(&mut checkpoint)
+        .await
+        .unwrap();
+    assert_eq!(
+        checkpoint
+            .snapshot
+            .single_device_notice
+            .as_ref()
+            .unwrap()
+            .discovery,
+        OnboardingDeviceDiscovery::NoneFound
+    );
+    manager.save_onboarding(&mut checkpoint).unwrap();
+    let snapshot = manager
+        .acknowledge_onboarding_single_device(&id, checkpoint.snapshot.revision)
+        .await
+        .unwrap();
+    assert!(snapshot.ready);
+    assert_eq!(
+        snapshot.steps[OnboardingStep::KeyPackage.index()].status,
+        OnboardingStatus::Passed
+    );
+    assert!(
+        !manager
+            .app
+            .account_home()
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    assert!(network.attempts.lock().iter().any(|e| e.kind == 30443));
+    runtime.shutdown_and_close().await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn onboarding_legacy_setup_admission_does_not_mutate_account() {
     let directory = tempfile::tempdir().unwrap();
@@ -4980,6 +5229,10 @@ fn controlled_reap_worker() -> (
     });
     (
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                 crate::runtime::MEDIA_COMMAND_QUEUE_LIMIT,

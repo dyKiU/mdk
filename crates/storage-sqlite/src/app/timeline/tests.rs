@@ -4398,3 +4398,164 @@ fn system_reactions_survive_replay_reopen_and_retract_without_replacing_target()
     assert_eq!(list(&store.app_storage()), [baseline]);
     store.close().unwrap();
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn paired_ordinary_timeline_preserves_materialization_blocks_and_event_order() {
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    let mut earlier = chat("a", "alice", 10, "original");
+    earlier.source_epoch = Some(9);
+    let mut later = chat("b", "carol", 20, "later");
+    later.source_epoch = Some(3);
+    store.app_storage().record_app_event(&earlier).unwrap();
+    store.app_storage().record_app_event(&later).unwrap();
+    store
+        .app_storage()
+        .record_app_event(&chat("c", "bob", 30, "blocked"))
+        .unwrap();
+    let mut edited = edit("edit-a", "alice", "a", 40, "edited");
+    edited.source_epoch = Some(9);
+    store.app_storage().record_app_event(&edited).unwrap();
+    store
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO user_blocks(public_key,is_private,created_at_ms) VALUES('bob',0,0)",
+            [],
+        )
+        .unwrap();
+    let page = store
+        .app_storage()
+        .message_timeline_for_paired_presentation(
+            TimelineMessageQuery {
+                group_id_hex: Some("11".repeat(32)),
+                pagination: TimelinePagination {
+                    limit: Some(2),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            0,
+        )
+        .unwrap();
+    assert_eq!(ids(&page), ["a", "b"]);
+    assert!(!page.has_more_before);
+    assert_eq!(page.messages[0].source_epoch, Some(9));
+    assert_eq!(page.messages[1].source_epoch, Some(3));
+    assert_eq!(page.messages[0].plaintext, "edited");
+    store
+        .app_storage()
+        .record_app_event(&delete("delete-b", "carol", "b", 50))
+        .unwrap();
+    let deleted = store
+        .app_storage()
+        .message_timeline_for_paired_presentation(
+            TimelineMessageQuery {
+                group_id_hex: Some("11".repeat(32)),
+                pagination: TimelinePagination {
+                    limit: Some(2),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            0,
+        )
+        .unwrap();
+    assert!(
+        deleted
+            .messages
+            .iter()
+            .find(|row| row.message_id_hex == "b")
+            .is_some_and(|row| row.deleted && row.plaintext.is_empty())
+    );
+    for limit in [None, Some(0), Some(129)] {
+        assert!(
+            store
+                .app_storage()
+                .message_timeline_for_paired_presentation(
+                    TimelineMessageQuery {
+                        group_id_hex: Some("11".repeat(32)),
+                        pagination: TimelinePagination {
+                            limit,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    0
+                )
+                .is_err()
+        );
+    }
+    assert!(
+        store
+            .app_storage()
+            .message_timeline_for_paired_presentation(
+                TimelineMessageQuery {
+                    pagination: TimelinePagination {
+                        limit: Some(1),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                0
+            )
+            .is_err()
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn paired_ordinary_timeline_hides_expired_payload_and_reply_before_sweep() {
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    store
+        .app_storage()
+        .record_app_event(&chat("target", "alice", 10, "retained"))
+        .unwrap();
+    store
+        .app_storage()
+        .record_app_event(&reply("reply", "bob", "target", 20, "reply"))
+        .unwrap();
+    store.lock().unwrap().execute("UPDATE app_events SET retention_seconds=1,retention_expires_at=11 WHERE message_id_hex='target'",[]).unwrap();
+    let query = TimelineMessageQuery {
+        group_id_hex: Some("11".repeat(32)),
+        pagination: TimelinePagination {
+            limit: Some(2),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let page = store
+        .app_storage()
+        .message_timeline_for_paired_presentation(query, 11)
+        .unwrap();
+    let target = page
+        .messages
+        .iter()
+        .find(|row| row.message_id_hex == "target")
+        .unwrap();
+    assert!(
+        target.deleted
+            && target.plaintext.is_empty()
+            && target.tags.is_empty()
+            && target.media.is_none()
+            && target.agent_text_stream.is_none()
+            && target.poll.is_none()
+            && target.edit.is_none()
+    );
+    let reply = page
+        .messages
+        .iter()
+        .find(|row| row.message_id_hex == "reply")
+        .unwrap();
+    assert_eq!(reply.plaintext, "reply");
+    assert!(reply.reply_preview.is_none());
+    assert_eq!(
+        store
+            .app_storage()
+            .app_messages(crate::StoredAppMessageQuery::default())
+            .unwrap()
+            .len(),
+        2,
+        "observation must not delete or mutate stored events"
+    );
+}

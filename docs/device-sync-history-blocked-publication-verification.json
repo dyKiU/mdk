@@ -1,0 +1,74 @@
+{
+  "scope": "Actual blocked first encrypted history Chunk; exact cancellation and dropped source continuation RPC with original handle retained. Not expiry/shutdown qualification",
+  "base": "2343dad3dc304eb9dd4fe5af2af29b1328596f0d",
+  "original_red_stash": "02a54445ce6a65160719a25c94ac8e02abcea6aa",
+  "remote_red_stash": "683a017927e324c54c8b96472e9d2e15149753c9",
+  "final_candidate_stash": "de709efa85ddbb4ecfa5e42c4ba14ce9b841043e",
+  "input_count": 2473,
+  "source_manifest_sha256": "d70a0be9a66d4c6582597bab16de4314f51352acf78d2d9e2e0f0229061705a9",
+  "red_green_fixture_unchanged": true,
+  "genuine_reds": [
+    {
+      "gate": "cancel",
+      "exit": 101,
+      "seconds": 66.70888924598694,
+      "log": "/Users/pj/project/build/history-blocked-publication-red-v1-cancel.log",
+      "log_sha256": "12dea6df32ae4dc3ad2d98e5065a6f11b5f715bc5cf0c83446e3b86e6d17b758"
+    },
+    {
+      "gate": "lost-reply",
+      "exit": 101,
+      "seconds": 15.225838899612427,
+      "log": "/Users/pj/project/build/history-blocked-publication-red-v1-lost-reply.log",
+      "log_sha256": "0365b4ef9dd903445206d85e06b914eda73f4b25f491f1a69e16dd18ce1b5a6d"
+    }
+  ],
+  "final_gates": [
+    {
+      "gate": "history",
+      "exit": 0,
+      "seconds": 132.28889083862305,
+      "log": "/Users/pj/project/build/history-blocked-publication-green-v1-history.log",
+      "log_sha256": "03bd960f284af033b7e41b4ad131ee08ed65d717178fea3416e510196bc723f7"
+    },
+    {
+      "gate": "clippy",
+      "exit": 0,
+      "seconds": 30.199474096298218,
+      "log": "/Users/pj/project/build/history-blocked-publication-green-v1-clippy.log",
+      "log_sha256": "13500edd72c840d141a4c254f356280111d5eb9e014b673e8080dbecd62e36ee"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 21.026384353637695,
+      "log": "/Users/pj/project/build/history-blocked-publication-green-v1-default-check.log",
+      "log_sha256": "5d3d2034e793c146cd16cb0f00244476723907b795b91c2292952544666b7b6a"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.508298873901367,
+      "log": "/Users/pj/project/build/history-blocked-publication-green-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 7,
+    "failed": 0,
+    "ignored": 0
+  },
+  "coverage": [
+    "Existing adapter gate holds actual original source signed/encrypted GroupMessage before relay publication after genuine B consent",
+    "Exact cancel releases continuation before gate release; dropping continuation RPC retires custody while same source public handle remains held",
+    "Source worker resumes before gate release; releasing canceled gate produces no recipient chunk/import",
+    "Unchanged normal multi-fragment import, source expiry tombstone, committed SQL cancellation and fresh outer replay controls"
+  ],
+  "implementation": "Biased negative-select on original revocation, fixed original deadline and retained continuation reply closure; dropped actual publication future cannot resume from released gate. Original wrapping/lease and actual ACK validation unchanged.",
+  "remaining": [
+    "Fixed-original expiry and runtime shutdown while same gate held",
+    "Source retention expiry after snapshot while delayed",
+    "Durable restart and native alias/API acceptance"
+  ],
+  "post_freeze_changes": "Proof, plan and App AGENTS only"
+}

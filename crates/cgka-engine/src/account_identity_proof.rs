@@ -457,7 +457,7 @@ pub(crate) fn protocol_profile_of_group(group: &MlsGroup) -> Result<ProtocolProf
     protocol_profile_of_group_extensions(group.extensions())
 }
 
-fn protocol_profile_of_group_extensions(
+pub(crate) fn protocol_profile_of_group_extensions(
     extensions: &Extensions<OpenMlsGroupContext>,
 ) -> Result<ProtocolProfile, EngineError> {
     let legacy_required = extensions.iter().any(|extension| {

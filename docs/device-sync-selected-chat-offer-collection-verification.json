@@ -1,0 +1,146 @@
+{
+  "base": "2dce3a8a66f38c3f1e53d406d79985c266fbe534",
+  "original_red_stash": "36369901c93d75a81f16fc660a29b3eae3a3b1b0",
+  "gates": [
+    {
+      "phase": "red-v1",
+      "verified_inputs": 2421,
+      "sources": {
+        "git:36369901c93d75a81f16fc660a29b3eae3a3b1b0^3": 2,
+        "git:2dce3a8": 2412,
+        "git:36369901c93d75a81f16fc660a29b3eae3a3b1b0": 7
+      },
+      "gates": [
+        {
+          "gate": "offer-red",
+          "exit_code": 101,
+          "seconds": 72.15,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "8c0e949575121b8559e75350ac090addd5efebd5ebb83c76f5dc4d6f8671433f"
+        }
+      ]
+    },
+    {
+      "phase": "green-v1",
+      "verified_inputs": 2421,
+      "sources": {
+        "current_owned_candidate": 5,
+        "git:2dce3a8": 2411,
+        "git:36369901c93d75a81f16fc660a29b3eae3a3b1b0": 5
+      },
+      "gates": [
+        {
+          "gate": "selected-feature",
+          "exit_code": 0,
+          "seconds": 101.2,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "9f4d9d233771ef736a7ef03b5319bbd300c0dc19afae36b0cbff4c4c8cae3931"
+        },
+        {
+          "gate": "selected-default",
+          "exit_code": 0,
+          "seconds": 50.23,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "d28ef8a86f6e74ef5c95dbd3ced27c28731660c5e60deb7150872ae0634303d4"
+        },
+        {
+          "gate": "production-clippy",
+          "exit_code": 0,
+          "seconds": 36.33,
+          "counts": [],
+          "log_sha256": "014678d363df6b8135a6fd1d17fba42298875156476a0dde42e5636a6a61cb23"
+        },
+        {
+          "gate": "default-check",
+          "exit_code": 0,
+          "seconds": 26.1,
+          "counts": [],
+          "log_sha256": "43ee5f055d24ae64c875edfdca91940afda2640912eb51923fd5243d728b838b"
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.59,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "phase": "final-v1",
+      "verified_inputs": 2421,
+      "sources": {
+        "current_owned_candidate": 6,
+        "git:2dce3a8": 2411,
+        "git:36369901c93d75a81f16fc660a29b3eae3a3b1b0": 4
+      },
+      "gates": [
+        {
+          "gate": "selected-feature",
+          "exit_code": 0,
+          "seconds": 59.97,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 5,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "156d7bba791dcc13c1275d0a036e45af9962d7c1881a3168a8b07f00f1a8083b"
+        },
+        {
+          "gate": "selected-default",
+          "exit_code": 0,
+          "seconds": 36.72,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "0c8ac3f513c41fcf398c2268d0b7269a5cf01a298b00fb3672e3374af5975b3b"
+        },
+        {
+          "gate": "app-clippy",
+          "exit_code": 0,
+          "seconds": 35.24,
+          "counts": [],
+          "log_sha256": "5549c5b7f6d54939018e950895f68c73b754c7ada66c6a8841552c6e57151a4d"
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.56,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ],
+  "final_delta": "Only regression fixture added stale revision, malformed, oversized and canonical forged-signature controls after initial GREEN; production bytes unchanged.",
+  "scope": "Original A owner collection of immutable authenticated private package metadata, not recipient consent restoration or ordinary membership. No Invite, Welcome, join, new-message delivery or history qualification."
+}

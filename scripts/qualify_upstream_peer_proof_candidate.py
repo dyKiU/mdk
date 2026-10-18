@@ -1,0 +1,497 @@
+#!/usr/bin/env python3
+"""Exact directed late-proof GREEN/static/omission evidence; other gates remain pending."""
+import argparse
+import io
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import time
+import zipfile
+import qualify_upstream_peer_proof as historical
+from upstream_completion_ci import DEFAULT_FEATURES, FEATURES, compile_cases, digest, ensure, environment, headers, identity
+from qualify_upstream_body_negative import freeze, layout, feature_identity
+
+RED = '1e4e7b56f038bae38079fdb087f4831c4d3d861f'
+PRODUCT = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
+SELF = 'scripts/qualify_upstream_peer_proof_candidate.py'
+WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
+EVENT = '''                    // The peer proof can arrive after our own ACK was harvested.
+                    // Keep its authenticated fact on this original if fresh parent
+                    // or channel validation fails; periodic maintenance retries
+                    // completion without reopening the already-consumed wire.
+                    if entry.policy_committed && entry.proof_published {
+                        match self.validate_sibling_publication(&entry) {
+                            Ok(()) => Self::complete_sibling_sharing(&entry),
+                            Err(_) => {
+                                tracing::debug!(
+                                    target: "marmot_app::device_linking",
+                                    method = "sibling_peer_proof_completion",
+                                    "authenticated peer proof retained for fresh completion validation"
+                                );
+                            }
+                        }
+                    }
+'''
+PERIODIC_OLD = '''        Self::complete_sibling_sharing(entry);
+        Ok(())
+    }
+
+    fn complete_sibling_sharing'''
+PERIODIC_NEW = '''        if entry.peer_committed {
+            self.validate_sibling_publication(entry)?;
+            Self::complete_sibling_sharing(entry);
+        }
+        Ok(())
+    }
+
+    fn complete_sibling_sharing'''
+OUT = Path('peer-proof-candidate-evidence')
+
+
+def green(row):
+    return (row.get('body_exit_code') == 0 and row.get('passed') == 1 and row.get('failed') == 0
+            and row.get('ignored') == 0 and row.get('executed_nonignored') == 1
+            and row.get('compiler_error_count') == 0 and row.get('all_panic_header_count') == 0
+            and row.get('executed_case_names') == [historical.TEST] and historical.prerequisites(row)
+            and row.get('facts', {}).get('gated_complete') is True and not row.get('watchdog_triggered'))
+
+
+def parser_preflight():
+    old = historical.parser_preflight()
+    marker = 'late-peer-proof ' + ' '.join(field + '=true' for field in historical.FIELDS)
+    marker += ' runtime_closes=3 planes_shutdown=3 relay_closed=true attempt_completed=true'
+    raw = 'running 1 test\ntest ' + historical.TEST + ' ... ' + marker + '\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n'
+    ensure(green(historical.parse(raw, 0)), 'actual-green-parser-prefix')
+    ensure(green(historical.parse(raw.replace(' ... ' + marker, ' ... \n' + marker), 0)), 'actual-green-parser-own-line')
+    negatives = [raw + marker + '\n', raw.replace(historical.TEST, 'foreign::test'),
+                 raw.replace('1 passed', '0 passed'), raw.replace('0 ignored', '1 ignored'),
+                 raw.replace('runtime_closes=3', 'runtime_closes=2'), raw.replace('planes_shutdown=3', 'planes_shutdown=2'),
+                 raw.replace('relay_closed=true', 'relay_closed=false'), raw.replace('attempt_completed=true', 'attempt_completed=false'),
+                 raw + '\nthread extra panicked at crates/other.rs:1:1:\n', 'error: compilation failed\n']
+    negatives += [raw.replace(field + '=true', field + '=false') for field in historical.FIELDS]
+    for value in negatives: ensure(not green(historical.parse(value, 0)), 'adversarial-green-parser')
+    return {'historical_red': old, 'green_positive': 2, 'green_negative': len(negatives), 'actual_runtime_bodies': 0}
+
+
+def historical_source_guard():
+    source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+    ensure(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('GITHUB_REPOSITORY') == 'dyKiU/mdk'
+           and os.environ.get('GITHUB_SHA') == source, 'exact-approved-remote-source')
+    subprocess.run(['git', 'merge-base', '--is-ancestor', RED, source], check=True)
+    ensure(subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode == 0, 'initial-pristine-source')
+    changed = set(subprocess.check_output(['git', 'diff', '--name-only', RED, 'HEAD'], text=True).splitlines())
+    ensure(changed <= {PRODUCT, SELF, WORKFLOW}, 'only-reviewed-two-completion-edges-controller-workflow')
+    original = subprocess.check_output(['git', 'show', RED + ':' + PRODUCT]).decode()
+    ensure(original.count('                    entry.peer_committed = true;\n') == 1 and original.count(PERIODIC_OLD) == 1, 'historical-exact-completion-anchors')
+    expected = original.replace('                    entry.peer_committed = true;\n', '                    entry.peer_committed = true;\n' + EVENT, 1).replace(PERIODIC_OLD, PERIODIC_NEW, 1)
+    ensure(Path(PRODUCT).read_bytes() == expected.encode(), 'only-exact-reviewed-product-repair')
+    ensure(subprocess.check_output(['git', 'ls-tree', RED, PRODUCT]).split()[0]
+           == subprocess.check_output(['git', 'ls-tree', 'HEAD', PRODUCT]).split()[0] == b'100644'
+           and not Path(PRODUCT).is_symlink() and not (Path(PRODUCT).stat().st_mode & 0o111), 'product-source-mode-exact')
+    # No tests, probe, original RED controller, Cargo, generated or SDK input may drift.
+    ensure(Path('scripts/qualify_upstream_peer_proof.py').read_bytes() == subprocess.check_output(['git', 'show', RED + ':scripts/qualify_upstream_peer_proof.py']), 'historical-red-controller-exact')
+    return {'source': source, 'historical_red_source': RED, 'historical_red_run_id': 39052541150,
+            'only_product_edges_changed': ['authenticated_peer_proof_completion', 'fresh_periodic_completion'],
+            'all_other_source_test_sdk_inputs_exact_red': True,
+            'guard_negative_runtime_evidence': 'pending: cancelled/revoked/stale-parent/post-auth validation failure',
+            'qualification_passed': False}
+
+
+def historical_previous_green(run_id, source, manifest, current):
+    ensure(run_id.isdecimal(), 'exact-prior-green-run-required')
+    repo = os.environ['GITHUB_REPOSITORY']
+    def api(path): return subprocess.check_output(['gh', 'api', 'repos/' + repo + '/' + path], timeout=60)
+    run = json.loads(api('actions/runs/' + run_id))
+    ensure(run['repository']['full_name'] == repo and run['head_sha'] == source and run['status'] == 'completed'
+           and run['conclusion'] == 'success' and run['event'] == 'workflow_dispatch' and run['path'] == WORKFLOW, 'prior-source-and-completed-workflow')
+    artifacts = json.loads(api('actions/runs/' + run_id + '/artifacts?per_page=100'))['artifacts']
+    receipts, control = [], None
+    for name in ['peer-proof-candidate-green', 'peer-proof-candidate-static-default', 'peer-proof-candidate-static-experimental']:
+        matches = [row for row in artifacts if row['name'] == name and not row['expired']]
+        ensure(len(matches) == 1 and 0 < matches[0]['size_in_bytes'] < 1000000, 'one-bounded-prior-artifact')
+        artifact = matches[0]
+        data = api('actions/artifacts/' + str(artifact['id']) + '/zip')
+        ensure(len(data) == artifact['size_in_bytes'] and len(data) < 1000000
+               and artifact.get('digest') == 'sha256:' + digest(data), 'actual-prior-artifact-size-and-digest')
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            files = [entry for entry in archive.infolist() if Path(entry.filename).name == 'result.json']
+            ensure(len(files) == 1 and 0 < files[0].file_size < 1000000, 'one-bounded-prior-result')
+            report = json.loads(archive.read(files[0]))
+        ensure(report['source'] == source and report.get('inputs_pristine') is True
+               and report.get('input_manifest_sha256') == manifest
+               and report.get('actual_counts_complete') is True
+               and report.get('toolchain') == current.get('toolchain')
+               and report.get('environment') == current.get('environment'), 'exact-prior-frozen-cohort')
+        if name == 'peer-proof-candidate-green':
+            ensure(report.get('mode') == 'green' and report.get('green_passed') is True
+                   and report.get('actual_executed_nonignored') == 1
+                   and re.fullmatch('[0-9a-f]{64}', report['phases']['baseline'].get('compiled_binary_sha256', ''))
+                   and green(report['phases']['baseline']['body']), 'actual-prior-one-body-green')
+            compilation = report['phases']['baseline']['compilation']
+            ensure(compilation['compile_exit_code'] == compilation['compiler_error_count'] == 0, 'prior-actual-compile-success')
+            control = feature_identity(compilation)
+        else:
+            cohort = name.rsplit('-', 1)[-1]
+            ensure(report.get('mode') == 'static' and report.get('cohort') == cohort
+                   and report.get('static_passed') is True and report.get('exit_code') == 0
+                   and report.get('compiler_error_count') == 0 and report.get('actual_runtime_bodies') == 0
+                   and report.get('actual_executed_nonignored') == 0,
+                   'actual-prior-both-static-cohorts')
+        receipts.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest'], 'download_digest_verified': True})
+    return {'run_id': int(run_id), 'source': source, 'artifacts': receipts, 'compiled_feature_identity': control}
+
+
+# PEER_CANDIDATE_COMPOSED_COHORT_BEGIN
+PEER_SOURCE = 'bc7bf63f645c1490b6dba7061e0207a9452cff96'
+COMPOSED_ANCESTORS = ('3aec65433eb84f0882430d000b2d31dabf987c24', PEER_SOURCE,
+                      '082e6433b7ee62bb728285e85607306ec5d6f048',
+                      'a2871545652998b244bdbc1b2ee6c6a888ba5b4c')
+COHORT_ARGUMENT = "    parser.add_argument('--cohort-baseline', help='Explicit reviewed full composed commit; absence retains the historical guard')\n"
+REQUIRE_ARGUMENT = "    parser.add_argument('--require-composed-cohort', action='store_true')\n"
+REQUIRE_CHECK = "    ensure(not args.require_composed_cohort or bool(args.cohort_baseline), 'explicit-reviewed-composed-cohort-required')\n"
+
+
+def composed_controller_identity():
+    source = Path(SELF).read_text()
+    begin = '# PEER_CANDIDATE_COMPOSED_COHORT_BEGIN\n'
+    end = '# PEER_CANDIDATE_COMPOSED_COHORT_END\n'
+    ensure(source.count('\n' + begin) == source.count('\n' + end) == 1, 'one-composed-controller-block')
+    before, rest = source.split('\n' + begin)
+    _, after = rest.split('\n' + end)
+    reconstructed = before + '\n' + after
+    for addition in [COHORT_ARGUMENT, REQUIRE_ARGUMENT, REQUIRE_CHECK]:
+        ensure(reconstructed.count(addition) == 1, 'one-explicit-cohort-routing-addition')
+        reconstructed = reconstructed.replace(addition, '', 1)
+    for old, new in [('def historical_source_guard():', 'def source_guard():'),
+                     ('def historical_previous_green(', 'def previous_green('),
+                     ('source_guard(args.cohort_baseline)', 'source_guard()')]:
+        ensure(reconstructed.count(old) == 1, 'one-historical-controller-routing-anchor')
+        reconstructed = reconstructed.replace(old, new, 1)
+    original = subprocess.check_output(['git', 'show', PEER_SOURCE + ':' + SELF])
+    ensure(reconstructed.encode() == original, 'complete-original-green-mutation-binary-pristine-oracles-preserved')
+    return digest(original)
+
+
+def manifest_domains_match(domains, layout_manifest, content_manifest):
+    return (isinstance(layout_manifest, str) and isinstance(content_manifest, str)
+            and re.fullmatch('[0-9a-f]{64}', layout_manifest) is not None
+            and re.fullmatch('[0-9a-f]{64}', content_manifest) is not None
+            and domains == {'directed_and_static_content_and_layout_sha256': layout_manifest,
+                            'automatic_body_content_only_sha256': content_manifest})
+
+
+def manifest_domains():
+    from upstream_completion_ci import freeze as content_freeze
+    return {'directed_and_static_content_and_layout_sha256': identity(freeze()),
+            'automatic_body_content_only_sha256': identity(content_freeze())}
+
+
+def source_guard(cohort_baseline=None):
+    if not cohort_baseline:
+        return historical_source_guard()
+    from upstream_extraction_cohort import reviewed_cohort
+    cohort = reviewed_cohort(cohort_baseline)
+    for ancestor in COMPOSED_ANCESTORS:
+        subprocess.run(['git', 'merge-base', '--is-ancestor', ancestor, cohort_baseline], check=True)
+    metadata = layout()
+    exact = [PRODUCT, historical.FILE,
+             'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs',
+             'crates/marmot-app/src/runtime/device_linking/setup.rs',
+             'crates/marmot-app/src/native_device_linking/enabled.rs',
+             'scripts/qualify_upstream_peer_proof.py']
+    identities = {}
+    for name in exact:
+        original = subprocess.check_output(['git', 'show', PEER_SOURCE + ':' + name])
+        ensure(Path(name).read_bytes() == original and metadata[name]['git_mode'] == '100644'
+               and not metadata[name]['actual_executable'] and not metadata[name]['symlink'], 'exact-original-directed-fixture-probe-and-completion-edges:' + name)
+        identities[name] = digest(original)
+    # Other reviewed test registration is permitted only outside the exact old hooks.
+    registration = 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
+    pattern = r'(?m)^[ \t]*// PEER_PROOF_TEST_BEGIN\n.*?^[ \t]*// PEER_PROOF_TEST_END\n'
+    current = Path(registration).read_text()
+    original = subprocess.check_output(['git', 'show', PEER_SOURCE + ':' + registration], text=True)
+    current_blocks = re.findall(pattern, current, re.S)
+    original_blocks = re.findall(pattern, original, re.S)
+    ensure(len(current_blocks) == len(original_blocks) == current.count('PEER_PROOF_TEST_BEGIN')
+           == current.count('PEER_PROOF_TEST_END') == 1 and current_blocks == original_blocks,
+           'exact-original-directed-test-registration')
+    ensure(Path(PRODUCT).read_text().count(EVENT) == 1 and Path(PRODUCT).read_text().count(PERIODIC_NEW) == 1,
+           'original-fresh-event-and-periodic-completion-edges')
+    return {'source': cohort['source'], 'baseline': cohort_baseline, 'reviewed_extraction_cohort': cohort,
+            'historical_directed_source': PEER_SOURCE, 'exact_directed_inputs_sha256': identities,
+            'original_complete_controller_sha256': composed_controller_identity(),
+            'historical_identity_reused': False, 'historical_runtime_evidence_reused': False,
+            'historical_stripped_source_comparison_reused': False,
+            'five_control_receipt_parser': five_control_parser_preflight(),
+            'manifest_domains': manifest_domains(), 'qualification_passed': False}
+
+
+def five_controls_pass(report, source, manifest, current, directed_features):
+    import qualify_upstream_automatic_body as body
+    from upstream_completion_ci import NEW, ORIGINALS, green as completion_green
+    suffixes = [body.CASE, NEW, *ORIGINALS]
+    compilation = report.get('compilation', {})
+    rows = report.get('bodies', [])
+    cohort = current.get('source_preflight', {}).get('reviewed_extraction_cohort')
+    if not (report.get('source') == source and report.get('mode') == 'controls'
+            and report.get('all_five_controls_passed') is True and report.get('body_control_passed') is True
+            and report.get('inputs_pristine') is True and report.get('actual_counts_complete') is True
+            and type(report.get('actual_executed_nonignored')) is int and report['actual_executed_nonignored'] == 5
+            and report.get('source_before_sha256') == report.get('source_after_sha256') == manifest
+            and report.get('toolchain') == current.get('toolchain') and report.get('environment') == current.get('environment')
+            and report.get('cohort_baseline') == current.get('source_preflight', {}).get('baseline')
+            and report.get('source_preflight', {}).get('reviewed_extraction_cohort') == cohort and cohort
+            and type(compilation.get('compile_exit_code')) is int and type(compilation.get('compiler_error_count')) is int
+            and compilation['compile_exit_code'] == compilation['compiler_error_count'] == 0
+            and len(rows) == 5 and [row.get('suffix') for row in rows] == suffixes
+            and not report.get('controller_exception') and not report.get('watchdog_triggered')):
+        return False
+    features = feature_identity(compilation)
+    # Selection alone differs: all requested features and compiled node profiles remain exact.
+    command = list(features['command'])
+    directed_command = list(directed_features['command'])
+    if command.count('-E') != 1 or directed_command.count('-E') != 1:
+        return False
+    index, directed_index = command.index('-E') + 1, directed_command.index('-E') + 1
+    if command[index] != ' | '.join('test(' + suffix + ')' for suffix in suffixes) or directed_command[directed_index] != 'test(' + historical.CASE + ')':
+        return False
+    command[index] = directed_command[directed_index] = 'test(<verified-exact-cases>)'
+    if dict(features, command=command) != dict(directed_features, command=directed_command):
+        return False
+    cases = compilation.get('cases', [])
+    if len(cases) != 5 or [row.get('name') for row in cases] != [body.NAME.rsplit('::', 1)[0] + '::' + suffix for suffix in suffixes]:
+        return False
+    binaries = [row.get('binary_sha256', '') for row in rows]
+    if len(set(binaries)) != 1 or not re.fullmatch('[0-9a-f]{64}', binaries[0]) or [row.get('binary_sha256') for row in cases] != binaries:
+        return False
+    for index, row in enumerate(rows):
+        if not (row.get('test') == cases[index]['name'] and row.get('named_cases') == [cases[index]['name']]
+                and row.get('control_passed') is True
+                and all(type(row.get(name)) is int for name in ['passed', 'failed', 'ignored', 'executed_nonignored', 'all_panic_header_count'])
+                and row['executed_nonignored'] == 1 and not row.get('parser_exception')
+                and not row.get('actual_count_unknown') and not row.get('watchdog_triggered')
+                and (body.body_green(row) if index == 0 else completion_green(row))):
+            return False
+    return True
+
+
+def five_control_parser_preflight():
+    import copy
+    import qualify_upstream_automatic_body as body
+    from upstream_completion_ci import NEW, ORIGINALS, STAGES, FEATURES
+    suffixes = [body.CASE, NEW, *ORIGINALS]
+    cohort = {'baseline': '1' * 40, 'source': 'fixture'}
+    current = {'toolchain': 'fixture-toolchain', 'environment': {'fixture': True},
+               'source_preflight': {'baseline': '1' * 40, 'reviewed_extraction_cohort': cohort}}
+    command = ['cargo', 'nextest', 'list', '--locked', '--lib', '-p', 'marmot-app',
+               '--features', FEATURES, '-E', ' | '.join('test(' + suffix + ')' for suffix in suffixes), '--message-format', 'json']
+    nodes = {'marmot_app': {'features': ['fixture'], 'profile': 'fixture-profile',
+                           'compile_kind': 'fixture-kind', 'rustflags_sha256': '2' * 64}}
+    compilation = {'compile_exit_code': 0, 'compiler_error_count': 0, 'features_requested': FEATURES,
+                   'command': command, 'compiled_fingerprints': {'verified': True, 'nodes': nodes},
+                   'cases': [{'name': body.NAME.rsplit('::', 1)[0] + '::' + suffix,
+                              'binary_sha256': '3' * 64} for suffix in suffixes]}
+    directed = feature_identity(compilation)
+    directed = dict(directed, command=list(command))
+    directed['command'][directed['command'].index('-E') + 1] = 'test(' + historical.CASE + ')'
+    events = ['automatic-body-control stage=' + stage + (' responsive=true' if index == 4 else ' index=' + str(index - 8) if index in [8, 9] else '') for index, stage in enumerate(body.STAGES)]
+    first = body.parse('test ' + body.NAME + ' ... ok\n' + '\n'.join(events) + '\ntest result: ok. 1 passed; 0 failed; 0 ignored;')
+    first.update(test=body.NAME, suffix=body.CASE, binary_sha256='3' * 64, control_passed=True, body_exit_code=0)
+    rows = [first]
+    for suffix in [NEW, *ORIGINALS]:
+        name = body.NAME.rsplit('::', 1)[0] + '::' + suffix
+        row = {'test': name, 'suffix': suffix, 'binary_sha256': '3' * 64, 'named_cases': [name],
+               'control_passed': True, 'body_exit_code': 0, 'passed': 1, 'failed': 0, 'ignored': 0,
+               'executed_nonignored': 1, 'all_panic_header_count': 0,
+               'original_phase_markers': ['third-device-completion', 'third-device-completed', 'fourth-device-completion', 'fourth-device-completed'],
+               'hold_markers': ['sibling-consent-held-before-peer-progress', 'automatic-publication-held-before-completion']}
+        if suffix == NEW:
+            stages = list(STAGES)
+            stages.insert(stages.index('foreground-progress') + 1, 'fresh-actor-progress')
+            row.update(stages=stages, original_phase_markers=['fourth-device-completion', 'fourth-device-completed'],
+                       observations={name: True for name in ['held_consent_task_success', 'public_snapshot_responsiveness',
+                                     'durable_policy_and_proof_with_gate', 'durable_policy_seen', 'proof_success_seen']})
+        rows.append(row)
+    good = {'mode': 'controls', 'all_five_controls_passed': True, 'body_control_passed': True,
+            'inputs_pristine': True, 'actual_counts_complete': True, 'actual_executed_nonignored': 5,
+            'source': 'fixture', 'source_before_sha256': 'content-manifest', 'source_after_sha256': 'content-manifest',
+            'toolchain': current['toolchain'], 'environment': current['environment'], 'cohort_baseline': '1' * 40,
+            'source_preflight': {'reviewed_extraction_cohort': cohort}, 'compilation': compilation, 'bodies': rows}
+    ensure(five_controls_pass(good, 'fixture', 'content-manifest', current, directed), 'positive-five-named-control-receipt-parser')
+    variants = [dict(good, bodies=[]), dict(good, bodies=rows[:4]), dict(good, bodies=list(reversed(rows))),
+                dict(good, actual_executed_nonignored=0), dict(good, actual_executed_nonignored=True),
+                dict(good, inputs_pristine=False), dict(good, source_after_sha256='changed'),
+                dict(good, all_five_controls_passed=False), dict(good, toolchain='other'),
+                dict(good, source='other'), dict(good, cohort_baseline='2' * 40),
+                dict(good, source_preflight={}), dict(good, environment={}),
+                dict(good, source_before_sha256='layout-manifest', source_after_sha256='layout-manifest')]
+    for index in range(5):
+        for change in [{'executed_nonignored': 0}, {'passed': 0}, {'passed': True}, {'failed': 1}, {'ignored': 1},
+                       {'control_passed': False}, {'named_cases': []}, {'suffix': 'foreign'},
+                       {'watchdog_triggered': True}, {'binary_sha256': '4' * 64}]:
+            changed = copy.deepcopy(good)
+            changed['bodies'][index].update(change)
+            variants.append(changed)
+    changed = copy.deepcopy(good)
+    changed['compilation']['compiled_fingerprints']['nodes']['marmot_app']['profile'] = 'other-profile'
+    variants.append(changed)
+    for report in variants:
+        ensure(not five_controls_pass(report, 'fixture', 'content-manifest', current, directed), 'partial-vacuous-or-drifted-five-control-receipt-rejected')
+    domains = {'directed_and_static_content_and_layout_sha256': '1' * 64,
+               'automatic_body_content_only_sha256': '2' * 64}
+    ensure(manifest_domains_match(domains, '1' * 64, '2' * 64), 'positive-distinct-manifest-domains')
+    domain_variants = [{}, dict(domains, automatic_body_content_only_sha256='3' * 64),
+                       dict(domains, directed_and_static_content_and_layout_sha256='3' * 64),
+                       {'directed_and_static_content_and_layout_sha256': '2' * 64,
+                        'automatic_body_content_only_sha256': '1' * 64}]
+    for changed in domain_variants:
+        ensure(not manifest_domains_match(changed, '1' * 64, '2' * 64), 'cross-domain-or-changed-manifest-rejected')
+    return {'positive_receipt_fixture': 1, 'rejected_receipt_fixtures': len(variants),
+            'positive_manifest_domain_fixture': 1, 'rejected_manifest_domain_fixtures': len(domain_variants), 'actual_runtime_bodies': 0}
+
+
+def previous_green(run_id, source, manifest, current):
+    # Preserve whole-run success, the directed runtime and both actual static receipts.
+    proof = historical_previous_green(run_id, source, manifest, current)
+    if not current.get('source_preflight', {}).get('reviewed_extraction_cohort'):
+        return proof
+    domains = manifest_domains()
+    content_manifest = domains['automatic_body_content_only_sha256']
+    ensure(manifest_domains_match(current.get('source_preflight', {}).get('manifest_domains'), manifest, content_manifest)
+           and manifest_domains_match(domains, manifest, content_manifest), 'exact-independent-layout-and-content-manifest-domains')
+    proof['manifest_domains'] = domains
+    repo = os.environ['GITHUB_REPOSITORY']
+    def api(path): return subprocess.check_output(['gh', 'api', 'repos/' + repo + '/' + path], timeout=60)
+    artifacts = json.loads(api('actions/runs/' + run_id + '/artifacts?per_page=100'))['artifacts']
+    matches = [row for row in artifacts if row['name'] == 'automatic-body-controls' and not row['expired']]
+    ensure(len(matches) == 1 and 0 < matches[0]['size_in_bytes'] < 1000000, 'one-bounded-five-controls-artifact')
+    artifact = matches[0]
+    data = api('actions/artifacts/' + str(artifact['id']) + '/zip')
+    ensure(len(data) == artifact['size_in_bytes'] and len(data) < 1000000
+           and artifact.get('digest') == 'sha256:' + digest(data), 'actual-five-controls-artifact-size-and-digest')
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        entries = archive.infolist()
+        ensure(0 < len(entries) <= 8 and len({entry.filename for entry in entries}) == len(entries)
+               and sum(entry.file_size for entry in entries) < 2000000
+               and all(0 <= entry.file_size < 1000000 and not entry.flag_bits & 1
+                       and not Path(entry.filename).is_absolute() and '..' not in Path(entry.filename).parts
+                       for entry in entries), 'bounded-unique-unencrypted-five-control-zip')
+        files = [entry for entry in entries if Path(entry.filename).name == 'result.json']
+        ensure(len(files) == 1 and 0 < files[0].file_size < 1000000, 'one-nonempty-five-control-result')
+        report = json.loads(archive.read(files[0]))
+    ensure(five_controls_pass(report, source, content_manifest, current, proof['compiled_feature_identity']),
+           'actual-five-unchanged-controls-names-counts-profile-and-frozen-cohort-required')
+    proof['five_controls'] = {'artifact_id': artifact['id'], 'digest': artifact['digest'],
+                              'actual_executed_nonignored': 5, 'download_digest_verified': True}
+    return proof
+# PEER_CANDIDATE_COMPOSED_COHORT_END
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--mode', choices=['green', 'static', 'mutation'], default='green')
+    parser.add_argument('--cohort', choices=['default', 'experimental'])
+    parser.add_argument('--preflight', action='store_true')
+    parser.add_argument('--cohort-baseline', help='Explicit reviewed full composed commit; absence retains the historical guard')
+    parser.add_argument('--require-composed-cohort', action='store_true')
+    args = parser.parse_args()
+    ensure(not args.require_composed_cohort or bool(args.cohort_baseline), 'explicit-reviewed-composed-cohort-required')
+    os.umask(0o077); OUT.mkdir(exist_ok=True)
+    report = {'mode': args.mode, 'qualification_passed': False, 'green_passed': False, 'mutation_chain_passed': False, 'phases': {}}
+    def save(): (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
+    original_bytes = Path(PRODUCT).read_bytes()
+    frozen, frozen_layout = freeze(), layout()
+    report['input_manifest_sha256'] = identity(frozen)
+    def pristine(expected=frozen):
+        return freeze() == expected and layout() == frozen_layout
+    def phase(label, expected):
+        ensure(pristine(expected), 'before-runtime-phase-inputs-exact')
+        compilation, cases = compile_cases([historical.CASE])
+        row = {'compilation': compilation, 'actual_counts_complete': False, 'actual_executed_nonignored': None}; report['phases'][label] = row; save()
+        ensure(compilation.get('compile_exit_code') == compilation.get('compiler_error_count') == 0
+               and compilation.get('compiled_fingerprints', {}).get('verified') is True
+               and set(cases) == {historical.CASE} and cases[historical.CASE]['name'] == historical.TEST,
+               'actual-exact-one-body-compiled-feature-cohort')
+        features = feature_identity(compilation)
+        if 'compiled_feature_identity' in report: ensure(features == report['compiled_feature_identity'], 'same-phase-feature-cohort')
+        else: report['compiled_feature_identity'] = features
+        ensure(pristine(expected), 'compile-input-drift')
+        case = cases[historical.CASE]
+        row['compiled_binary_sha256'] = case['binary_sha256']
+        ensure(digest(Path(case['binary']).read_bytes()) == row['compiled_binary_sha256'], 'selected-compiled-binary-identity')
+        started = time.monotonic()
+        try:
+            result = subprocess.run([case['binary'], '--exact', historical.TEST, '--nocapture', '--test-threads=1'], capture_output=True, text=True, timeout=300)
+            row['body'] = historical.parse(result.stdout + result.stderr, result.returncode)
+        except subprocess.TimeoutExpired: row['body'] = {'watchdog_triggered': True, 'actual_count_unknown': True}
+        row['body']['seconds'] = time.monotonic() - started
+        body = row['body']
+        row['actual_counts_complete'] = (
+            all(type(body.get(key)) is int and body[key] >= 0 for key in ['passed', 'failed', 'ignored', 'executed_nonignored'])
+            and body['executed_nonignored'] == body['passed'] + body['failed']
+            and not body.get('watchdog_triggered') and not body.get('actual_count_unknown'))
+        if row['actual_counts_complete']: row['actual_executed_nonignored'] = body['executed_nonignored']
+        ensure(digest(Path(case['binary']).read_bytes()) == row['compiled_binary_sha256'], 'executed-binary-identity-unchanged')
+        ensure(pristine(expected), 'runtime-input-drift'); save()
+        return row['body']
+    try:
+        report['source_preflight'] = source_guard(args.cohort_baseline); report['source'] = report['source_preflight']['source']
+        report['parser_controls'] = parser_preflight(); save()
+        if args.preflight: return
+        report.update(environment())
+        if args.mode == 'static':
+            ensure(args.cohort is not None, 'static-cohort-required')
+            command = ['cargo', 'clippy', '--locked', '-p', 'marmot-app', '--all-targets', '--features', FEATURES if args.cohort == 'experimental' else DEFAULT_FEATURES, '--', '-D', 'warnings']
+            started = time.monotonic(); result = subprocess.run(command, capture_output=True, text=True, timeout=1800)
+            report.update(cohort=args.cohort, command=command, exit_code=result.returncode, seconds=time.monotonic()-started, actual_runtime_bodies=0, **headers(result.stderr))
+            report['static_passed'] = result.returncode == 0 and report['compiler_error_count'] == 0 and pristine()
+            ensure(report['static_passed'], 'actual-static-cohort-not-green'); return
+        if args.mode == 'mutation':
+            report['prior_green'] = previous_green(os.environ.get('PEER_PROOF_CONTROL_RUN_ID', ''), report['source'], report['input_manifest_sha256'], report)
+        baseline = phase('baseline', frozen); report['green_passed'] = green(baseline); save()
+        ensure(report['green_passed'], 'actual-directed-green-required')
+        if args.mode == 'mutation':
+            ensure(report['compiled_feature_identity'] == report['prior_green']['compiled_feature_identity'], 'same-prior-compiled-feature-cohort')
+            text = original_bytes.decode(); ensure(text.count(EVENT) == 1, 'one-exact-event-edge-omission-anchor')
+            mutated = text.replace(EVENT, '', 1).encode()
+            mutation_error = None
+            try:
+                Path(PRODUCT).write_bytes(mutated)
+                expected = freeze()
+                ensure(layout() == frozen_layout and set(expected) == set(frozen)
+                       and {name for name in frozen if expected[name] != frozen[name]} == {PRODUCT}, 'sole-exact-omission-source')
+                report['expected_mutant_file_sha256'] = digest(mutated)
+                mutant = phase('omission', expected)
+                report['omission_runtime_killed'] = historical.intended_red(mutant); save()
+            except Exception as error:
+                mutation_error = type(error).__name__
+                report['mutation_exception'] = mutation_error; save()
+            finally:
+                Path(PRODUCT).write_bytes(original_bytes)
+                report['source_restored'] = pristine(); save()
+            ensure(report['source_restored'], 'exact-omission-source-restoration')
+            # This runs even when the mutant survives its intended assertion.
+            restored = phase('restored', frozen)
+            report['restored_control_passed'] = green(restored)
+            report['restored_binary_identical_to_baseline'] = (
+                report['phases']['restored']['compiled_binary_sha256']
+                == report['phases']['baseline']['compiled_binary_sha256'])
+            report['mutation_chain_passed'] = bool(mutation_error is None and report.get('omission_runtime_killed') and report['restored_control_passed'] and report['restored_binary_identical_to_baseline'])
+            ensure(report['mutation_chain_passed'], 'actual-omission-and-restored-control-required')
+    except Exception as error:
+        report['controller_exception'] = type(error).__name__
+        raise
+    finally:
+        Path(PRODUCT).write_bytes(original_bytes)
+        report['inputs_pristine'] = pristine() and subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode == 0
+        phases = list(report['phases'].values())
+        report['runtime_phases_attempted'] = len(phases)
+        report['actual_counts_complete'] = all(row.get('actual_counts_complete') is True for row in phases)
+        report['actual_executed_nonignored'] = sum(row['actual_executed_nonignored'] for row in phases
+                                                  if type(row.get('actual_executed_nonignored')) is int)
+        save()
+        ensure(report['inputs_pristine'], 'final-inputs-not-pristine')
+        ensure(report['actual_counts_complete'], 'actual-phase-counts-incomplete')
+
+
+if __name__ == '__main__': main()

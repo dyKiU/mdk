@@ -1274,6 +1274,7 @@ async fn partial_native_projection_retries_without_republishing() {
         let message_events = [MARMOT_APP_EVENT_KIND_CHAT, 447, 448, 449]
             .into_iter()
             .map(|kind| GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group.clone(),
                 message_id: MessageId::new(vec![kind as u8; 32]),

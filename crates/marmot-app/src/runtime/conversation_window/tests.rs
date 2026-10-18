@@ -113,6 +113,10 @@ impl Fixture {
         runtime.accounts.workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 handle,
                 commands,
@@ -1731,6 +1735,10 @@ async fn closing_window_cannot_abandon_reconcile_worker_teardown() {
     f.runtime.accounts.workers.lock().await.insert(
         "stale account".into(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands,

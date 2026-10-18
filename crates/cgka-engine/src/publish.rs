@@ -74,6 +74,8 @@ impl<S: StorageProvider> Engine<S> {
             .epoch_manager
             .group_for_pending(pending)
             .ok_or(EngineError::UnknownPending)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.forbid_generic_private_publish(&group_id)?;
         let mls_gid = openmls::group::GroupId::from_slice(group_id.as_slice());
 
         // Read the bookkeeping a successful confirm needs BEFORE any mutation,
@@ -129,6 +131,19 @@ impl<S: StorageProvider> Engine<S> {
         // idempotent. This is the fix for the prior orphan, where the
         // `Processed` write ran AFTER the slot was consumed and a lock there
         // left an unrecoverable `UnknownPending` on retry.
+        #[cfg(feature = "experimental-device-sync")]
+        let revocation_intent = origin_commit_id
+            .as_ref()
+            .map(|origin| {
+                self.revocation_transition.own_intent(
+                    &group_id,
+                    crate::openmls_projection::own_commit_message_digest(&self.storage, origin)?,
+                )
+            })
+            .transpose()?
+            .flatten();
+        #[cfg(feature = "experimental-device-sync")]
+        let mut revoked_admission = None;
         let mut membership_effects = None;
         self.storage
             .with_transaction(|storage| -> Result<(), EngineError> {
@@ -194,6 +209,16 @@ impl<S: StorageProvider> Engine<S> {
                         .merge_pending_commit(&tx_provider)
                         .map_err(|e| EngineError::Backend(format!("merge_pending: {e:?}")))?;
                     crate::app_components::validate_current_profile_group_invariants(&mls_group)?;
+                    #[cfg(feature = "experimental-device-sync")]
+                    if let Some(intent) = revocation_intent.as_ref() {
+                        let guard = intent.install_applied(storage, &group_id, &mls_group)?;
+                        revoked_admission = Some(crate::private_roster_settlement::LiveSettlementAdmission::select_applied_revoked(storage, &group_id, &mls_group, guard)?);
+                    }
+
+                    #[cfg(feature = "experimental-device-sync")]
+                    crate::roster_ack_capture::invalidate_capture_for_tree(
+                        storage, &group_id, &mls_group,
+                    )?;
                     if let Some(stamp) = own_commit_stamp.as_mut() {
                         stamp.resulting_epoch_authenticator = Some(
                             crate::openmls_projection::own_commit_post_merge_epoch_authenticator(
@@ -284,8 +309,19 @@ impl<S: StorageProvider> Engine<S> {
                             &after,
                         )?);
                 }
+                #[cfg(feature = "experimental-device-sync")]
+                if let Some(admission) = revoked_admission.as_ref()
+                    && !admission.is_live()
+                {
+                    return Err(EngineError::Other("original revoked transition unavailable".into()));
+                }
                 Ok(())
             })?;
+
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(admission) = revoked_admission {
+            self.commit_applied_settlement_admission(admission)?;
+        }
 
         // #740 rotation: a confirmed local UpdateAppComponents commit may have
         // changed this group's Nostr routing component; additively refresh the
@@ -432,6 +468,8 @@ impl<S: StorageProvider> Engine<S> {
             .epoch_manager
             .group_for_pending(pending)
             .ok_or(EngineError::UnknownPending)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.forbid_generic_private_publish(&group_id)?;
         let kind = self
             .epoch_manager
             .kind_for_pending(pending)

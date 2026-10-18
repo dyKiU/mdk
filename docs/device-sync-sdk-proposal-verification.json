@@ -1,0 +1,210 @@
+{
+  "base_commit": "36b67a7bdaf3981696a0ac7ec9ffff19f4475eb7",
+  "scope": "Original genuine A/C Approver SDK lease -> owned Core proposal -> real relay -> B strict received metadata validator, over an actual completed A/B predecessor. No Add, endorsement, admission or native grant.",
+  "toolchain": "Rust 1.97.1, explicit Xcode developer directory, debug0/jobs2/testthreads4 on macbook.m5",
+  "compiled_input_manifest": {
+    "path": "/Users/pj/project/build/mdk-sdk-proposal-final-input.json",
+    "sha256": "96782d7cc372ce2a4d9ff745595e0764cfcf5cd07fa70e94f7f923ab4dd0d08f",
+    "files": 2339,
+    "verification": "All input hashes verified before and after every command. All compiled code hashes equal local inputs. Six documentation differences listed separately.",
+    "documentation_differences": [
+      "crates/cgka-engine/AGENTS.md",
+      "crates/cgka-engine/README.md",
+      "crates/cgka-session/AGENTS.md",
+      "crates/cgka-session/README.md",
+      "crates/marmot-app/AGENTS.md",
+      "crates/marmot-app/README.md"
+    ],
+    "documentation_note": "Core README/AGENTS changes were already signed in the base; Session/App README/AGENTS are this slice. Build mirror had older documentation, with identical code."
+  },
+  "product_and_documentation_delta_sha256": {
+    "crates/cgka-session/AGENTS.md": "1ada03dd78abd731e2f40d5e90de9681c6598eafd21e5ef6d6a5d1673b497252",
+    "crates/cgka-session/README.md": "296be2fdf7f4f8a89c583c02ef44bb1ed11b81c0ba7e11172a5c45b0140ccc75",
+    "crates/cgka-session/src/lib.rs": "1eb1e3b0984bd070301932844a873738a970492dc933713ff9f45fe1f0387c64",
+    "crates/marmot-app/AGENTS.md": "f450bc695478e39d8326528b4f4b6e418943feab5d02809a646e578cf2388234",
+    "crates/marmot-app/README.md": "c70f70a4e360665c35418a06cc6965ed8712ae99a1f740ae6d64c642f38969bc",
+    "crates/marmot-app/src/client/device_linking.rs": "89a873b1bb504c8961af8b9b995aedd9085164bdcc0abbeeeb6a4ca87cb03646",
+    "crates/marmot-app/src/device_linking/invite_gate.rs": "c67bbd016d040b2457d45256dbde5a51c1e93d082fb61cefc4becc931b67e59e",
+    "crates/marmot-app/src/relay_plane/mod.rs": "eea8b97f2f58e987fad7a3bc7de1acd2302c3d631a112e11b45f8ed2a10ffcd5",
+    "crates/marmot-app/src/runtime/account_worker.rs": "8b1b6d68932763c7b29b5f705920bc9d80bb32dbb0093bc998866761038949db",
+    "crates/marmot-app/src/runtime/device_linking.rs": "2380a1d4cc36a7e87ab0a78eecf5104ddfdcfb0c4d21d74668b4b3caebcc92e2",
+    "crates/marmot-app/src/runtime/private_commit.rs": "61e216dc70cc2071d5c05557e421cbe15551347fbd616fd7f90307b7e1dfa3c6"
+  },
+  "red": {
+    "source_files": 2339,
+    "runs": [
+      {
+        "name": "focused",
+        "exit_code": 101,
+        "seconds": 59.17,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "sha256": "6b27ee99a04ab944518732f5c1c51d05ea87992a9c7c544379e065383a00531d"
+      }
+    ]
+  },
+  "initial_green": {
+    "source_files": 2339,
+    "runs": [
+      {
+        "name": "focused",
+        "exit_code": 0,
+        "seconds": 21.57,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "f4da2b2209ffde846effc1dbbba1d10939fbfe7edeab9544bbc63c5a95096839"
+      }
+    ]
+  },
+  "final": {
+    "source_files": 2339,
+    "runs": [
+      {
+        "name": "focused",
+        "exit_code": 0,
+        "seconds": 27.51,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "0bbb47fe4686739683fb3867e7ddfb43189184f82660fb97bd08c342f68df415"
+      },
+      {
+        "name": "received",
+        "exit_code": 0,
+        "seconds": 53.83,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "2a45dceb6745c437dc36acc273d8ba7f7fc4dd4ae09d9b90cbe3492626da132c"
+      },
+      {
+        "name": "gate",
+        "exit_code": 0,
+        "seconds": 56.34,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 10,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "da502a32e350935a39b03e938cd2461b17f8f87f55873f94603309bf13a7874e"
+      },
+      {
+        "name": "worker",
+        "exit_code": 0,
+        "seconds": 42.77,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "94e3451605f9f76ed32e22049b4c942817fa085b1b3b978d00cbce88598bc816"
+      },
+      {
+        "name": "session",
+        "exit_code": 0,
+        "seconds": 134.48,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 7,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 16,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "6dcb9a6f98a66763c3b40e013459539b7c3d419f63a3b47b42dce1b9f1a3ae77"
+      },
+      {
+        "name": "feature-clippy",
+        "exit_code": 0,
+        "seconds": 17.7,
+        "counts": [],
+        "sha256": "f192515bdaeef5a130229575ece27ee9f0805d1ae750044f40b24abd7d037ed0"
+      },
+      {
+        "name": "default",
+        "exit_code": 0,
+        "seconds": 6.72,
+        "counts": [],
+        "sha256": "f08074c22723282685dea4448135814eeac96659391d658647b5038c96e21c7a"
+      },
+      {
+        "name": "fmt",
+        "exit_code": 0,
+        "seconds": 3.39,
+        "counts": [],
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "final_nonempty_test_count": 54,
+  "assertions": [
+    "Real fresh A/C stock SDK offers, matched SAS and both confirmations over exact signed artifact/current two-leaf predecessor",
+    "Current B private route EOSE before actual publication, real encrypted MLS control delivery and strict B received proposal authentication",
+    "Exact scoped retry; future generation prepare/cancel refusal; proposal continuation cannot become Add",
+    "A109, A110, B completed round and C unconsumed purpose unchanged; actual epoch1; no chat groups",
+    "Original exact cancellation prevents subsequent proposal publication"
+  ],
+  "limits": [
+    "No all-current-leaf approval, third-device admission, sibling transition or history grant",
+    "No native exports, artifacts, deployment, push or merge",
+    "Existing shared worker commit deadline/cancellation/shutdown/fault controls pass; proposal-specific stalled publisher and SQL-fault controls are not claimed",
+    "App unit-test linker emits __eh_frame compact-unwind size warning; feature Clippy/default checks pass"
+  ],
+  "logs": {
+    "directory": "/Users/pj/project/build",
+    "prefix": "mdk-sdk-proposal-final-",
+    "mode": "0600"
+  }
+}

@@ -1,0 +1,236 @@
+{
+  "scope": "Experimental automatic preapproval and future kind-9 source-attested records over actual protected relay, with atomic import and authenticated committed receipts; no forwarding, unified native presentation or feature-completion claim",
+  "source_base": "66479e91fc36326f5d11cd64e5a63c48408dacd7",
+  "candidate_stash": "106b001e4e326382ec4462acade51cf243661fcf",
+  "owned_paths_sha256": {
+    "crates/cgka-engine/src/account_chat_sharing.rs": "c659eb41b9ad9e6b6e93dfd903377eb2c278a7c1f7a00216bd10bd47b8b7ca18",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "b7e1028e57e41efa8db7a0ed052be79f91d80aa73fb4d8deb1a91e18f571e95f",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs": "8ad95875add8b24c080bbf927a8f8076aae1629050202858bbbf6bc563fd6aae",
+    "crates/marmot-app/src/native_device_linking/automatic_records_acceptance.rs": "fdfbfb7837040a810c789967661e40658973069c0565d10c8d9afd1a671b1c05"
+  },
+  "owned_fixture_index_sha256": "69c303fe89b5f740bb26119157e42b0f6b2706a2caf90bed4818f291cb0f003f",
+  "qualification_context": "Full frozen cohorts also contain separately owned uncommitted sibling-sharing source. This commit stages only Records runtime and fixture hunks; the full-cohort archive is retained independently. Four owned runtime/child files byte-match the final frozen inputs; shared fixture uses only matching Records branch and helper visibility hunks.",
+  "acceptance": [
+    "Actual independent ABC SQLCipher stores, LocalRelay and original explicit A/C broad sharing approval; genuine 4096-byte A ordinary message exists before approval, then C imports its exact canonical event ID, logical content/tags, author/time/kind without ordinary MLS membership.",
+    "A later genuine ordinary message imports automatically under the same approved policy. Source outbox retires only after typed authenticated RecordReceipt matching policy/group/batch digest/range/count and atomic recipient receipt; relay ACK alone does not confirm import.",
+    "Unapproved B refuses C-owned mirror reads. Existing catalog SQL retry/renewal, original policy-persistence race, four Core crypto/lifetime controls and default Unsupported refusal remain green."
+  ],
+  "implementation": [
+    "Canonical compact base64 wire uses bounded indexed fragments, exact retries and fixed channel lifetime; fresh channel reconstruction restores only observation cursors, never keys, received assembly or an old permission.",
+    "Source replay-key page is bounded and durable per-event journal/outbox is separate from catalog sequence; source epoch and current logical visibility revalidate before each actual fragment publication. Deleted/expired source observations export empty tombstones; active source expiry caps pending publication deadline without extending original lease.",
+    "Receiver imports canonical records plus receipt atomically with original before/tail validation; complete reassembly remains until SQL success. Outgoing stale batches are permanently denied and erased."
+  ],
+  "remaining": [
+    "Actual network loss/reordering/offline/multi-source fairness and maximum64KiB wrapped record are not qualified by the 4096-byte fixture.",
+    "Source departure/catalog withdrawals, source metadata refresh, blocked publication expiry, all supported modifiers/media and bidirectional records need further genuine acceptance.",
+    "Client-token SendIntent/SendReceipt forwarding and source-qualified native list/window integration remain next work; no generated SDK or app artifacts changed."
+  ],
+  "failures_retained": {
+    "red-v1": "Genuine absent Records behavior: actual0passed/1failed at recipient import+receipt wait, unchanged acceptance fixture.",
+    "green-v1": "Compile-only borrow error E0502; zero tests. Actual original Arc alias clone fixes Notified borrow without creating a new lease.",
+    "final-v1": "Preflight only: capacity below2GiB, no gate/source manifest or tests. Capacity recovered by root audited unrelated idle cache retirement.",
+    "final-v2": "Strict Clippy101 solely three separately owned sibling-sharing probe let-chain lints; zero runtime tests. Exact root-corrected file transferred for final-v3.",
+    "post-green-v2": "Source runtime correction excludes already-deleted empty tombstones from active-content expiry publication deadline; unchanged fixture rerun in final-v3."
+  },
+  "verification": [
+    {
+      "prefix": "automatic-records-red-v1",
+      "candidate": {
+        "head": "66479e91fc36326f5d11cd64e5a63c48408dacd7",
+        "candidate_stash": "4903336df3375af8597a32e2827a6a362765ddd9"
+      },
+      "input_count": 2588,
+      "inputs_sha256": "7e46718211922fd27c975b54d8560a65eea916ed8f259ba880e60e47b9caeba8",
+      "archive_mismatches": 0,
+      "gates": [
+        {
+          "gate": "records",
+          "exit": 101,
+          "seconds": 186.92343878746033,
+          "log": "/Users/pj/project/build/automatic-records-red-v1-records.log",
+          "log_sha256": "75ba3771ddd61558c4567cd26ff2d1eecd3a05a20401c01024e2e9984a7e4ed0",
+          "actual_summaries": [
+            {
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-records-green-v1",
+      "candidate": {
+        "candidate_stash": "d7d12fff90988fccf406eae9ca28881b49c57f1d"
+      },
+      "input_count": 2589,
+      "inputs_sha256": "37df60e976169fd3b851e44534355bf2b6481fd16208a432d3457d29e73221df",
+      "archive_mismatches": 0,
+      "gates": [
+        {
+          "gate": "records",
+          "exit": 101,
+          "seconds": 45.473690032958984,
+          "log": "/Users/pj/project/build/automatic-records-green-v1-records.log",
+          "log_sha256": "8acabedcf14d1df05dc4ef58127f5f6f0dbc559c7c37295c01239c648786a4fa",
+          "actual_summaries": []
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-records-green-v2",
+      "candidate": {
+        "candidate_stash": "ca245a0b8af2c8dba44dfd1734a55e8c03296fca"
+      },
+      "input_count": 2589,
+      "inputs_sha256": "3bfd78d7c9320b62123c92260f3c4fc0ae65666947cde744dbb1f5af22ec1114",
+      "archive_mismatches": 0,
+      "gates": [
+        {
+          "gate": "records",
+          "exit": 0,
+          "seconds": 110.86217594146729,
+          "log": "/Users/pj/project/build/automatic-records-green-v2-records.log",
+          "log_sha256": "9ca755b0c0721ffa6a73ed781c01df8b471ea873c7d7c71a4a1b00668fe1b831",
+          "actual_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-records-final-v3",
+      "candidate": {
+        "candidate_stash": "106b001e4e326382ec4462acade51cf243661fcf",
+        "head": "66479e91fc36326f5d11cd64e5a63c48408dacd7"
+      },
+      "input_count": 2589,
+      "inputs_sha256": "357aa290919cc7c59e7f9ff7ccfc0c374ff684a2aaff4285ab72632700b8ea51",
+      "archive_mismatches": 0,
+      "gates": [
+        {
+          "gate": "production-clippy",
+          "exit": 0,
+          "seconds": 48.621829986572266,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-production-clippy.log",
+          "log_sha256": "fb6eff1430fee32f045199eb00af8f1fa0e52ed7c72b84d114ddc3bc894d10c5",
+          "actual_summaries": []
+        },
+        {
+          "gate": "records",
+          "exit": 0,
+          "seconds": 99.1345043182373,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-records.log",
+          "log_sha256": "514a6b08bba7e1e6b04f89c598e1637ffefe94ede2d33c29b848750a26a9a254",
+          "actual_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "catalog-family",
+          "exit": 0,
+          "seconds": 184.9077091217041,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-catalog-family.log",
+          "log_sha256": "2451933273d208fca4a43267dc9c8f5dacf3ea8773396e261abdfb61ecd67938",
+          "actual_summaries": [
+            {
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "core-policy",
+          "exit": 0,
+          "seconds": 30.975249767303467,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-core-policy.log",
+          "log_sha256": "01e4594babc3b1aa495cd54ba2d8fe03d73e32e32ffdfc9ddbf2a69b150ce806",
+          "actual_summaries": [
+            {
+              "passed": 4,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "race",
+          "exit": 0,
+          "seconds": 21.798781871795654,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-race.log",
+          "log_sha256": "125b313c91339431b88701fae207e5132cd07af01e0e3566475b5a13654dc285",
+          "actual_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 64.56140112876892,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-default.log",
+          "log_sha256": "9bb2d000428e4a2afa6887c996723f6b63c2de478b5105e67779dc4e169191f3",
+          "actual_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "default-check",
+          "exit": 0,
+          "seconds": 40.36880373954773,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-default-check.log",
+          "log_sha256": "4c38f7b769acbbf303e20b7807ab5d21682daa3f06a5f4db64641883331239cf",
+          "actual_summaries": []
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.6302061080932617,
+          "log": "/Users/pj/project/build/automatic-records-final-v3-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_summaries": []
+        }
+      ]
+    }
+  ],
+  "preserved_auxiliary": {
+    "automatic-records-final-v2-driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "automatic-records-final-v2-production-clippy.log": "67e8e5ef1c66bffe104274a2c7f4578613936bbd6a2b8d6f30a5479183541776",
+    "automatic-records-final-v2-inputs.json": "6937f2770ca9b80f84fc0346b053f3b244857c8205e2fc5c7087a2413c3e92ba",
+    "automatic-records-final-v1-driver.log": "eefd45f1558b0b8445070830ecc075390ccb9ac652005115db075297f7adb7cb",
+    "automatic-records-final-v2-results.json": "f119b55e27ed8d87875dad9efa0a13ec7f6708734f60a9540d8517011ef34997"
+  },
+  "evidence_directory": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-records",
+  "remote_evidence_prefix": "/Users/pj/project/build/automatic-records-",
+  "cargo_target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+  "toolchain": "rustc1.97.1 aarch64-apple-darwin",
+  "build_policy": {
+    "jobs": 1,
+    "incremental": 0,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "capacity_guard_bytes": 2147483648
+  },
+  "historical_baseline": {
+    "path": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+    "sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  },
+  "post_freeze_delta": "This authored proof only; signed shared fixture excludes separately owned sibling-sharing additions."
+}

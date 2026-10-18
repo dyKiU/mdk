@@ -23,17 +23,24 @@ use std::sync::Arc;
 use marmot_uniffi::Marmot;
 
 pub mod account_attachment_history;
+mod account_chat_presentation;
+pub mod account_chat_sharing;
 pub mod attachment_access;
 pub mod attachment_history;
 pub mod commands;
+pub mod device_linking;
+pub mod device_revocation;
 pub mod file_media;
+pub mod history_transfer;
 pub(crate) mod macros;
 pub mod memory;
 pub mod nip46;
 pub mod publisher;
 pub mod secret_store;
+pub mod selected_chat_copy;
 pub mod status;
 pub mod subscriptions;
+pub mod synchronized_history;
 pub mod types;
 
 pub use status::MarmotStatus;
@@ -480,6 +487,7 @@ pub unsafe extern "C" fn marmot_client_new_with_configuration(
                             client_name: name,
                             secret_store: store,
                             moderation_report_config: None,
+                            pairing_relay_urls: None,
                         },
                     )
                 }
@@ -806,3 +814,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "experimental-device-sync"))]
+#[path = "tests/account_chat_departure_acceptance_tests.rs"]
+mod account_chat_departure_acceptance_tests;

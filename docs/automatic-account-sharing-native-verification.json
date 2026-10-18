@@ -1,0 +1,211 @@
+{
+  "base": "5f91198beee85a08c711d241e28a75d16a3020ee",
+  "scope": "Thin UniFFI/C forwards of original broad pairing continuation, authenticated existing-pair inventory and opaque sharing approvals. No host-provided grant constructor.",
+  "source_cohort": {
+    "stash": "32277caa7783987e4238df5585aaa2344cc37a5e",
+    "inputs": 2564,
+    "mismatches": [],
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/automatic-sharing-native-v4-inputs.json",
+    "manifest_sha256": "35d935852452f99245aa501aae84ad188617e1c2b46eb35a6c3c411888195f68",
+    "native_local_inputs_matched": 149,
+    "symlink_rule": "Git blob hashes link target bytes, not referenced file contents"
+  },
+  "earlier_candidates": [
+    {
+      "version": 1,
+      "stash": "3f9949ab51f89a699eee9a7fabdf9c1263ecae84",
+      "classification": "Compile-only private test GroupId import; no behavioral RED."
+    },
+    {
+      "version": 2,
+      "stash": "dd7472abd4e2b6580c9fae892dc72ac7ea1efbd9",
+      "classification": "Compile-only visibility of shared C test helper; no behavioral RED."
+    },
+    {
+      "version": 3,
+      "stash": "fd197e213f4deb405cf104617d18abebb00e16ee",
+      "classification": "Focused/default/strict qualification. Production Rust unchanged in final v4; v4 adds generated C header and C consumer smoke assertions."
+    }
+  ],
+  "gates": [
+    {
+      "gate": "automatic-sharing-native-abi-v1-c-smoke",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-abi-v1-c-smoke.log",
+      "log_sha256": "d4274e0c11c8a07532757dd88ad40cd90c1cadf47c4e917e2dec63be41355246",
+      "nextest_summaries": []
+    },
+    {
+      "gate": "automatic-sharing-native-abi-v1-header",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-abi-v1-header.log",
+      "log_sha256": "297b8761bec6eb3158a91865b4ab638b178ac56021ab3ea71452d0f0be09ca07",
+      "nextest_summaries": []
+    },
+    {
+      "gate": "automatic-sharing-native-abi-v1-swift-default",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-abi-v1-swift-default.log",
+      "log_sha256": "e560213310ca347240f6a119df5e3588ab5cded36702d7feabd24bf8e4363684",
+      "nextest_summaries": []
+    },
+    {
+      "gate": "automatic-sharing-native-abi-v1-swift-experimental",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-abi-v1-swift-experimental.log",
+      "log_sha256": "4972419e750920fefce7439951f0681a30b767065e5133ed926ddc26327a8510",
+      "nextest_summaries": []
+    },
+    {
+      "gate": "automatic-sharing-native-full-v1-default",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-full-v1-default.log",
+      "log_sha256": "13d1472cf3a579ac6ccfd0357949719f10a868e2fd363702557ee5dae52b6689",
+      "nextest_summaries": [
+        [
+          "39.996s",
+          "342",
+          "342",
+          "",
+          "2"
+        ]
+      ]
+    },
+    {
+      "gate": "automatic-sharing-native-full-v1-experimental",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-full-v1-experimental.log",
+      "log_sha256": "c550ed028ab5bde1992fd32a6df6bcda6ebaed0fce5cc1d4fbb1a92c88ba85f8",
+      "nextest_summaries": [
+        [
+          "67.025s",
+          "342",
+          "342",
+          "",
+          "2"
+        ]
+      ]
+    },
+    {
+      "gate": "automatic-sharing-native-v1-experimental",
+      "exit": 101,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-v1-experimental.log",
+      "log_sha256": "0b34cf1e87d2ba421754f087e0d6827f5145cdfea3adc15758e53b67b354f0d8",
+      "nextest_summaries": []
+    },
+    {
+      "gate": "automatic-sharing-native-v2-experimental",
+      "exit": 101,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-v2-experimental.log",
+      "log_sha256": "68ee7e7c567e9308fe798a2b9687f3f1d0a0074a0211e65030d32c1655dc954b",
+      "nextest_summaries": []
+    },
+    {
+      "gate": "automatic-sharing-native-v3-clippy",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-v3-clippy.log",
+      "log_sha256": "87fb1751a66beca5d09b206dc459745b17c9fcd9b2dcda4d8d09c4ee0fd4f0f3",
+      "nextest_summaries": []
+    },
+    {
+      "gate": "automatic-sharing-native-v3-default",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-v3-default.log",
+      "log_sha256": "b2f358f8a9b3ba52c38e6ef5189ab24b7284a0db7d6c24107422ad4eac642bca",
+      "nextest_summaries": [
+        [
+          "0.028s",
+          "8",
+          "8",
+          "",
+          "336"
+        ]
+      ]
+    },
+    {
+      "gate": "automatic-sharing-native-v3-experimental",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-v3-experimental.log",
+      "log_sha256": "c29811035fab63fe601bee7a68c5d189f962db16112b50d4efe5cd7530d23fdc",
+      "nextest_summaries": [
+        [
+          "9.710s",
+          "6",
+          "6",
+          "",
+          "338"
+        ]
+      ]
+    },
+    {
+      "gate": "automatic-sharing-native-v3-format",
+      "exit": 0,
+      "log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-native/automatic-sharing-native-v3-format.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "nextest_summaries": []
+    }
+  ],
+  "full_counts": {
+    "default": {
+      "passed": 342,
+      "failed": 0,
+      "skipped": 2,
+      "seconds": 39.996
+    },
+    "experimental": {
+      "passed": 342,
+      "failed": 0,
+      "skipped": 2,
+      "seconds": 67.025
+    }
+  },
+  "skips": [
+    "bench_prepared_conversation_conversion: host conversion timing benchmark",
+    "bench_live_timeline_updates: release-mode live timeline conversion benchmark"
+  ],
+  "acceptance": [
+    "Real loopback relay and independent same-account roots complete native pairing before fresh existing-pair approval.",
+    "UF and C factories expose current authenticated peer observations without approving.",
+    "Retained aliases preserve the same original; stale revisions and cancellation refuse.",
+    "C pending-list clone survives parent deep-free and completes addressed original consent.",
+    "C approval invoked from embedded runtime worker remains callback-safe; alloc-audit returns to baseline.",
+    "Default feature refuses before inputs/effects, output preflight and bounds precede foreign byte access.",
+    "Swift generated DTO/order and typed target/begin/pending gates pass in matching default/experimental host cohorts.",
+    "C generated header compiles and shared/static consumers link and execute default sharing gates."
+  ],
+  "local_static_gates": [
+    {
+      "command": "python3 scripts/check_binding_docs.py",
+      "exit": 0,
+      "uniffi_callables": 394,
+      "c_callables": 589
+    },
+    {
+      "command": "python3 scripts/test_check_binding_docs.py",
+      "exit": 0,
+      "tests": 17
+    },
+    {
+      "command": "python3 scripts/check_c_binding_parity.py",
+      "exit": 0,
+      "exports": 381
+    },
+    {
+      "command": "python3 crates/marmot-uniffi/test-build-phases.py",
+      "exit": 0,
+      "tests": 18
+    },
+    {
+      "command": "git diff --check -- crates/marmot-c crates/marmot-uniffi",
+      "exit": 0
+    }
+  ],
+  "limits": [
+    "No automatic visible chat-list/timeline or source-forwarded-send acceptance from this slice.",
+    "No original B approve_and_share_chats endorsement hook yet.",
+    "No matched Apple XCFramework, Kotlin host smoke, app rebuild, installation or physical-device acceptance.",
+    "C smoke identity creation/network publication is existing best-effort coverage; OS Keychain refusal is not a positive account-creation claim.",
+    "Source-qualified base is stated explicitly; later Core/App actor commits require a new integrated qualification."
+  ],
+  "post_freeze_delta": "Authored README, API-reference, shared contract, changelog and compact proof only."
+}

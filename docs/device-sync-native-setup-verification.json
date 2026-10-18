@@ -1,0 +1,253 @@
+{
+  "scope": "Internal actor-created bounded setup packets and process-local request custody; actual singleton SDK verification only. No public facade/bindings, multi-leaf positive setup, Add/C/B/ABC, native artifact or chat/history adoption is qualified.",
+  "base": "168113198e669188d64ca52877a592aba394d238",
+  "baseline_compile": {
+    "base": "bfec6862228c17d0be0789fa89b8db5f197079c1",
+    "classification": "Mixed compile-only evidence: missing setup API/codec plus Keys import and private frame token fixture mistakes; zero behavior tests executed",
+    "command": [
+      "cargo",
+      "check",
+      "--locked",
+      "-p",
+      "marmot-app",
+      "--tests",
+      "--features",
+      "experimental-device-sync,test-policy-overrides"
+    ],
+    "exit_code": 101,
+    "seconds": 34.35,
+    "source_paths": 2352,
+    "sha256": "8c5fcf9d19f65777fa43d53060a41f3a98a1c029ce492c044d184ea3f56278b2",
+    "compiler_errors": [
+      "cannot find type `Keys` in crate `nostr`",
+      "cannot find `Keys` in `nostr`",
+      "cannot find `Keys` in `nostr`",
+      "cannot find type `ChallengePacket` in this scope",
+      "cannot find value `CHALLENGE` in this scope",
+      "cannot find value `CHALLENGE` in this scope",
+      "cannot find `Keys` in `nostr`",
+      "cannot find `Keys` in `nostr`",
+      "cannot find type `RequestPacket` in this scope",
+      "cannot find value `REQUEST` in this scope",
+      "cannot find value `REQUEST` in this scope",
+      "cannot find value `MAX_SETUP_PACKET_BYTES` in this scope",
+      "field `token` of struct `device_linking::LinkFrame` is private",
+      "no method named `reserve_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `accept_linking_setup_challenge` found for struct `client::AppClient` in the current scope",
+      "no method named `accept_linking_setup_challenge` found for struct `client::AppClient` in the current scope",
+      "no method named `reserve_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "cannot find function `decode_packet` in this scope",
+      "cannot find function `encode_packet` in this scope",
+      "no method named `accept_linking_setup_challenge` found for struct `client::AppClient` in the current scope",
+      "no method named `accept_linking_setup_challenge` found for struct `client::AppClient` in the current scope",
+      "no method named `accept_linking_setup_challenge` found for struct `client::AppClient` in the current scope",
+      "no method named `reserve_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `reserve_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "cannot find function `decode_packet` in this scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "cannot find function `encode_packet` in this scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "no method named `begin_linking_setup_request` found for struct `client::AppClient` in the current scope",
+      "could not compile `marmot-app` (lib test) due to 34 previous errors; 1 warning emitted"
+    ],
+    "fixture_correction": "Use nostr::prelude::Keys and LinkFrame::acknowledgement_token; local tests corrected, not yet requalified"
+  },
+  "v1": {
+    "runs": [
+      {
+        "name": "check",
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--features",
+          "experimental-device-sync"
+        ],
+        "exit_code": 0,
+        "seconds": 20.62,
+        "counts": [],
+        "sha256": "838575d002a55fdb7489bb8b723ac695073e0ac4d4f6438c4f69edd13a4a643b"
+      },
+      {
+        "name": "factories",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--lib",
+          "client::device_linking::setup::tests"
+        ],
+        "exit_code": 101,
+        "seconds": 109.03,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 5,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "sha256": "198addbe1c31e530f14d058a2ddecb3a6e637904e509d8745e87b761f8f286bb"
+      }
+    ],
+    "classification": "Production feature check passed; six tests executed, five passed and one failed because the fixture started SAS from Approver. Corrected fixture starts from NewDevice and asserts Approver refusal. No backend change for that failure."
+  },
+  "v2": {
+    "runs": [
+      {
+        "name": "factories",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--lib",
+          "client::device_linking::setup::tests"
+        ],
+        "exit_code": 0,
+        "seconds": 90.33,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 6,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "54708a620d2de3bf08694570d31c96a34d7d3b8bded52256ee5b927c19ff9036"
+      },
+      {
+        "name": "clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 101,
+        "seconds": 35.24,
+        "counts": [],
+        "sha256": "0797c669ec4effb0a5fc66921209e749e2823c0a89f97ca45b3bdcee25514b55"
+      }
+    ],
+    "classification": "Six actual tests passed; production-only all-target lint found an existing test helper compiled outside the test-policy-overrides cohort of its callers. Added the same narrow cfg; no production permission change."
+  },
+  "final": {
+    "base": "168113198e669188d64ca52877a592aba394d238",
+    "source_paths": 2353,
+    "runs": [
+      {
+        "name": "factories",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--lib",
+          "client::device_linking::setup::tests"
+        ],
+        "exit_code": 0,
+        "seconds": 53.25,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 6,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "d1ed016fb95d1bedaa103ded523ba3e2e90a4fda8e56e87d0270ae349ffac9dc"
+      },
+      {
+        "name": "clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 27.97,
+        "counts": [],
+        "sha256": "cae390ec84e0cea6824b26c7d96914b5ed3166a3299dbe2a7342c537337c3127"
+      },
+      {
+        "name": "default",
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--all-targets"
+        ],
+        "exit_code": 0,
+        "seconds": 30.09,
+        "counts": [],
+        "sha256": "328bf6d73a4bcf78590b5fe9468e411073dfecc0186468f1b587339131956fdf"
+      },
+      {
+        "name": "fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 4.17,
+        "counts": [],
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "qualified_source_sha256": {
+    "crates/marmot-app/src/client/device_linking.rs": "4c936d0313f84615b10ece7f8eca8e42f2a6b5a8fe69195632505d8fb5353efa",
+    "crates/marmot-app/src/client/device_linking/setup.rs": "412674652a09ec4ee545aa9813bb1daa53090e2045b40fc1405871078ade8083",
+    "crates/marmot-app/src/client/device_linking/setup/tests.rs": "01358c04db9964071fcd921111f67b93ba27621eb38b9cd907e0e708e6d89b60",
+    "crates/marmot-app/src/tests.rs": "a8973dca73efc6446c2ff9d98418035022aa004a2ffa30001ea9023e479f5675"
+  },
+  "verification": "All 2353 tracked source inputs matched M1/M5 and remained unchanged before/after every final gate. Root independently verified all final terminal hashes/counts. Proof added after qualification.",
+  "coverage": [
+    "actual distinct encrypted account roots and independent device signers",
+    "actual signed single-use purpose KeyPackage and internally constructed context",
+    "complete original stock-SDK offer/SAS/both confirmations/MAC exchange",
+    "canonical malformed/oversized and crypto-substituted packet rejection",
+    "foreign account request does not replace original Approver flow",
+    "ordinary group is not promoted to protected predecessor",
+    "exact challenge retry, cancellation refusal and encrypted reopen refusal"
+  ],
+  "profile": "Rust1.97.1; reused MdkRecipientCollectionTargetM5; jobs2; dev/test debug0; fd4096; RUST_MIN_STACK4194304; RUST_TEST_THREADS4."
+}

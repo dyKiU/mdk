@@ -1,0 +1,114 @@
+{
+  "scope": "Original explicit sibling consent ownership and authenticated bounded observation packets only; no KeyPackage, recipient membership, ordinary delivery or history.",
+  "base_commit": "571d764fe432135423552ae8e4c6f482ee311171",
+  "genuine_red": {
+    "head": "571d764fe432135423552ae8e4c6f482ee311171",
+    "behavioral_fixture_sha256": "5610bdaf9163463fcb40c7206027ce2acd824356b05711dd272d5343e910a1ea",
+    "input_count": 2403,
+    "source_manifest_sha256": "4305f1c9e104b715fa323e1d46cf9d7e81d3519ea33d23f40340beb493c3da9a",
+    "gates": [
+      {
+        "gate": "native",
+        "exit_code": 101,
+        "seconds": 69.44,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "5d41d4a0c2981306d1dc323987029e7132e84338572d33170f519456554c31fb"
+      }
+    ]
+  },
+  "implementation_compile_failure": {
+    "head": "571d764fe432135423552ae8e4c6f482ee311171",
+    "behavioral_fixture_sha256": "7bb82b52579fa7b3fa4dc862079deded8e4473771b73ceb12829e73419e85ed7",
+    "input_count": 2404,
+    "source_manifest_sha256": "fcd0f09d07312c58e8f5f64f9ed92ba465133c0a9b2a465c4f08b2a019a5ab98",
+    "gates": [
+      {
+        "gate": "native",
+        "exit_code": 101,
+        "seconds": 7.41,
+        "counts": [],
+        "log_sha256": "6f1a4b39efaf7663c0c4239372d3b4382a1eef5d1cc9d14f57cfc066217ea5c1"
+      }
+    ]
+  },
+  "final_green": {
+    "head": "571d764fe432135423552ae8e4c6f482ee311171",
+    "behavioral_fixture_sha256": "7bb82b52579fa7b3fa4dc862079deded8e4473771b73ceb12829e73419e85ed7",
+    "input_count": 2404,
+    "source_manifest_sha256": "50da2b457c6cedcebf841097e6e2c441b8fefbeb009f1e28d6a37688fc0682f5",
+    "gates": [
+      {
+        "gate": "native",
+        "exit_code": 0,
+        "seconds": 65.33,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "cf8ac23cf063bba35e990c826658784497f1d800dbfc7923b0aad5611be9c6b0"
+      },
+      {
+        "gate": "default",
+        "exit_code": 0,
+        "seconds": 44.56,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "c43bc005079c45437a76a87c25e6bd7babd12e06d8a7979ddf857c588ca2bdef"
+      },
+      {
+        "gate": "clippy",
+        "exit_code": 0,
+        "seconds": 38.51,
+        "counts": [],
+        "log_sha256": "6f67186c0bfd946d58f1f538599373121adc2011c5d875b128393c4af9068721"
+      },
+      {
+        "gate": "check",
+        "exit_code": 0,
+        "seconds": 23.61,
+        "counts": [],
+        "log_sha256": "3b2ec90a688ae7c2967bfbe052d328c3481a2b6017b9df6bb9686c044e57a559"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.42,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "red_to_final_fixture_patch_sha256": "db6ca250409b5c1ee2fd7912a5753410574b9fcb8aabf0f24f5881376b2a893f",
+  "red_to_final_fixture_patch": "--- a/crates/marmot-app/src/selected_chat_copy/tests.rs\n+++ b/crates/marmot-app/src/selected_chat_copy/tests.rs\n@@ -398,12 +398,40 @@\n             .request_packet(snapshot.revision)\n             .await\n             .expect(\"original selected-chat request must export an authenticated consent request\");\n+        assert_eq!(snapshot.consenting_sibling_count, 0);\n+        assert!(\n+            managers[0]\n+                .receive_selected_chat_copy_request(\"test\", request_packet.clone())\n+                .await\n+                .is_err()\n+        );\n+        assert!(\n+            d_runtime\n+                .accounts()\n+                .receive_selected_chat_copy_request(\"test\", request_packet.clone())\n+                .await\n+                .is_err()\n+        );\n+        let mut malformed = request_packet.clone();\n+        malformed[0] ^= 1;\n+        assert!(\n+            managers[1]\n+                .receive_selected_chat_copy_request(\"test\", malformed)\n+                .await\n+                .is_err()\n+        );\n         let mut siblings = Vec::new();\n+        let mut original_responses = Vec::new();\n         for manager in &managers[1..] {\n             let consent = manager\n                 .receive_selected_chat_copy_request(\"test\", request_packet.clone())\n                 .await\n                 .unwrap();\n+            let alias = manager\n+                .receive_selected_chat_copy_request(\"test\", request_packet.clone())\n+                .await\n+                .unwrap();\n+            drop(alias);\n             let received = consent.snapshot().await.unwrap();\n             assert_eq!(\n                 received.phase,\n@@ -414,11 +442,50 @@\n             consent.approve(received.revision).await.unwrap();\n             let approved = consent.snapshot().await.unwrap();\n             assert_eq!(approved.phase, crate::SelectedChatConsentPhase::Approved);\n+            assert!(matches!(\n+                consent.approve(received.revision).await,\n+                Err(crate::SelectedChatCopyError::StaleRevision)\n+            ));\n+            assert!(matches!(\n+                consent.response_packet(received.revision).await,\n+                Err(crate::SelectedChatCopyError::StaleRevision)\n+            ));\n             let response = consent.response_packet(approved.revision).await.unwrap();\n+            assert!(response == consent.response_packet(approved.revision).await.unwrap());\n+            let mut malformed = response.clone();\n+            malformed[0] ^= 1;\n+            assert!(\n+                request\n+                    .receive_consent_packet(request.snapshot().await.unwrap().revision, malformed)\n+                    .await\n+                    .is_err()\n+            );\n+            assert!(matches!(\n+                request.receive_consent_packet(0, response.clone()).await,\n+                Err(crate::SelectedChatCopyError::StaleRevision)\n+            ));\n+            original_responses.push(response.clone());\n             request\n                 .receive_consent_packet(request.snapshot().await.unwrap().revision, response)\n                 .await\n                 .unwrap();\n+            let collected = request.snapshot().await.unwrap();\n+            assert_eq!(\n+                collected.consenting_sibling_count,\n+                siblings.len() as u32 + 1\n+            );\n+            request\n+                .receive_consent_packet(\n+                    collected.revision,\n+                    original_responses.last().unwrap().clone(),\n+                )\n+                .await\n+                .unwrap();\n+            assert_eq!(\n+                request.snapshot().await.unwrap().revision,\n+                collected.revision\n+            );\n+            assert!(request.request_packet(collected.revision).await.unwrap() == request_packet);\n             siblings.push(consent);\n         }\n         for (i, app) in apps.iter().enumerate() {\n@@ -445,6 +512,23 @@\n                 2\n             );\n         }\n+        assert_eq!(\n+            request.snapshot().await.unwrap().consenting_sibling_count,\n+            2\n+        );\n+        siblings[0].cancel().await.unwrap();\n+        assert!(\n+            siblings[0]\n+                .response_packet(siblings[0].snapshot().await.unwrap().revision)\n+                .await\n+                .is_err()\n+        );\n+        assert!(\n+            managers[1]\n+                .receive_selected_chat_copy_request(\"test\", request_packet.clone())\n+                .await\n+                .is_err()\n+        );\n         request.cancel().await.unwrap();\n         assert_eq!(\n             request.snapshot().await.unwrap().phase,\n@@ -454,6 +538,43 @@\n             .begin_selected_chat_copy(\"test\", &chat, target.selector.clone())\n             .await\n             .unwrap();\n+        let fresh_packet = replacement\n+            .request_packet(replacement.snapshot().await.unwrap().revision)\n+            .await\n+            .unwrap();\n+        assert!(\n+            replacement\n+                .receive_consent_packet(\n+                    replacement.snapshot().await.unwrap().revision,\n+                    original_responses[0].clone()\n+                )\n+                .await\n+                .is_err()\n+        );\n+        assert_eq!(\n+            replacement\n+                .snapshot()\n+                .await\n+                .unwrap()\n+                .consenting_sibling_count,\n+            0\n+        );\n+        let fresh_consent = managers[1]\n+            .receive_selected_chat_copy_request(\"test\", fresh_packet.clone())\n+            .await\n+            .unwrap();\n+        siblings[0].cancel().await.unwrap();\n+        assert_eq!(\n+            fresh_consent.snapshot().await.unwrap().phase,\n+            crate::SelectedChatConsentPhase::AwaitingApproval\n+        );\n+        drop(fresh_consent);\n+        assert!(\n+            managers[1]\n+                .receive_selected_chat_copy_request(\"test\", fresh_packet)\n+                .await\n+                .is_err()\n+        );\n         // Cancelling an old request must not retire a newer original owner.\n         request.cancel().await.unwrap();\n         assert_eq!(\n@@ -471,6 +592,10 @@\n         assert_eq!(\n             after_drop.snapshot().await.unwrap().phase,\n             crate::SelectedChatCopyPhase::Closed\n+        );\n+        assert_eq!(\n+            siblings[1].snapshot().await.unwrap().phase,\n+            crate::SelectedChatConsentPhase::Closed\n         );\n         d_runtime.shutdown_and_close().await.unwrap();\n         relay.shutdown();\n",
+  "verification": "All2404 final source inputs and seven raw terminal logs hash-verified locally. Exact original RED fixture reconstructed from signed571 plus initial test extension and expanded default controls; SHA5610bdaf matches original frozen fixture. Compile-only v1 E0310 was corrected by existing do_own_leaf_index helper; no runtime tests ran in v1.",
+  "post_freeze_docs_only": [
+    "crates/cgka-engine/AGENTS.md",
+    "crates/cgka-session/AGENTS.md",
+    "crates/marmot-app/AGENTS.md",
+    "docs/selected-chat-copy-plan.md",
+    "docs/device-sync-selected-chat-consent-verification.json"
+  ],
+  "raw_evidence_prefix": "/Users/pjaeckel/project/whitenoisechat-openclaw/backups/mdk-sync-delivery-20261009/mdk-selected-chat-consent-",
+  "remaining": [
+    "Required Core conformance simulator and conformance-slow postcommit qualification pending before next recipient-admission slice.",
+    "Packets authenticate observations only; neither signed ordinary admin claims nor collected receipt metadata grant membership. Future recipient-purpose guard must validate actual decrypted Current/admin/full tree and original lifetime through SQL tail.",
+    "No package/transport/ordinary chat copy/history or advertised enrollment capability change."
+  ]
+}

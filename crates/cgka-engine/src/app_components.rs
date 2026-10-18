@@ -1145,6 +1145,10 @@ fn required_app_components_of_extensions(
 }
 
 fn is_known_group_component(component_id: AppComponentId) -> bool {
+    #[cfg(feature = "experimental-device-sync")]
+    if component_id == cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID {
+        return true;
+    }
     // Protocol-owned minus the ids that carry no GroupContext state at all:
     // the leaf-only account proof and the ephemeral-only join authorization.
     // Reading the canonical list keeps a newly assigned component id
@@ -1635,6 +1639,17 @@ fn validate_app_component_bytes(
     component_id: AppComponentId,
     data: &[u8],
 ) -> Result<(), EngineError> {
+    #[cfg(feature = "experimental-device-sync")]
+    if component_id == cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID {
+        return if data == cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_PROFILE {
+            Ok(())
+        } else {
+            Err(EngineError::Other(
+                "invalid private experimental profile payload".into(),
+            ))
+        };
+    }
+
     match component_id {
         APP_COMPONENTS_COMPONENT_ID => decode_components_list(data)
             .map(|_| ())

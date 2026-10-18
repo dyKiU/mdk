@@ -405,6 +405,12 @@ async fn abandoned_notification_lane_counts_queued_loss_for_only_its_account() {
     let source = SdkRelayNotificationSource {
         client: alice_client.client().clone(),
         loss: Some(alice_client),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        disposition_observer: None,
     };
     let pending = AtomicU64::new(3);
     let failed_worker = tokio::spawn(async { panic!("forced event worker failure") });
@@ -3152,7 +3158,7 @@ fn cursor_floor_adapter_opened(
 /// Take the next delivery in the account queue.
 fn take_queued(adapter: &MarmotRelayPlaneAccountAdapter) -> TransportDelivery {
     match adapter.try_receive_account_delivery() {
-        Some(AccountDeliveryReceive::Delivery(delivery)) => *delivery,
+        Some(AccountDeliveryReceive::Delivery(delivery)) => delivery.into_delivery(),
         Some(AccountDeliveryReceive::Overflow(_)) => panic!("no loss was expected"),
         None => panic!("a delivery is queued"),
     }
@@ -5564,6 +5570,195 @@ async fn publish_allows_independent_account_registration() {
     .unwrap();
     assert_eq!(outcome.accepted.len(), 1);
     plane.shutdown().await;
+}
+
+// Authenticated Nostr carrier through the real production notification consumer;
+// injected source/relay scheduling only, no MLS/SDK permission claim.
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose() {
+    use cgka_traits::{TransportAccountActivation, TransportAdapter};
+    use nostr_sdk::prelude::{Kind, SubscriptionId, Tag};
+    let sdk = NostrSdkRelayClient::multi_account();
+    let keys = Keys::generate();
+    let account = MemberId::new(keys.public_key().to_bytes().to_vec());
+    let sdk_account = sdk
+        .register_account(account.clone(), Arc::new(keys))
+        .await
+        .unwrap();
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account_adapter = plane.account_adapter(account.clone(), relay.clone());
+    let group = TransportGroupSubscription {
+        group_id: GroupId::new(vec![2; 32]),
+        transport_group_id: vec![3; 32],
+        endpoints: vec![TransportEndpoint("wss://relay.example/".into())],
+        retained_since: None,
+    };
+    account_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![],
+            group_subscriptions: vec![group.clone()],
+            since: None,
+        })
+        .await
+        .unwrap();
+    let attempt = plane
+        .inner
+        .transport
+        .adapter
+        .account_subscription_attempt(&account)
+        .await
+        .unwrap();
+    let issued_subscription = relay
+        .subscriptions
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|subscription| match subscription {
+            NostrSubscription::GroupBatch {
+                account_id,
+                routes,
+                endpoints,
+                ..
+            } if account_id == &account
+                && endpoints == &group.endpoints
+                && routes.iter().any(|route| {
+                    route.group_id == group.group_id
+                        && route.transport_group_id == group.transport_group_id
+                }) =>
+            {
+                Some(subscription.subscription_id())
+            }
+            _ => None,
+        })
+        .expect("activation issued a live batch containing this exact account/group route");
+    let legacy_subscription = NostrSubscription::Group {
+        account_id: account.clone(),
+        group_id: group.group_id.clone(),
+        transport_group_id: group.transport_group_id.clone(),
+        endpoints: group.endpoints.clone(),
+        since: None,
+        attempt,
+    }
+    .subscription_id();
+    assert_ne!(issued_subscription, legacy_subscription);
+    let subscription = issued_subscription;
+    let source = Arc::new(QueuedWorkerFailureSource::busy(sdk_account));
+    let supervisor = spawn_relay_notification_supervisor_scoped(
+        source.clone(),
+        plane.inner.transport.clone(),
+        Some(account),
+    );
+    timeout(Duration::from_secs(2), async {
+        while source.subscriptions.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    source.send_notice();
+    timeout(Duration::from_secs(2), source.hook.entered.notified())
+        .await
+        .unwrap();
+    let endpoint = RelayUrl::parse(&group.endpoints[0].0).unwrap();
+    // FIFO EOSE precedes this Event at the actual receiver, while the worker
+    // cannot yet update shared telemetry. Eligibility and original clock survive.
+    source
+        .sender
+        .send(RelayPoolNotification::Message {
+            relay_url: endpoint.clone(),
+            message: Box::new(RelayMessage::EndOfStoredEvents(std::borrow::Cow::Owned(
+                SubscriptionId::new(&subscription),
+            ))),
+        })
+        .unwrap();
+    let signed = EventBuilder::new(
+        Kind::Custom(445),
+        "actual signed queued acquisition fixture",
+    )
+    .tag(Tag::parse(["h".to_owned(), hex::encode(&group.transport_group_id)]).unwrap())
+    .finalize(&Keys::generate())
+    .unwrap();
+    let legacy_event = EventBuilder::new(Kind::Custom(445), "legacy wire negative control")
+        .tag(Tag::parse(["h".to_owned(), hex::encode(&group.transport_group_id)]).unwrap())
+        .finalize(&Keys::generate())
+        .unwrap();
+    let acquisition_bound =
+        std::time::Instant::now() + Duration::from_secs(600) + Duration::from_millis(50);
+    source
+        .sender
+        .send(RelayPoolNotification::Event {
+            relay_url: endpoint.clone(),
+            subscription_id: SubscriptionId::new(subscription),
+            event: Box::new(signed),
+        })
+        .unwrap();
+    // Even after the real batch's EOSE, a reconstructed legacy wire ID must
+    // never authorize acquisition for another event on the same logical route.
+    source
+        .sender
+        .send(RelayPoolNotification::Message {
+            relay_url: endpoint.clone(),
+            message: Box::new(RelayMessage::EndOfStoredEvents(std::borrow::Cow::Owned(
+                SubscriptionId::new(&legacy_subscription),
+            ))),
+        })
+        .unwrap();
+    source
+        .sender
+        .send(RelayPoolNotification::Event {
+            relay_url: endpoint,
+            subscription_id: SubscriptionId::new(legacy_subscription),
+            event: Box::new(legacy_event),
+        })
+        .unwrap();
+    timeout(Duration::from_secs(2), async {
+        while source.notifications_queued.load(Ordering::SeqCst) < 5 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("EOSE and actual signed Event entered the existing bounded worker queue");
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    source.hook.release.notify_one();
+    let delivered = timeout(
+        Duration::from_secs(2),
+        account_adapter.receive_account_delivery(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let AccountDeliveryReceive::Delivery(delivered) = delivered else {
+        panic!("one exact actual delivery expected")
+    };
+    let observation = delivered
+        .observation
+        .as_ref()
+        .expect("post-EOSE acquisition must remain eligible while worker is blocked");
+    let deadline = observation.deadline_for(&delivered.delivery).unwrap();
+    assert!(
+        deadline <= acquisition_bound,
+        "internal notification queue wait cannot create a fresh observation clock"
+    );
+    let legacy_delivery = timeout(
+        Duration::from_secs(2),
+        account_adapter.receive_account_delivery(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let AccountDeliveryReceive::Delivery(legacy_delivery) = legacy_delivery else {
+        panic!("legacy wire control must exercise actual delivery routing")
+    };
+    assert!(
+        legacy_delivery.observation.is_none(),
+        "a legacy wire ID cannot acquire freshness from the real batch's EOSE"
+    );
+    supervisor.abort();
 }
 
 /// The account relay plane's live notification consumer, not only the

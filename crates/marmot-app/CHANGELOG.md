@@ -75,6 +75,9 @@
 
 ### Fixed
 
+- Retain the already-selected hidden receive route while Core owns a live
+  protected Remove rollback retry, so successor packets can still reach intake.
+
 - A device woken mostly by notifications now detects that it is stuck behind
   its group. Notification wakes (`CursorPersistence::Frozen`) retain
   undecryptable traffic without tracking stalls, and the main app later sees
@@ -325,6 +328,23 @@
 - Lossless relay repairs accept case-insensitive NIP-65 read/write markers,
   matching relay-list inspection while preserving their original spelling
   and extension fields through approval and publication.
+- Retain the already-selected hidden receive route while Core owns a live
+  protected Remove rollback retry, so successor packets can still reach intake.
+
+- A rolled-back protected Remove uses its retained convergence retry instead of
+  occupying the successor-confirmation delivery slot and blocking fresh intake.
+
+- Sibling consent retries no longer preempt first policy/proof progress on a
+  one-second worker cadence; consent and proof retries service the older deadline.
+
+- Automatic request/consent relay waits use a separate four-job account budget,
+  allowing foreground enrollment and other established channels to progress.
+  Completion revalidates the exact live policy/channel; retirement aborts the job.
+
+- Sibling chat-sharing relay publication no longer blocks the account worker or
+  another approved sibling. At most four original-owned publications run per
+  account; completion rechecks the exact live channel and roster. Dropping the
+  channel aborts its publication, without replacing comparison or sharing consent.
 
 - Commands and maintenance retain committed activity before subscription waits.
   Manual and scheduled convergence keep subscriber updates owned through route,

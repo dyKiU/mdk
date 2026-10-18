@@ -59,6 +59,7 @@ pub use markdown::{
 };
 pub use secret_store::SecretStore;
 pub use subscriptions::ConversationWindowSubscription;
+pub use subscriptions::{AccountChatListWindowSubscription, AccountConversationWindowSubscription};
 
 uniffi::setup_scaffolding!();
 
@@ -214,6 +215,9 @@ pub struct MarmotOptions {
     /// reports why.
     #[uniffi(default = None)]
     pub moderation_report_config: Option<ModerationReportConfigFfi>,
+    /// Dedicated encrypted pairing transport; omitted uses operational relays.
+    #[uniffi(default = None)]
+    pub pairing_relay_urls: Option<Vec<String>>,
 }
 
 impl MarmotOptions {
@@ -238,6 +242,7 @@ impl MarmotOptions {
             )
             .with_key_package_client_name(self.client_name.clone())
             .with_moderation_report_config(self.moderation_report_config.clone().map(Into::into))
+            .with_pairing_relay_urls(self.pairing_relay_urls.clone().unwrap_or_default())
     }
 }
 
@@ -512,6 +517,32 @@ pub use commands::moderation::*;
 
 pub use commands::AttachmentTransferSubscription;
 
+pub use commands::{DeviceLinkingApproval, DeviceLinkingSession, DeviceLinkingSubscription};
+pub use conversions::{
+    DeviceLinkingApprovalPhaseFfi, DeviceLinkingApprovalReviewMetadataFfi,
+    DeviceLinkingApprovalSnapshotFfi, DeviceLinkingCapabilitiesFfi, DeviceLinkingDecimalsFfi,
+    DeviceLinkingOutgoingPacketFfi, DeviceLinkingPhaseFfi, DeviceLinkingSnapshotFfi,
+    DeviceLinkingTargetFfi,
+};
+
+pub use commands::{SelectedChatConsent, SelectedChatCopy};
+pub use conversions::{
+    SelectedChatConsentPhaseFfi, SelectedChatConsentSnapshotFfi, SelectedChatCopyPhaseFfi,
+    SelectedChatCopySnapshotFfi,
+};
+
+pub use commands::AccountSharingApproval;
+pub use commands::{HistoryConsent, HistoryTransfer};
+pub use conversions::{
+    AccountSharingSnapshotFfi, AccountSharingTargetFfi, AccountSharingTargetsFfi,
+};
+
+pub use commands::DeviceRevocation;
+pub use conversions::DeviceRevocationSnapshotFfi;
+pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
+
+pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,6 +557,16 @@ mod tests {
             marmot_app::CursorPersistence::Advance
         );
         assert_eq!(defaults.key_package_client_name, None);
+        assert!(defaults.pairing_relay_urls.is_empty());
+        assert_eq!(
+            MarmotOptions {
+                pairing_relay_urls: Some(vec!["wss://relay.example.com".into()]),
+                ..Default::default()
+            }
+            .app_config()
+            .pairing_relay_urls,
+            vec!["wss://relay.example.com"]
+        );
         assert_eq!(
             defaults.attachment_acquisition_mode,
             marmot_app::AttachmentAcquisitionMode::NativeAutomatic

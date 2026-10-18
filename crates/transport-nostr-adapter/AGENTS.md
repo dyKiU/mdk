@@ -145,6 +145,13 @@ for reconnect/backoff and relay status mechanics.
   (`NostrAcquisitionScope::GroupsWindow`) up to `REPLAY_PAGE_MAX_PAGES` per route it carries; a full batch page that
   cannot move past one second continues one window per route, and the batch counts only once every route's does. Post-join maintenance
   and one-shot fetches stay per route.
+- In the experimental profile, keep the selected current private observation route on its own scoped `Group`
+  wire and exclude it from ordinary batches. Retained routes stay batched and cannot supply private freshness.
+  A selection change must issue that wire even when the ordinary route set is unchanged. Keep cancellation,
+  close-before-replacement and source FIFO EOSE checks on the exact actual id.
+- `AccountRoutes::group_wire_ids` is a derived capture index, replaced atomically with the committed batches.
+  Ordinary captures use the current batch id, not a reconstructed per-group id; retired batch ids stay negative.
+  Never rescan every batch for every route on EOSE: the 1,000-group replay contract must still deliver all groups.
 - Recovery maintenance ids include the owner's durable attempt serial. A duplicate install joins only a live session;
   after failure, cancellation, removal or account reactivation, require a strictly greater serial for that account/group.
   Never clear `maintenance_attempt_high_water` while the adapter lives: CLOSE and route removal cannot recall late EOSE.

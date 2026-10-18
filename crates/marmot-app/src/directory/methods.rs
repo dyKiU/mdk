@@ -1953,7 +1953,14 @@ impl MarmotApp {
         if marker_path.exists() {
             return Ok(());
         }
+        #[cfg(test)]
+        crate::sqlcipher::run_directory_cleanup_test_gate();
         fs::create_dir_all(&self.root)?;
+        let lock = crate::sqlcipher::database_open_lock(&marker_path);
+        let _cleanup = lock.lock();
+        if marker_path.exists() {
+            return Ok(());
+        }
         remove_sqlite_file_set(&self.legacy_directory_cache_path())?;
         for account in accounts {
             remove_sqlite_file_set(&self.directory_cache_path(&account.label))?;

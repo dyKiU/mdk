@@ -1,0 +1,302 @@
+name: Upstream experimental Apple qualification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/upstream-experimental-apple.yml"
+      - "scripts/upstream_apple_ci/**"
+  workflow_dispatch:
+    inputs:
+      mdk_sha:
+        description: Exact MDK commit, also the workflow branch HEAD
+        required: true
+        type: string
+      mac_sha:
+        description: Exact dyKiU/whitenoise-mac candidate commit
+        required: true
+        type: string
+      ios_sha:
+        description: Exact dyKiU/whitenoise-ios candidate commit
+        required: true
+        type: string
+      package_only:
+        description: Build SDK artifacts; qualify apps and native scenarios in the separate consumer workflow
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-apple-${{ inputs.mdk_sha || github.event.pull_request.head.sha }}-${{ inputs.mac_sha || github.ref }}-${{ inputs.ios_sha || github.event_name }}
+  cancel-in-progress: false
+
+env:
+  WORKFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  OTLP_EXPORT: "1"
+  PRODUCT_ANALYTICS_EXPORT: "1"
+  EXPERIMENTAL_DEVICE_SYNC: "1"
+  CARGO_INCREMENTAL: "1"
+  CARGO_BUILD_JOBS: "2"
+  IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+  MACOSX_DEPLOYMENT_TARGET: "15.0"
+
+jobs:
+  identity:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'ci/upstream-develop-dy-')
+    runs-on: ubuntu-latest
+    outputs:
+      mdk_sha: ${{ steps.identity.outputs.mdk_sha }}
+      mac_sha: ${{ steps.identity.outputs.mac_sha }}
+      ios_sha: ${{ steps.identity.outputs.ios_sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate immutable qualification inputs
+        id: identity
+        env:
+          REQUESTED_MDK_SHA: ${{ inputs.mdk_sha }}
+          REQUESTED_MAC_SHA: ${{ inputs.mac_sha }}
+          REQUESTED_IOS_SHA: ${{ inputs.ios_sha }}
+          REQUESTED_PACKAGE_ONLY: ${{ inputs.package_only }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            test "$REQUESTED_PACKAGE_ONLY" = true
+          fi
+          python3 scripts/upstream_apple_ci/identity.py
+
+  inputs:
+    needs: identity
+    if: github.event_name == 'workflow_dispatch' && inputs.package_only
+    runs-on: macos-26
+    env:
+      SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        part: [swift, macos, ios-device, ios-simulator]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.identity.outputs.mdk_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install exact repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: upstream-apple-experimental-${{ matrix.part }}
+          cache-on-failure: true
+      - name: Build exact experimental Apple input
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: bash scripts/upstream_apple_ci/build-part.sh "${{ matrix.part }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-apple-capacity-${{ matrix.part }}-${{ needs.identity.outputs.mdk_sha }}
+          path: apple-capacity-preflight.json
+          if-no-files-found: warn
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: upstream-apple-input-${{ matrix.part }}-${{ needs.identity.outputs.mdk_sha }}
+          path: stage/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: upstream-apple-timings-${{ matrix.part }}-${{ needs.identity.outputs.mdk_sha }}
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 7
+
+  assemble:
+    needs: [identity, inputs]
+    if: github.event_name == 'workflow_dispatch' && inputs.package_only
+    runs-on: macos-26
+    env:
+      SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.identity.outputs.mdk_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: upstream-apple-input-*-${{ needs.identity.outputs.mdk_sha }}
+          path: downloaded
+      - name: Stage matching build inputs
+        run: |
+          mkdir inputs
+          for part in swift macos ios-device ios-simulator; do
+            mv "downloaded/upstream-apple-input-$part-$SOURCE_SHA" "inputs/$part"
+          done
+      - name: Verify, assemble, validate and package both Apple SDKs
+        run: bash scripts/upstream_apple_ci/assemble.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: upstream-experimental-apple-${{ needs.identity.outputs.mdk_sha }}
+          path: packages/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  apps:
+    needs: [identity, assemble]
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.package_only }}
+    runs-on: macos-26
+    env:
+      SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            repository: dyKiU/whitenoise-mac
+          - platform: ios
+            repository: dyKiU/whitenoise-ios
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.identity.outputs.mdk_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac_sha || needs.identity.outputs.ios_sha }}
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-experimental-apple-${{ needs.identity.outputs.mdk_sha }}
+          path: packages
+      - name: Adopt verified ephemeral SDK overlay
+        env:
+          APP_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac_sha || needs.identity.outputs.ios_sha }}
+        run: |
+          python3 scripts/upstream_apple_ci/install.py --packages packages \
+            --source "$SOURCE_SHA" --run-id "$GITHUB_RUN_ID" \
+            --platform "${{ matrix.platform }}" --app app --app-sha "$APP_SHA"
+      - name: Build isolated iOS relay fixture
+        if: matrix.platform == 'ios'
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path app/scripts/test-relay/Cargo.toml --target-dir app/build/TestRelay
+          defaults write com.apple.iphonesimulator PasteboardAutomaticSync -bool false
+      - name: Full experimental app suite
+        working-directory: app
+        env:
+          WN_EXPERIMENTAL_DEVICE_SYNC: "1"
+          WN_TEST_DERIVED_DATA: ${{ runner.temp }}/experimental-app-derived-data
+          WN_TEST_SOURCE_PACKAGES: ${{ runner.temp }}/experimental-app-packages
+          WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/experimental-app.xcresult
+          WN_TEST_JOBS: "2"
+        run: |
+          if [[ "${{ matrix.platform }}" == macos ]]; then
+            bash scripts/test-isolated.sh
+          else
+            bash scripts/test-with-relay.sh
+          fi
+      - name: Record actual execution counts and cohort
+        if: always()
+        env:
+          APP_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac_sha || needs.identity.outputs.ios_sha }}
+        run: |
+          python3 scripts/upstream_apple_ci/summarize.py \
+            --result "$RUNNER_TEMP/experimental-app.xcresult" \
+            --app-sha "$APP_SHA" --output "$RUNNER_TEMP/app-summary.json"
+      - name: Experimental Mac Release build and static analysis
+        if: matrix.platform == 'macos'
+        working-directory: app
+        env:
+          WN_EXPERIMENTAL_DEVICE_SYNC: "1"
+        run: |
+          repo_root=$PWD
+          source scripts/local-device-sync-settings.sh
+          xcodebuild build -project whitenoise-mac.xcodeproj -scheme whitenoise-mac \
+            -configuration Release -destination platform=macOS \
+            -derivedDataPath "$RUNNER_TEMP/experimental-app-release" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+            "${device_sync_settings[@]}"
+          xcodebuild analyze -project whitenoise-mac.xcodeproj -scheme whitenoise-mac \
+            -configuration Debug -destination platform=macOS \
+            -derivedDataPath "$RUNNER_TEMP/experimental-app-derived-data" \
+            CODE_SIGNING_ALLOWED=NO "${device_sync_settings[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: upstream-experimental-${{ matrix.platform }}-results-${{ needs.identity.outputs.mdk_sha }}
+          path: |
+            ${{ runner.temp }}/experimental-app.xcresult
+            ${{ runner.temp }}/app-summary.json
+            packages/qualification.json
+            app/build/test-relay.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  native:
+    needs: [identity, assemble]
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.package_only }}
+    runs-on: macos-26
+    env:
+      SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.identity.outputs.mdk_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ needs.identity.outputs.ios_sha }}
+          path: ios
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-experimental-apple-${{ needs.identity.outputs.mdk_sha }}
+          path: packages
+      - name: Build isolated relay fixture
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
+      - name: Real single-host native pairing and history acceptance
+        run: bash scripts/upstream_apple_ci/native.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: upstream-native-one-scan-${{ needs.identity.outputs.mdk_sha }}
+          # Private IPC, credentials and runtime stores must never be uploaded.
+          path: |
+            ${{ runner.temp }}/one-scan/result.json
+            scripts/upstream_apple_ci/native/SOURCE.json
+            packages/qualification.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,49 @@
+{
+  "signed_baseline": "f0d99150e46ad53f6c6532291bcd96e204a1a4ea",
+  "exact_candidate_stash": "19afa8bb3f319dc39804c57aca80a68e29ba2540",
+  "verified_inputs": 2430,
+  "result": {
+    "head": "f0d99150e46ad53f6c6532291bcd96e204a1a4ea",
+    "behavioral_fixture_sha256": "f132b5d74f2bce3af8218e8c2e5ceb63375557e5016479a73cf13b72694353db",
+    "input_count": 2430,
+    "source_manifest_sha256": "57662b74508a1b916b77fa847379408d918fccb9f006dcf9676bcd7214c4ec0b",
+    "gates": [
+      {
+        "gate": "cancel-control",
+        "exit_code": 0,
+        "seconds": 55.9,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "e30a2f1653cc202c310e4fca887505791fd7e98fd1935c0fd11e5af42183916f"
+      },
+      {
+        "gate": "selected-controls",
+        "exit_code": 0,
+        "seconds": 49.09,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "24527b5f81791b413568211d2b567da98ec1021671f1126c975f82afbd009494"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.4,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "scope": "Actual original recipient cancellation during retained SQL retry responds within500ms, retires the exact private package, and prevents join/new-message projection after the fault is removed. Other original recipients adopt the source confirmed Add and receive a fresh message. Runtime implementation remains signed f0. Native app/history/full-suite qualification remains separate."
+}

@@ -108,9 +108,9 @@ impl AccountManager {
         Ok(())
     }
 
-    /// Acknowledge the one-device limitation for this onboarding attempt. This
-    /// authorizes normal setup publication, never deletion of another slot.
-    /// Persist before resuming so cancellation/restart cannot lose the choice.
+    /// Continue the displayed onboarding attempt. A possible other installation
+    /// or inconclusive discovery preserves its public invitation receiver by
+    /// durably disabling publication here. No other installation's slot is deleted.
     pub async fn acknowledge_onboarding_single_device(
         &self,
         account_ref: &str,
@@ -172,6 +172,21 @@ impl AccountManager {
             .single_device_notice
             .as_mut()
             .ok_or_else(onboarding_error)?;
+        let preserve_receiver =
+            notice.discovery != OnboardingDeviceDiscovery::NoneFound || !notice.discovery_complete;
+        if preserve_receiver {
+            self.admit_live_onboarding_mutation(&checkpoint, || {
+                self.app
+                    .account_home()
+                    .disable_public_key_package_publication(&account_id)?;
+                Ok(())
+            })?;
+        }
+        let notice = checkpoint
+            .snapshot
+            .single_device_notice
+            .as_mut()
+            .ok_or_else(onboarding_error)?;
         notice.acknowledged_at = Some(unix_now_seconds());
         checkpoint.single_device_acknowledged = true;
         let findings = step.findings.clone();
@@ -183,5 +198,36 @@ impl AccountManager {
         self.save_onboarding(&mut checkpoint)?;
         self.run_onboarding_locked(&mut checkpoint).await?;
         Ok(checkpoint.snapshot)
+    }
+
+    /// Complete the local setup journal honestly: nothing was published. This
+    /// runs under the current attempt's admission lock; cleanup follows the
+    /// durable ready checkpoint, leaving the publication hold untouched.
+    pub(super) fn complete_companion_key_package_step(
+        &self,
+        checkpoint: &mut OnboardingCheckpoint,
+        account: &AccountSummary,
+    ) -> Result<(), AppError> {
+        self.admit_live_onboarding_mutation(checkpoint, || {
+            let home = self.app.account_home();
+            if home.account_setup_state(&account.label)?.is_none() {
+                home.begin_account_setup_with(
+                    account,
+                    false,
+                    AccountSetupKind::InteractiveIdentity,
+                    AccountSetupPhase::CompanionReady,
+                )?;
+            } else {
+                home.set_account_setup_phase(&account.label, AccountSetupPhase::CompanionReady)?;
+            }
+            home.set_account_signed_out(&account.label, false)?;
+            Ok(())
+        })?;
+        checkpoint.set(
+            OnboardingStep::KeyPackage,
+            OnboardingStatus::Skipped,
+            vec![],
+        );
+        Ok(())
     }
 }

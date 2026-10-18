@@ -66,22 +66,50 @@ use crate::{
     SelfMembership, SendSummary, unix_now_seconds,
 };
 
+mod account_chat_departure;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) mod account_chat_sharing;
 mod audit;
 mod audit_recovery;
 mod audit_v5_app_update;
 pub(crate) mod audit_v5_probe;
+#[cfg(feature = "experimental-device-sync")]
+mod chat_source_acceptance;
 pub(crate) mod delivery_spill;
+#[cfg(feature = "experimental-device-sync")]
+#[allow(
+    dead_code,
+    reason = "Private owner commands await account-worker integration"
+)]
+pub(crate) mod device_linking;
+#[cfg(feature = "experimental-device-sync")]
+mod device_revocation;
 pub(crate) mod epoch_stall;
 pub(crate) mod history_notices;
+#[cfg(feature = "experimental-device-sync")]
+mod history_transfer;
 mod invite_recovery;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) mod legacy_chat_acceptance;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) mod private_echo;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) mod private_enrollment_proposal;
+#[cfg(feature = "experimental-device-sync")]
+mod private_settlement;
+#[cfg(feature = "experimental-device-sync")]
+mod private_transport;
 mod projection;
 mod push;
 mod receipts;
 pub(crate) mod recovery;
 mod retention;
+#[cfg(feature = "experimental-device-sync")]
+mod selected_chat_copy;
 mod sync;
 #[cfg(test)]
 mod upload_cleanup_tests;
+pub(crate) mod welcome_peeler;
 
 use epoch_stall::EpochStallDetector;
 use push::notification_trigger_for_intent;
@@ -683,6 +711,21 @@ pub struct AppClient {
     pub(crate) runtime_telemetry: Option<AppPerformanceTelemetry>,
     pub(crate) send_telemetry: Option<AppPerformanceTelemetry>,
     pub(crate) app: MarmotApp,
+    // Drop verifier secrets and fence this attempt while the session lease and
+    // engine storage are still held by this client.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) linking_owner: device_linking::AccountLinkingOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) history_owner: crate::history_transfer::enabled::AccountHistoryOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) account_sharing_owner: crate::account_chat_sharing::enabled::AccountSharingOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) device_revocation_owner: crate::device_revocation::enabled::AccountRevocationOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) selected_welcome_provenance:
+        Arc<std::sync::Mutex<welcome_peeler::SelectedWelcomeProvenance>>,
     pub(crate) runtime: AppRuntime,
     pub(crate) maintenance_observation_generation: Option<crate::DiagnosticsPermit>,
     // Struct fields drop in declaration order. Keep the engine-owning runtime
@@ -713,6 +756,9 @@ pub struct AppClient {
     /// Live saves replace only these groups; full snapshot replacement is
     /// reserved for import/rebuild paths outside the account worker.
     pub(crate) pending_group_projection_updates: HashSet<String>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) pending_chat_source_changes:
+        Vec<storage_sqlite::account_chat_source::AccountChatSourceChange>,
     /// Recovery status has its own notification queue; saving a projection must not consume it.
     pub(crate) pending_recovery_status_updates: HashSet<GroupId>,
     /// The parked recovery set as last announced to hosts ("history may be
@@ -2288,6 +2334,8 @@ impl AppClient {
             welcome_index_started_at.elapsed(),
             welcome_index_prepared,
         );
+        #[cfg(feature = "experimental-device-sync")]
+        let source_origin_events = prepared.effects.events.clone();
         self.unpublished_welcome_delivery = Some(UnpublishedWelcomeDelivery {
             group_id: group_id.clone(),
             audit_context: audit_context.clone(),
@@ -2303,6 +2351,11 @@ impl AppClient {
         // drive the engine-retained Welcome. The detailed API converts the
         // missing row into a typed, non-retryable creation result.
         let local_projection_started_at = Instant::now();
+        // Sync source errors must stay inside this post-canonical Result boundary.
+        #[cfg_attr(
+            not(feature = "experimental-device-sync"),
+            allow(clippy::redundant_closure_call)
+        )]
         let local_projection = if cfg!(feature = "test-policy-overrides")
             && self.app.config.dev_fail_create_local_projection
         {
@@ -2310,8 +2363,21 @@ impl AppClient {
                 "injected create local projection failure".into(),
             ))
         } else {
-            self.add_group(&group_id)
-                .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
+            #[cfg(feature = "experimental-device-sync")]
+            {
+                (|| {
+                    for event in &source_origin_events {
+                        self.observe_chat_source_origin(event)?;
+                    }
+                    self.add_group(&group_id)
+                        .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
+                })()
+            }
+            #[cfg(not(feature = "experimental-device-sync"))]
+            {
+                self.add_group(&group_id)
+                    .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
+            }
         };
         record_app_performance(
             telemetry,
@@ -3633,6 +3699,8 @@ impl AppClient {
             .audit_v5_probe
             .as_mut()
             .and_then(|probe| probe.begin_confirmation(group));
+        #[cfg(feature = "experimental-device-sync")]
+        self.stage_chat_source_confirmation(group_id, false)?;
         let result = self.set_group_invite_confirmation(group_id, false, archived);
         if result.is_err()
             && let (Some(probe), Some(origin)) = (&mut self.audit_v5_probe, audit_origin)
@@ -3666,6 +3734,8 @@ impl AppClient {
         &mut self,
         group_id: &GroupId,
     ) -> Result<GroupInviteDeclineResult, AppError> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.stage_chat_source_confirmation(group_id, true)?;
         let audit_context = Self::local_human_action_context(
             "decline_group_invite",
             vec!["membership"],
@@ -6141,6 +6211,10 @@ impl AppClient {
         &self,
         group_id: &GroupId,
     ) -> Result<(), AppError> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.app
+            .ensure_local_chat_not_account_departed(&self.state.label, group_id)?;
+
         self.ensure_group(group_id)?;
         if self
             .app
@@ -6687,6 +6761,10 @@ impl AppClient {
                 refresh.routing_changed = true;
             }
         }
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            refresh.routing_changed |= self.refresh_private_transport_route()?;
+        }
         Ok(refresh)
     }
 
@@ -6705,6 +6783,8 @@ impl AppClient {
             .group_routes
             .retain(|route| !group_is_terminal(&self.runtime, &route.group_id));
         self.routing.replace(snapshot);
+        #[cfg(feature = "experimental-device-sync")]
+        self.refresh_private_transport_route()?;
         Ok(())
     }
 
@@ -7791,3 +7871,17 @@ mod poll_send_validation_tests {
         ));
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) use account_chat_sharing::DepartureReplayProbe;
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) use account_chat_sharing::{DuplicateDepartureBinding, DuplicateDepartureProbe};

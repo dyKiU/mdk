@@ -55,6 +55,15 @@ pub struct ConvergencePassMember {
     pub source_epoch: u64,
 }
 
+/// Resumable negative dependency observation; replay must reauthenticate both wires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposalDependencyWake {
+    pub proposal_id: MessageId,
+    pub proposal_ref: String,
+    pub source_epoch: EpochId,
+    pub after: Option<MessageId>,
+}
+
 /// Durable per-group convergence-pass state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DurableConvergencePass {
@@ -78,6 +87,8 @@ pub struct DurableConvergencePass {
     /// fairness edge.
     #[serde(default)]
     pub fairness_slot_available: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposal_dependency_wakes: Vec<ProposalDependencyWake>,
 }
 
 impl DurableConvergencePass {

@@ -42,5 +42,19 @@ pub mod avatar;
 pub mod moderation;
 pub mod public_event_preview;
 
+pub mod device_linking;
+pub mod history_transfer;
+pub mod selected_chat_copy;
+
+pub mod synchronized_history;
+
 pub mod startup_diagnostics;
 pub use startup_diagnostics::*;
+pub mod account_chat_sharing;
+
+pub mod account_chat_presentation;
+pub mod account_chat_windows;
+
+pub mod device_revocation;
+
+pub mod account_chat_departure;

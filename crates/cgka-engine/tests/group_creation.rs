@@ -894,6 +894,61 @@ async fn directory_key_package_helpers_validate_against_own_ciphersuite() {
 }
 
 #[tokio::test]
+async fn key_package_device_metadata_distinguishes_same_account_independent_devices() {
+    let mut first = build_current_client(b"shared-device-account");
+    let mut second = build_current_client(b"shared-device-account");
+    let first_package = first.fresh_key_package().await.unwrap();
+    let refreshed_package = first.fresh_key_package().await.unwrap();
+    let second_package = second.fresh_key_package().await.unwrap();
+    let first_metadata = key_package_metadata(&first_package).unwrap();
+    let refreshed_metadata = key_package_metadata(&refreshed_package).unwrap();
+    let second_metadata = key_package_metadata(&second_package).unwrap();
+
+    assert_eq!(
+        first_metadata.credential_identity_hex,
+        second_metadata.credential_identity_hex
+    );
+    assert_eq!(
+        first_metadata.signature_public_key_hex,
+        refreshed_metadata.signature_public_key_hex
+    );
+    assert_ne!(
+        first_metadata.signature_public_key_hex,
+        second_metadata.signature_public_key_hex
+    );
+    assert_ne!(
+        first_metadata.key_package_ref_hex,
+        refreshed_metadata.key_package_ref_hex
+    );
+    assert_eq!(
+        hex::decode(first_metadata.signature_public_key_hex)
+            .unwrap()
+            .len(),
+        32
+    );
+}
+
+#[tokio::test]
+async fn key_package_device_metadata_rejects_invalid_signature_and_account_proof() {
+    let mut device = build_current_client(b"validated-device-metadata");
+    let package = device.fresh_key_package().await.unwrap();
+    let mut corrupted_bytes = package.bytes().to_vec();
+    *corrupted_bytes.last_mut().unwrap() ^= 1;
+    let corrupted = cgka_traits::engine::KeyPackage::new(corrupted_bytes)
+        .with_protocol_profile(ProtocolProfile::Current);
+    assert!(key_package_metadata(&corrupted).is_err());
+
+    let mismatched_proof = key_package_with_mismatched_account_identity_proof(
+        &pad32(b"metadata-credential"),
+        b"different-metadata-proof",
+    );
+    assert!(matches!(
+        key_package_metadata(&mismatched_proof),
+        Err(EngineError::InvalidAccountIdentityProof(_))
+    ));
+}
+
+#[tokio::test]
 async fn invite_path_validates_proof_against_key_package_ciphersuite() {
     let mut alice = build_client(b"alice-own-suite", selfremove_registry());
     let alternate_suite = Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
@@ -1484,6 +1539,11 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
         created,
         SendResult::FoundingGroupCreated { ref welcomes } if welcomes.is_empty()
     ));
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        !alice.exclude_private_group_from_chat(&group_id).unwrap(),
+        "a live genuine ordinary group is not private"
+    );
     alice.drain_events();
 
     let requested = alice
@@ -1561,6 +1621,11 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
     );
     let terminal = alice.group_record(&group_id).unwrap();
     assert!(terminal.disbanded.is_some());
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        !alice.exclude_private_group_from_chat(&group_id).unwrap(),
+        "authenticated ordinary disband metadata remains classifiable after MLS deletion"
+    );
     assert_eq!(
         terminal.members.len(),
         1,
@@ -1622,6 +1687,11 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
             .is_some()
     );
     assert!(reopened.quarantined_groups().is_empty());
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        !reopened.exclude_private_group_from_chat(&group_id).unwrap(),
+        "reopen must preserve the retained ordinary terminal classification"
+    );
 
     drop(reopened);
     assert!(
@@ -1646,6 +1716,13 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
     assert!(
         tombstone_only.group_record(&group_id).is_err(),
         "full group metadata is optional after the user deletes local history"
+    );
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        tombstone_only
+            .exclude_private_group_from_chat(&group_id)
+            .is_err(),
+        "a tombstone alone cannot classify absent group metadata as ordinary"
     );
 }
 

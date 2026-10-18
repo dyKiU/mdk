@@ -1,0 +1,70 @@
+{
+  "scope": "Core recipient-only one-body encryption foundation; not App history transport or imported receipt delivery",
+  "runtime_base": "83f5a82d80c9f53bdcbab602f349544397ba07f6",
+  "final_candidate_stash": "cdcc267f8136c4f7e2a5750e4499aac63f680e5a",
+  "source_manifest_sha256": "8be3ab14b65f34bacd73a4104729d48d17e62907bdf906ff3f043dafbbef92c6",
+  "input_count": 2455,
+  "source_manifest_format": "Direct repository-relative path to SHA256 of actual dereferenced bytes, including untracked source",
+  "working_source_match": {
+    "all_inputs_verified": true,
+    "sole_plan_difference": "frozen remote doc is signed fc33d735; current local doc is previously signed a2b2df79 recipient-only privacy correction; runtime/test inputs all exact"
+  },
+  "final_gates": [
+    {
+      "gate": "focused",
+      "exit": 0,
+      "seconds": 25.82619285583496,
+      "log": "/Users/pj/project/build/history-channel-gates-v3-focused.log",
+      "log_sha256": "b216aa23d72316b9273a27852c9c442b29c78aca5543848e0e7f0675b38f8a0c"
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 9.96989369392395,
+      "log": "/Users/pj/project/build/history-channel-gates-v3-production-clippy.log",
+      "log_sha256": "7fd740e5fbfd6541b208d997569fed1e03f70a06e829e53cf4b79e4d1f100a99"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 6.8667051792144775,
+      "log": "/Users/pj/project/build/history-channel-gates-v3-default-check.log",
+      "log_sha256": "57907bb7699a1cd74dc2c41cef98e464ac7da6e2003517113a5e6e42b4bca9e5"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.470705270767212,
+      "log": "/Users/pj/project/build/history-channel-gates-v3-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 5,
+    "failed": 0,
+    "ignored": 0
+  },
+  "original_end_to_end_red": {
+    "exact_fixture_stash": "df2c393c7add7d79b1cfc0246a7ba98cf5605a15",
+    "prefix": "history-transfer-original-red-v1",
+    "passed": 0,
+    "failed": 1,
+    "reason": "Actual public ABC plus four-leaf selected chat reaches denying App begin_history_transfer NotReady; no Core-only RED claim",
+    "default_passed": 1
+  },
+  "retained_prior_evidence": {
+    "focused_v1": "first-pass5 green; context matrix masked by different transfer and insufficient for fixed-context qualification",
+    "gates_v1": "production Clippy let_and_return failure only; raw SHA34fa661fe2c447035d55e49e70bc59faa14f7e4bb646be1fa99e336aecde3626",
+    "gates_v2": "five pass and lint/default/fmt green; superseded context fixture",
+    "final_context_fix": "same exact unbound source for every consent mutation, legitimate consent succeeds after rejection; actual inner open rejects each context mutation and legitimate body remains decryptable"
+  },
+  "zeroization": "Pinned openmls_traits HpkePrivateKey contains tls_codec0.5 SecretVLBytes. Its Drop calls Zeroize and implements ZeroizeOnDrop (quic_vec.rs875\u2013881). Channel retire drops its Option<HpkeKeyPair>; derivation IKM is Zeroizing. No channel serde/Clone/exported private key.",
+  "qualification_limits": [
+    "Injected fixed Core leases and actual MLS/SQL pair; not stock SDK/native history consent.",
+    "Wrong HPKE key fails inner decrypt; third-member outer MLS decrypt/privacy test not yet qualified.",
+    "Only one immutable archive body and one ACK per channel, at most4096 plaintext bytes subject to whole16KiB wire bound. Manifest/chunk sequence and committed importreceipt remain unimplemented.",
+    "No Session/App transport wiring, logical export/import, native API or capability advertisement. App denying shape and genuine original RED remain outside this Core commit.",
+    "Existing final83 SDK/artifacts and qualified preserved default App93eaf binary unchanged. Broader Core/conformance history qualification remains open."
+  ],
+  "post_freeze_changes": "Only human docs/AGENTS and this compact proof are appended after final gates."
+}

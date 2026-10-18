@@ -1054,12 +1054,19 @@ printf '{{"type":"message_end","message":{{"role":"assistant","content":[{{"type
         ] {
             let marker = root.path().join(format!("{name}-acted"));
             let script = root.path().join(format!("fake-pi-{name}"));
-            // The subshell is a separate group member, so only a group kill stops it.
+            let ready = root.path().join(format!("{name}-ready"));
+            let release = root.path().join(format!("{name}-release"));
+            // Admit the descendant before reporting rejection. Release its action only
+            // after cleanup, so scheduler delays cannot let it act before validation.
+            // A surviving group member will observe the release and create the marker.
             write_script(
                 &script,
                 &format!(
-                    "#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s\\n' '{{\"type\":\"session\",\"version\":3,\"id\":\"pi-{name}\"}}' '{trigger}'\n(sleep 0.3; touch '{}')\nprintf '%s\\n' '{ASSISTANT_TEXT}'\n",
-                    marker.display()
+                    "#!/usr/bin/env bash\ncat >/dev/null\n(touch '{}'; while [ ! -e '{}' ]; do sleep 0.01; done; touch '{}') &\nwhile [ ! -e '{}' ]; do sleep 0.01; done\nprintf '%s\\n' '{{\"type\":\"session\",\"version\":3,\"id\":\"pi-{name}\"}}' '{trigger}'\nwait\nprintf '%s\\n' '{ASSISTANT_TEXT}'\n",
+                    ready.display(),
+                    release.display(),
+                    marker.display(),
+                    ready.display()
                 ),
             );
             let (tx, mut rx) = mpsc::channel(4);
@@ -1080,6 +1087,11 @@ printf '{{"type":"message_end","message":{{"role":"assistant","content":[{{"type
             );
             assert_eq!(failure.observed_session, None, "{name}");
             assert!(rx.recv().await.is_none(), "{name}");
+            assert!(
+                ready.exists(),
+                "{name} must start the descendant before rejection"
+            );
+            fs::write(&release, b"release").unwrap();
             tokio::time::sleep(Duration::from_secs(1)).await;
             assert!(!marker.exists(), "{name} kept running after the check");
         }

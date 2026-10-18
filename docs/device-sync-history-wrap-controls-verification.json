@@ -1,0 +1,74 @@
+{
+  "scope": "Test-only real wrapping failure/exact ciphertext retry and fixed original expiry; no production change or App import",
+  "base": "478203b78f7c1d526d427eab307ceace103135a2",
+  "final_candidate_stash": "29017614c7e0a473e5b730fa3702defbacaf77c6",
+  "source_manifest_sha256": "688b0a9efbda9a47a54bc39cfa650d40056cb13947f522e6cde18d177d5973f9",
+  "input_count": 2458,
+  "source_manifest_format": "Direct relative path to dereferenced SHA256; tracked plus untracked source",
+  "all_frozen_inputs_match_pre_documentation_candidate": true,
+  "final_gates": [
+    {
+      "gate": "focused",
+      "exit": 0,
+      "seconds": 32.364652156829834,
+      "log": "/Users/pj/project/build/history-channel-wrap-controls-v3-focused.log",
+      "log_sha256": "14bf07d003197a0f119171d9bd2719e72773d697130b0ccd25313599bdbcc17a"
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 9.981043100357056,
+      "log": "/Users/pj/project/build/history-channel-wrap-controls-v3-production-clippy.log",
+      "log_sha256": "a29f63251f91385032833e2717ded13777d5544792ec39634950a7c49a8d640a"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 6.870996952056885,
+      "log": "/Users/pj/project/build/history-channel-wrap-controls-v3-default-check.log",
+      "log_sha256": "3df646ada30c6964d3db4fb79acf4742697a0f7d4eff3be6c4624ce17e778983"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.4177770614624023,
+      "log": "/Users/pj/project/build/history-channel-wrap-controls-v3-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 8,
+    "failed": 0,
+    "ignored": 0
+  },
+  "coverage": [
+    "Actual first peeler wrap failure retains exact real MLS ratchet ciphertext; same original retry reaches authenticated recipient",
+    "Original fixed300ms injected Core lease expires during actual pending peeler; late cached retry refuses; explicit retirement clears keys/outbound",
+    "Prior six crypto/context/real control roundtrip tests retained"
+  ],
+  "prior_failures": [
+    {
+      "prefix": "history-channel-wrap-controls-v1",
+      "kind": "compile-only fixture omission",
+      "exit": 101,
+      "runtime_tests": 0,
+      "log_sha256": "a4113b584d4e9d1e800ca2de2cf96f0312edd71f779ac762029ac92d59380f7d",
+      "correction": "Required passthrough wrap_welcome delegation and unused imports only"
+    },
+    {
+      "prefix": "history-channel-wrap-controls-v2",
+      "kind": "Eight behavioral controls passed; test lock lexical scope Clippy failure",
+      "focused_passed": 8,
+      "clippy_exit": 101,
+      "log_sha256": "fdd5714f0e9cdde268d0e5c3a4fa744186d6d9e1b0080ae2e234edd74643aaef",
+      "correction": "Lexical lock scope before await; all four gates rerun"
+    }
+  ],
+  "limits": [
+    "Honest first-pass controls, not invented behavioral RED or runtime fix",
+    "Original production lifetime unchanged; injected fixed fixture lease is not SDK/native consent",
+    "App original transfer/import/committed ACK still NotReady; no history delivery claim",
+    "Actual third-member outer-MLS privacy, maximum nested wrapped frame, ordered manifest/chunks and committed import receipt remain separate acceptance"
+  ],
+  "post_freeze_changes": "Only this proof and appended human plan guidance"
+}

@@ -1379,3 +1379,6 @@ pub unsafe extern "C" fn marmot_block_list_subscription_snapshot(
         }
     })
 }
+
+mod account_chat_windows;
+pub use account_chat_windows::*;

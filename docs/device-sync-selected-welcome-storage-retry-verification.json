@@ -1,0 +1,142 @@
+{
+  "scope": "Actual incoming selected Welcome SQL rollback keeps original approved owner and worker available, retries exact original transport observation, joins four independent MLS leaves and delivers new messages to all four. No native app adoption, historical import, or full regression claim.",
+  "red": {
+    "signed_baseline": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+    "exact_red_stash": "a2d52a5356e7f02e56dafe9e6d1d130f0a27ab85",
+    "verified_inputs": 2429,
+    "result": {
+      "head": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+      "behavioral_fixture_sha256": "10ce7023763390792ea9b91aa7bdc04e4d762ceb19bd245c292bbb253607117b",
+      "input_count": 2429,
+      "source_manifest_sha256": "929d12c9985464266d03faecbaf29f958c01f36cc00dca488f69f88678c32c30",
+      "gates": [
+        {
+          "gate": "incoming-storage-red",
+          "exit_code": 101,
+          "seconds": 65.91,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "93ef92c8ea2bd1dee48303c176d2d46d83b94f51c05f792f0d6e1511f5f19696"
+        }
+      ]
+    },
+    "scope": "Actual incoming selected Welcome SQL rollback closes the original approved owner; package production rollback is separate. No fix qualification yet."
+  },
+  "first_candidate_failure": {
+    "signed_base": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+    "candidate_stash": "5870c5bb3a939399a36ebf32514c9fe6c1e3e138",
+    "verified_inputs": 2429,
+    "result": {
+      "head": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+      "behavioral_fixture_sha256": "10ce7023763390792ea9b91aa7bdc04e4d762ceb19bd245c292bbb253607117b",
+      "input_count": 2429,
+      "source_manifest_sha256": "e4f4169d147a8d92e3aa123f6d0f9f0bc0e8a6a3a8a2ed71214cc84986eee8c0",
+      "gates": [
+        {
+          "gate": "incoming-storage-green",
+          "exit_code": 101,
+          "seconds": 85.44,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "124b833851e4d5ddf4c95d7f813a31a1ff007c7223df7a4a7ffff400854bdc1b"
+        }
+      ]
+    },
+    "scope": "Original approval and worker assertions passed, actual four-leaf join timed out. Failed candidate only, no GREEN claim. Next candidate retains retry timer deadline across select cancellation."
+  },
+  "qualified_green": {
+    "signed_baseline": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+    "exact_candidate_stash": "a3b061849ddc77d09876f2db40958d12830dc7c6",
+    "verified_inputs": 2429,
+    "result": {
+      "head": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+      "behavioral_fixture_sha256": "10ce7023763390792ea9b91aa7bdc04e4d762ceb19bd245c292bbb253607117b",
+      "input_count": 2429,
+      "source_manifest_sha256": "0f744d801d82ec36af3bc0f18513375191529f8976d4221e1ea5cd14ef26715a",
+      "gates": [
+        {
+          "gate": "incoming-storage-green",
+          "exit_code": 0,
+          "seconds": 104.2,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "1f14c685e24d02b93ed199c1e83b0d4ea7c128427e44adbad7f67f1444c6af2c"
+        },
+        {
+          "gate": "selected-controls",
+          "exit_code": 0,
+          "seconds": 37.59,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 7,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "aa0c0a4b46122e2a130c4aa589546f17863a95f8491f8c0b4bb9a9bdc0c40511"
+        },
+        {
+          "gate": "default-denial",
+          "exit_code": 0,
+          "seconds": 61.75,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "4b78d94bbf28ebff7b8c63a7d0a080770126fa5ae26c2f3155d7eb2bd1a77faf"
+        },
+        {
+          "gate": "production-clippy",
+          "exit_code": 0,
+          "seconds": 42.3,
+          "counts": [],
+          "log_sha256": "242a6b503443a052e71c6738e4a2fee9727a75245a000738242d711002df58f3"
+        },
+        {
+          "gate": "default-check",
+          "exit_code": 0,
+          "seconds": 27.98,
+          "counts": [],
+          "log_sha256": "a802b287f3cbedad840b8b0d0a3da2311efdf4a00eb71dc4a854a9d1d323101d"
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.37,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    "scope": "Actual incoming selected Welcome SQL rollback keeps original approved owner and worker available, retries exact original transport observation, joins four independent MLS leaves and delivers new messages to all four. No native app adoption, historical import, or full regression claim."
+  },
+  "remaining": [
+    "Actual cancellation/expiry while the incoming retry slot is retained",
+    "Blocked publication and lost-response controls for selected continuation",
+    "Combined full App/binding regressions and matched Apple artifacts",
+    "Native app delivery, offline recovery and historical import"
+  ]
+}

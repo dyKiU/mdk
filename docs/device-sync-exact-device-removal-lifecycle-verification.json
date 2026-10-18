@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "base_commit": "29868fddc25deb3c1707cd33fd704dbdd4b2e42e",
+  "classification": "Honest passing original-owner controls on committed production; no missing-behavior RED or production fix invented.",
+  "scope": "Actual original Remove held before transport; exact cancellation and lost RPC receiver retire original, restore exact pending-free four-leaf predecessor, released message remains absent from real relay, fresh explicit original review succeeds. Genuine removed C encrypted reopen retains eviction/outbound refusal while new messages reach A/B/D and remain absent C. Exact stale displayed revisions and completed idempotent revision controls included.",
+  "cohorts": [
+    {
+      "prefix": "exact-device-removal-lifecycle-v1",
+      "exact_candidate_git_stash": "3c8687fe045391d4cce27a55ba9a4f1fb898958e",
+      "input_count": 2485,
+      "source_manifest_sha256": "7361d152c4df4193830135fa86d04fd260510cc9a0a23704a92fa97c2d147e67",
+      "all_inputs_and_raw_log_hashes_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 120.6587061882019,
+          "log": "/Users/pj/project/build/exact-device-removal-lifecycle-v1-feature.log",
+          "log_sha256": "55ae813da4d92652940c92a351624e8e3d4eb31e23e7a67931cbeb06d55ec1d0",
+          "actual_tests": {
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 47.60614085197449,
+          "log": "/Users/pj/project/build/exact-device-removal-lifecycle-v1-default.log",
+          "log_sha256": "7b5d2bf1a17c77494811a00be53716dcfca15476349c9966aa6e63bc3723ef74",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "exact-device-removal-lifecycle-gates-v1",
+      "exact_candidate_git_stash": "3c8687fe045391d4cce27a55ba9a4f1fb898958e",
+      "input_count": 2485,
+      "source_manifest_sha256": "7361d152c4df4193830135fa86d04fd260510cc9a0a23704a92fa97c2d147e67",
+      "all_inputs_and_raw_log_hashes_verified": true,
+      "gates": [
+        {
+          "gate": "clippy",
+          "exit": 101,
+          "seconds": 36.87605810165405,
+          "log": "/Users/pj/project/build/exact-device-removal-lifecycle-gates-v1-clippy.log",
+          "log_sha256": "9f0ef9d31ddd24abb00680e3ee6bf95721ed528b13e1660387834d46eafe5a18",
+          "actual_tests": null
+        }
+      ]
+    },
+    {
+      "prefix": "exact-device-removal-lifecycle-final-v2",
+      "exact_candidate_git_stash": "8925f6f6734069f88fb5e0cdb88d0e16f92a2272",
+      "input_count": 2485,
+      "source_manifest_sha256": "fa7982511b7237e62902c36680b23fcd57defe627c5bd7f8a3a46573e212375a",
+      "all_inputs_and_raw_log_hashes_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 131.3547728061676,
+          "log": "/Users/pj/project/build/exact-device-removal-lifecycle-final-v2-feature.log",
+          "log_sha256": "99442a46f00d5eced2281bac2fd5b30bc4e175fa549c1646f0df22802dd9778d",
+          "actual_tests": {
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 24.51415991783142,
+          "log": "/Users/pj/project/build/exact-device-removal-lifecycle-final-v2-clippy.log",
+          "log_sha256": "48c90a6cb6bfc9297a2958a8ec0431793dc0f0bf5b9b38c07c2d0b7b3ff1a74d",
+          "actual_tests": null
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.5864980220794678,
+          "log": "/Users/pj/project/build/exact-device-removal-lifecycle-final-v2-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null
+        }
+      ]
+    }
+  ],
+  "failed_gate": "Initial feature-test-cohort Clippy found preexisting one-element cloned account selector. Replaced with std::slice::from_ref only, then reran the complete five actual controls, test-cohort Clippy and fmt on final exact fixture.",
+  "post_freeze_delta": "Qualification proof and current-state append only; no runtime or final test byte changes after the final gates.",
+  "pending": [
+    "Fixed original expiry during actual blocked Remove",
+    "Responsive runtime shutdown during actual blocked Remove",
+    "Typed storage/fallible confirmation retry controls",
+    "Protected-roster and multigroup revocation/outcomes",
+    "Native revocation API/UI",
+    "Full combined backend/conformance qualification"
+  ]
+}

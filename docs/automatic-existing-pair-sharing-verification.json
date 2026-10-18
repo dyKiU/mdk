@@ -1,0 +1,162 @@
+{
+  "base": "2c6c497847f67648d543d63b83d2243d61fd07b2",
+  "cohorts": [
+    {
+      "version": 1,
+      "stash": "0734dfb0f0686de2d9bf1beaf8db8c3ac2405dbc",
+      "verified_inputs": 2551,
+      "manifest_sha256": "cde85829fd6744037f5733f8da3df2bb3ef68760881ecfe253058a4d88807997",
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "pairing",
+          "exit": 101,
+          "seconds": 40.01307821273804,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v1-pairing.log",
+          "log_sha256": "eea9366c54230811ed73c7ecf48583b80faf309965ab27f4bc78e465ee6917bc"
+        }
+      ],
+      "counts": {
+        "pairing": []
+      }
+    },
+    {
+      "version": 2,
+      "stash": "e0acb38e4ff9f9bcdf73a909e558325b35aefe41",
+      "verified_inputs": 2551,
+      "manifest_sha256": "12304ee6d13799e88c0e73b61ccc7c27c0c24e2bd62e4859d3544ee811a0de8f",
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "pairing",
+          "exit": 0,
+          "seconds": 90.79600214958191,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v2-pairing.log",
+          "log_sha256": "994b85708dd02f77478a27676aff6fab3e3c037546ed1e5c36e55338617e031d"
+        },
+        {
+          "gate": "ordinary-pairing",
+          "exit": 0,
+          "seconds": 30.688315868377686,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v2-ordinary-pairing.log",
+          "log_sha256": "4d8a07f5d587667e2e6898c428d12df3f6c93e608b9c39a6f0c5512eb28da69c"
+        },
+        {
+          "gate": "core",
+          "exit": 0,
+          "seconds": 26.326025009155273,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v2-core.log",
+          "log_sha256": "617fe5e92874a9348435a73464e2848dbe9f4d6518c7bbd8ad07a8f1020c6a29"
+        },
+        {
+          "gate": "default-refusal",
+          "exit": 101,
+          "seconds": 35.381266832351685,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v2-default-refusal.log",
+          "log_sha256": "2ef75f0f505007631bb747a1cb243100e1831ba16a70f6972ba940f6314227b2"
+        }
+      ],
+      "counts": {
+        "pairing": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "ordinary-pairing": [
+          [
+            "ok",
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "core": [
+          [
+            "ok",
+            "4",
+            "0",
+            "0"
+          ]
+        ],
+        "default-refusal": []
+      }
+    },
+    {
+      "version": 3,
+      "stash": "74e80e5de5f39b1e2c34fd3c70cbdff17155119d",
+      "verified_inputs": 2551,
+      "manifest_sha256": "027884efa4a3a395219eaab1f5ed2b3d676327b3ccd7330b3a89d26c9d2dcad2",
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "default-refusal",
+          "exit": 0,
+          "seconds": 67.32131385803223,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v3-default-refusal.log",
+          "log_sha256": "f0ca25fc3c54cb836e311b27500380b3ded533e33dae33e50487db3350fbf12d"
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 67.54136919975281,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v3-clippy.log",
+          "log_sha256": "6a461e8f0cbecd993c92d58fd5188a708b96cc49d489123c3c8577a2bba2adcc"
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 50.80966019630432,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v3-default.log",
+          "log_sha256": "1634e60a9a0036a8da101cfd7b3cda349ca1dcec72d54dfe12fc69e5a7124172"
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 4.205318927764893,
+          "log": "/Users/pj/project/build/automatic-existing-pair-sharing-v3-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "counts": {
+        "default-refusal": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "clippy": [],
+        "default": [],
+        "fmt": []
+      }
+    }
+  ],
+  "runtime_paths": [
+    "crates/marmot-app/src/account_chat_sharing.rs",
+    "crates/marmot-app/src/account_chat_sharing/enabled.rs",
+    "crates/marmot-app/src/client/account_chat_sharing.rs",
+    "crates/marmot-app/src/runtime/account_chat_sharing.rs",
+    "crates/marmot-app/src/client/device_linking.rs",
+    "crates/marmot-app/src/client/mod.rs",
+    "crates/marmot-app/src/client/sync.rs",
+    "crates/marmot-app/src/lib.rs",
+    "crates/marmot-app/src/native_device_linking/tests.rs",
+    "crates/marmot-app/src/runtime/account_worker.rs",
+    "crates/marmot-app/src/runtime/mod.rs"
+  ],
+  "classification": "New-feature actual acceptance; no artificial denying baseline. v1 compile-only missing test Duration; v2 actual feature1/ordinary3/Core4 green, default compile-only due module cfg; v3 default2 and strict/check/fmt green.",
+  "reused_feature_evidence": "v2\u2192v3 only client module cfg annotations corrected: duplicate feature annotation removed from new module and original feature annotation restored to history module. Feature-enabled runtime and acceptance bytes otherwise identical.",
+  "scope": "Fresh existing-pair source/recipient explicit account-wide consent through actual protected MLS signed Request/Consent. Opaque original revisions, alias/drop/cancel and fresh current Core context; symmetric durable policy, no implicit third-device policy. Automatic catalog/records/send actors not delivered by this slice.",
+  "limits": [
+    "No steady-state renewal or normal mirrored list/timeline/send yet.",
+    "No B original approve_and_share_chats hook yet.",
+    "No blocked transport/expiry/SQL failure/reopen approval acceptance claim.",
+    "Process-lifetime request fence cumulative128; no persistent unapproved-request restart fence.",
+    "No generated native artifact or installation."
+  ],
+  "post_freeze_delta": "App README/AGENTS and qualification/design docs only"
+}

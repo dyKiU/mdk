@@ -1,0 +1,99 @@
+{
+  "base_commit": "abb76728bb00b7ec387ff9fba141de6a038f82cc",
+  "scope": "Core actual MLS with injected original-owner policy; not genuine SDK consent or native producer integration",
+  "toolchain": "Rust1.97.1 on macbook.m5",
+  "source": "normal mdk-sync-delivery branch/worktree; no new snapshot cohort",
+  "source_files_verified": 2339,
+  "product_test_delta_sha256": {
+    "Cargo.lock": "1478635b23ca246b07f047e8a32e905e66c6c657c390783f3e0c7bb95f8957f0",
+    "crates/cgka-engine/Cargo.toml": "360661225a15849562a27b2bb18571e984ad4c15eb369b967ce4a311bdffa9cd",
+    "crates/cgka-engine/src/private_device_invite/preparation.rs": "a4b27ae72967cb0fead9954a1581bfe5ba9289a6e26115cd2d185f396a41e23c",
+    "crates/cgka-engine/src/private_enrollment_endorsement.rs": "0aeab6694c2cdfebdbd2ede737d03eb97ca3934a96fe19879edd322291bb945e",
+    "crates/cgka-engine/src/private_enrollment_request.rs": "329957a6fa1cde561a7c5ac21e7264737d9c5d7b31cd3610ac53d140a92130b6",
+    "crates/cgka-engine/src/private_enrollment_request/producer.rs": "c2b07dd4398cceffb4618ba56ca5ccc2aabbdd93dad5a8b63ea96efb122c98e7",
+    "crates/cgka-engine/src/private_roster_settlement_tests.rs": "819cf5d18a45feb4ac25bf8e8d4985be974aafe01d06ba6505ea1bd33ca1ba42"
+  },
+  "red": {
+    "source_files": 2339,
+    "runs": [
+      {
+        "name": "focused",
+        "exit_code": 101,
+        "seconds": 32.51,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 1,
+            "failed": 2,
+            "ignored": 0
+          }
+        ],
+        "sha256": "4026b8ff42d74e24890e96697ae896bcc9db38e65b5b0111e8ed2a1822b62e4f"
+      }
+    ]
+  },
+  "green": {
+    "source_files": 2339,
+    "runs": [
+      {
+        "name": "focused",
+        "exit_code": 0,
+        "seconds": 26.41,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "b15e5812e75a791ebfa4509370febebab44dbe2f79fb4d2eb6308630bbdcfb74"
+      },
+      {
+        "name": "family",
+        "exit_code": 0,
+        "seconds": 203.69,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 41,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "dd1cbc09f2a198bd75420fea966c9a6b281461e50d2e4f04bdcf3f902aa7dfa7"
+      },
+      {
+        "name": "feature-clippy",
+        "exit_code": 0,
+        "seconds": 39.32,
+        "counts": [],
+        "sha256": "4c0bf31ecd173551f4542f9bc9ef165764d166ae5a140bf4f47c0a524a2264be"
+      },
+      {
+        "name": "default",
+        "exit_code": 0,
+        "seconds": 0.62,
+        "counts": [],
+        "sha256": "f097254eefaea9846dcc59717728a09084ff9767f42281990d86463e4bec19aa"
+      },
+      {
+        "name": "fmt",
+        "exit_code": 0,
+        "seconds": 3.54,
+        "counts": [],
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "family_scope": "41 actual private_roster_settlement path-matching tests:37 in sibling test file plus4 inline; no empty target counted",
+  "original_draft_evidence": "enrollment-local-owner-red-v2-m5-root-verification.json (historical1pass/2fail)",
+  "commands_source": "run-mdk-local-owner-{red,green}-m5.py; exact locked feature filter and affected3pkg lint/default/fmt",
+  "preserved_failure": "Initial manual lock dependency ambiguity:zero tests; corrected existing base640.22.1 entry before semantic RED",
+  "limits": [
+    "App SDK metadata accessor still default-deny",
+    "No automatic proposal publication or B approval/admission",
+    "No new schema/pin/native export",
+    "No producer-specific SQL failure or stalled-wrapping cancellation control claimed"
+  ]
+}

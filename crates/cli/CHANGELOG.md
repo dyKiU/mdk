@@ -11,6 +11,12 @@ versioning through the workspace version in the root `Cargo.toml`.
 
 ### Fixed
 
+- Anchored `stream send` discovers the stream author's account before opening a
+  runtime, avoiding a competing worker for another local recipient. Explicitly
+  selecting a non-author account now returns `not_message_author`. Cold stream
+  preparation retries typed storage contention at most twice; publication is
+  never repeated by that readiness check.
+
 - An invite built from a KeyPackage the invitee had just replaced is no longer silently ignored (mdk#2344). After a
   Welcome consumes a KeyPackage, its private key now stays usable for 24 hours after the replacement is published
   (or until the KeyPackage expires, if sooner), so a Welcome an inviter built from the old publication can still be
@@ -109,6 +115,17 @@ migration 107; back up before upgrade because downgrade is unsupported. See the
 
 - All binaries use `libcrux-kem` 0.0.10, fixing malformed hybrid-key and
   short-seed panics (RUSTSEC-2026-0330 and RUSTSEC-2026-0331).
+- Anchored `stream send` discovers the stream author's account before opening a
+  runtime, avoiding a competing worker for another local recipient. Explicitly
+  selecting a non-author account now returns `not_message_author`. Cold stream
+  preparation retries typed storage contention at most twice; publication is
+  never repeated by that readiness check.
+
+- All daemon-hosted commands share the original app and account runtime, avoiding
+  competing database opens during group changes, chat subscriptions and reads.
+
+- Daemon-hosted stream start, finish, watch and verification use the daemon's
+  existing account runtime rather than reopening a competing account database.
 
 - A sent message the engine queued while the group was converging is no longer
   marked failed when an unrelated publish in the same batch fails, and a sent

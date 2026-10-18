@@ -1,0 +1,215 @@
+{
+  "scope": "Experimental approved-pair plain client-token forwarding precursor; no installed feature, shipping SDK, independent mirrored MLS membership or overall all-chat completion claim.",
+  "base": "fb1ced429d89f62e3d699a47735178879b777fe7",
+  "cohorts": [
+    {
+      "phase": "v1",
+      "candidate": "a5f512c013f371a7dd3b9e803713f79d3ea1f215",
+      "inputs": 2594,
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "forwarding",
+          "exit": 101,
+          "raw_sha256": "8797c7280becd803155e540a0a916694ab49b5e98ddcd6eb3253be9c6b8d7cf2",
+          "actual_summaries": []
+        }
+      ]
+    },
+    {
+      "phase": "v2",
+      "candidate": "db22f88e83ce935a8249f51f2361fad4dc901b9a",
+      "inputs": 2594,
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "forwarding",
+          "exit": 0,
+          "raw_sha256": "fb16a74afa7bde03921d0ec2552d259a4cd56c717b59038267bd8df56d31e2cd",
+          "actual_summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "phase": "final-v1",
+      "candidate": "71b4b8b6d1b11c36ca9020b12ea8069b6bf3dba1",
+      "inputs": 2594,
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "production-clippy",
+          "exit": 101,
+          "raw_sha256": "ebdd352abd61f2b652eb6aee5e0af8edeb8df62f4c34f01bf106c5823329bfbf",
+          "actual_summaries": []
+        }
+      ]
+    },
+    {
+      "phase": "final-v2",
+      "candidate": "58f23ae154e01c72f35e52dfb9bc0eb0a8d2e710",
+      "inputs": 2594,
+      "manifest_sha256": "26ba18e3e21dc551fc584a2e839c7efaee90e8fcc589246fa2d38bdead06047b",
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "production-clippy",
+          "exit": 0,
+          "seconds": 48.419007301330566,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-production-clippy.log",
+          "log_sha256": "565ed8b89d25c8815b0bd48202d158fd2b3f70277b2d8483290d3e5774a19531",
+          "actual_summaries": []
+        },
+        {
+          "gate": "forwarding",
+          "exit": 0,
+          "seconds": 95.56498193740845,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-forwarding.log",
+          "log_sha256": "fa6640e870c80e170728ae85c592a7ad84d38f6ca3cfba6ac68197eae58d3522",
+          "actual_summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "records",
+          "exit": 0,
+          "seconds": 33.824272871017456,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-records.log",
+          "log_sha256": "83e0c0a80f243af260bea3a29373a4fca5bdaafcf3995db1ae0b530a9c1606d9",
+          "actual_summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "catalog-family",
+          "exit": 0,
+          "seconds": 191.99935698509216,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-catalog-family.log",
+          "log_sha256": "bb00718983ecf798a0674cd0b2840836f217a64e5385de4f20094d3e86116723",
+          "actual_summaries": [
+            [
+              "2",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "core-policy",
+          "exit": 0,
+          "seconds": 26.311203002929688,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-core-policy.log",
+          "log_sha256": "eb4686b4d7a12eedcae0c43e79afb5eb50c3a7339e5c0b8bc93c9c5b1c05f11a",
+          "actual_summaries": [
+            [
+              "4",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "race",
+          "exit": 0,
+          "seconds": 21.796837091445923,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-race.log",
+          "log_sha256": "477987bf8850958ff67586dc47822a40e9358bd2c9661116eee03e9434e2a986",
+          "actual_summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 65.44498586654663,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-default.log",
+          "log_sha256": "a2baecdd920e02d4b6be9b4726488afb09be799461345e3892c9803cde0e85b2",
+          "actual_summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "default-check",
+          "exit": 0,
+          "seconds": 39.771918058395386,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-default-check.log",
+          "log_sha256": "91f7d1e355cf8731a406a90b115a2f7c7e549ff2d20d0cfcaf5714f53fe648e3",
+          "actual_summaries": []
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.650763988494873,
+          "log": "/Users/pj/project/build/automatic-forwarding-final-v2-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_summaries": []
+        }
+      ]
+    }
+  ],
+  "source_commit_scope": {
+    "exact_runtime_and_child_inputs": {
+      "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "e783d134a794764226d2da8cf830c6b08664ef8c5bab5f6b437b2ddcee03284e",
+      "crates/marmot-app/src/client/account_chat_sharing/automatic/sends.rs": "a100668ea50a6495b656b235f3ae00e557cde7b5efe8d868b25af3760cf478da",
+      "crates/marmot-app/src/client/account_chat_sharing/automatic/sends/transport.rs": "725f7a0fa53c63eb29b54efc8df64be7d3461789addff1bc0813478c82f54095",
+      "crates/marmot-app/src/runtime/account_chat_sharing.rs": "27b17208dee0f104ed2e126e9bfa60560f5a1df3d5e7d7710b3964f022b4e92d",
+      "crates/marmot-app/src/runtime/local_submissions.rs": "49dd5712ac599133857292d04ee2d2980ba1561cc0416a2bc65877c24a11ec04",
+      "crates/marmot-app/src/native_device_linking/automatic_forwarding_acceptance.rs": "99e7ca3738b97b662bc5e73bd3d8be2ca5b0b7e8f7dce88ec3b9777cfb338cd0"
+    },
+    "shared_fixture": "Only additive AutomaticForwarding variant/dispatch/Records seed and verify reuse/new child registration staged against the signed base; Root B broad scenarios and helper registrations remain separate uncommitted ownership. AutomaticForwarding follows the ordinary sibling pairing path and fresh A/C existing-pair explicit approval, never Root B broad branches.",
+    "post_freeze_documents": [
+      "crates/marmot-app/README.md",
+      "docs/marmot-architecture/overview/current-state.md",
+      "docs/automatic-account-chat-forwarding-verification.json"
+    ]
+  },
+  "contract": [
+    "Fresh actual approved policy/current protected Completed roster plus active mirror catalog before and at queue transaction tail. Storage/engine failures remain failures, never fallback permission.",
+    "Fixed account/origin/group/client-token intent identity and original canonical event timestamp/payload; exact retry retains ID, conflicting body refused.",
+    "Authenticated fragmented SendIntent and typed SendReceipt under original encrypted channel. Actual member revalidates current policy/channel and real ordinary membership, then calls the existing prepared ordinary publisher.",
+    "Queued local status until committed authenticated peer receipt carries the exact genuine ordinary event ID. Source-attested record import follows separately; no synthetic Group or live app-event row created on mirror. Ordinary get_group success routes unchanged."
+  ],
+  "acceptance": [
+    "Independent encrypted A/B/C stores and actual LocalRelay; C has no ordinary group and uses normal submit_text/client token.",
+    "Same-token retry exact ID, different content refusal, actual A ordinary message, authenticated C completion receipt, C automatic mirrored import, no fake membership.",
+    "Final unchanged Forwarding1 + Records1 + catalog2 + Corepolicy4 + original SQL race1 + default refusal1; strict production, default all-target check and format pass."
+  ],
+  "known_limits": [
+    "First real feature acceptance, no artificial unavailable stub RED. v1 and final-v1 failures are compile-only.",
+    "Only plain text positive is qualified here; reply, offline/restart queued recovery, lost/reordered receipts and alternate-source duplicate execution require follow-up controls.",
+    "Mirrored draft correlation, media uploads and edits explicitly unavailable. Source-qualified persisted draft ownership remains separate.",
+    "Blocked publication/cancellation/shutdown/revocation races are not proved by this unblocked positive; already accepted normal EngineOwned ordinary event has distinct irrevocable publication ownership.",
+    "Direct C peer absence/default controls do not qualify stranger or non-admin incoming all-chat delivery; actual non-admin and interoperability controls remain required.",
+    "Presentation source cb194 is separately qualified; successful Records SQL invalidation callback/native combined windows and installed journey remain unintegrated here.",
+    "Experimental durable queue capacities remain cumulative and fail closed; no GC or unbounded sync promise."
+  ],
+  "evidence_root": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-forwarding",
+  "target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+  "toolchain": "Rust1.97.1 aarch64-apple-darwin; jobs1/debug0/incremental0",
+  "historical_binary": {
+    "path": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+    "sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  },
+  "publication": "Coherent signed source only; generated or installed artifacts unchanged."
+}

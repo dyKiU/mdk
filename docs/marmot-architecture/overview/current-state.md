@@ -1,7 +1,7 @@
 ---
 title: "Current State — Implementations & Spec"
 created: 2026-04-19
-updated: 2026-10-09
+updated: 2026-10-13
 tags: [marmot, overview, current-state, implementations]
 status: overview
 ---
@@ -18,6 +18,51 @@ status: overview
 > explicit group evolution.
 
 # Current State — Implementations & Spec
+
+The default-off App history recipient query exposes bounded current Core-derived
+linked-device observations for an ordinary chat. It shares fresh eligibility
+checks with transfer creation and creates no original action or consent. The
+public SDK regression selects an actual returned device and completes the
+separately approved logical import; native exports and picker adoption remain
+separate work. See the [query contract](../../../crates/marmot-app/README.md#history-transfer-recipient-selection).
+
+The default-off history action surface also has thin UniFFI/C original-owner
+handles, authenticated review snapshots and typed default refusal. Focused
+source checks and the generated C header are qualified; valid original alias
+lifecycle and matched native application history display remain open. The
+separate synchronous UniFFI/C committed-history reader forwards the App retention
+and provenance policy; empty-archive/native guards and seven App controls pass,
+with native populated-history and UI acceptance still required. See the
+[reader contract](../../../crates/marmot-uniffi/SYNCHRONIZED-HISTORY.md) and
+[reader source qualification](../../history-native-query-focused-verification.json). See
+[native binding qualification](../../history-original-native-bindings-focused-verification.json).
+
+The default-off device-sync experiment now has a public read-only App query for
+completed logical archive records. It returns source-attested content and
+provenance in bounded message-ID pages, preserving live-event precedence,
+retention fences, payload-free tombstones and shared ordered media verdicts.
+Storage-seeded query tests qualify this presentation boundary; original transport,
+native bindings and conversation/UI adoption require their separate evidence.
+See [query qualification](../../history-readonly-query-focused-verification.json)
+and the [App query contract](../../../crates/marmot-app/README.md#read-only-synchronized-logical-history).
+
+The private, default-off multi-device experiment qualifies original-action A/B/C
+protected settlement and opaque public native three-device enrollment on ready
+isolated accounts. UniFFI/C original-action relay tests and matched host Swift/C
+ABI checks expose protected target selection, explicit existing-device approval,
+bounded enrollment packets and terminal completion observations. Enrollment
+capability remains false pending matched Mac/iOS artifacts and application
+acceptance. Fresh onboarding, ordinary chat delivery and history remain open;
+protected enrollment alone grants no ordinary-chat permission. See
+[original ABC evidence](../../device-sync-original-abc-settlement-verification.json),
+[public native enrollment](../../device-sync-native-three-device-enrollment-verification.json)
+and [binding qualification](../../device-sync-native-three-device-bindings-verification.json).
+
+The same private experiment now produces original-consent single-use selected-chat
+packages and collects their authenticated offers under the original request.
+Canonical signatures and exact package identity are observations; original-owner
+ordinary publication, recipient admission and message/history delivery remain open.
+See [offer collection evidence](../../device-sync-selected-chat-offer-collection-verification.json).
 
 On master, one durable recovery owner (#1946) authorizes account-history acquisition for startup, receive,
 maintenance, convergence and explicit repair; its coalesced demand and retry pacing survive reopen, and EOSE alone never
@@ -163,10 +208,14 @@ setup/onboarding changes can retry it. Aggregate reconciliation still reports pa
 
 MDK now exposes opt-in durable onboarding for imported identities, with per-step
 validation, repair proposals, explicit approval, and Swift/Kotlin/C bindings.
-It requires single-device acknowledgment before KeyPackage publication and offers
-advisory detection of packages that may belong to another installation.
+It pauses for single-device acknowledgment before public KeyPackage publication.
+Possible or inconclusive other-installation discovery makes Continue complete
+companion setup with a durable public-publication hold, preserving existing
+invitation keys through restart and retained-fanout retries. Complete empty
+discovery retains normal first-installation publication unless a hold exists.
+Companion sign-in is not pairing, history transfer or repair of old public slots.
 Account onboarding gates normal worker commands until required checks and
-KeyPackage publication complete. Hosts can cancel an interactive attempt at any
+publication or companion setup complete. Hosts can cancel an interactive attempt at any
 step, including approved or ready checkpoints: the account stays signed out, the
 attempt is retired, and its exact evidence is retained in the latest cancellation
 checkpoint. A later cancellation replaces earlier evidence even if publication
@@ -419,3 +468,76 @@ separate rollout work.
 C7-C adds screen avatar metadata, bounded local encoded-byte batches and acquisition/cache invalidation delivery to
 resolved chat and conversation subscriptions, with matching UniFFI/C surfaces. C7-B's durable worker remains the
 network owner. Client cache migration and flagship-device evidence remain C9 follow-through; this is not a release.
+
+The default-off one-group device revocation boundary now supports an opaque original administrator review of one actual same-account sibling leaf, with full authenticated ordinary/protected freshness and exact cancellation. The real four-device regression covers review creation, self/foreign refusal and genuine epoch invalidation. It does not yet stage or publish a Remove, revoke the protected roster, or report multi-group outcomes.
+
+One-group original exact-leaf removal is now qualified independently of full device revocation: real four-leaf Current A/B/C/D, explicit fresh A administrator review, C alone removed, actual A/B/D three-leaf state and future messages, C realized-eviction outbound refusal. Protected roster and other chats remain unchanged. Actual reopen, blocked transport/lost-reply/expiry controls, native API adoption and multigroup/protected revocation remain open. Proof: docs/device-sync-exact-device-leaf-removal-verification.json.
+
+One-group exact-leaf removal now also has actual held-publication cancellation/lost-reply controls and genuine removed-C encrypted-reopen acceptance, without a production change. Cancelled held Removes stay absent from the real relay and all four predecessor leaves remain active; after committed removal/reopen, future messages reach A/B/D and remain absent C. Fixed expiry, responsive shutdown and storage-confirmation fault controls remain pending. Proof: docs/device-sync-exact-device-removal-lifecycle-verification.json.
+
+
+### Exact-device captured-scope removal checkpoint
+
+Device-wide original removal now qualifies actual protected three-to-two and two ordinary four-to-three leaf transitions, surviving new messages and removed-device refusal. Old protected round and matching origins remain denied. Fresh positive protected successor settlement, whole-scope lifecycle/repair/reopen and native exposure remain open.
+
+Approved pair-wide policy now schedules actual encrypted initial/later catalog exchange into separate source-attested mirror storage. The retained-request/source-policy SQL race is qualified with unchanged original custody and a capped deadline. Normal chat-list/timeline/message/send integration and reliable renewal/replay/withdrawal delivery remain separate work; see [scoped proof](../../automatic-approved-policy-catalog-actor-verification.json).
+
+The approved-policy catalog actor preserves observational scan progress across fresh same-generation channels and reserves each complete entry within the body budget. An unchanged real 22-chat relay regression fails before the repair and passes after it; combined signed private21 dependency checks also pass. This does not qualify recipient acknowledgements, message streaming, forwarding or installed automatic chat presentation.
+
+The experimental approved-pair actor now transfers preapproval and later logical records with committed batch receipts. A mirrored-only device can submit plain text through the existing client-token runtime path: admission retains a fixed ordinary inner-event identity, queues authenticated delegation, and reports completion only after a genuine actual-member publication receipt. Retries preserve that identity; conflicting content under the same token is refused. Mirror rows remain source-attested and create no ordinary MLS membership. Reply/offline recovery, draft/media routing, publication lifecycle and installed unified presentation remain separate qualification; see [forwarding checkpoint](../../automatic-account-chat-forwarding-verification.json).
+
+Experimental App source-qualified chat pages and list/conversation owners now
+qualify real original approval/catalog wakes, cancellation and shutdown, with
+separate total-bound chronology/precedence/privacy storage controls. Mirror rows
+remain distinct from actual MLS membership. Initial list lanes retain separate
+ordering/cursors. Records-actor message delivery, native normal-view adoption and
+normal forwarding require subsequent integrated acceptance; see
+[focused proof](../../account-chat-presentation-app-windows-verification.json).
+
+Experimental approved-pair catalog delivery now publishes empty source-device
+withdrawals after actual Core departure, invalidates pending active disclosure,
+and preserves local-only chat hiding. Real non-admin leave, committed recipient
+window removal and encrypted own-store reopen pass alongside catalog/Records
+and scoped static checks. This is not principal-wide leave across several actual
+member devices; pending-stranger eligibility and positive rejoin lineage remain
+open. No updated SDK or installed-app qualification is claimed; see
+[source withdrawal proof](../../automatic-source-chat-withdrawal-verification.json).
+
+Experimental automatic Records now freshly re-encode acknowledged canonical
+history into a new authenticated recipient projection, then suppress identical
+acknowledged rescans. Real acknowledged AB
+history remains visible in B's renewed ABC scope, while terminal outbox receipts
+and erased payloads remain immutable. Core role/expiry/revocation/custody controls,
+affected catalog/Records tests and scoped default/strict checks pass; see
+[replay proof](../../automatic-record-generation-replay-verification.json).
+Pending-invitation acceptance lineage, principal-wide leave and positive rejoin
+remain open. This source checkpoint updates no SDK or app.
+
+Experimental automatic discovery now excludes retained sponsor originals from
+recipient-only sibling request collection. Real public opaque AB originals
+remain completed and held while both genuine request directions discover an
+accepted incoming chat and its canonical history. The regression changes from
+one pass/one failure to two passes; existing three-device sibling, catalog,
+Records and scoped default/strict checks pass. Source eligibility and installed
+SDK/app journeys remain separate; see
+[routing proof](../../automatic-held-original-routing-verification.json).
+
+Experimental completed-recipient routing now preserves exact original-nonce
+retries while passing new Requests to the independently authenticated automatic
+policy after full handoff. Real fully broad held ABC originals deliver a newly
+B-owned ordinary chat and canonical message to C in both actual BC request
+directions; the old B-initiated case failed while A history still reached both
+recipients. The unchanged regression and affected sibling/catalog/Records plus
+scoped strict/default checks pass; see
+[completed recipient proof](../../automatic-completed-recipient-routing-verification.json).
+Native retained-handle and installed-device journeys still require the new SDK.
+
+Experimental fresh broad-sharing originals now capture bounded existing
+nonpending Member chats whose retained founding/incoming lineage is unavailable.
+The actual original and current account/group checks surround an atomic policy
+and distinct ExplicitLegacyAcceptance write; stored policy and renewal do not
+mint acceptance. Genuine primary, existing-pair and B-owned endorsement relay
+controls, hidden encrypted reopen, SQL lifetime/rollback guards and affected
+original/catalog/Records checks pass. This source-only private24 checkpoint does
+not qualify positive rejoin, principal-wide leave or a new installed SDK/app; see
+[legacy acceptance proof](../../automatic-original-legacy-chat-acceptance-verification.json).

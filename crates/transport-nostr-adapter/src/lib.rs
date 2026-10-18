@@ -67,6 +67,13 @@ fn inbound_wire_metadata(
     }
 }
 
+mod live_delivery;
+pub use live_delivery::ObservedTransportDelivery;
+#[cfg(feature = "experimental-device-sync")]
+pub use live_delivery::{
+    CapturedLiveRelayEvent, LiveDeliveryObservation, LiveNotificationReceiver,
+};
+
 mod acquisition;
 mod key_package;
 #[cfg(feature = "sdk")]
@@ -1028,16 +1035,33 @@ async fn close_abandoned_sync_batch(
     batch: Vec<NostrSubscription>,
 ) {
     settle_subscribe_tasks(barriers).await;
-    let abandoned = {
+    let (abandoned, scoped) = {
         let state = state.read().await;
-        batch
-            .into_iter()
+        let abandoned = batch
+            .iter()
             .filter(|subscription| {
                 state
                     .live_subscription_route(&subscription.subscription_id())
                     .is_none()
             })
-            .collect::<Vec<_>>()
+            .cloned()
+            .collect::<Vec<_>>();
+        #[cfg(feature = "experimental-device-sync")]
+        let scoped = state
+            .private_observation_wires
+            .values()
+            .filter(|wire| {
+                !wire.completed
+                    && batch.iter().any(|subscription| {
+                        subscription.subscription_id() == wire.logical
+                            && subscription.account_id() == wire.subscription.account_id()
+                    })
+            })
+            .map(|wire| (wire.actual.clone(), wire.subscription.clone()))
+            .collect::<Vec<_>>();
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let scoped: Vec<(String, NostrSubscription)> = Vec::new();
+        (abandoned, scoped)
     };
     let mut failed = Vec::new();
     for subscription in abandoned {
@@ -1051,6 +1075,19 @@ async fn close_abandoned_sync_batch(
     }
     if !failed.is_empty() {
         state.write().await.queue_pending_unsubscribes(failed);
+    }
+    for (actual, subscription) in scoped {
+        if relay_client
+            .unsubscribe_scoped(subscription.clone(), actual.clone())
+            .await
+            .is_err()
+        {
+            state
+                .write()
+                .await
+                .pending_scoped_unsubscribes
+                .insert(actual, subscription);
+        }
     }
 }
 
@@ -1070,8 +1107,8 @@ impl<T: 'static> Drop for DetachOnDrop<T> {
 pub struct NostrTransportAdapter {
     relay_client: Arc<dyn NostrRelayClient>,
     state: Arc<RwLock<AdapterState>>,
-    delivery_tx: mpsc::Sender<TransportDelivery>,
-    delivery_rx: Arc<Mutex<mpsc::Receiver<TransportDelivery>>>,
+    delivery_tx: mpsc::Sender<ObservedTransportDelivery>,
+    delivery_rx: Arc<Mutex<mpsc::Receiver<ObservedTransportDelivery>>>,
     /// Serializes the subscription-lifecycle operations (activate / deactivate /
     /// group sync) so their relay-side subscribe/unsubscribe network calls —
     /// which run OUTSIDE the `state` `RwLock` — cannot interleave. Without it a
@@ -1093,6 +1130,8 @@ pub struct NostrTransportAdapter {
     subscribe_tasks: Arc<std::sync::Mutex<Arc<RwLock<()>>>>,
     /// Local monotonic origin for delivery telemetry. Never `created_at`.
     monotonic_start: std::time::Instant,
+    #[cfg(feature = "experimental-device-sync")]
+    private_wire_namespace: [u8; 32],
     /// Shared by [`Clone`] and by every account adapter on this relay plane.
     publish_accounting: Arc<publish_accounting::PublishAccounting>,
     /// Refusals of each account's live subscriptions awaiting the next
@@ -1113,6 +1152,10 @@ impl NostrTransportAdapter {
             subscription_lock: Arc::new(Mutex::new(())),
             subscribe_tasks: Arc::new(std::sync::Mutex::new(Arc::new(RwLock::new(())))),
             monotonic_start: std::time::Instant::now(),
+            // Process-local public randomness prevents restarted wire ID reuse.
+            // No signing key or consent is retained.
+            #[cfg(feature = "experimental-device-sync")]
+            private_wire_namespace: nostr::prelude::Keys::generate().public_key().to_bytes(),
             publish_accounting: publish_accounting::PublishAccounting::new(),
             subscription_refusals: Arc::default(),
         }
@@ -1270,12 +1313,49 @@ impl NostrTransportAdapter {
         let mut tasks = DetachOnDrop(JoinSet::new());
         for (sub_index, subscription) in subscriptions.iter().cloned().enumerate() {
             let relay_client = self.relay_client.clone();
+            #[cfg(feature = "experimental-device-sync")]
+            let actual = {
+                let state = self.state.read().await;
+                let selected = state
+                    .private_observation_groups
+                    .get(subscription.account_id());
+                // Retained routes of the same group remain history-only ordinary
+                // subscriptions. Only the selected current route owns freshness.
+                let private = matches!(&subscription, NostrSubscription::Group { group_id, .. } if selected == Some(group_id))
+                    && state
+                        .private_observation_wires
+                        .get(subscription.account_id())
+                        .is_none_or(|wire| {
+                            wire.subscription.route_key() == subscription.route_key()
+                        });
+                let actual = state
+                    .private_observation_wires
+                    .get(subscription.account_id())
+                    .filter(|wire| wire.ready && wire.logical == subscription.subscription_id())
+                    .map(|wire| wire.actual.clone());
+                if private && actual.is_none() {
+                    return Err(TransportAdapterError::Subscription(
+                        "private observation issuance unavailable".into(),
+                    ));
+                }
+                actual
+            };
             let state = self.state.clone();
             let lifecycle = self.subscription_lock.clone();
             let barriers = self.subscribe_tasks.clone();
             let barrier = self.current_subscribe_tasks();
             let in_flight = barrier.clone().read_owned().await;
             tasks.0.spawn(async move {
+                #[cfg(feature = "experimental-device-sync")]
+                let result = match &actual {
+                    Some(actual) => {
+                        relay_client
+                            .subscribe_scoped(subscription.clone(), actual.clone())
+                            .await
+                    }
+                    None => relay_client.subscribe(subscription.clone()).await,
+                };
+                #[cfg(not(feature = "experimental-device-sync"))]
                 let result = relay_client.subscribe(subscription.clone()).await;
                 // A lifecycle operation that gave up waiting for this task
                 // retired its barrier and may already have swept the account,
@@ -1300,21 +1380,53 @@ impl NostrTransportAdapter {
                     // installed its routes, or with a retry re-registering the
                     // same id. A failed close is queued for the next drain.
                     let _lifecycle = lifecycle.lock().await;
+                    #[cfg(feature = "experimental-device-sync")]
+                    let wanted = match &actual {
+                        Some(id) => state
+                            .read()
+                            .await
+                            .private_observation_wires
+                            .get(subscription.account_id())
+                            .is_some_and(|wire| wire.ready && &wire.actual == id),
+                        None => state
+                            .read()
+                            .await
+                            .live_subscription_route(&subscription.subscription_id())
+                            .is_some(),
+                    };
+                    #[cfg(not(feature = "experimental-device-sync"))]
                     let wanted = state
                         .read()
                         .await
                         .live_subscription_route(&subscription.subscription_id())
                         .is_some();
-                    if !wanted
-                        && relay_client
-                            .unsubscribe(subscription.clone())
-                            .await
-                            .is_err()
-                    {
-                        state
-                            .write()
-                            .await
-                            .queue_pending_unsubscribes(vec![subscription]);
+                    if !wanted {
+                        #[cfg(feature = "experimental-device-sync")]
+                        let closed = match &actual {
+                            Some(id) => {
+                                relay_client
+                                    .unsubscribe_scoped(subscription.clone(), id.clone())
+                                    .await
+                            }
+                            None => relay_client.unsubscribe(subscription.clone()).await,
+                        };
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        let closed = relay_client.unsubscribe(subscription.clone()).await;
+                        if closed.is_err() {
+                            #[cfg(feature = "experimental-device-sync")]
+                            if let Some(id) = actual {
+                                state
+                                    .write()
+                                    .await
+                                    .pending_scoped_unsubscribes
+                                    .insert(id, subscription);
+                                return (sub_index, result);
+                            }
+                            state
+                                .write()
+                                .await
+                                .queue_pending_unsubscribes(vec![subscription]);
+                        }
                     }
                 }
                 (sub_index, result)
@@ -1454,6 +1566,14 @@ impl NostrTransportAdapter {
     ) -> Option<bool> {
         let state = self.state.read().await;
         let relay = state.relay_index.existing_index_for(endpoint)?;
+        #[cfg(feature = "experimental-device-sync")]
+        let subscription_id = state
+            .private_observation_wires
+            .values()
+            .find(|wire| wire.logical == subscription_id)
+            .map_or(Some(subscription_id), |wire| {
+                wire.ready.then_some(wire.actual.as_str())
+            })?;
         state
             .sync
             .subscription_endpoint_eose(subscription_id, relay)
@@ -1567,6 +1687,77 @@ impl NostrTransportAdapter {
         let mut complete = Vec::new();
         let mut unsent = Vec::new();
         for (account_id, subscription_id, claims) in awaiting {
+            #[cfg(feature = "experimental-device-sync")]
+            {
+                let selected = self
+                    .state
+                    .read()
+                    .await
+                    .private_observation_wires
+                    .get(&account_id)
+                    .filter(|wire| wire.logical == subscription_id)
+                    .cloned();
+                if let Some(selected) = selected {
+                    let endpoints = selected.subscription.endpoints().to_vec();
+                    let routes = self
+                        .state
+                        .read()
+                        .await
+                        .accounts
+                        .get(&account_id)
+                        .map(|account| account.groups.clone())
+                        .unwrap_or_default();
+                    let since = match &selected.subscription {
+                        NostrSubscription::Group { since, .. } => *since,
+                        _ => None,
+                    };
+                    let result = match self
+                        .prepare_private_observation_wire(
+                            &account_id,
+                            &routes,
+                            since,
+                            selected.attempt,
+                            false,
+                            true,
+                        )
+                        .await
+                    {
+                        Ok(Some(subscription)) => {
+                            let actual = self
+                                .state
+                                .read()
+                                .await
+                                .private_observation_wires
+                                .get(&account_id)
+                                .map(|wire| wire.actual.clone());
+                            match actual {
+                                Some(actual) => {
+                                    self.relay_client
+                                        .subscribe_scoped(subscription, actual)
+                                        .await
+                                }
+                                None => Err(TransportAdapterError::Subscription(
+                                    "private observation scope unavailable".into(),
+                                )),
+                            }
+                        }
+                        Ok(None) => Err(TransportAdapterError::Subscription(
+                            "private observation scope unavailable".into(),
+                        )),
+                        Err(error) => Err(error),
+                    };
+                    self.finish_private_observation_wire(&account_id, result.is_ok())
+                        .await;
+                    if result.is_ok() {
+                        summary.reissued_relays += endpoints.len();
+                    } else {
+                        for endpoint in endpoints {
+                            unsent.push((subscription_id.clone(), endpoint));
+                        }
+                    }
+                    continue;
+                }
+            }
             let (reissue, check): (Vec<_>, Vec<_>) = claims
                 .into_iter()
                 .partition(|(_, claim)| *claim == EoseRepairClaim::Reissue);
@@ -1869,6 +2060,313 @@ impl NostrTransportAdapter {
         self.monotonic_start.elapsed().as_millis() as u64
     }
 
+    /// Ownership-preserving queue receive. Generic TransportAdapter::receive
+    /// strips the receipt; explicit history never manufactures one.
+    pub async fn receive_observed(
+        &self,
+    ) -> Result<Option<ObservedTransportDelivery>, TransportAdapterError> {
+        Ok(self.delivery_rx.lock().await.recv().await)
+    }
+
+    /// Select only acquisition routing metadata from the account owner. This
+    /// creates no membership, artifact authentication or SDK admission.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn configure_private_observation_group(
+        &self,
+        account: &MemberId,
+        selected: Option<GroupId>,
+    ) {
+        let mut state = self.state.write().await;
+        let previous = state.private_observation_groups.get(account);
+        if previous != selected.as_ref()
+            && let Some(wire) = state.private_observation_wires.get_mut(account)
+        {
+            wire.ready = false;
+            wire.completed = false;
+        }
+        match selected {
+            Some(group) => {
+                state
+                    .private_observation_groups
+                    .insert(account.clone(), group);
+            }
+            None => {
+                state.private_observation_groups.remove(account);
+            }
+        }
+    }
+
+    /// Caller holds the existing subscription lifecycle lock. Burn a new
+    /// actual ID before I/O and CLOSE the predecessor before any new REQ.
+    #[cfg(feature = "experimental-device-sync")]
+    async fn prepare_private_observation_wire(
+        &self,
+        account: &MemberId,
+        groups: &[TransportGroupSubscription],
+        since: Option<Timestamp>,
+        attempt: SubscriptionAttempt,
+        activation_reset: bool,
+        force: bool,
+    ) -> Result<Option<NostrSubscription>, TransportAdapterError> {
+        let (old, replacement) = {
+            let mut state = self.state.write().await;
+            let desired = state.private_observation_groups.get(account).cloned();
+            let previous = state.private_observation_wires.get(account).cloned();
+            let replacement = if let Some(group_id) = desired {
+                let route = groups
+                    .iter()
+                    .find(|route| route.group_id == group_id && route.retained_since.is_none())
+                    .ok_or_else(|| {
+                        if let Some(wire) = state.private_observation_wires.get_mut(account) {
+                            wire.ready = false;
+                            wire.completed = false;
+                        }
+                        TransportAdapterError::Subscription(
+                            "selected private observation route unavailable".into(),
+                        )
+                    })?;
+                let key = group_route_key(account, route);
+                let since = state
+                    .accounts
+                    .get(account)
+                    .and_then(|routes| routes.group_since.get(&key))
+                    .copied()
+                    .unwrap_or(since);
+                let subscription = group_subscription(account, route, since, attempt);
+                if !force
+                    && !activation_reset
+                    && previous.as_ref().is_some_and(|old| {
+                        old.ready
+                            && old.completed
+                            && old.subscription == subscription
+                            && old.attempt == attempt
+                    })
+                {
+                    return Ok(None);
+                }
+                // Any replacement attempt invalidates its predecessor before
+                // fallible allocation or I/O. An exact completed no-op above
+                // retains its existing evidence; failure can only revoke it.
+                if let Some(wire) = state.private_observation_wires.get_mut(account) {
+                    wire.ready = false;
+                    wire.completed = false;
+                }
+                let next = state
+                    .private_observation_counter
+                    .checked_add(1)
+                    .filter(|next| *next <= i64::MAX as u64)
+                    .ok_or_else(|| {
+                        TransportAdapterError::Subscription(
+                            "private observation generation exhausted".into(),
+                        )
+                    })?;
+                state.private_observation_counter = next;
+                let logical = subscription.subscription_id();
+                let actual = compact_subscription_id(
+                    "private-observation",
+                    &[
+                        &self.private_wire_namespace,
+                        logical.as_bytes(),
+                        &next.to_be_bytes(),
+                    ],
+                );
+                Some(PrivateObservationWire {
+                    group: group_id,
+                    subscription,
+                    logical,
+                    actual,
+                    attempt,
+                    ready: false,
+                    completed: false,
+                })
+            } else {
+                None
+            };
+            let old = previous
+                .as_ref()
+                .map(|wire| (wire.actual.clone(), wire.subscription.clone()))
+                .or_else(|| {
+                    replacement
+                        .as_ref()
+                        .map(|wire| (wire.logical.clone(), wire.subscription.clone()))
+                });
+            if let Some(wire) = replacement.as_ref() {
+                state
+                    .private_observation_wires
+                    .insert(account.clone(), wire.clone());
+            } else if let Some(wire) = state.private_observation_wires.get_mut(account) {
+                wire.ready = false;
+                wire.completed = false;
+            }
+            if !activation_reset && let Some((id, subscription)) = &old {
+                state
+                    .pending_scoped_unsubscribes
+                    .insert(id.clone(), subscription.clone());
+            }
+            (old, replacement)
+        };
+        if !activation_reset && old.is_some() {
+            let (_, failed) = self.drain_pending_unsubscribes().await;
+            if failed != 0 {
+                return Err(TransportAdapterError::Subscription(
+                    "private observation predecessor close incomplete".into(),
+                ));
+            }
+        }
+        let Some(replacement) = replacement else {
+            return Ok(None);
+        };
+        let mut state = self.state.write().await;
+        let Some(current) = state.private_observation_wires.get_mut(account) else {
+            return Err(TransportAdapterError::Subscription(
+                "private observation selection changed".into(),
+            ));
+        };
+        if current.actual != replacement.actual {
+            return Err(TransportAdapterError::Subscription(
+                "private observation selection changed".into(),
+            ));
+        }
+        current.ready = true;
+        let now_ms = self.now_ms();
+        state.record_scoped_subscription_start(
+            &replacement.subscription,
+            &replacement.actual,
+            now_ms,
+        );
+        state.record_scoped_subscription_start(
+            &replacement.subscription,
+            &replacement.logical,
+            now_ms,
+        );
+        // Reset the logical activation obligation rather than treating an old
+        // EOSE as progress for the replacement private REQ.
+        if let Some(coverage) = state.account_replay_coverage.get_mut(account)
+            && let Some(endpoints) = coverage.subscriptions.get_mut(&replacement.logical)
+        {
+            for seen in endpoints.values_mut() {
+                *seen = RelayReplay::Awaiting;
+            }
+        }
+        Ok(Some(replacement.subscription))
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn finish_private_observation_wire(&self, account: &MemberId, success: bool) {
+        let mut state = self.state.write().await;
+        if let Some(wire) = state.private_observation_wires.get_mut(account) {
+            wire.completed = success;
+            if !success {
+                wire.ready = false;
+            }
+        }
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn live_notification_receiver(
+        &self,
+        account: Option<MemberId>,
+    ) -> LiveNotificationReceiver {
+        LiveNotificationReceiver::new(self.clone(), account)
+    }
+
+    /// Consume only a receiver capture; missing capture remains historical/negative.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn handle_captured_live_relay_event(
+        &self,
+        account: Option<&MemberId>,
+        event: NostrRelayEvent,
+        capture: Option<CapturedLiveRelayEvent>,
+    ) -> Result<usize, TransportAdapterError> {
+        let message = event
+            .event
+            .to_transport_message()
+            .map_err(map_inbound_event_error)?;
+        let mut observations = {
+            let state = self.state.read().await;
+            capture
+                .map(|capture| capture.observations(self, &state, &message, account))
+                .unwrap_or_default()
+        };
+        let deliveries = self.deliveries_for_message(event, message, account).await?;
+        let count = deliveries.len();
+        for delivery in deliveries {
+            let observation = delivery.group_id_hint.as_ref().and_then(|group| {
+                observations.remove(&(delivery.account_id.clone(), group.clone()))
+            });
+            self.delivery_tx
+                .send(ObservedTransportDelivery {
+                    delivery,
+                    observation,
+                })
+                .await
+                .map_err(|_| TransportAdapterError::Closed)?;
+        }
+        self.state.write().await.record_inbound_event(count);
+        Ok(count)
+    }
+
+    /// Trusted actual SDK notification inlet, not a history/reconciliation API.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn handle_live_relay_event(
+        &self,
+        account: Option<&MemberId>,
+        relay_event: NostrRelayEvent,
+    ) -> Result<usize, TransportAdapterError> {
+        let deadline = Instant::now() + Duration::from_secs(600);
+        let endpoint = relay_event.endpoint.clone();
+        let subscription = relay_event.subscription_id.clone();
+        let message = relay_event
+            .event
+            .to_transport_message()
+            .map_err(map_inbound_event_error)?;
+        // Capture acquisition phase before the first await. Busy/missing EOSE
+        // is negative only; later queue/routing progress cannot upgrade backlog.
+        let mut observations = self
+            .state
+            .try_read()
+            .map(|state| {
+                state
+                    .routes_for(&message, &endpoint)
+                    .into_iter()
+                    .filter(|route| account.is_none_or(|id| id == &route.account_id))
+                    .filter_map(|route| {
+                        let group = route.group_id_hint.clone()?;
+                        let observation = subscription.as_deref().and_then(|id| {
+                            state.live_delivery_observation(
+                                &route.account_id,
+                                &group,
+                                &message,
+                                &endpoint,
+                                id,
+                                deadline,
+                            )
+                        })?;
+                        Some(((route.account_id, group), observation))
+                    })
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+        let deliveries = self
+            .deliveries_for_message(relay_event, message, account)
+            .await?;
+        let count = deliveries.len();
+        for delivery in deliveries {
+            let observation = delivery.group_id_hint.as_ref().and_then(|group| {
+                observations.remove(&(delivery.account_id.clone(), group.clone()))
+            });
+            self.delivery_tx
+                .send(ObservedTransportDelivery {
+                    delivery,
+                    observation,
+                })
+                .await
+                .map_err(|_| TransportAdapterError::Closed)?;
+        }
+        self.state.write().await.record_inbound_event(count);
+        Ok(count)
+    }
+
     /// Convert a relay event into zero or more account-scoped deliveries.
     ///
     /// Invalid Nostr DTOs fail closed before the engine sees them. Valid but
@@ -1917,6 +2415,16 @@ impl NostrTransportAdapter {
             .event
             .to_transport_message()
             .map_err(map_inbound_event_error)?;
+        self.deliveries_for_message(relay_event, message, account_id)
+            .await
+    }
+
+    async fn deliveries_for_message(
+        &self,
+        relay_event: NostrRelayEvent,
+        message: TransportMessage,
+        account_id: Option<&MemberId>,
+    ) -> Result<Vec<TransportDelivery>, TransportAdapterError> {
         let received_at = Timestamp(unix_now_seconds());
         let mut routes = {
             let state = self.state.read().await;
@@ -1953,7 +2461,7 @@ impl NostrTransportAdapter {
         let delivered = deliveries.len();
         for delivery in deliveries {
             self.delivery_tx
-                .send(delivery)
+                .send(delivery.into())
                 .await
                 .map_err(|_| TransportAdapterError::Closed)?;
         }
@@ -2268,6 +2776,10 @@ impl TransportAdapter for NostrTransportAdapter {
         // interleave a concurrent sync's unsubscribe drain (see the field doc).
         let _subscription_guard = self.lock_subscriptions().await;
         let account_id = activation.account_id.clone();
+        #[cfg(feature = "experimental-device-sync")]
+        let private_groups = activation.group_subscriptions.clone();
+        #[cfg(feature = "experimental-device-sync")]
+        let private_since = activation.since;
         tracing::debug!(
             target: "transport_nostr_adapter::adapter",
             method = "activate_account",
@@ -2310,7 +2822,13 @@ impl TransportAdapter for NostrTransportAdapter {
             })
             .collect::<Vec<_>>();
         // Every group route goes out in a batch REQ (#2266).
-        let batches = pack_group_batches(&account_id, &routes, attempt, 0);
+        let batches = self.state.read().await.pack_live_group_batches(
+            &account_id,
+            &routes,
+            &activation.group_subscriptions,
+            attempt,
+            0,
+        );
         let mut issued = Vec::with_capacity(1 + batches.len());
         issued.push(account_inbox_subscription(
             &account_id,
@@ -2339,7 +2857,54 @@ impl TransportAdapter for NostrTransportAdapter {
             state.activate(activation, replaced_count, attempt, &routes, &batches);
         }
 
+        #[cfg(feature = "experimental-device-sync")]
+        if let Err(error) = self
+            .prepare_private_observation_wire(
+                &account_id,
+                &private_groups,
+                private_since,
+                attempt,
+                true,
+                true,
+            )
+            .await
+        {
+            self.finish_private_observation_wire(&account_id, false)
+                .await;
+            let mut state = self.state.write().await;
+            state.forget_account_subscription_starts(&account_id);
+            state.deactivate(&account_id, issued.len());
+            return Err(error);
+        }
+        // Once a private REQ may escape, retain exclusive lifecycle ownership
+        // in a cancellation guard. An abandoned caller cannot leave its actual
+        // wire scope freshness-eligible, or race a later activation's cleanup.
+        #[cfg(feature = "experimental-device-sync")]
+        let (issue_complete, issue_abandoned) = oneshot::channel();
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            let cleanup_state = Arc::clone(&self.state);
+            let cleanup_account = account_id.clone();
+            let cleanup_attempt = attempt;
+            tokio::spawn(async move {
+                let _lifecycle = _subscription_guard;
+                if issue_abandoned.await.is_err() {
+                    let mut state = cleanup_state.write().await;
+                    // The retained exclusive lifecycle lock makes this account's
+                    // current issued scope exact until negative cleanup completes.
+                    if let Some(wire) = state.private_observation_wires.get_mut(&cleanup_account)
+                        && wire.attempt == cleanup_attempt
+                    {
+                        wire.ready = false;
+                        wire.completed = false;
+                    }
+                }
+            });
+        }
         if let Err(error) = self.subscribe_all("activate_account", &issued).await {
+            #[cfg(feature = "experimental-device-sync")]
+            self.finish_private_observation_wire(&account_id, false)
+                .await;
             // Some concurrent REQs may already have succeeded. Tear those
             // down best-effort, then always remove the pre-registered local
             // routes so callers never observe a half-active account.
@@ -2373,6 +2938,11 @@ impl TransportAdapter for NostrTransportAdapter {
             issued_count = issued.len(),
             "all transport subscriptions issued"
         );
+        #[cfg(feature = "experimental-device-sync")]
+        self.finish_private_observation_wire(&account_id, true)
+            .await;
+        #[cfg(feature = "experimental-device-sync")]
+        let _ = issue_complete.send(());
         Ok(())
     }
 
@@ -2413,6 +2983,21 @@ impl TransportAdapter for NostrTransportAdapter {
             if routes.groups == sync.group_subscriptions
                 && state.pending_unsubscribes.is_empty()
                 && state.pending_scoped_unsubscribes.is_empty()
+                && {
+                    #[cfg(feature = "experimental-device-sync")]
+                    {
+                        state.private_observation_ready_for(
+                            &sync.account_id,
+                            &sync.group_subscriptions,
+                            sync.since,
+                            routes.attempt,
+                        )
+                    }
+                    #[cfg(not(feature = "experimental-device-sync"))]
+                    {
+                        true
+                    }
+                }
             {
                 return Ok(());
             }
@@ -2428,7 +3013,16 @@ impl TransportAdapter for NostrTransportAdapter {
                 sync.since,
                 attempt,
             );
-            if to_add.is_empty() && to_remove.is_empty() {
+            #[cfg(feature = "experimental-device-sync")]
+            let private_changed = !state.private_observation_ready_for(
+                &sync.account_id,
+                &sync.group_subscriptions,
+                sync.since,
+                attempt,
+            );
+            #[cfg(not(feature = "experimental-device-sync"))]
+            let private_changed = false;
+            if to_add.is_empty() && to_remove.is_empty() && !private_changed {
                 // Nothing to repack: only the teardown retries below run.
                 (Vec::new(), None, Vec::new())
             } else {
@@ -2442,8 +3036,13 @@ impl TransportAdapter for NostrTransportAdapter {
                     &to_add,
                     state.account_subscription_eose(&sync.account_id).complete(),
                 );
-                let batches =
-                    pack_group_batches(&sync.account_id, &desired, attempt, routes.next_batch);
+                let batches = state.pack_live_group_batches(
+                    &sync.account_id,
+                    &desired,
+                    &sync.group_subscriptions,
+                    attempt,
+                    routes.next_batch,
+                );
                 (to_add, Some(desired), batches)
             }
         };
@@ -2457,6 +3056,45 @@ impl TransportAdapter for NostrTransportAdapter {
             drop(subscription_guard);
             return Ok(());
         };
+
+        #[cfg(feature = "experimental-device-sync")]
+        let mut to_add = to_add;
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            let attempt = self
+                .state
+                .read()
+                .await
+                .accounts
+                .get(&sync.account_id)
+                .ok_or_else(|| TransportAdapterError::AccountNotActive(sync.account_id.clone()))?
+                .attempt;
+            if let Some(private) = self
+                .prepare_private_observation_wire(
+                    &sync.account_id,
+                    &sync.group_subscriptions,
+                    sync.since,
+                    attempt,
+                    false,
+                    true,
+                )
+                .await?
+                && !to_add
+                    .iter()
+                    .any(|subscription| subscription.subscription_id() == private.subscription_id())
+            {
+                to_add.push(private);
+            }
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        let private_cleanup = self
+            .state
+            .read()
+            .await
+            .private_observation_wires
+            .get(&sync.account_id)
+            .filter(|wire| !wire.completed)
+            .map(|wire| (sync.account_id.clone(), wire.actual.clone()));
 
         // Stage new route coverage and a telemetry overlay BEFORE the relay REQs
         // go out. Existing routes and committed telemetry remain live until the
@@ -2492,6 +3130,14 @@ impl TransportAdapter for NostrTransportAdapter {
             if staging_abandoned.await.is_err() {
                 {
                     let mut state = cleanup_state.write().await;
+                    #[cfg(feature = "experimental-device-sync")]
+                    if let Some((account, actual)) = private_cleanup
+                        && let Some(wire) = state.private_observation_wires.get_mut(&account)
+                        && wire.actual == actual
+                    {
+                        wire.ready = false;
+                        wire.completed = false;
+                    }
                     state.rollback_staged_subscription_starts();
                     state.retire_unlive_replay_batches(&cleanup_account, &cleanup_batch);
                     state.rebuild_transport_group_index();
@@ -2509,6 +3155,9 @@ impl TransportAdapter for NostrTransportAdapter {
         // The new batches go out before the ones they replace close, so no
         // route is ever without a live REQ.
         if let Err(error) = self.subscribe_all("sync_account_groups", &batches).await {
+            #[cfg(feature = "experimental-device-sync")]
+            self.finish_private_observation_wire(&sync.account_id, false)
+                .await;
             // The authoritative routes and committed telemetry were never
             // replaced. Discard only this batch's staged callbacks and rebuild
             // the derived route index to remove its temporary coverage, then
@@ -2539,7 +3188,7 @@ impl TransportAdapter for NostrTransportAdapter {
             let mut state = self.state.write().await;
             state.commit_staged_subscription_starts();
             let account_id = sync.account_id.clone();
-            let replaced = state.sync_groups(sync, &desired, &batches);
+            let replaced = state.sync_groups(sync.clone(), &desired, &batches);
             state.retire_replay_batches(&account_id, &replaced);
             state.forget_subscription_starts(&replaced);
             state.queue_pending_unsubscribes(replaced);
@@ -2564,6 +3213,9 @@ impl TransportAdapter for NostrTransportAdapter {
                 "deferred relay unsubscribes; will retry on next group sync"
             );
         }
+        #[cfg(feature = "experimental-device-sync")]
+        self.finish_private_observation_wire(&sync.account_id, true)
+            .await;
         let _ = staging_complete.send(());
         Ok(())
     }
@@ -2586,6 +3238,9 @@ impl TransportAdapter for NostrTransportAdapter {
             subscriptions_removed = removed_count,
             "deactivating transport account"
         );
+        #[cfg(feature = "experimental-device-sync")]
+        self.finish_private_observation_wire(account_id, false)
+            .await;
         self.relay_client.unsubscribe_account(account_id).await?;
         let mut state = self.state.write().await;
         state.forget_account_subscription_starts(account_id);
@@ -2640,7 +3295,10 @@ impl TransportAdapter for NostrTransportAdapter {
     }
 
     async fn receive(&self) -> Result<Option<TransportDelivery>, TransportAdapterError> {
-        Ok(self.delivery_rx.lock().await.recv().await)
+        Ok(self
+            .receive_observed()
+            .await?
+            .map(ObservedTransportDelivery::into_delivery))
     }
 }
 
@@ -2668,7 +3326,7 @@ impl NostrTransportAdapter {
                     continue;
                 }
                 self.delivery_tx
-                    .send(TransportDelivery {
+                    .send(ObservedTransportDelivery::from(TransportDelivery {
                         account_id: route.account_id,
                         group_id_hint: route.group_id_hint,
                         message: message.clone(),
@@ -2682,7 +3340,7 @@ impl NostrTransportAdapter {
                             // wire event to attribute.
                             wire: None,
                         },
-                    })
+                    }))
                     .await
                     .map_err(|_| TransportAdapterError::Closed)?;
                 delivered += 1;
@@ -2712,6 +3370,10 @@ struct AccountRoutes {
     /// id, so a narrower filter never cuts off history the live one is still
     /// returning. Ids never carry `since`.
     group_since: HashMap<NostrSubscriptionRouteKey, Option<Timestamp>>,
+    /// Derived at the same commit as `batches`: receiver capture checks must
+    /// not scan every batch for every route on each EOSE notification.
+    #[cfg(feature = "experimental-device-sync")]
+    group_wire_ids: HashMap<NostrSubscriptionRouteKey, String>,
     /// Attempt the live subscriptions for this account were issued under. Held
     /// here so `account_subscription_ids` can rebuild exactly the ids that went
     /// on the wire, and so a group sync reuses the activation's attempt rather
@@ -3076,8 +3738,26 @@ struct GroupRouteEntry {
     endpoints: Vec<CanonicalEndpoint>,
 }
 
+#[cfg(feature = "experimental-device-sync")]
+#[derive(Clone)]
+struct PrivateObservationWire {
+    group: GroupId,
+    subscription: NostrSubscription,
+    logical: String,
+    actual: String,
+    attempt: SubscriptionAttempt,
+    ready: bool,
+    completed: bool,
+}
+
 #[derive(Default)]
 struct AdapterState {
+    #[cfg(feature = "experimental-device-sync")]
+    private_observation_groups: HashMap<MemberId, GroupId>,
+    #[cfg(feature = "experimental-device-sync")]
+    private_observation_wires: HashMap<MemberId, PrivateObservationWire>,
+    #[cfg(feature = "experimental-device-sync")]
+    private_observation_counter: u64,
     accounts: HashMap<MemberId, AccountRoutes>,
     /// Endpoint-level EOSE proof for the route snapshot issued by the most
     /// recent activation of each account. This is intentionally independent of
@@ -3121,6 +3801,105 @@ struct AdapterState {
 }
 
 impl AdapterState {
+    fn pack_live_group_batches(
+        &self,
+        account: &MemberId,
+        routes: &[NostrSubscription],
+        groups: &[TransportGroupSubscription],
+        attempt: SubscriptionAttempt,
+        first_batch: u32,
+    ) -> Vec<NostrSubscription> {
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(selected) = self.private_observation_groups.get(account)
+            && let Some(route) = groups
+                .iter()
+                .find(|route| &route.group_id == selected && route.retained_since.is_none())
+        {
+            // Only this current route needs a fresh, exact scoped wire. Keep it
+            // out of ordinary batches so their replay cannot stand in for it.
+            let key = group_route_key(account, route);
+            let (private, ordinary): (Vec<_>, Vec<_>) = routes
+                .iter()
+                .cloned()
+                .partition(|subscription| subscription.route_key() == key);
+            let mut batches = pack_group_batches(account, &ordinary, attempt, first_batch);
+            batches.extend(private);
+            return batches;
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let _ = groups;
+        pack_group_batches(account, routes, attempt, first_batch)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn observation_wire_id(
+        &self,
+        account: &MemberId,
+        route: &TransportGroupSubscription,
+        attempt: SubscriptionAttempt,
+    ) -> Option<String> {
+        if self.private_observation_groups.get(account) == Some(&route.group_id)
+            || self
+                .private_observation_wires
+                .get(account)
+                .is_some_and(|wire| wire.group == route.group_id)
+        {
+            let wire = self.private_observation_wires.get(account)?;
+            return (wire.ready
+                && wire.group == route.group_id
+                && wire.attempt == attempt
+                && wire.subscription.route_key()
+                    == group_subscription(account, route, None, attempt).route_key())
+            .then(|| wire.actual.clone());
+        }
+        self.accounts
+            .get(account)?
+            .group_wire_ids
+            .get(&group_route_key(account, route))
+            .cloned()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_observation_ready_for(
+        &self,
+        account: &MemberId,
+        groups: &[TransportGroupSubscription],
+        since: Option<Timestamp>,
+        attempt: SubscriptionAttempt,
+    ) -> bool {
+        let Some(group) = self.private_observation_groups.get(account) else {
+            return !self
+                .private_observation_wires
+                .get(account)
+                .is_some_and(|wire| wire.ready);
+        };
+        let Some(route) = groups
+            .iter()
+            .find(|route| &route.group_id == group && route.retained_since.is_none())
+        else {
+            return false;
+        };
+        self.private_observation_wires
+            .get(account)
+            .is_some_and(|wire| {
+                wire.ready
+                    && wire.completed
+                    && wire.attempt == attempt
+                    && wire.subscription
+                        == group_subscription(
+                            account,
+                            route,
+                            self.accounts
+                                .get(account)
+                                .and_then(|routes| {
+                                    routes.group_since.get(&group_route_key(account, route))
+                                })
+                                .copied()
+                                .unwrap_or(since),
+                            attempt,
+                        )
+            })
+    }
+
     /// Rebuild the derived `by_transport_group` index from the authoritative
     /// `accounts` routing state. Called after every mutation so the index cannot
     /// drift from signed ordinary and temporary maintenance routes (#698/#752).
@@ -3223,6 +4002,8 @@ impl AdapterState {
                     .collect(),
                 groups: activation.group_subscriptions,
                 group_since: issued_group_since(routes).collect(),
+                #[cfg(feature = "experimental-device-sync")]
+                group_wire_ids: issued_group_wire_ids(batches),
                 attempt,
                 batches: batches.to_vec(),
                 next_batch: u32::try_from(batches.len()).unwrap_or(u32::MAX),
@@ -3245,6 +4026,10 @@ impl AdapterState {
         };
         account.groups = sync.group_subscriptions;
         account.group_since = issued_group_since(routes).collect();
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            account.group_wire_ids = issued_group_wire_ids(batches);
+        }
         let replaced = std::mem::replace(&mut account.batches, batches.to_vec());
         self.metrics.subscriptions_created += batches.len();
         self.rebuild_transport_group_index();
@@ -3688,6 +4473,19 @@ impl AdapterState {
         now_ms: u64,
     ) -> Option<ReplayPaging> {
         let relay = self.relay_index.index_for(endpoint);
+        #[cfg(feature = "experimental-device-sync")]
+        let logical = self
+            .private_observation_wires
+            .values()
+            .find(|wire| wire.ready && wire.actual == subscription_id)
+            .map(|wire| wire.logical.clone());
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(logical) = &logical {
+            self.sync.record_eose(logical, relay, now_ms);
+            for coverage in self.account_replay_coverage.values_mut() {
+                coverage.record_eose(logical, relay);
+            }
+        }
         self.sync.record_eose(subscription_id, relay, now_ms);
         let mut paging = None;
         for (account_id, coverage) in &mut self.account_replay_coverage {
@@ -3729,6 +4527,40 @@ impl AdapterState {
         if let Some(coverage) = self.account_replay_coverage.get_mut(&paging.account_id) {
             coverage.finish_paging(&paging.subscription_id, relay);
         }
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn live_delivery_observation(
+        &self,
+        account_id: &MemberId,
+        group_id: &GroupId,
+        message: &TransportMessage,
+        endpoint: &TransportEndpoint,
+        subscription_id: &str,
+        deadline: Instant,
+    ) -> Option<LiveDeliveryObservation> {
+        let account = self.accounts.get(account_id)?;
+        let TransportEnvelope::GroupMessage { transport_group_id } = &message.envelope else {
+            return None;
+        };
+        let route = account.groups.iter().find(|route| {
+            &route.group_id == group_id && &route.transport_group_id == transport_group_id
+        })?;
+        let expected = self.observation_wire_id(account_id, route, account.attempt)?;
+        if expected != subscription_id {
+            return None;
+        }
+        let relay = self.relay_index.existing_index_for(endpoint)?;
+        if self.sync.subscription_endpoint_eose(subscription_id, relay) != Some(true) {
+            return None;
+        }
+        Some(LiveDeliveryObservation {
+            account: account_id.clone(),
+            group: group_id.clone(),
+            message: message.id.clone(),
+            attempt: account.attempt,
+            deadline,
+        })
     }
 
     /// The account and route kind of a live subscription id: an account's
@@ -3916,6 +4748,42 @@ fn repacked_group_routes(
             group_subscription(account_id, group, since, routes.attempt)
         })
         .collect()
+}
+
+#[cfg(feature = "experimental-device-sync")]
+fn issued_group_wire_ids(
+    batches: &[NostrSubscription],
+) -> HashMap<NostrSubscriptionRouteKey, String> {
+    let mut ids = HashMap::new();
+    for batch in batches {
+        let id = batch.subscription_id();
+        match batch {
+            NostrSubscription::GroupBatch {
+                account_id,
+                routes,
+                endpoints,
+                ..
+            } => {
+                let endpoints = normalized_endpoints(endpoints);
+                for route in routes {
+                    ids.insert(
+                        NostrSubscriptionRouteKey::Group {
+                            account_id: account_id.clone(),
+                            group_id: route.group_id.clone(),
+                            transport_group_id: route.transport_group_id.clone(),
+                            endpoints: endpoints.clone(),
+                        },
+                        id.clone(),
+                    );
+                }
+            }
+            NostrSubscription::Group { .. } => {
+                ids.insert(batch.route_key(), id);
+            }
+            _ => {}
+        }
+    }
+    ids
 }
 
 /// Pack per-route group REQs into batches of at most [`GROUP_BATCH_ROUTES`]
@@ -4189,6 +5057,58 @@ mod batch_tests {
             panic!("a group batch");
         };
         (*batch, routes.len(), *since)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[test]
+    fn only_the_selected_current_route_keeps_a_scoped_wire() {
+        let account = MemberId::new(vec![0xA1; 32]);
+        let selected = TransportGroupSubscription {
+            group_id: GroupId::new(vec![1; 16]),
+            transport_group_id: vec![1; 32],
+            endpoints: vec![TransportEndpoint("wss://a.example".into())],
+            retained_since: None,
+        };
+        let mut retained = route(2, "wss://a.example", Some(50));
+        if let NostrSubscription::Group { group_id, .. } = &mut retained {
+            *group_id = selected.group_id.clone();
+        }
+        let routes = vec![
+            route(0, "wss://a.example", Some(100)),
+            route(1, "wss://a.example", Some(100)),
+            retained,
+            route(3, "wss://a.example", Some(100)),
+        ];
+        let mut state = AdapterState::default();
+        state
+            .private_observation_groups
+            .insert(account.clone(), selected.group_id.clone());
+        let issued = state.pack_live_group_batches(
+            &account,
+            &routes,
+            &[selected],
+            SubscriptionAttempt::INITIAL,
+            7,
+        );
+        assert_eq!(issued.len(), 3);
+        assert_eq!(
+            issued[2], routes[1],
+            "only the current private route is separate"
+        );
+        assert_eq!(batch_shape(&issued[0]), (7, 2, Some(Timestamp(100))));
+        assert_eq!(batch_shape(&issued[1]), (8, 1, Some(Timestamp(50))));
+        let batched = issued[..2]
+            .iter()
+            .flat_map(|subscription| match subscription {
+                NostrSubscription::GroupBatch { routes, .. } => routes.iter(),
+                _ => panic!("ordinary routes must stay batched"),
+            })
+            .map(|route| route.transport_group_id.clone())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            batched,
+            HashSet::from([vec![0; 32], vec![2; 32], vec![3; 32]])
+        );
     }
 
     /// Routes share a batch only with routes on the same relays at the same

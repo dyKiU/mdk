@@ -1,0 +1,158 @@
+{
+  "scope": "Internal account-worker setup RPCs retain original process-local request custody. Genuine singleton original SDK verification, bounded negatives and abandoned successful reservation reply cleanup only; no public native session/bindings or Add/C/B/ABC/chat/history qualification.",
+  "base": "bb10886f48f74c71d50495d18657c206ad174a03",
+  "behavioral_red": {
+    "base": "bb10886f48f74c71d50495d18657c206ad174a03",
+    "source_paths": 2358,
+    "runs": [
+      {
+        "name": "factories",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--lib",
+          "runtime::device_linking::setup::tests"
+        ],
+        "exit_code": 101,
+        "seconds": 68.21,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 0,
+            "failed": 2,
+            "ignored": 0
+          }
+        ],
+        "sha256": "7401fc02776931f926a590f1096ba1ceceb0bc91b9f3a73e5aaf090d0853bbbf"
+      }
+    ]
+  },
+  "red_reason": "Two actual encrypted account-worker tests fail at deliberately denying absent packet-request reservation; no production implementation existed.",
+  "qualification": {
+    "base": "bb10886f48f74c71d50495d18657c206ad174a03",
+    "source_paths": 2358,
+    "runs": [
+      {
+        "name": "factories",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--lib",
+          "runtime::device_linking::setup::tests"
+        ],
+        "exit_code": 0,
+        "seconds": 50.75,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "f2b9a35997be326c9f16aa1ab083a71ce73071577a92a26cdf5cf5afc6cdee97"
+      },
+      {
+        "name": "clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 29.99,
+        "counts": [],
+        "sha256": "b7108f98c788ca3624360060f3ea89f5ae080f5a77096453abbc66b96dc4fd3c"
+      },
+      {
+        "name": "default",
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--all-targets"
+        ],
+        "exit_code": 0,
+        "seconds": 7.46,
+        "counts": [],
+        "sha256": "08cdff46e616f65cb74b79dd6d36a4c23d451f4c0feec0bad997fb1450ad72d2"
+      },
+      {
+        "name": "fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 1,
+        "seconds": 4.17,
+        "counts": [],
+        "sha256": "2acbab33ec29e52dd27b1ffdbc0165eed5e8c6a1a080f42cc10e93509809c39d"
+      }
+    ]
+  },
+  "formatting_correction": {
+    "reason": "Insert one newline between newly added Setup match arm and the next existing arm; no tokens, string literals or other source changed. Tests/Clippy/default belong to v1 exact input; only fmt was rerun against corrected whitespace.",
+    "changed_paths": [
+      "crates/marmot-app/src/runtime/device_linking.rs"
+    ],
+    "final_gate": {
+      "base": "bb10886f48f74c71d50495d18657c206ad174a03",
+      "source_paths": 2358,
+      "runs": [
+        {
+          "name": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 4.14,
+          "counts": [],
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "qualified_source_sha256": {
+    "crates/marmot-app/src/client/device_linking.rs": "b5cf730d14c0e2d784d60a9c4bcdaaf589f3183636ba103afa68de78bedc1f4b",
+    "crates/marmot-app/src/client/device_linking/setup.rs": "58b9a6ff02e10b54caf7ca3a7bcdd3624803a9c5a864210b6149189ddd92b54a",
+    "crates/marmot-app/src/runtime/device_linking.rs": "0d744b2076351edcba2745dca34f7c67b372d1c754b12f49f86d9bdc5f5b4d3a",
+    "crates/marmot-app/src/runtime/device_linking/setup.rs": "94ccb654108052ed1cca34f2f06dfe799f33b19274bf663ddc9415a7ddf2c1c9",
+    "crates/marmot-app/src/runtime/device_linking/setup/tests.rs": "0356b52e0113046732adb6888e78f0fb1f34459d3042bbdb1a65d42530a30953"
+  },
+  "input_verification": "All 2358 v1 inputs matched M1/M5 before qualification and stayed unchanged through gates. Root independently verified all terminal hashes/counts. All final v2 inputs match; exact reconstructed one-newline diff reproduces v1 source hash. Documentation/proof added after gates.",
+  "controls": [
+    "actor retains original request; native packet metadata is not authority",
+    "bounded request/challenge preflight before worker queue",
+    "wrong scope and oversized packet cannot discard valid retry",
+    "original stock-SDK offers, SAS, both local confirmations and peer MACs",
+    "exact cancellation clears request before durable cleanup",
+    "lost successful reply cancels exact reservation; next serial reservation advances generation"
+  ],
+  "limits": "This suite does not qualify setup cancellation during stalled crypto/SQL/SDK work or after process restart. Existing direct factory reopen controls remain scoped evidence. Public facade lifetime/subscription/feature-off gates remain.",
+  "profile": "Rust1.97.1; shared MdkRecipientCollectionTargetM5; jobs2; debug0; fd4096; RUST_MIN_STACK4194304; RUST_TEST_THREADS4."
+}

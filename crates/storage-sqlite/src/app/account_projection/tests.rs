@@ -3258,6 +3258,7 @@ fn failed_resurrection_projection_save_retains_local_deletion_frontier() {
         )
         .unwrap();
     let pending_event = GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: cgka_traits::GroupId::new(vec![0xaa]),
         message_id: fresh_message_id.clone(),
@@ -4203,6 +4204,253 @@ fn app_messages_replay_order_matches_cursor_comparator() {
     );
     assert_eq!(dups[0].group_id_hex, "aa");
     assert_eq!(dups[1].group_id_hex, "bb");
+}
+
+#[test]
+fn app_messages_page_covers_old_history_and_same_second_ties() {
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    for index in (0..300).rev() {
+        store
+            .app_storage()
+            .record_app_event(&app_event(&format!("{index:04}"), "aa", 50))
+            .unwrap();
+    }
+    let mut other = app_event("0127", "bb", 50);
+    other.source_message_id_hex = Some("other-0127".into());
+    store.app_storage().record_app_event(&other).unwrap();
+    let query = StoredAppMessageQuery {
+        limit: Some(128),
+        ..Default::default()
+    };
+    let mut cursor = None;
+    let mut records = Vec::new();
+    let mut sizes = Vec::new();
+    loop {
+        let page = store
+            .app_storage()
+            .app_messages_page(query.clone(), cursor.as_ref())
+            .unwrap();
+        if page.is_empty() {
+            break;
+        }
+        sizes.push(page.len());
+        cursor = page.last().map(StoredAppMessageRecord::replay_cursor);
+        records.extend(page);
+    }
+    assert_eq!(sizes, [128, 128, 45]);
+    assert_eq!(records.len(), 301);
+    assert_eq!(records.first().unwrap().message_id_hex, "0000");
+    assert_eq!(records.last().unwrap().message_id_hex, "0299");
+    assert!(
+        records
+            .windows(2)
+            .all(|rows| rows[0].replay_cursor() < rows[1].replay_cursor())
+    );
+    let duplicates: Vec<_> = records
+        .iter()
+        .filter(|row| row.message_id_hex == "0127")
+        .collect();
+    assert_eq!(duplicates.len(), 2);
+    assert_eq!(duplicates[0].group_id_hex, "aa");
+    assert_eq!(duplicates[1].group_id_hex, "bb");
+    let raw = store
+        .app_storage()
+        .app_messages(StoredAppMessageQuery::default())
+        .unwrap();
+    assert_eq!(records, raw);
+    // A bounded newest window cannot replace a complete forward scan.
+    assert_eq!(
+        store
+            .app_storage()
+            .app_messages(query)
+            .unwrap()
+            .first()
+            .unwrap()
+            .message_id_hex,
+        "0172"
+    );
+}
+
+#[test]
+fn app_messages_page_retains_raw_tombstones_and_filters_before_limit() {
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    store
+        .app_storage()
+        .record_app_event(&app_event("invalid", "aa", 1))
+        .unwrap();
+    store
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE app_events SET invalidated=1 WHERE message_id_hex='invalid'",
+            [],
+        )
+        .unwrap();
+    store
+        .app_storage()
+        .record_app_event_with_retention(
+            &app_event("expired", "aa", 2),
+            Some(AppMessageRetentionDecision::new(2, 1)),
+        )
+        .unwrap();
+    let mut reaction = app_event("reaction", "aa", 0);
+    reaction.kind = MARMOT_APP_EVENT_KIND_REACTION;
+    store.app_storage().record_app_event(&reaction).unwrap();
+    store
+        .app_storage()
+        .record_app_event(&app_event("other", "bb", 0))
+        .unwrap();
+    let query = StoredAppMessageQuery {
+        group_id_hex: Some("aa".into()),
+        kinds: Some(vec![MARMOT_APP_EVENT_KIND_CHAT]),
+        limit: Some(1),
+    };
+    let first = store
+        .app_storage()
+        .app_messages_page(query.clone(), None)
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].message_id_hex, "invalid");
+    assert!(first[0].invalidated);
+    let next = store
+        .app_storage()
+        .app_messages_page(query, Some(&first[0].replay_cursor()))
+        .unwrap();
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].message_id_hex, "expired");
+    assert_eq!(next[0].retention.unwrap().expires_at, Some(3));
+    // Paging is read-only, with no filtering that silently loses retention facts.
+    assert_eq!(store.app_storage().app_message_count().unwrap(), 4);
+}
+
+#[test]
+fn app_messages_page_resumes_after_encrypted_reopen_and_terminal_close() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("replay-page.sqlite");
+    let key = SqlCipherKey::new("replay page test key").unwrap();
+    let query = StoredAppMessageQuery {
+        limit: Some(1),
+        ..Default::default()
+    };
+    let store = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    store
+        .app_storage()
+        .record_app_event(&app_event("a", "aa", 5))
+        .unwrap();
+    store
+        .app_storage()
+        .record_app_event(&app_event("b", "aa", 5))
+        .unwrap();
+    let cursor = store
+        .app_storage()
+        .app_messages_page(query.clone(), None)
+        .unwrap()[0]
+        .replay_cursor();
+    store.close().unwrap();
+    assert!(matches!(
+        store
+            .app_storage()
+            .app_messages_page(query.clone(), Some(&cursor)),
+        Err(StorageError::Closed(_))
+    ));
+    drop(store);
+    let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let page = reopened
+        .app_storage()
+        .app_messages_page(query.clone(), Some(&cursor))
+        .unwrap();
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0].message_id_hex, "b");
+    assert!(
+        reopened
+            .app_storage()
+            .app_messages_page(query, Some(&page[0].replay_cursor()))
+            .unwrap()
+            .is_empty()
+    );
+    // A late older record is discoverable through a fresh scan, not this cursor.
+    reopened
+        .app_storage()
+        .record_app_event(&app_event("late", "aa", 4))
+        .unwrap();
+    assert_eq!(
+        reopened
+            .app_storage()
+            .app_messages_page(
+                StoredAppMessageQuery {
+                    limit: Some(1),
+                    ..Default::default()
+                },
+                None
+            )
+            .unwrap()[0]
+            .message_id_hex,
+        "late"
+    );
+}
+
+#[test]
+fn app_messages_page_rejects_unbounded_and_invalid_inputs() {
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    for limit in [None, Some(0), Some(129), Some(usize::MAX)] {
+        assert!(matches!(
+            store.app_storage().app_messages_page(
+                StoredAppMessageQuery {
+                    limit,
+                    ..Default::default()
+                },
+                None
+            ),
+            Err(StorageError::Backend(_))
+        ));
+    }
+    let query = StoredAppMessageQuery {
+        limit: Some(1),
+        ..Default::default()
+    };
+    for cursor in [
+        AppEventReplayCursor {
+            recorded_at: 1,
+            message_id_hex: "a".into(),
+            insert_order: 0,
+        },
+        AppEventReplayCursor {
+            recorded_at: u64::MAX,
+            message_id_hex: "a".into(),
+            insert_order: 1,
+        },
+    ] {
+        assert!(
+            store
+                .app_storage()
+                .app_messages_page(query.clone(), Some(&cursor))
+                .is_err()
+        );
+    }
+    assert!(
+        store
+            .app_storage()
+            .app_messages_page(
+                StoredAppMessageQuery {
+                    kinds: Some(vec![9; 129]),
+                    ..query.clone()
+                },
+                None
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .app_storage()
+            .app_messages_page(
+                StoredAppMessageQuery {
+                    kinds: Some(vec![u64::MAX]),
+                    ..query
+                },
+                None
+            )
+            .is_err()
+    );
 }
 
 #[test]

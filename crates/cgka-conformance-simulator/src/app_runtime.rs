@@ -953,6 +953,19 @@ impl AppRuntimeHarness {
         clients: &[String],
         max_wait: Duration,
     ) -> Result<Vec<AppRuntimeObservationV1>, SubjectError> {
+        self.await_observable_settlement_matching(clients, max_wait, |_| true)
+            .await
+    }
+
+    /// Require the journey's public end-state predicate throughout the same
+    /// bounded stability window. A shared commitment can precede completion of
+    /// an already accepted edit; it does not prove that edit has been retained.
+    pub async fn await_observable_settlement_matching(
+        &mut self,
+        clients: &[String],
+        max_wait: Duration,
+        matches: impl Fn(&[AppRuntimeObservationV1]) -> bool + Send,
+    ) -> Result<Vec<AppRuntimeObservationV1>, SubjectError> {
         let deadline = tokio::time::Instant::now() + max_wait;
         let mut previous_commitments: Option<Vec<String>> = None;
         let mut stable_since = tokio::time::Instant::now();
@@ -977,6 +990,7 @@ impl AppRuntimeHarness {
             // timer fires. Require unchanged public state for its full window.
             if !shared
                 || !projections_settled
+                || !matches(&observations)
                 || previous_commitments.as_ref() != Some(&commitments)
             {
                 stable_since = tokio::time::Instant::now();
@@ -2723,6 +2737,7 @@ fn app_error_kind(error: &AppError) -> &str {
         AppError::GroupCommitUndelivered(_) => "group_commit_undelivered",
         AppError::GroupInviteNotPending => "group_invite_not_pending",
         AppError::UserBlocked => "user_blocked",
+        AppError::AccountChatDepartureDenied => "account_chat_departure_denied",
         AppError::MessageDraftRevisionConflict => "message_draft_revision_conflict",
         AppError::MissingKeyPackage { .. } => "missing_key_package",
         AppError::MissingMemberInboxRoute(_) => "missing_member_inbox_route",
@@ -2781,6 +2796,7 @@ fn app_error(error: AppError) -> SubjectError {
     }
     let category = match error {
         AppError::UserBlocked
+        | AppError::AccountChatDepartureDenied
         | AppError::MessageDraftRevisionConflict
         | AppError::AttachmentModeRequired
         | AppError::AttachmentAccountSignedOut => SubjectFailureCategory::ExpectedRefusal,
@@ -3197,6 +3213,12 @@ mod tests {
         let blocked = app_error(AppError::UserBlocked);
         assert_eq!(blocked.category, SubjectFailureCategory::ExpectedRefusal);
         assert!(!blocked.message.contains("message_draft_revision_conflict"));
+
+        assert!(!app_error_retryable(&AppError::AccountChatDepartureDenied));
+        let departed = app_error(AppError::AccountChatDepartureDenied);
+        assert_eq!(departed.category, SubjectFailureCategory::ExpectedRefusal);
+        assert!(departed.message.contains("account_chat_departure_denied"));
+        assert!(!departed.message.contains(marker));
 
         let conflict = app_error(AppError::MessageDraftRevisionConflict);
         assert_eq!(conflict.category, SubjectFailureCategory::ExpectedRefusal);

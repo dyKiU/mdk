@@ -15159,14 +15159,15 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
         second.durably_owned_key_packages(&id).await,
         Err(AppError::OnboardingRequired)
     ));
-    assert_eq!(
-        first_app
-            .account_key_package_records(&id, vec![endpoint(&url)], Vec::new())
-            .await
-            .unwrap()
-            .len(),
-        2
-    );
+    let original_packages = first_app
+        .account_key_package_records(&id, vec![endpoint(&url)], Vec::new())
+        .await
+        .unwrap();
+    let original_slots = original_packages
+        .iter()
+        .map(|p| (p.key_package_id.clone(), p.key_package_ref_hex.clone()))
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(original_slots.len(), 2);
     // Cancel means the host leaves this pause; simply resuming cannot publish.
     let resumed = second.accounts().run_onboarding(&id).await.unwrap();
     assert_eq!(resumed.single_device_notice, snapshot.single_device_notice);
@@ -15187,6 +15188,24 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
     ));
     let completed = acknowledge_single_device_notice(&second, snapshot).await;
     assert!(completed.ready);
+    assert_eq!(completed.steps[5].step, OnboardingStep::KeyPackage);
+    assert_eq!(
+        completed.steps[5].status,
+        marmot_app::OnboardingStatus::Skipped,
+        "companion continuation must not publish another invitation receiver"
+    );
+    assert!(
+        AccountHome::open(second_directory.path())
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    assert!(
+        second
+            .durably_owned_key_packages(&id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         completed
             .single_device_notice
@@ -15201,7 +15220,21 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
         second.accounts().run_onboarding(&id).await.unwrap(),
         completed
     );
-    // Continue never deletes the other installation's slots.
+    assert!(
+        AccountHome::open(second_directory.path())
+            .public_key_package_publication_disabled(&id)
+            .unwrap(),
+        "the receiver-preservation hold must survive restart"
+    );
+    assert!(
+        second
+            .durably_owned_key_packages(&id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // Continue preserves the exact other installation's slots and references;
+    // it must neither delete them nor publish another public receiver.
     let packages = first_app
         .account_key_package_records(&id, vec![endpoint(&url)], Vec::new())
         .await
@@ -15211,13 +15244,13 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
             .iter()
             .any(|p| p.key_package_id == "older-installation-slot")
     );
+    let preserved_slots = packages
+        .iter()
+        .map(|p| (p.key_package_id.clone(), p.key_package_ref_hex.clone()))
+        .collect::<std::collections::HashSet<_>>();
     assert!(
-        packages
-            .iter()
-            .map(|p| &p.key_package_id)
-            .collect::<std::collections::HashSet<_>>()
-            .len()
-            >= 3
+        preserved_slots == original_slots,
+        "companion continuation must preserve every original slot and package reference"
     );
     second
         .sign_out(

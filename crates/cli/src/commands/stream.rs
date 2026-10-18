@@ -4,9 +4,11 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use cgka_traits::app_components::{is_loopback_candidate_host, reject_non_public_socket_addr};
-use cgka_traits::app_event::{STREAM_CHUNKS_TAG, STREAM_HASH_TAG, STREAM_TAG};
+use cgka_traits::app_event::{
+    MARMOT_APP_EVENT_KIND_AGENT_STREAM_START, STREAM_CHUNKS_TAG, STREAM_HASH_TAG, STREAM_TAG,
+};
 use cgka_traits::{GroupId, MessageId};
-use marmot_account::AccountHome;
+use marmot_account::{AccountHome, AccountSummary};
 use marmot_app::{
     AgentTextStreamFinishRequest, AppError, AppMessageQuery, AppMessageRecord, MarmotApp,
     MarmotAppRuntime, StreamStartView, tag_value,
@@ -176,13 +178,25 @@ pub(crate) async fn stream_command_app(
     command: StreamCommand,
     account_flag: Option<String>,
 ) -> Result<CommandOutput, WnError> {
+    // Standalone commands retain their cold projection preflight. Hosted daemon
+    // callers bypass this wrapper and use the account runtime they already own.
+    if matches!(
+        &command,
+        StreamCommand::Start { .. }
+            | StreamCommand::Finish { .. }
+            | StreamCommand::Verify { .. }
+            | StreamCommand::Watch { .. }
+    ) {
+        let account = resolve_account(account_home, account_flag.clone())?;
+        ensure_local_signing(&account)?;
+        stream_read_when_ready(|| std::future::ready(app.status(&account.label))).await?;
+    }
     let runtime = app.runtime();
-    stream_command_app_with_runtime(account_home, app, &runtime, command, account_flag).await
+    stream_command_app_with_runtime(account_home, &runtime, command, account_flag).await
 }
 
 pub(crate) async fn stream_command_app_with_runtime(
     account_home: &AccountHome,
-    app: &MarmotApp,
     runtime: &MarmotAppRuntime,
     command: StreamCommand,
     account_flag: Option<String>,
@@ -195,7 +209,6 @@ pub(crate) async fn stream_command_app_with_runtime(
         } => {
             let account = resolve_account(account_home, account_flag)?;
             ensure_local_signing(&account)?;
-            app.status(&account.label)?;
             let group_id = GroupId::new(hex::decode(group)?);
             let stream_id = stream_id
                 .map(hex::decode)
@@ -239,7 +252,6 @@ pub(crate) async fn stream_command_app_with_runtime(
         } => {
             stream_watch_command_app_with_runtime(
                 account_home,
-                app,
                 runtime,
                 StreamCommand::Watch {
                     group,
@@ -273,17 +285,22 @@ pub(crate) async fn stream_command_app_with_runtime(
             if let Some(account) = selected_account.as_ref() {
                 ensure_local_signing(account)?;
             }
-            let selected_account_id_hex = selected_account
-                .as_ref()
-                .map(|account| account.account_id_hex.as_str());
-            let start_event_id_hex = start_event_id.ok_or(WnError::MissingStreamStart)?;
+            let start_event_id_hex =
+                normalize_hex(&start_event_id.ok_or(WnError::MissingStreamStart)?)?;
             let expected_stream_id_hex =
                 stream_id.map(|value| normalize_hex(&value)).transpose()?;
+            let (publisher, group_id_hex) = stream_publisher_for_start_event(
+                account_home,
+                runtime,
+                selected_account,
+                expected_stream_id_hex.as_deref(),
+                &start_event_id_hex,
+            )?;
             let (stream_id, crypto, policy_max_plaintext_frame_len) =
                 stream_crypto_for_start_event(
                     runtime,
-                    selected_account_id_hex,
-                    None,
+                    Some(&publisher.account_id_hex),
+                    Some(&group_id_hex),
                     expected_stream_id_hex.as_deref(),
                     &start_event_id_hex,
                 )
@@ -373,7 +390,6 @@ pub(crate) async fn stream_command_app_with_runtime(
             }
             let account = resolve_account(account_home, account_flag)?;
             ensure_local_signing(&account)?;
-            app.status(&account.label)?;
             let group_id = GroupId::new(hex::decode(group)?);
             let stream_id = hex::decode(stream_id)?;
             let transcript_hash = transcript_hash_from_hex(&transcript_hash)?;
@@ -419,11 +435,10 @@ pub(crate) async fn stream_command_app_with_runtime(
         } => {
             let account = resolve_account(account_home, account_flag)?;
             ensure_local_signing(&account)?;
-            app.status(&account.label)?;
             let group_id_hex = normalize_group_id_hex(&group)?;
             let stream_id_hex = normalize_hex(&stream_id)?;
             let transcript_hash_hex = hex::encode(transcript_hash_from_hex(&transcript_hash)?);
-            let messages = app.messages_with_query(
+            let messages = runtime.messages_with_query(
                 &account.label,
                 AppMessageQuery {
                     group_id_hex: Some(group_id_hex.clone()),
@@ -486,7 +501,6 @@ pub(crate) async fn stream_command_app_with_runtime(
 
 pub(crate) async fn stream_watch_command_app_with_runtime<F>(
     account_home: &AccountHome,
-    app: &MarmotApp,
     runtime: &MarmotAppRuntime,
     command: StreamCommand,
     account_flag: Option<String>,
@@ -507,10 +521,9 @@ where
     };
     let account = resolve_account(account_home, account_flag.clone())?;
     ensure_local_signing(&account)?;
-    app.status(&account.label)?;
     let group_id_hex = normalize_group_id_hex(&group)?;
     let expected_stream_id_hex = stream_id.map(|value| normalize_hex(&value)).transpose()?;
-    let messages = app.messages_with_query(
+    let messages = runtime.messages_with_query(
         &account.label,
         AppMessageQuery {
             group_id_hex: Some(group_id_hex.clone()),
@@ -674,6 +687,93 @@ fn latest_stream_start(
         .ok_or(WnError::MissingStreamStart)
 }
 
+fn stream_publisher_for_start_event(
+    account_home: &AccountHome,
+    runtime: &MarmotAppRuntime,
+    selected: Option<AccountSummary>,
+    stream_id_hex: Option<&str>,
+    start_message_id_hex: &str,
+) -> Result<(AccountSummary, String), WnError> {
+    let explicit = selected.is_some();
+    let accounts = match selected {
+        Some(account) => vec![account],
+        None => account_home.accounts()?,
+    };
+    let mut busy = None;
+    for account in accounts {
+        if !account.is_active_local_signing() {
+            continue;
+        }
+        // Discover the author from projections before opening any Core worker.
+        // A local recipient may also hold this anchor and an active watcher.
+        let messages = runtime.messages_with_query(
+            &account.account_id_hex,
+            AppMessageQuery {
+                group_id_hex: None,
+                kinds: Some(vec![MARMOT_APP_EVENT_KIND_AGENT_STREAM_START]),
+                limit: None,
+            },
+        );
+        let messages = match messages {
+            Ok(messages) => messages,
+            Err(error) if !explicit && stream_storage_is_busy(&error) => {
+                // A busy candidate is not a miss. Only a positively verified
+                // author elsewhere can resolve discovery; otherwise retain it.
+                busy.get_or_insert(error);
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        for message in messages {
+            if message.message_id_hex != start_message_id_hex {
+                continue;
+            }
+            let Some(start) = StreamStartView::from_event(message.kind, &message.tags) else {
+                continue;
+            };
+            let candidate_stream = normalize_hex(&start.stream_id_hex)?;
+            if stream_id_hex.is_some_and(|expected| expected != candidate_stream) {
+                continue;
+            }
+            if message.sender != account.account_id_hex {
+                if explicit {
+                    return Err(WnError::NotMessageAuthor {
+                        message_id: start_message_id_hex.to_owned(),
+                    });
+                }
+                continue;
+            }
+            return Ok((account, message.group_id_hex));
+        }
+    }
+    Err(busy.map_or(WnError::MissingStreamStart, WnError::App))
+}
+
+fn stream_storage_is_busy(error: &AppError) -> bool {
+    use cgka_traits::{error::EngineError, storage::StorageError};
+    matches!(error, AppError::Storage(StorageError::Busy(_)))
+        || matches!(
+            error.as_engine_error(),
+            Some(EngineError::Storage(StorageError::Busy(_)))
+        )
+}
+
+async fn stream_read_when_ready<T, F, Read>(mut read: F) -> Result<T, AppError>
+where
+    F: FnMut() -> Read,
+    Read: std::future::Future<Output = Result<T, AppError>>,
+{
+    for attempt in 0..3 {
+        match read().await {
+            Err(error) if attempt < 2 && stream_storage_is_busy(&error) => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the final read always returns its result")
+}
+
 pub(crate) async fn stream_crypto_for_start_event(
     runtime: &MarmotAppRuntime,
     resolved_account_id_hex: Option<&str>,
@@ -688,6 +788,14 @@ pub(crate) async fn stream_crypto_for_start_event(
     ),
     WnError,
 > {
+    if let (Some(account), Some(group)) = (resolved_account_id_hex, group_id_hex) {
+        let group = GroupId::new(hex::decode(group)?);
+        // Cold acquisition must surface typed contention before the native
+        // context search can classify an unavailable worker as a missing start.
+        stream_read_when_ready(|| runtime.group_mls_state(account, &group))
+            .await
+            .map_err(map_agent_stream_crypto_error)?;
+    }
     let context = runtime
         .agent_text_stream_crypto_for_start_event(
             resolved_account_id_hex,
@@ -894,6 +1002,76 @@ fn resolve_selected_account(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn stream_reads_retry_typed_contention_without_repeating_success() {
+        let mut calls = 0;
+        let result = stream_read_when_ready(|| {
+            calls += 1;
+            std::future::ready(if calls < 3 {
+                Err(AppError::Storage(cgka_traits::storage::StorageError::Busy(
+                    "isolated contention".into(),
+                )))
+            } else {
+                Ok(17)
+            })
+        })
+        .await;
+        assert_eq!(result.unwrap(), 17);
+        assert_eq!(calls, 3);
+    }
+
+    #[tokio::test]
+    async fn stream_reads_preserve_non_transient_failure_without_retry() {
+        let mut calls = 0;
+        let result: Result<(), _> = stream_read_when_ready(|| {
+            calls += 1;
+            std::future::ready(Err(AppError::AgentStreamMissingStart))
+        })
+        .await;
+        assert!(matches!(result, Err(AppError::AgentStreamMissingStart)));
+        assert_eq!(calls, 1);
+    }
+
+    #[tokio::test]
+    async fn stream_reads_return_the_last_busy_error_after_bounded_attempts() {
+        let mut calls = 0;
+        let result: Result<(), _> = stream_read_when_ready(|| {
+            calls += 1;
+            std::future::ready(Err(AppError::Storage(
+                cgka_traits::storage::StorageError::Busy(format!("attempt-{calls}")),
+            )))
+        })
+        .await;
+        assert_eq!(calls, 3);
+        let Err(AppError::Storage(cgka_traits::storage::StorageError::Busy(detail))) = result
+        else {
+            panic!("contention was classified as a missing stream");
+        };
+        assert_eq!(detail, "attempt-3");
+    }
+
+    #[tokio::test]
+    async fn stream_reads_recognize_engine_wrapped_storage_contention() {
+        let mut calls = 0;
+        let result = stream_read_when_ready(|| {
+            calls += 1;
+            std::future::ready(if calls == 1 {
+                Err(AppError::Account(marmot_account::AccountError::Engine(
+                    cgka_traits::error::EngineError::Storage(
+                        cgka_traits::storage::StorageError::Busy(
+                            "isolated engine contention".into(),
+                        ),
+                    ),
+                )))
+            } else {
+                Ok(())
+            })
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(calls, 2);
+    }
 
     fn addr(raw: &str) -> SocketAddr {
         raw.parse().expect("test socket address parses")

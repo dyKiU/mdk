@@ -1,0 +1,189 @@
+{
+  "qualified_source": "83f5a82d80c9f53bdcbab602f349544397ba07f6",
+  "scope": "Full default App library plus default bindings/host ABI/production compile/docs. Experimental suite remains independently pending. Installed 3fab Apple artifacts unchanged.",
+  "input_count": 2448,
+  "source_manifest_sha256": "2d81cdde850550ed51b5933684922ef9fbdb4b124c9747f7ebea234cfae7bab0",
+  "manifest_schema": "relative path -> SHA256 of actual bytes, cached + others; symlinks dereferenced",
+  "gates": [
+    {
+      "gate": "app-default-compile",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 47.7,
+      "log_sha256": "81533f19f27e20e6257476d0e58e4e60327f2cc1e00db79773e7167f028805b2"
+    },
+    {
+      "gate": "uniffi-default-full",
+      "exit_code": 0,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 199,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 29,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "seconds": 88.87,
+      "log_sha256": "7c8845fa0dba389a211437719ee8eb649c959c5ffd082701e278c3f35f67bd4e"
+    },
+    {
+      "gate": "c-default-full",
+      "exit_code": 0,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 86,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "seconds": 56.07,
+      "log_sha256": "4d327a6bc90ebfa33e3ff2506d63d8f71170ed60f4d1f4c770c5fd6c67376427"
+    },
+    {
+      "gate": "external-c-default",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 17.1,
+      "log_sha256": "f4f9474a75ac062d150d56597393465766547e67b0d0cee68c5b93d7979f1042"
+    },
+    {
+      "gate": "swift-default",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 49.76,
+      "log_sha256": "f4701cc77b852fb83fb3eaaa3d221e82cb98922636cf05a5e6ebd03eedb84d26"
+    },
+    {
+      "gate": "default-check",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 33.29,
+      "log_sha256": "4e86f967a7c9dcae0eaae466d1b99173f14b879aa117488aead382cb16c91d74"
+    },
+    {
+      "gate": "fmt",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 3.77,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "gate": "docs",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 0.17,
+      "log_sha256": "e970f6469a605f1a3fb681638d528ece8f4bad0615b244a9d09c78a4bb613090"
+    },
+    {
+      "gate": "docs-regressions",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 0.2,
+      "log_sha256": "061df2c0e9c3a55addf476acdff062cb24d3b91ca68df0f7f5996a062624edbc"
+    },
+    {
+      "gate": "parity",
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 0.11,
+      "log_sha256": "7b89d6c69fcecd333d31080bdecdb43207f29efbc0516b8eef488cef4ec37955"
+    },
+    {
+      "gate": "app-default-full-lib",
+      "exit_code": 0,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1897,
+          "failed": 0,
+          "ignored": 6
+        }
+      ],
+      "seconds": 1474.51,
+      "log_sha256": "1cfb08405ec167130207a92b3b358afbe26c917d2fff9deb9ba155939219cfaf"
+    }
+  ],
+  "test_binary": {
+    "sha256_before_after": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d",
+    "compile_command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "marmot-app",
+      "--features",
+      "test-policy-overrides",
+      "--lib",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "run_command": [
+      "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/deps/marmot_app-368e547e65a34459",
+      "--test-threads",
+      "2"
+    ],
+    "historical_3fab_binary_preserved": "hardlink historical-default-app-314b8c395e8a9b7a; original full hash checked before and after recompile"
+  },
+  "independent_verification": {
+    "signed_archive_input_bytes_matched": 2448,
+    "complete_log_hashes_matched": 11
+  },
+  "artifacts": "backups/mdk-sync-delivery-20261009 in parent workspace; prefix mdk-sync-final-controls-default-v1",
+  "complete_report_sha256": "0b946a397595e059c7ffd44c82600bbaf6b231280937602f2ed793ed0d73a0c4",
+  "post_freeze_delta": "This evidence document only; tested runtime remains exact signed source."
+}

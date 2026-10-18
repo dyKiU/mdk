@@ -1,0 +1,131 @@
+{
+  "scope": "Original selected Current chat: explicit sibling consent, guarded two-Add, fresh joins and new-message delivery. History/native adoption remain separate.",
+  "runtime_commits": [
+    "87f7c62c17a708a5ec2513a271eafeaca229f965",
+    "b5eb25dabbeb174247ead86eb9745c7c70a0ecbb"
+  ],
+  "frozen_final": {
+    "head": "db5cf209eef20a861a167c29c0df17b9d3cf27d9",
+    "behavioral_fixture_sha256": "c6adb6a6a092e540943b7335463a677c3507744138911942e6832117eb69d110",
+    "input_count": 2428,
+    "source_manifest_sha256": "ae0e0bef15a2d747567dfa7265599b6af51c4adaa14dee5554b7a3f18d3c64ee",
+    "gates": [
+      {
+        "gate": "delivery-green",
+        "exit_code": 0,
+        "seconds": 56.55,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "14611c26ea1ddbfd7807d21cdebefcc266b70ed9fa78baeead26b2853ab3bb54"
+      },
+      {
+        "gate": "selected-controls",
+        "exit_code": 0,
+        "seconds": 28.0,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 6,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "7ccc424094dff10dd1f0317cc9bbdd2f6269e3c335c5f07d6c4be29c6b2f50a4"
+      },
+      {
+        "gate": "default-denial",
+        "exit_code": 0,
+        "seconds": 37.73,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "609126ddab1e3e6faabce57352792a86185e4c037e05ca5db0f561adebfab95a"
+      },
+      {
+        "gate": "production-clippy",
+        "exit_code": 0,
+        "seconds": 26.83,
+        "counts": [],
+        "log_sha256": "4ebd2f360e8bc92771e072ad1bf65cef258b949be0e5d965cab5f95cf57abcdb"
+      },
+      {
+        "gate": "default-check",
+        "exit_code": 0,
+        "seconds": 24.6,
+        "counts": [],
+        "log_sha256": "eba53e8e1a69137e0614bdcc099744788778f3e7f7876f1a6f4cb3a1479faeb8"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.47,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "evidence_prefix": "mdk-selected-chat-delivery-carrier-v5",
+  "raw_evidence_directory": "backups/mdk-sync-delivery-20261009 (parent workspace)",
+  "original_behavioral_red": {
+    "fixture_sha256": "a612940fe0b895aeddc1f10d9ddffcad7f66bfcdacc21a1aa2b80a1c0543bb41",
+    "source_manifest_sha256": "26c80a88f2b7020b13e74129fca745a8d3d20166b8ad1c672bf64ab7f6b40858",
+    "log_sha256": "07b7a91d4fe671b2d4d53a48907d5ea5ce0a2e4feb4ce70a332a9701e2119d97",
+    "counts": {
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0
+    },
+    "failure": "Public continue_copy returns NotReady after real public ABC + ordinary A/D + actual private offers",
+    "local_stash": "a65c7b65f38974217654ab9d0364919e4075f673"
+  },
+  "diagnosed_behavioral_failures": [
+    {
+      "prefix": "mdk-selected-chat-delivery-diagnostic-v2",
+      "failure": "Missing genuine KeyPackage transport source caused Peeler staging failure",
+      "log_sha256": "ad0a2674f7cd0378f65c496e1de23a21be399a6dbbd62964e057d50f4313c2bb",
+      "local_stash": "7cac7f49072bf44bf82cd2bfdd67c1ea85fdb63d"
+    },
+    {
+      "prefix": "mdk-selected-chat-delivery-carrier-v1",
+      "failure": "Confirmed MLS epoch2 but sender App routing epoch1",
+      "log_sha256": "2abb633ab5cf60e88f2e4cf2e884b38fe9d6053b4a2e940f03ddc42d3275e16b",
+      "local_stash": "973afe77ac9d6ed52d2fa340948b380282522e6b"
+    },
+    {
+      "prefix": "mdk-selected-chat-delivery-carrier-v3",
+      "failure": "Native-only observer filtered ordinary EpochChanged; projection remained stale",
+      "local_stash": "1604417b66deacf51e31bfd28ce22d524653f237"
+    }
+  ],
+  "passing_controls": [
+    "Actual indexed four-leaf Current trees and independent own leaf signers/indexes",
+    "Exact consumed sibling private package references",
+    "A/B/C/D new messages: exact event IDs and plaintext on all four devices",
+    "Prejoin message absent on B/C",
+    "Actual sender App projection reflects confirmed Add",
+    "No increase from baseline legitimate public30443 events",
+    "Canonical leaf/event signature forgery, package content/ref, bounds and stale revisions refuse without collection mutation",
+    "Exact signed private carrier retries, existing package SQL rollback/cancel/drop/reopen controls",
+    "Default Unsupported before account/worker effects"
+  ],
+  "unqualified_followups": [
+    "Blocked selected transport and interrupted confirmation fault controls",
+    "Automatic same-original-owner selected Welcome retry after typed SQL failure",
+    "Recipient expected e-tag comparison: generic TransportPeeler currently discards authenticated WelcomePeelProvenance",
+    "Same-tree protected generation replacement controls",
+    "Current-source Core default and conformance-slow suites",
+    "UniFFI/C selected-copy wrappers, matched native artifacts/UI and history transfer"
+  ],
+  "post_gate_changes": "Only this proof and appended human documentation; no runtime/test changes after frozen six-gate qualification."
+}

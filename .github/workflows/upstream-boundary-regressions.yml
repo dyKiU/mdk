@@ -1,0 +1,724 @@
+name: Upstream foreign future and cleanup mutation gates
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      extraction_cohort_baseline:
+        description: Exact reviewed extraction cohort (no historical evidence reuse)
+        type: string
+        default: 0c9065255fa16292e84e12b32fb920db0494b9aa
+      case:
+        description: Select one scoped mutation gate or all gates
+        type: choice
+        options: [rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        default: all
+      storage_controls_run_id:
+        description: Successful eight-control run on this exact helper SHA (mutations only)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && '0c9065255fa16292e84e12b32fb920db0494b9aa' || inputs.extraction_cohort_baseline }}
+
+jobs:
+  # ROTATING_SPONSOR_CANDIDATE_JOBS_BEGIN
+  rotating-sponsor-candidate-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["rotating-sponsor-candidate-preflight","rotating-sponsor-candidate-green","rotating-sponsor-candidate-mutations"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ROTATING_SPONSOR_CANDIDATE_BASELINE: 58b40563064795d48f018b23bd5b76644978e179
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact reviewed source and closed parser controls
+        run: |
+          python3 -m py_compile scripts/qualify_upstream_rotating_sponsor_candidate.py
+          python3 scripts/qualify_upstream_rotating_sponsor_candidate.py --mode preflight
+      - name: Remote product-only Rust formatting gate and exact patch
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" rustfmt --edition 2024 --config skip_children=true crates/storage-sqlite/src/private_device_invite.rs
+          git diff --binary -- crates/storage-sqlite/src/private_device_invite.rs > "$RUNNER_TEMP/rotating-sponsor-candidate-format.patch"
+          git diff --exit-code -- crates/storage-sqlite/src/private_device_invite.rs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-candidate-preflight
+          path: |
+            rotating-sponsor-candidate-evidence/result.json
+            ${{ runner.temp }}/rotating-sponsor-candidate-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  rotating-sponsor-candidate-green:
+    needs: rotating-sponsor-candidate-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'rotating-sponsor-candidate-green'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ROTATING_SPONSOR_CANDIDATE_BASELINE: 58b40563064795d48f018b23bd5b76644978e179
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: One experimental storage compile and every exact invite component and migration body
+        env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/qualify_upstream_rotating_sponsor_candidate.py --mode green
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-candidate-green
+          path: rotating-sponsor-candidate-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  rotating-sponsor-candidate-mutations:
+    needs: rotating-sponsor-candidate-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'rotating-sponsor-candidate-mutations'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        chain: [old_veto, no_origin]
+    env:
+      ROTATING_SPONSOR_CANDIDATE_BASELINE: 58b40563064795d48f018b23bd5b76644978e179
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: Five actual controls then exact counterfactual then five restored controls
+        env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/qualify_upstream_rotating_sponsor_candidate.py --mode '${{ matrix.chain }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-candidate-${{ matrix.chain }}
+          path: rotating-sponsor-candidate-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # ROTATING_SPONSOR_CANDIDATE_JOBS_END
+  # ROTATING_SPONSOR_RED_JOBS_BEGIN
+  rotating-sponsor-red-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["rotating-sponsor-red-preflight","rotating-sponsor-red"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ROTATING_SPONSOR_BASELINE: 2b5cca339e5fcfe520d58e275238e5fbac40937d
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact whole-source and closed parser preflight then remote test-only formatting
+        run: |
+          python3 scripts/qualify_upstream_rotating_sponsor_red.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" rustfmt --edition 2024 --config skip_children=true crates/storage-sqlite/src/private_device_invite_tests.rs
+          git diff --binary -- crates/storage-sqlite/src/private_device_invite_tests.rs > "$RUNNER_TEMP/rotating-sponsor-red-format.patch"
+          git diff --exit-code -- crates/storage-sqlite/src/private_device_invite_tests.rs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-red-preflight
+          path: |
+            rotating-sponsor-red-evidence/result.json
+            ${{ runner.temp }}/rotating-sponsor-red-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  rotating-sponsor-red:
+    needs: rotating-sponsor-red-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'rotating-sponsor-red'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: rotating-sponsor-red-${{ github.sha }}
+      cancel-in-progress: false
+    env:
+      ROTATING_SPONSOR_BASELINE: 2b5cca339e5fcfe520d58e275238e5fbac40937d
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: One storage compile and five exact policy regressions, no retry
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_rotating_sponsor_red.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-red-runtime
+          path: rotating-sponsor-red-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # ROTATING_SPONSOR_RED_JOBS_END
+  # STORAGE_APP_HANDLES_JOBS_BEGIN
+  storage-app-handles-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["storage-app-handles-preflight","storage-app-handles-controls","storage-app-handles-app-compile"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_STORAGE_APP_HANDLES_BASELINE: d5c848ab55860034dbdcf5be5da32d790fd79c95
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Frozen candidate and closed parser controls then remote format
+        run: |
+          python3 scripts/qualify_upstream_storage_app_handles.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/storage-app-handles-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-app-handles-preflight
+          path: |
+            storage-app-handles-evidence/result.json
+            ${{ runner.temp }}/storage-app-handles-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  storage-app-handles-controls:
+    needs: storage-app-handles-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-app-handles-controls'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_STORAGE_APP_HANDLES_BASELINE: d5c848ab55860034dbdcf5be5da32d790fd79c95
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Finite storage controls and affected all-target compilation only
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'App handle finite compilation and storage controls' --output "$RUNNER_TEMP/storage-app-handles-capacity.json"
+          python3 scripts/qualify_upstream_storage_app_handles.py --cohort '${{ matrix.cohort }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-app-handles-${{ matrix.cohort }}
+          path: |
+            storage-app-handles-evidence/result.json
+            ${{ runner.temp }}/storage-app-handles-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  storage-app-handles-app-compile:
+    needs: storage-app-handles-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-app-handles-app-compile'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_STORAGE_APP_HANDLES_BASELINE: d5c848ab55860034dbdcf5be5da32d790fd79c95
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Experimental App all-target compilation only; zero runtime tests
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'App handle finite compilation and storage controls' --output "$RUNNER_TEMP/storage-app-handles-capacity.json"
+          python3 scripts/qualify_upstream_storage_app_handles.py --app-compile-only --cohort experimental
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-app-handles-app-compile-experimental
+          path: |
+            storage-app-handles-evidence/result.json
+            ${{ runner.temp }}/storage-app-handles-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # STORAGE_APP_HANDLES_JOBS_END
+  # STORAGE_HANDLE_JOBS_BEGIN
+  storage-handle-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["storage-handle-preflight","storage-handle-red"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_STORAGE_HANDLE_BASELINE: c6f499b7780b66284e5e088ae7c786500c991143
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact merged contents and closed crossing parser controls
+        run: |
+          python3 scripts/qualify_upstream_storage_handle.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/storage-handle-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-handle-preflight
+          path: |
+            storage-handle-evidence/result.json
+            ${{ runner.temp }}/storage-handle-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  storage-handle-red:
+    needs: storage-handle-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-handle-red'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_STORAGE_HANDLE_BASELINE: c6f499b7780b66284e5e088ae7c786500c991143
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Four ownership controls and original boundary-policy RED
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Merged storage-handle boundary policy' --output "$RUNNER_TEMP/storage-handle-capacity.json"
+          python3 scripts/qualify_upstream_storage_handle.py --cohort '${{ matrix.cohort }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-handle-red-${{ matrix.cohort }}
+          path: |
+            storage-handle-evidence/result.json
+            ${{ runner.temp }}/storage-handle-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # STORAGE_HANDLE_JOBS_END
+  cohort-preflight:
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch actual Actions synthetic merge object
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "$GITHUB_SHA"
+      - name: Adversarial PR identity fixtures and exact reviewed source gate
+        run: |
+          python3 scripts/test_upstream_extraction_cohort.py
+          python3 scripts/upstream_extraction_cohort.py > cohort-identity.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: boundary-cohort-identity
+          path: cohort-identity.json
+          if-no-files-found: error
+          retention-days: 7
+  mutation:
+    needs: cohort-preflight
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        case: ${{ fromJSON(inputs.case == 'migration-cohorts' && '["migration-default","migration-experimental"]' || inputs.case == 'fixture-adaptations' && '["upload-fixture","migration-default","migration-experimental"]' || inputs.case && inputs.case != 'all' && format('["{0}"]', inputs.case) || '["departure","worker-reap","relay-acquisition","upload-fixture","migration-default","migration-experimental","worker-spawn-stack","automatic-publication","sibling-publication","sibling-retry-priority","outbound-mailbox-kind"]') }}
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_MIN_STACK: "4194304"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch actual Actions synthetic merge object
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "$GITHUB_SHA"
+      - name: Install repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        if: contains(fromJSON('["worker-spawn-stack","automatic-publication","sibling-publication","sibling-retry-priority"]'), matrix.case)
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-boundary-${{ matrix.case }}
+          cache-on-failure: true
+      - name: Require runtime RED and exact-source restored GREEN
+        run: |
+          df -h .
+          python3 scripts/verify_upstream_boundary_mutations.py --case "${{ matrix.case }}" --output proof
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-boundary-${{ matrix.case }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: proof/
+          if-no-files-found: error
+          retention-days: 7
+
+  storage-ownership-preflight:
+    if: github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings' || inputs.case == 'storage-ownership-mutations') && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    name: SQLite ownership source, parser and formatting preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact repository formatter without compiling
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - name: Verify reviewed source and adversarial receipt parsers without runtime bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort default --preflight --ownership-adaptation
+      - name: Generate exact formatter patch and require the reviewed tree to be formatted
+        run: |
+          set -euo pipefail
+          mkdir -p formatting
+          git rev-parse HEAD > formatting/source-sha.txt
+          git rev-parse HEAD^{tree} > formatting/source-tree.txt
+          cargo fmt --all
+          git diff --binary -- '*.rs' > formatting/formatting.patch
+          sha256sum formatting/formatting.patch > formatting/formatting.patch.sha256
+          test ! -s formatting/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-ownership-preflight-${{ github.sha }}
+          path: |
+            storage-boundary-evidence/result.json
+            formatting/
+          if-no-files-found: error
+          retention-days: 7
+
+  storage-ownership-boundary:
+    needs: storage-ownership-preflight
+    if: ${{ !cancelled() && ((inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings') || needs.storage-ownership-preflight.result == 'success') && github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-crossings' || inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-boundary' || inputs.case == 'storage-ownership-diagnostics') && (startsWith(github.ref_name, 'ci/upstream-storage-boundary-') || startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-')) }}
+    name: Incoming SQLite ownership (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: ${{ fromJSON((inputs.case == 'storage-ownership-diagnostics' || inputs.case == 'storage-ownership-crossings') && '["default"]' || '["default","experimental"]') }}
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: storage-ownership-boundary-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Verify explicit source cohort and adversarial receipt fixtures
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --preflight ${{ (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings') && '--ownership-adaptation' || '' }}
+      - name: Run only three unchanged incoming ownership assertions
+        if: inputs.case == 'storage-ownership-boundary'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Incoming SQLite ownership boundary' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}'
+      - name: Run preserved ownership assertions and unknown-root regression
+        if: inputs.case == 'storage-ownership-green'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Reviewed SQLite ownership adaptation' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --ownership-adaptation
+      - name: Export bounded compiler identities without executing test bodies
+        if: inputs.case == 'storage-ownership-diagnostics'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Incoming SQLite ownership compiler diagnosis' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort default --compile-only
+      - name: Diagnose only the actual default boundary assertion with safe structural crossings
+        if: inputs.case == 'storage-ownership-crossings'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Owned SQLite structural crossing diagnosis' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort default --ownership-adaptation --crossing-diagnostics
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-ownership-boundary-${{ matrix.cohort }}-${{ github.sha }}
+          path: storage-boundary-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  storage-ownership-mutations:
+    needs: storage-ownership-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-ownership-mutations' && needs.storage-ownership-preflight.result == 'success' && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    name: SQLite ownership necessity (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: storage-ownership-boundary-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Four exact counterfactual chains after same-SHA eight-control qualification
+        env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+          CONTROLS_RUN_ID: ${{ inputs.storage_controls_run_id }}
+        run: |
+          set -euo pipefail
+          python3 scripts/qualification_build_preflight.py --label 'SQLite ownership necessity mutations' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --ownership-adaptation --mutations --controls-run-id "$CONTROLS_RUN_ID"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-ownership-mutations-${{ matrix.cohort }}-${{ github.sha }}
+          path: storage-boundary-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  source-format:
+    if: inputs.case == 'source-format' && startsWith(github.ref_name, 'ci/upstream-develop-dy-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exercise adversarial qualification identity cases
+        run: python3 scripts/test_upstream_extraction_cohort.py
+      - name: Record exact reviewed source cohort before formatting
+        run: |
+          mkdir -p formatting
+          python3 scripts/upstream_extraction_cohort.py > formatting/source-cohort.json
+      - name: Generate patch with the exact repository formatter, without compiling
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          mkdir -p formatting
+          git rev-parse HEAD > formatting/source-sha.txt
+          git rev-parse HEAD^{tree} > formatting/source-tree.txt
+          cargo fmt --all
+          git diff --binary -- '*.rs' > formatting/formatting.patch
+          sha256sum formatting/formatting.patch > formatting/formatting.patch.sha256
+      - name: Require the original source to have been formatted
+        run: test ! -s formatting/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-source-format-${{ github.sha }}
+          path: formatting/
+          if-no-files-found: error
+          retention-days: 7

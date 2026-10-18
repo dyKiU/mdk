@@ -1,0 +1,134 @@
+{
+  "base": "51061d777288b51a6a0b0e33ba775d9e4e9d0ee9",
+  "candidate_stash": "a9398beec33334dadb343d9cddd2f92b79441e1e",
+  "input_manifest": "account-chat-presentation-storage-v4-inputs.json",
+  "input_manifest_sha256": "17193d3b8c6a72a5ddf9d441cdc6aac9280afb9a3e27a8892bb1b6544ad6242c",
+  "input_count": 2579,
+  "tested_paths": {
+    "crates/storage-sqlite/src/lib.rs": "8444f31f4b4d76a90c5b65d82e7a20d4b3b958232dd87288ba3c2c69ba3e04c0",
+    "crates/storage-sqlite/src/mirrored_chat_catalog.rs": "375e0f738a57c502067aa2a58dacfd6ef0ffadfd0d217802cdff881277a23ebd",
+    "crates/storage-sqlite/src/mirrored_chat_messages.rs": "1385f503f77ff70c2e082d31995ead5d23123598c7d7c3f95fbd664456808dd6",
+    "crates/storage-sqlite/src/mirrored_chat_presentation.rs": "c14e4e1aa126a492639f1bd710e5399adbc63a883db34c6ded83126c8f5751e8",
+    "crates/storage-sqlite/src/mirrored_chat_presentation/tests.rs": "06dbd3e7e7585cd05fb0186691133be72d12ee578b1e7c4bf91f6452fdb3e59d"
+  },
+  "gates": [
+    {
+      "gate": "focused",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "mirrored_presentation_",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 10.801,
+      "log": "/Users/pj/project/build/account-chat-presentation-storage-v4-focused.log",
+      "sha256": "ef5535e58ccea807cd0f13deb1a58b89ed74a977d31c0a2ec7fbec5c3d7bda0d"
+    },
+    {
+      "gate": "affected",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "mirrored_",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 19.256,
+      "log": "/Users/pj/project/build/account-chat-presentation-storage-v4-affected.log",
+      "sha256": "01ccdd41100abbb1a611ea1d8cb9e6fd7363903f9080b225f23756bd4db93230"
+    },
+    {
+      "gate": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "storage-sqlite",
+        "--all-targets",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 7.633,
+      "log": "/Users/pj/project/build/account-chat-presentation-storage-v4-clippy.log",
+      "sha256": "b2e10635c4e07d940986672c55b05a5ce76361d8e13db1587159d2f3b724efb3"
+    },
+    {
+      "gate": "default",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "storage-sqlite",
+        "--all-targets",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "seconds": 6.125,
+      "log": "/Users/pj/project/build/account-chat-presentation-storage-v4-default.log",
+      "sha256": "334004f7701e2d202b9db8725bde4eb69806af9dcd691033aaa99827ffcf2ae5"
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "-p",
+        "storage-sqlite",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.466,
+      "log": "/Users/pj/project/build/account-chat-presentation-storage-v4-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "counts": {
+    "focused": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    "affected_includes_focused": {
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "unchanged_at_tail": true,
+  "retained_attempts": [
+    {
+      "prefix": "account-chat-presentation-storage-v1",
+      "classification": "runner PATH failure before Cargo; zero tests"
+    },
+    {
+      "prefix": "account-chat-presentation-storage-v2",
+      "classification": "compile-only rusqlite usize FromSql failure; zero tests"
+    },
+    {
+      "prefix": "account-chat-presentation-storage-v3",
+      "classification": "focused6/affected22 passed; strictClippy clone-slice style failure; final test assertion bytes unchanged except style"
+    }
+  ],
+  "scope": "Read-only SQLite observation union; synthetic configured account/signer controls. No migrations, live MLS rows, original consent, App worker/windows, native binding or installed journey qualification."
+}

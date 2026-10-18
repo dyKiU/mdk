@@ -1,0 +1,285 @@
+{
+  "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+  "base": "0b1b461309991afeff2d9113ceb72a9dc22d941a",
+  "frozen_inputs": 2604,
+  "all_input_blobs_independently_verified": true,
+  "owned_input_sha256": {
+    "crates/marmot-uniffi/API-REFERENCE.md": "aee15d238537b0d8624edbdc2ffefacd1e126262c582ed0af964c8ca0ec6ba0e",
+    "crates/marmot-uniffi/README.md": "490f47967b7948a19f75cca099693437f38e5db3787eca57c4d97cee8cb104db",
+    "crates/marmot-uniffi/src/commands/device_linking.rs": "efd1e0576da5b0e74f9034712a29dbfa347182d8bb57d38308b06ca7dace3e85",
+    "crates/marmot-uniffi/tests/chat_projections_smoke.kt": "9db48817d8df8fb6e02e4bf5cbd7ecb2a42894157a980d6ea0bbe5bc176c42e5",
+    "crates/marmot-uniffi/tests/chat_projections_smoke.swift": "f3ce000050b8e410e1cf6ef14275eaf1448b0fea0f48c209272acc0a03702a34"
+  },
+  "gates": [
+    {
+      "gate": "build-cli",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--features",
+        "cli"
+      ],
+      "exit": 0,
+      "seconds": 82.2130138874054,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-build-cli.log",
+      "log_sha256": "f87883684e34d8968251c27507f0dd39c54358f46ad8574841ca7c24086e7060",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "generate-swift",
+      "command": [
+        "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/uniffi-bindgen",
+        "generate",
+        "--library",
+        "/Users/pj/project/build/uf-close-stream-v1-generated/libmarmot_uniffi.dylib",
+        "--language",
+        "swift",
+        "--out-dir",
+        "/Users/pj/project/build/uf-close-stream-v1-generated"
+      ],
+      "exit": 0,
+      "seconds": 6.275763034820557,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-generate-swift.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "generate-kotlin",
+      "command": [
+        "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/uniffi-bindgen",
+        "generate",
+        "--library",
+        "/Users/pj/project/build/uf-close-stream-v1-generated/libmarmot_uniffi.dylib",
+        "--language",
+        "kotlin",
+        "--out-dir",
+        "/Users/pj/project/build/uf-close-stream-v1-generated"
+      ],
+      "exit": 0,
+      "seconds": 1.2191190719604492,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-generate-kotlin.log",
+      "log_sha256": "35071a720a8dde15b761b55154748ca346b26377041e7716850d6b41e59e86cb",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "swift-compile",
+      "command": [
+        "swiftc",
+        "-parse-as-library",
+        "-I",
+        "/Users/pj/project/build/uf-close-stream-v1-generated",
+        "-Xcc",
+        "-fmodule-map-file=/Users/pj/project/build/uf-close-stream-v1-generated/marmot_uniffiFFI.modulemap",
+        "-L",
+        "/Users/pj/project/build/uf-close-stream-v1-generated",
+        "-lmarmot_uniffi",
+        "/Users/pj/project/build/uf-close-stream-v1-generated/CombinedSmoke.swift",
+        "-o",
+        "/Users/pj/project/build/uf-close-stream-v1-generated/swift-smoke"
+      ],
+      "exit": 0,
+      "seconds": 5.523615837097168,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-swift-compile.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "swift-run",
+      "command": [
+        "/Users/pj/project/build/uf-close-stream-v1-generated/swift-smoke"
+      ],
+      "exit": 0,
+      "seconds": 1.803048849105835,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-swift-run.log",
+      "log_sha256": "8503c9702da1149533fdad46660bbda90aa70c4fb41dc51b136e0f911859adbf",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "kotlin-compile",
+      "command": [
+        "bash",
+        "-c",
+        "source /Users/pj/project/build/tools/mdk-kotlin-1.9.0-jdk17/environment.sh\nexport JAVA_OPTS=\"-Xms256m -Xmx2g\"\nkotlinc /Users/pj/project/build/uf-close-stream-v1-generated/dev/ipf/marmotkit/marmot_uniffi.kt /Users/pj/project/mdk-uf-close-stream/crates/marmot-uniffi/tests/chat_projections_smoke.kt -cp \"$MDK_KOTLIN_CLASSPATH\" -include-runtime -d /Users/pj/project/build/uf-close-stream-v1-generated/smoke.jar"
+      ],
+      "exit": 0,
+      "seconds": 16.60249924659729,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-kotlin-compile.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "kotlin-run",
+      "command": [
+        "bash",
+        "-c",
+        "source /Users/pj/project/build/tools/mdk-kotlin-1.9.0-jdk17/environment.sh\njava -Djna.library.path=/Users/pj/project/build/uf-close-stream-v1-generated -cp \"/Users/pj/project/build/uf-close-stream-v1-generated/smoke.jar:$MDK_KOTLIN_CLASSPATH\" dev.ipf.marmotkit.Chat_projections_smokeKt"
+      ],
+      "exit": 0,
+      "seconds": 0.41647791862487793,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-kotlin-run.log",
+      "log_sha256": "e4e96e81cd58fbfcfc5985f0d149a399f3bd8382d256bd7f14b42f431419e62e",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "native-close",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "--features",
+        "experimental-device-sync,marmot-app/test-policy-overrides",
+        "commands::device_linking::tests::native_binding_continues_original_actions_and_close_wakes_waiter",
+        "--",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 104.39792108535767,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-native-close.log",
+      "log_sha256": "2f2fe4224195f7af906a8ec812a50e172329b98d6fc0fb4d5f569a33f1b9f11b",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "gate": "default-denial",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "commands::device_linking::tests::default",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 47.18988299369812,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-default-denial.log",
+      "log_sha256": "7d1fb14d391bd71ee78f42b32b4821a4a6d33c0ae802a091e13b0fec9c405da2",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "gate": "strict",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,marmot-app/test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 53.631479024887085,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-strict.log",
+      "log_sha256": "783d52ca783073412776c78cfdceb7a6f35eab7bd9103153d4b3356c04eb3a4f",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "docs",
+      "command": [
+        "python3",
+        "scripts/check_binding_docs.py"
+      ],
+      "exit": 0,
+      "seconds": 0.17299795150756836,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-docs.log",
+      "log_sha256": "387cbbf124f028529ce8ba5f8c64090137fd7cfdbd122359713be41eaeef989f",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "docs-tests",
+      "command": [
+        "python3",
+        "scripts/test_check_binding_docs.py"
+      ],
+      "exit": 0,
+      "seconds": 0.19157981872558594,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-docs-tests.log",
+      "log_sha256": "49ee8e7845fa1a088fc3c5cd9e804cbf0aa1ffa18097af984d719c739b9f78ae",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 3.704094886779785,
+      "log": "/Users/pj/project/build/uf-close-stream-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "4c9876b4c1bb9e6de01d51069dc245b37b2cb3f5",
+      "inputs_unchanged": true,
+      "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da",
+      "actual_test_summaries": []
+    }
+  ],
+  "scope": "Supported UniFFI method alias retains Rust close and C close semantics. Same actual library generated Swift/Kotlin DTO converter compile+run; compile-only closeStream call sites; genuine Rust native close wakes receiver and default refuses before account effects.",
+  "limits": [
+    "Foreign subscription closeStream call sites compile but are not themselves invoked by DTO main; native close-wake exercised by genuine Rust UF test.",
+    "No packaged experimental SDK, full-suite promotion or installed-app claim."
+  ],
+  "runner_repair": "Initial runner stopped after successful generation because Kotlin output is package-nested. Resume reused identical generated/native outputs and corrected path; no source edit or behavioral RED claim.",
+  "library_sha256": "37154ff80af18291c87f0a76346d0151395d6057f4276ebee8aa73d3d74482da"
+}

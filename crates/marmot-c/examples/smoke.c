@@ -40,6 +40,18 @@ _Static_assert(MARMOT_MODERATION_REPORT_ORIGIN_BLOCK_AND_REPORT == 1, "moderatio
 _Static_assert(MARMOT_STATUS_MODERATION_REPORTING_NOT_CONFIGURED == 96, "moderation status ABI value");
 _Static_assert(MARMOT_STATUS_MODERATION_REPORT_RATE_LIMITED == 100, "moderation status ABI value");
 
+_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED == 127, "selected unsupported ABI");
+_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_CLOSED == 136, "selected closed ABI");
+_Static_assert(MARMOT_SELECTED_CHAT_COPY_PHASE_INVITE_CONFIRMED == 4, "selected source confirmation ABI");
+_Static_assert(MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED == 121, "device unsupported ABI");
+_Static_assert(MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE == 126, "device runtime ABI");
+_Static_assert(MARMOT_DEVICE_LINKING_PHASE_FAILED == 7, "existing device phase ABI");
+_Static_assert(MARMOT_DEVICE_LINKING_PHASE_ENROLLMENT_COMPLETE == 8, "completed device phase ABI");
+_Static_assert(MARMOT_DEVICE_LINKING_APPROVAL_PHASE_SETTLED == 3, "settled approval ABI");
+_Static_assert(MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED == 146, "account sharing unsupported ABI");
+_Static_assert(MARMOT_STATUS_ACCOUNT_SHARING_RUNTIME_UNAVAILABLE == 150, "account sharing runtime ABI");
+
+
 static int failures = 0;
 
 static void ok(const char *what) {
@@ -206,6 +218,106 @@ int main(int argc, char **argv) {
         return 1;
     }
     ok("client constructed");
+
+    /* Default builds expose stable verification shapes without reserving a purpose. */
+    struct MarmotDeviceLinkingCapabilities *device_caps = NULL;
+    st = marmot_device_linking_capabilities(client, &device_caps);
+    check(st == MARMOT_STATUS_OK && device_caps != NULL, "device capability ABI");
+    if (device_caps != NULL) {
+        check(!device_caps->verification_supported && !device_caps->enrollment_supported,
+              "default device capabilities disabled");
+    }
+    marmot_device_linking_capabilities_free(device_caps);
+    struct MarmotDeviceLinkingSession *device_session = NULL;
+    st = marmot_begin_device_linking_session(client, "missing", &device_session);
+    check(st == MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED && device_session == NULL,
+          "default device factory typed Unsupported before lookup");
+    marmot_device_linking_session_free(device_session);
+    marmot_device_linking_subscription_free(NULL);
+    marmot_device_linking_snapshot_free(NULL);
+    marmot_device_linking_outgoing_packet_list_free(NULL);
+    marmot_device_linking_bytes_free(NULL);
+    struct MarmotDeviceLinkingTargetList *device_targets = NULL;
+    st = marmot_device_linking_targets(client, "missing", &device_targets);
+    check(st == MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED && device_targets == NULL,
+          "default protected targets typed Unsupported before lookup");
+    marmot_device_linking_target_list_free(device_targets);
+    struct MarmotDeviceLinkingApprovalList *approval_list = NULL;
+    st = marmot_pending_device_linking_approvals(client, "missing", &approval_list);
+    check(st == MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED && approval_list == NULL,
+          "default pending approvals typed Unsupported before lookup");
+    marmot_device_linking_approval_list_free(approval_list);
+    struct MarmotAccountSharingTargets *sharing_targets = NULL;
+    st = marmot_account_chat_sharing_targets(client, "missing", &sharing_targets);
+    check(st == MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED && sharing_targets == NULL,
+          "default account sharing targets typed Unsupported before lookup");
+    marmot_account_sharing_targets_free(sharing_targets);
+    struct MarmotAccountSharingApproval *sharing = NULL;
+    st = marmot_begin_account_chat_sharing(client, "missing", NULL, SIZE_MAX, &sharing);
+    check(st == MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED && sharing == NULL,
+          "default sharing factory refuses before invalid recipient access");
+    marmot_account_sharing_approval_free(sharing);
+    struct MarmotAccountSharingApprovalList *sharing_pending = NULL;
+    st = marmot_pending_account_chat_sharing(client, "missing", &sharing_pending);
+    check(st == MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED && sharing_pending == NULL,
+          "default pending sharing refuses before lookup");
+    marmot_account_sharing_approval_list_free(sharing_pending);
+    struct MarmotAccountSharingSnapshot *sharing_snapshot = NULL;
+    st = marmot_account_sharing_approval_snapshot(NULL, &sharing_snapshot);
+    check(st == MARMOT_STATUS_NULL_POINTER && sharing_snapshot == NULL,
+          "sharing review requires original owner");
+    marmot_account_sharing_snapshot_free(sharing_snapshot);
+    struct MarmotDeviceLinkingApproval *approval_clone = NULL;
+    st = marmot_device_linking_approval_clone(NULL, &approval_clone);
+    check(st == MARMOT_STATUS_NULL_POINTER && approval_clone == NULL,
+          "approval clone rejects missing original owner");
+    struct MarmotDeviceLinkingApprovalSnapshot *approval_snapshot = NULL;
+    st = marmot_device_linking_approval_snapshot(NULL, &approval_snapshot);
+    check(st == MARMOT_STATUS_NULL_POINTER && approval_snapshot == NULL,
+          "approval snapshot clears output before missing owner");
+    check(marmot_device_linking_approval_approve(NULL, UINT64_MAX) == MARMOT_STATUS_NULL_POINTER,
+          "approval requires live owner");
+    check(marmot_device_linking_approval_receive_enrollment_packet(NULL, 0, NULL, 0) == MARMOT_STATUS_NULL_POINTER,
+          "approval packet requires live owner");
+    check(marmot_device_linking_approval_cancel(NULL) == MARMOT_STATUS_NULL_POINTER,
+          "approval cancel requires live owner");
+    struct MarmotDeviceLinkingBytes *enrollment_bytes = NULL;
+    st = marmot_device_linking_session_enrollment_packet(NULL, UINT64_MAX, &enrollment_bytes);
+    check(st == MARMOT_STATUS_NULL_POINTER && enrollment_bytes == NULL,
+          "enrollment packet output clears before missing session");
+    check(marmot_device_linking_session_receive_enrollment_packet(NULL, 0, NULL, 0) == MARMOT_STATUS_NULL_POINTER,
+          "recipient packet requires original session");
+    check(marmot_device_linking_session_finalize_linking(NULL, 0) == MARMOT_STATUS_NULL_POINTER,
+          "finalization requires original session");
+    marmot_device_linking_approval_snapshot_free(approval_snapshot);
+    marmot_device_linking_approval_free(approval_clone);
+    marmot_device_linking_bytes_free(enrollment_bytes);
+    struct MarmotSelectedChatCopy *selected_copy = (void *)1;
+    st = marmot_begin_selected_chat_copy(client, "missing", "invalid", NULL, 0, &selected_copy);
+    check(st == MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED && selected_copy == NULL,
+          "default selected request refuses before lookup and clears output");
+    struct MarmotSelectedChatConsent *selected_consent = (void *)1;
+    st = marmot_receive_selected_chat_copy_request(client, "missing", NULL, 0, &selected_consent);
+    check(st == MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED && selected_consent == NULL,
+          "default selected consent refuses before lookup and clears output");
+    st = marmot_selected_chat_copy_clone(NULL, &selected_copy);
+    check(st == MARMOT_STATUS_NULL_POINTER && selected_copy == NULL,
+          "selected clone requires original request");
+    st = marmot_selected_chat_consent_clone(NULL, &selected_consent);
+    check(st == MARMOT_STATUS_NULL_POINTER && selected_consent == NULL,
+          "selected consent clone requires original owner");
+    check(marmot_selected_chat_copy_continue(NULL, UINT64_MAX) == MARMOT_STATUS_NULL_POINTER,
+          "selected continuation requires original request");
+    check(marmot_selected_chat_consent_approve(NULL, UINT64_MAX) == MARMOT_STATUS_NULL_POINTER,
+          "selected approval requires original consent");
+    marmot_selected_chat_copy_free(selected_copy);
+    marmot_selected_chat_consent_free(selected_consent);
+    marmot_selected_chat_copy_snapshot_free(NULL);
+    marmot_selected_chat_consent_snapshot_free(NULL);
+    marmot_selected_chat_bytes_free(NULL);
+
+
+
 
     st = marmot_record_host_performance(client,
         MARMOT_HOST_PERFORMANCE_OPERATION_CONVERSATION_COMPOSER_READY, 125,

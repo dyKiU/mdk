@@ -1,0 +1,207 @@
+{
+  "status": "qualified original Core signed terms slice; bilateral App/native handoff not yet implemented",
+  "source_cohorts": [
+    {
+      "source": "731dd6107c571724d1a6d6b1e088367f6ca5d460",
+      "base": "fc60443403c3c38986d7218d6be4ffe8e785b71b",
+      "inputs": 2574,
+      "manifest_sha256": "14a67873b1cbe39910b207bfdec4555531aa7778cf5b1d5c08367be48664ffab"
+    },
+    {
+      "source": "0d0b76f2679847aaa74d5b88138d88a11511a891",
+      "base": "fc60443403c3c38986d7218d6be4ffe8e785b71b",
+      "inputs": 2574,
+      "manifest_sha256": "2f6306cf7e5e08acbdd53425a93a95f9eb0e5022a3307b45db1d9eaa4404b290"
+    }
+  ],
+  "final_owned_product_paths": [
+    "crates/cgka-engine/src/private_enrollment_endorsement.rs",
+    "crates/cgka-engine/src/private_enrollment_request.rs",
+    "crates/cgka-engine/src/private_enrollment_request/recipient.rs",
+    "crates/cgka-engine/src/private_roster_settlement_tests.rs",
+    "crates/cgka-engine/src/private_enrollment_sharing_tests.rs",
+    "crates/cgka-session/src/lib.rs"
+  ],
+  "verification": "Complete frozen source trees reconstructed and rehashed from Git on M1; M5 source guarded before/after each gate. Final six product files byte-identical to tested v2. Commit parent adds separately qualified App catalog renewal only; these component inputs unchanged. Four adjacent docs added after source freeze, outside compiled inputs.",
+  "focused_attempts": [
+    {
+      "kind": "compile-only JSON macro syntax error; zero executed tests",
+      "passed": 0,
+      "failed_tests": 0,
+      "ignored": 0,
+      "source": "731dd6107c571724d1a6d6b1e088367f6ca5d460",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cgka-engine",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "private_enrollment_sharing_",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 101,
+      "seconds": 38.4375159740448,
+      "log_sha256": "d3c6dbc6fe66a0dbc22be362661440388d4675d420e740d6bd3a9f80b006ea44"
+    },
+    {
+      "kind": "actual original/cryptographic carrier acceptance",
+      "passed": 5,
+      "failed_tests": 0,
+      "ignored": 0,
+      "source": "0d0b76f2679847aaa74d5b88138d88a11511a891",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cgka-engine",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "private_enrollment_sharing_",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 28.35027313232422,
+      "log_sha256": "c3597df11942d569f0515eaa11a2f834fd93da42ffdd162ba38044d4ec60ff71"
+    }
+  ],
+  "qualification": {
+    "source": "0d0b76f2679847aaa74d5b88138d88a11511a891",
+    "results": [
+      {
+        "name": "engine-full-lib",
+        "command": [
+          "cargo",
+          "nextest",
+          "run",
+          "-p",
+          "cgka-engine",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--retries",
+          "0",
+          "--no-fail-fast",
+          "-j4"
+        ],
+        "exit_code": 0,
+        "seconds": 86.10899114608765,
+        "log_sha256": "d828a40b51e0803ce3317f9183bad9da7bb3bd4ad29d64444066eecd8a93f074"
+      },
+      {
+        "name": "experimental-clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "--all-targets",
+          "--locked",
+          "--features",
+          "cgka-engine/experimental-device-sync,cgka-session/experimental-device-sync,cgka-engine/test-policy-overrides",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 33.32537388801575,
+        "log_sha256": "71295be0348508dfed7e6bf8f7f035d49bac878c74415a926ca3f0156892463d"
+      },
+      {
+        "name": "default-clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "--all-targets",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 15.235888957977295,
+        "log_sha256": "415df4b339454a1bb2699aa1ac3729c1d24f089bb0d18dc03b92fcf72ef2fb6c"
+      },
+      {
+        "name": "default-check",
+        "command": [
+          "cargo",
+          "check",
+          "-p",
+          "cgka-session",
+          "--all-targets",
+          "--locked"
+        ],
+        "exit_code": 0,
+        "seconds": 10.833138942718506,
+        "log_sha256": "6cd1dd552a5bc988da66e1907c5ba24fd5b557941d37a8644df5390ca13237fd"
+      },
+      {
+        "name": "format",
+        "command": [
+          "rustfmt",
+          "--edition",
+          "2024",
+          "--config",
+          "skip_children=true",
+          "--check",
+          "crates/cgka-engine/src/private_enrollment_endorsement.rs",
+          "crates/cgka-engine/src/private_enrollment_request.rs",
+          "crates/cgka-engine/src/private_enrollment_request/recipient.rs",
+          "crates/cgka-engine/src/private_roster_settlement_tests.rs",
+          "crates/cgka-engine/src/private_enrollment_sharing_tests.rs",
+          "crates/cgka-session/src/lib.rs"
+        ],
+        "exit_code": 0,
+        "seconds": 0.10500478744506836,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "full_engine_library": {
+    "passed": 247,
+    "failed": 0,
+    "skipped": 5,
+    "ignored_names": [
+      "message_processor::application_replay_tests::measure_negative_application_discovery_prefix",
+      "openmls_projection::candidate_branch_peel_halt_tests::candidate_reconstruction_measurement",
+      "openmls_projection::candidate_branch_peel_halt_tests::replay_transaction_measurement",
+      "openmls_projection::graph_tests::graph_seed_benchmark",
+      "private_device_invite::prepare_tests::private_ledger_real_crypto_old_writer_fixture"
+    ],
+    "scope": "lib tests only, experimental-device-sync,test-policy-overrides; the latter never included in native SDK builds"
+  },
+  "wire": {
+    "ordinary": "Unmarked enrollment-endorsement.v1 byte shape and signature domain preserved; share_chats false omitted.",
+    "sharing": "Separate private enrollment-sharing-endorsement.v1 signature domain binds immutable policyversion1/capabilities0x0f, exact request binding and indexed signer. Inconsistent protocol/marker, marker downgrade, altered context/signer/signature and unknown terms rejected.",
+    "observation": "Authenticated complete predecessor proof and original recipient evidence expose verified sharing_devices only; no policy/admission, serialized permission or restored original.",
+    "source_authentication": "Actual B original and MLS encrypted private delivery to A use existing library fixture/pass-through transport peeler. A signature helper is portable metadata, not an A SDK approval."
+  },
+  "coverage": [
+    "Genuine received B action, all-leaf signature verification, real MLS private carrier hidden from message projection and no policy side effect",
+    "Legacy ordinary unmarked packet and rejection of retrospective upgrade after signing",
+    "Marker downgrade, signer/context/signature alteration, unknown terms and ordinary-proof relabeling refusal",
+    "Foreign Engine adoption refusal; exact cancellation blocks action/publication while portable signatures remain observations",
+    "Unchanged received original deadline blocks late publication and new action"
+  ],
+  "limitations": [
+    "No B DeviceLinkingApproval.approve_and_share_chats native API or authenticated bilateral B/C handoff yet.",
+    "Joining-device completion must wait for expected original sharing handoffs; marker alone cannot create policy.",
+    "Original recipient sharing_devices metadata compiles and existing recipient tests are retained; actual signed-marker C/native pairing acceptance remains next.",
+    "No real relay transport, full engine integration matrix, combined native/app tests or deployment is claimed."
+  ],
+  "artifacts": "Parent build/results/automatic-sharing-endorsement on M1; M5 /Users/pj/project/build/automatic-sharing-endorsement-v*; logs/generated outputs excluded from Git."
+}

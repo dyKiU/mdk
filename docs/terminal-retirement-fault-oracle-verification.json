@@ -1,0 +1,206 @@
+{
+  "scope": "Test-only targeted terminal-retirement fault oracle; no production, API or SDK changes",
+  "base": "8e95cfd043fea82187d293be225dcbb9941eb168",
+  "test_source": "crates/cgka-engine/tests/record_write_atomicity.rs",
+  "test_source_sha256": "fc90ebe706517ffd74a7cad2d573a6ed174c56c38e757e4e9d1d48538eb61c00",
+  "diagnosis": "The original exact Debug-string assertion rejects a canonical replay error that preserves EngineError::Storage but sanitizes lower-level storage details. The original full failure stopped before rollback and recovery invariants.",
+  "causal_oracle": "The per-instance fault targets only the two retained backlog IDs. Exactly two matching Failed writes and one injected fault must occur before accepting the typed Storage error. All original durable rollback, account-capacity and next-pass recovery assertions are retained.",
+  "red": {
+    "source": "8e95cfd043fea82187d293be225dcbb9941eb168",
+    "test": "a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pass",
+    "passed": 0,
+    "failed": 1,
+    "filtered": 21,
+    "seconds": 1.6,
+    "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-red.log",
+    "sha256": "4b380cb19d674bfbf3ec502c46146b4ffcce3e37596af7b7c920fa92f77dc52c",
+    "failure": "unexpected retire error: Storage(Backend(\"canonical replay storage transaction failed\"))"
+  },
+  "full_baseline_failure": {
+    "log": "/Users/pj/project/build/results/automatic-final-sdk-8e95cfd0-v1-default-full.log",
+    "sha256": "2abde81d1d97468f66cfa848b0c01f52d2db8bf37c76c1a454d6b1ec0179ee53",
+    "atomicity_passed": 21,
+    "atomicity_failed": 1
+  },
+  "frozen_inputs": {
+    "count": 2621,
+    "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-inputs.json",
+    "sha256": "498dc6e57dd1c56adef7246edd117721713fbd3f327641a2d535cee2a4af6075",
+    "local_source_matches_all_inputs": true
+  },
+  "execution": {
+    "host": "macbook.m5",
+    "toolchain": "1.97.1",
+    "jobs": 1,
+    "incremental": 0,
+    "debug": 0,
+    "target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+    "strict_scope": "changed cgka-engine integration test with its compiled dependencies, -D warnings, no lint exemptions",
+    "counts": {
+      "focused_green": {
+        "passed": 1,
+        "failed": 0,
+        "filtered": 21
+      },
+      "default_atomicity": {
+        "passed": 22,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "experimental_atomicity": {
+        "passed": 25,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      }
+    }
+  },
+  "gates": [
+    {
+      "gate": "format",
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--check",
+        "crates/cgka-engine/tests/record_write_atomicity.rs"
+      ],
+      "exit_code": 0,
+      "seconds": 0.05,
+      "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "focused-green",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--test",
+        "record_write_atomicity",
+        "--features",
+        "test-policy-overrides,test-crash-hooks",
+        "a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pass",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 31.97,
+      "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-focused-green.log",
+      "sha256": "eb3fbee122fbe995a3e75647e94442339d090e0fb4a4ee6ecd8c98d2ac7e6353",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "default-atomicity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--test",
+        "record_write_atomicity",
+        "--features",
+        "test-policy-overrides,test-crash-hooks",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 59.84,
+      "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-default-atomicity.log",
+      "sha256": "fe7f0b6d1a87e4dcdf72dcf75bcede899321308a81310f2da85d01106783e0be",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "experimental-atomicity",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--test",
+        "record_write_atomicity",
+        "--features",
+        "test-policy-overrides,test-crash-hooks,experimental-device-sync",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 83.85,
+      "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-experimental-atomicity.log",
+      "sha256": "cada8c97cb09061aa8061ce7c8df9a8e85aaa139e506bc050a164887031412f8",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "strict-default",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--test",
+        "record_write_atomicity",
+        "--features",
+        "test-policy-overrides,test-crash-hooks",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 14.36,
+      "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-strict-default.log",
+      "sha256": "a93938f5cea954fa41756e406bab22212a01170db13dd47737151b74f2bf3ed1",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "strict-experimental",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--test",
+        "record_write_atomicity",
+        "--features",
+        "test-policy-overrides,test-crash-hooks,experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 7.31,
+      "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-strict-experimental.log",
+      "sha256": "3e32a508344edbe55b48ef6b3c16bf63c3590225501d5541bc46f041d865341a",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "strict-pinned-default",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--test",
+        "record_write_atomicity",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 1.99,
+      "log": "/Users/pj/project/build/results/terminal-retirement-oracle-v1-strict-pinned-default.log",
+      "sha256": "9c2ddb3c69a020d3c435382539ba2249029e2601ebefc47a2390e0dfef17027c",
+      "inputs_unchanged": true
+    }
+  ],
+  "limits": "This scoped passing test slice does not qualify the final full backend, bindings, SDK or installed app. Root owns final integration and complete backend promotion. Unchanged binding/static source inputs retain parent evidence; no export, header, configuration, protocol or production Rust input changed."
+}

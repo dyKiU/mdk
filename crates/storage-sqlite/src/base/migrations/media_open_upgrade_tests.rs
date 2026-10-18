@@ -482,6 +482,13 @@ fn published_media_schema_reopens_without_rewriting_or_reapplying() {
     connection.execute("INSERT INTO retained_attachment_bytes(token,byte_len,bytes) VALUES(zeroblob(16),3,x'010203')",[]).unwrap();
     drop(connection);
     let reopened = crate::SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    // The published fixture has no private namespace; only its private receipts are installed.
+    assert_eq!(
+        reopened.migration_summary().0,
+        latest_private_migration_version() as usize
+    );
+    drop(reopened);
+    let reopened = crate::SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     assert_eq!(reopened.migration_summary().0, 0);
     let connection = reopened.lock().unwrap();
     assert_eq!(

@@ -1,0 +1,451 @@
+{
+  "scope": "Test-only genuine App/Core two-legitimate-source baseline; device-only SelfRemove semantics, not account-principal-wide leave or installed/native SDK acceptance.",
+  "source_base": "33657e510304eff97bbaed0c262ae3b22ae033fa",
+  "passing_candidate": "c31304297937f05947da6bd6228b4699cb52a7fc",
+  "owned_tested_paths": {
+    "crates/marmot-app/src/native_device_linking/tests.rs": "09a1fa2b52a49949b8c6ff51e3b3d894be197151e8b2129c07e2aa54c0b6b690",
+    "crates/marmot-app/src/native_device_linking/automatic_two_source_leave_acceptance.rs": "7626f5ac695a02d9b0f517d72bbdd2e63b5d6097811c9092cf4a5c5532982c4f"
+  },
+  "actual_passing_counts": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "runtime_seconds": 30.27,
+    "positive_runtime_closures": 4
+  },
+  "topology": {
+    "creator": "independent actual D account",
+    "ordinary_members": "independent A/B devices of same synthetic account; exact actual signed B publication fetched and existing parser used for Core administrator Invite, then genuine B Welcome/public acceptance",
+    "mirrored_recipient": "C has actual broad ABC original approvals and paired-source observations, no fabricated ordinary membership",
+    "harness": "Existing run_composed_app_runtime_test current-thread Tokio runtime on explicit 8MiB test thread; global runner RUST_MIN_STACK=4194304 unchanged."
+  },
+  "assertions": [
+    "actual distinct A/B signers and indexed MLS leaves",
+    "actual direct ordinary A/B canonical sends decrypted by D",
+    "actual retained-original broad ABC approvals and two current policies each",
+    "C observes real canonical pre-sharing A/B records without an ordinary MLS row",
+    "actual A public SelfRemove and D actual indexed tree excludes A while retaining B",
+    "B subsequent canonical ordinary send decrypted by D and observed by C with actual B source signer",
+    "current A/C and approval cancellation strictly succeed; all four runtimes close storage"
+  ],
+  "retained_attempts": [
+    {
+      "prefix": "automatic-two-source-baseline-v1",
+      "capture": "74540a8710ba01e3115c0d3b2b9706e3f1f73f29",
+      "classification": "stack-overflow runtime abort",
+      "inputs_sha256": "43cc08fb6989653f891636350d2d8aeffd60a11675f37f500fcc6cec27aae57b",
+      "results_sha256": "5fa64d10993aac97f6d028b14fe1edb8825245356cab931dd9ac1ac78a2978de",
+      "log_sha256": "749cd2e2d759da96b97d0e6dd0e1dc677209cb7a4cd8fe0279d3933320cca05b",
+      "frozen_input_count": 2625,
+      "result": {
+        "compile_succeeded": true,
+        "actual_selected_tests": 1,
+        "passed": 0,
+        "runtime_outcome": "stack_overflow_SIGABRT_before_baseline_assertions",
+        "cargo_exit": 101,
+        "source_inputs_unchanged": true,
+        "changed_protected_files": [
+          "/Users/pj/project/build/Mdk986ConformanceTargetM5/debug/deps/marmot_app-b9fe4ae02093ee31"
+        ],
+        "postgate_guard_failed": true,
+        "log": "/Users/pj/project/build/results/automatic-two-source-baseline-v1-baseline.log",
+        "log_sha256": "749cd2e2d759da96b97d0e6dd0e1dc677209cb7a4cd8fe0279d3933320cca05b",
+        "runner_log": "/Users/pj/project/build/two-source-baseline-v1-runner.log",
+        "runner_log_sha256": "32b7fcbcac1b7f888387aac820747a0142148821dc588e6a21af23756d797ce4"
+      }
+    },
+    {
+      "prefix": "automatic-two-source-qualified-v1",
+      "capture": "518f31d88584c3578d0ef3a5f21c15fc91b95080",
+      "classification": "stack-overflow runtime abort",
+      "inputs_sha256": "3f72d08203ce2833e458efd47b0c9b4a79dd4fbda62a05cf616e6102010ca49d",
+      "results_sha256": "971f25bab00f27a3f915710701e8fc5e5b03e343128f374ece081d2765105668",
+      "log_sha256": "39c458dc2dba65df50d7f7eff9d81f955baea83fa264c2a93638e29fe47795c4",
+      "frozen_input_count": 2631,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 80.17,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-qualified-v1-baseline.log",
+        "log_sha256": "39c458dc2dba65df50d7f7eff9d81f955baea83fa264c2a93638e29fe47795c4",
+        "inputs_unchanged": true,
+        "free_before_bytes": 22954782720
+      }
+    },
+    {
+      "prefix": "automatic-two-source-accepted-v1",
+      "capture": "a65a7848966182880f282cb98be21e24e90b4f78",
+      "classification": "local publication metadata fixture oracle failure",
+      "inputs_sha256": "5e85b0e3a1b241630506ad046f11f8845e2411bb784bccfb27f64f5122403a06",
+      "results_sha256": "9cd9e1e531948327b16094e96e7d0bbbdb85bcb58cb7d030e4baa677e623cb16",
+      "log_sha256": "5aa23f3c5611157132e0f955a89740d63365b4eca0bc80b32cc9268ad8db9894",
+      "frozen_input_count": 2640,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 82.99,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-accepted-v1-baseline.log",
+        "log_sha256": "5aa23f3c5611157132e0f955a89740d63365b4eca0bc80b32cc9268ad8db9894",
+        "inputs_unchanged": true,
+        "free_before_bytes": 28947578880
+      }
+    },
+    {
+      "prefix": "automatic-two-source-accepted-v2",
+      "capture": "175819b7ac40d1ccd63cba7b7ec0e997d5457003",
+      "classification": "local package missing transport Welcome context fixture failure",
+      "inputs_sha256": "03526bb4df0be0379c10334e8cfa715def713e19da8372acdb7d0f40dc3c5e00",
+      "results_sha256": "adbe632fe61746201ff097f1ab56cb914222074911d0c5c8cea42bd8ad46bba5",
+      "log_sha256": "d3f46fa08c2406ca31ff6cbd5d32be7e40b7c385413b4bf556f932619612ee52",
+      "frozen_input_count": 2640,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 79.09,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-accepted-v2-baseline.log",
+        "log_sha256": "d3f46fa08c2406ca31ff6cbd5d32be7e40b7c385413b4bf556f932619612ee52",
+        "inputs_unchanged": true,
+        "free_before_bytes": 28924575744
+      }
+    },
+    {
+      "prefix": "automatic-two-source-accepted-v3",
+      "capture": "30d8ceb7816cc257d203d5ed25825d4ed1deba90",
+      "classification": "stack-overflow runtime abort",
+      "inputs_sha256": "6b6c014f555883cbac8bda78c67bb42978b91dda13ae64204624503d4d8c2c4e",
+      "results_sha256": "73141b6dc907a50328435c8046507a83ac094a3f8ab018f6bc7025bf3f59b8dc",
+      "log_sha256": "2bddfc95d4cb827f2274f04891468d5c0994e81a15b87b1b75fdef497a26191d",
+      "frozen_input_count": 2640,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 119.53,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-accepted-v3-baseline.log",
+        "log_sha256": "2bddfc95d4cb827f2274f04891468d5c0994e81a15b87b1b75fdef497a26191d",
+        "inputs_unchanged": true,
+        "free_before_bytes": 32382726144
+      }
+    },
+    {
+      "prefix": "automatic-two-source-accepted-v4",
+      "capture": "9a2980d5139eb609bfe0269770d74c14f94ccda7",
+      "classification": "stack-overflow runtime abort",
+      "inputs_sha256": "9096f5c1ba3dcfd8d25e11946a96562314456192d4cfdc4ff8fba813babc73dd",
+      "results_sha256": "98252ad0fb7623d70bb643c98342447b9acf74a0700b505352d38b3837c367e7",
+      "log_sha256": "17efde08b767d5ae779b97b1f0029a52e1ee087bf64d3eee86d3b5cb356aaab7",
+      "frozen_input_count": 2640,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 80.03,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-accepted-v4-baseline.log",
+        "log_sha256": "17efde08b767d5ae779b97b1f0029a52e1ee087bf64d3eee86d3b5cb356aaab7",
+        "inputs_unchanged": true,
+        "free_before_bytes": 32039919616
+      }
+    },
+    {
+      "prefix": "automatic-two-source-accepted-v6",
+      "capture": "d716ad7199a7284db3659829d1db130af644b1f2",
+      "classification": "stack-overflow runtime abort",
+      "inputs_sha256": "5f4b5555839620052572003118a584238d79d1d5744797c9c0b7c6788fb313fc",
+      "results_sha256": "6aa723d63526709f415b54c2dd073e7cc32a64131af46be8b8ef013c2dd9b024",
+      "log_sha256": "283403e524f9339341a483baf4178d3a915dbec68c32bbce4aa5bf5adc966685",
+      "frozen_input_count": 2640,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 78.13,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-accepted-v6-baseline.log",
+        "log_sha256": "283403e524f9339341a483baf4178d3a915dbec68c32bbce4aa5bf5adc966685",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31687606272
+      }
+    },
+    {
+      "prefix": "automatic-two-source-accepted-v7",
+      "capture": "54cd57174efddc7d5efe1cfc2c85f547d09466a5",
+      "classification": "duplicate prior-original cancellation fixture failure",
+      "inputs_sha256": "3f77e00385e6a814892d2429f0315b2da9ffa4d5e1ec8d80adadd22361ff802a",
+      "results_sha256": "c599d358052b6fe8043a4ab2ac6c8b66126d2d19c34436f069dcb1338cd751ee",
+      "log_sha256": "201b51cea52303a63f4bd79caa2126dd18d412810233acf03142d22705b39ae1",
+      "frozen_input_count": 2640,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 101.27,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-accepted-v7-baseline.log",
+        "log_sha256": "201b51cea52303a63f4bd79caa2126dd18d412810233acf03142d22705b39ae1",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31693586432
+      }
+    },
+    {
+      "prefix": "automatic-two-source-accepted-v8",
+      "capture": "c31304297937f05947da6bd6228b4699cb52a7fc",
+      "classification": "passing device-only baseline",
+      "inputs_sha256": "bc651be5bdb91561ce5695a509da9a6486ecd38fd1988c28cf90d8e7cd3967d8",
+      "results_sha256": "2d700e8c8aa4ab7c34edd7d746add60c623b23cff9b026303ea47a0095d6bd01",
+      "log_sha256": "1788dfd7f2ee7badb12cb92c5bd9294e775cdffaeb2aa56d2cabac04c898b7f9",
+      "frozen_input_count": 2640,
+      "result": {
+        "gate": "baseline",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_two_legitimate_sources_keep_surviving_device_history_after_self_remove",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 106.3,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-accepted-v8-baseline.log",
+        "log_sha256": "1788dfd7f2ee7badb12cb92c5bd9294e775cdffaeb2aa56d2cabac04c898b7f9",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31311048704
+      }
+    }
+  ],
+  "limits": [
+    "4MiB attempts aborted; no 4MiB passing claim",
+    "No production Rust changes",
+    "No principal-wide leave claim",
+    "No native binding/SDK or installed application acceptance"
+  ],
+  "baseline_runtime_base": "1a3c1a386725e27ec25a2e4aae3d3755d3c14423",
+  "baseline_reuse": "Aggregate source differs only in C/UniFFI bindings/documentation; relevant App/Core/Session/traits/account/storage bytes and exact two tested fixture paths unchanged.",
+  "qualification": {
+    "candidate": "63f535c91bc2d3555c65fd5fa94501f29373ccf5",
+    "prefix": "automatic-two-source-final-gates-v1",
+    "frozen_input_count": 2647,
+    "inputs_sha256": "5586b3137ed20935c714b4e91ebb2ea961babbfdf3cf072157be870e80c7cef7",
+    "results_sha256": "eff4909f2a9806ba66dcfc684709be3c85dee1a39f81e1f328159ccfeb65713a",
+    "gates": [
+      {
+        "gate": "held-abc",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_held_three_originals_allow_",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 143.47,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-final-gates-v1-held-abc.log",
+        "log_sha256": "ea805e53f4f9ccad8f4f06f5e9d7522dd495adb5151676fe732ec406609a0c3b",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31238352896
+      },
+      {
+        "gate": "test-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--tests",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 69.86,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-final-gates-v1-test-strict.log",
+        "log_sha256": "e3a5a8b9e4425082efc59f93c92c8820fe36eb3dfbff9b44beb1c3b9ddfa181e",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31234265088
+      },
+      {
+        "gate": "production-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--locked",
+          "--features",
+          "experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 39.75,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-final-gates-v1-production-strict.log",
+        "log_sha256": "12f07d5b5ddd5043f3e7de842fee51e7a5125764badca9f422a050a31b1e9a22",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31242051584
+      },
+      {
+        "gate": "default-check",
+        "command": [
+          "cargo",
+          "check",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--locked"
+        ],
+        "exit": 0,
+        "seconds": 44.6,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-final-gates-v1-default-check.log",
+        "log_sha256": "5b8008e35b910fbed437a50b51eb27bd2e177fa015380ea6c537638149b70769",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31229886464
+      },
+      {
+        "gate": "format",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit": 0,
+        "seconds": 4.28,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-two-source-final-gates-v1-format.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31101542400
+      }
+    ],
+    "affected_actual_counts": {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    "postgate_changes": "this proof document only; both tested fixture paths remain byte-identical to passing c313 and qualified63f535"
+  }
+}
