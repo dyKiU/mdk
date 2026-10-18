@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -37,6 +37,17 @@ on:
         type: string
         default: ''
       # MERGE_639_CONTROL_INPUT_END
+      recovery_run:
+        description: Completed immutable original run for archive-recovery only
+        type: string
+      recovery_source:
+        description: Full original source SHA for archive-recovery only
+        type: string
+      recovery_cohort:
+        description: Original archive cohort for archive-recovery only
+        type: choice
+        options: [default, experimental]
+        default: default
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
         type: boolean
@@ -47,8 +58,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: experimental-sync-${{ github.ref }}-${{ inputs.scope || 'full' }}
-  cancel-in-progress: true
+  group: experimental-sync-${{ github.ref }}-${{ inputs.scope || 'full' }}${{ inputs.scope == 'archive-recovery' && format('-{0}-{1}', inputs.recovery_cohort, inputs.recovery_run) || '' }}
+  cancel-in-progress: ${{ inputs.scope != 'archive-recovery' }}
 
 env:
   UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '' }}
@@ -60,6 +71,238 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  workflow-union-preflight:
+    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","archive-recovery","profile-edit-regression"]'), inputs.scope)
+    name: Recovery provenance and pairing dispatch metadata tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Exercise closed archive planner and pairing selectors without protocol compilation
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_recover*py' -v
+          python3 scripts/test_pairing_replay_dispatch.py
+      - name: Format merged Rust source remotely and export exact patch
+        if: always()
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" cargo fmt --all
+          git diff --binary > "$RUNNER_TEMP/reconcile-format.patch"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reconcile-format-preflight
+          path: ${{ runner.temp }}/reconcile-format.patch
+          if-no-files-found: error
+          retention-days: 7
+
+  pairing-replay:
+    needs: workflow-union-preflight
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness"]'), inputs.scope)
+    name: Pairing replay (${{ matrix.slots }} slots)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Serial and shared budgets both reproduced the same fourth-device stall.
+        # Continue diagnosis once per candidate rather than duplicating the fixture.
+        slots: [3]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record diagnostic source and resource budget
+        env:
+          SLOTS: ${{ matrix.slots }}
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: ${{ inputs.scope }}"
+          echo "qualification-test-slots: $SLOTS"
+      - name: Install pinned toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: pairing-replay
+      - name: Run actual enrollment and authority retirement bodies without retries
+        env:
+          SLOTS: ${{ matrix.slots }}
+          REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}
+        run: |
+          set -euo pipefail
+          features=otlp-export,product-analytics-export,test-policy-overrides,experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+          filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive) | test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer) | test(=native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion))'
+          if [[ "$REPLAY_SCOPE" == pairing-diagnostic ]]; then
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+          elif [[ "$REPLAY_SCOPE" == pairing-consent-fairness ]]; then
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer)'
+          fi
+          args=(--locked -p marmot-app --lib --features "$features")
+          cargo nextest list "${args[@]}" -E "$filter" --message-format json > pairing-inventory.json
+          python3 - <<'PY'
+          import json, os
+          inventory = json.load(open('pairing-inventory.json'))
+          selected = {name for suite in inventory['rust-suites'].values() for name, case in suite['testcases'].items()
+                      if case['filter-match']['status'] == 'matches' and not case['ignored']}
+          expected = {
+              'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts',
+              'native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive',
+              'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer',
+              'native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion',
+          }
+          if os.environ['REPLAY_SCOPE'] == 'pairing-diagnostic':
+              expected = {'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'}
+          elif os.environ['REPLAY_SCOPE'] == 'pairing-consent-fairness':
+              expected = {'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'}
+          assert selected == expected
+          print('qualification-selected-pairing-cases:', len(selected))
+          PY
+          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads "$SLOTS" --retries 0 --no-fail-fast --success-output immediate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: pairing-replay-${{ matrix.slots }}-slots
+          path: pairing-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
+  archive-recovery-plan:
+    needs: workflow-union-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'archive-recovery'
+    name: Recover immutable archive coverage inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_gaps: ${{ steps.plan.outputs.has_gaps }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Install pinned archive toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - name: Validate original metadata and download immutable artifact and logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_RUN: ${{ inputs.recovery_run }}
+          ORIGINAL_SOURCE: ${{ inputs.recovery_source }}
+          ORIGINAL_COHORT: ${{ inputs.recovery_cohort }}
+        run: |
+          python3 scripts/recover_archive_gaps.py fetch --run "$ORIGINAL_RUN" --source "$ORIGINAL_SOURCE" --cohort "$ORIGINAL_COHORT" --directory recovery
+      - name: Recover exact uncompleted cases without retrying original failures
+        id: plan
+        env:
+          ORIGINAL_COHORT: ${{ inputs.recovery_cohort }}
+        run: |
+          set -euo pipefail
+          tar="$(python3 -c 'import json; print(json.load(open("recovery/provenance.json"))["tar"])')"
+          filter='all()'
+          if [[ "$ORIGINAL_COHORT" == default ]]; then
+            filter='not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+          fi
+          cargo nextest list --archive-file "recovery/$tar" --workspace-remap "$GITHUB_WORKSPACE" -E "$filter" --message-format json > recovery/full-inventory.json
+          python3 scripts/recover_archive_gaps.py plan --directory recovery --inventory recovery/full-inventory.json --partitions 8 --github-output "$GITHUB_OUTPUT"
+          cat recovery/summary.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: archive-recovery-inputs
+          path: recovery
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+
+  archive-recovery-tests:
+    if: needs.archive-recovery-plan.outputs.has_gaps == 'true'
+    needs: archive-recovery-plan
+    name: Missing archive cases (${{ inputs.recovery_cohort }}, ${{ matrix.partition }}/8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.archive-recovery-plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pinned archive toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: archive-recovery-inputs
+          path: recovery
+      - name: Verify and execute only this partition's missing cases
+        env:
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          provenance = json.load(open('recovery/provenance.json'))
+          with open('recovery/' + provenance['tar'], 'rb') as stream:
+              assert hashlib.file_digest(stream, 'sha256').hexdigest() == provenance['tar_sha256']
+          plan = json.load(open('recovery/execution-plan.json'))
+          rows = [row for row in plan if row['partition'] == int(os.environ['PARTITION'])]
+          assert len(rows) == 1 and rows[0]['count'] > 0
+          Path('selected-filter.txt').write_text(rows[0]['filter'])
+          print('archive-source:', provenance['source'])
+          print('archive-run:', provenance['run'])
+          print('recovery-controller-source:', os.environ['GITHUB_SHA'])
+          print('missing-cases-selected:', rows[0]['count'])
+          PY
+          tar="$(python3 -c 'import json; print(json.load(open("recovery/provenance.json"))["tar"])')"
+          filter="$(cat selected-filter.txt)"
+          cargo nextest list --archive-file "recovery/$tar" --workspace-remap "$GITHUB_WORKSPACE" -E "$filter" --message-format json > selected-inventory.json
+          python3 scripts/recover_archive_gaps.py verify --plan recovery/execution-plan.json --partition "$PARTITION" --inventory selected-inventory.json
+          set +e
+          cargo nextest run --archive-file "recovery/$tar" --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast -E "$filter" 2>&1 | tee execution.log
+          result=${PIPESTATUS[0]}
+          set -e
+          python3 scripts/recover_archive_gaps.py verify --plan recovery/execution-plan.json --partition "$PARTITION" --inventory selected-inventory.json --executed-log execution.log
+          exit "$result"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: archive-recovery-partition-${{ matrix.partition }}
+          path: |
+            selected-inventory.json
+            selected-filter.txt
+            execution.log
+          retention-days: 7
+          if-no-files-found: error
+
   # ENROLLMENT_FINAL_COHORT_JOBS_BEGIN
   final-enrollment-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["final-enrollment-preflight","final-enrollment-controls"]'), inputs.scope)
@@ -2498,6 +2741,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   experimental-test-build:
+    needs: workflow-union-preflight
     if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
     name: Build experimental sync tests
     runs-on: ubuntu-latest
@@ -2707,7 +2951,7 @@ jobs:
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression","sync-failure-regressions","publication-regressions"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression","sync-failure-regressions","publication-regressions","profile-edit-regression"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -2746,6 +2990,10 @@ jobs:
           if [[ "$REGRESSION_SCOPE" == connector-regression ]]; then
             args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --features "$features")
             filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name)'
+          elif [[ "$REGRESSION_SCOPE" == profile-edit-regression ]]; then
+            features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/experimental-device-sync,marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+            args=(--locked -p cgka-conformance-simulator --test app_runtime_interaction_journeys --features "$features")
+            filter='test(=public_app_08_concurrent_admin_profile_edits_are_never_lost)'
           elif [[ "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-family || "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p marmot-app -p cgka-engine --lib --features "$features")
@@ -2782,6 +3030,9 @@ jobs:
           expected = 14
           if os.environ["REGRESSION_SCOPE"] == "connector-regression":
               required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "profile-edit-regression":
+              required = ["public_app_08_concurrent_admin_profile_edits_are_never_lost"]
               expected = 1
           elif os.environ["REGRESSION_SCOPE"] == "revocation-regression":
               required = ["device_revocation_original_receipt_survives_incoming_storage_rollback_retry"]

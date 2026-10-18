@@ -474,32 +474,203 @@ enum HeldPublication {
     Automatic,
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "explicit synthetic public-network deployment acceptance"]
+async fn public_third_device_enrollment_with_existing_chat() {
+    public_third_device_enrollment(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "explicit synthetic public-network deployment acceptance"]
+async fn public_third_device_enrollment_from_initial_joiner_with_existing_chat() {
+    public_third_device_enrollment(true).await;
+}
+
+async fn public_third_device_enrollment(reverse_initial_roles: bool) {
+    let relay =
+        std::env::var("WN_PUBLIC_ENROLLMENT_RELAY").expect("explicit public chat relay required");
+    assert!(matches!(
+        relay.as_str(),
+        "wss://relay.eu.whitenoise.chat" | "wss://relay.us.whitenoise.chat"
+    ));
+    four_device_enrollment_with_relay(HeldPublication::None, Some(&relay), reverse_initial_roles).await;
+}
+
+async fn public_onboarded_accounts(
+    apps: &[MarmotApp; 4],
+    runtimes: &[MarmotAppRuntime; 4],
+    relay: &str,
+) -> (String, String) {
+    let request = || crate::AccountSetupRequest {
+        identity: None,
+        import_nsec: None,
+        default_relays: vec![relay.into()],
+        bootstrap_relays: vec![relay.into()],
+        inbox_relays: vec![relay.into()],
+        discovery_relays: vec![relay.into()],
+        publish_missing_relay_lists: true,
+        publish_initial_key_package: true,
+    };
+    let source = runtimes[0].create_identity(request()).await.unwrap();
+    let keys = apps[0]
+        .account_home()
+        .load_signing_keys(&source.account.label)
+        .unwrap();
+    for runtime in &runtimes[1..3] {
+        let accounts = runtime.accounts();
+        let mut observation = accounts
+            .begin_onboarding(
+                zeroize::Zeroizing::new(keys.secret_key().to_secret_hex()),
+                crate::OnboardingOptions {
+                    default_relays: vec![relay.into()],
+                    discovery_relays: vec![relay.into()],
+                    inbox_relays: vec![relay.into()],
+                },
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(90), async {
+            while !observation.ready {
+                observation = if observation.steps.iter().any(|step| {
+                    step.step == crate::OnboardingStep::SingleDevice
+                        && step
+                            .actions
+                            .contains(&crate::OnboardingAction::ContinueAnyway)
+                }) {
+                    accounts
+                        .acknowledge_onboarding_single_device(
+                            &observation.account_id_hex,
+                            observation.revision,
+                        )
+                        .await
+                        .unwrap()
+                } else {
+                    accounts
+                        .run_onboarding(&observation.account_id_hex)
+                        .await
+                        .unwrap()
+                };
+                if !observation.ready {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        })
+        .await
+        .expect("supported companion onboarding must become ready");
+        assert!(observation.account_id_hex == source.account.account_id_hex);
+    }
+    let contact = runtimes[3].create_identity(request()).await.unwrap();
+    (
+        source.account.account_id_hex,
+        contact.account.account_id_hex,
+    )
+}
+
 async fn four_device_enrollment(held_publication: HeldPublication) {
+    four_device_enrollment_with_relay(held_publication, None, false).await;
+}
+
+async fn four_device_enrollment_with_relay(
+    held_publication: HeldPublication,
+    public_relay: Option<&str>,
+    reverse_initial_roles: bool,
+) {
     #[cfg(feature = "test-policy-overrides")]
     install_publication_diagnostic_subscriber();
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
-    let url = relay.url().await.to_string();
+    let url = public_relay
+        .map(str::to_owned)
+        .unwrap_or(relay.url().await.to_string());
     let keys = nostr::prelude::Keys::generate();
     let dirs: [tempfile::TempDir; 4] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
     let apps = std::array::from_fn::<_, 4, _>(|index| {
-        AccountHome::open(dirs[index].path())
-            .import_account("test", &keys.secret_key().to_secret_hex())
-            .unwrap();
-        MarmotApp::with_relay(dirs[index].path(), &url)
+        if public_relay.is_none() {
+            AccountHome::open(dirs[index].path())
+                .import_account("test", &keys.secret_key().to_secret_hex())
+                .unwrap();
+        }
+        if public_relay.is_some() {
+            // Use the production constructor: the relay-only test convenience
+            // constructor silently selects zero-quiescence convergence.
+            MarmotApp::try_with_relays_and_account_home_and_config(
+                dirs[index].path(),
+                vec![url.clone()],
+                AccountHome::open(dirs[index].path()),
+                crate::MarmotAppConfig::default()
+                    .with_open_ranking_provider(None, Vec::new())
+                    .with_pairing_relay_urls(vec![
+                        "wss://nos.lol".into(),
+                        "wss://relay.primal.net".into(),
+                    ]),
+            )
+            .unwrap()
+        } else {
+            MarmotApp::with_relay(dirs[index].path(), &url)
+        }
     });
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     for runtime in &runtimes {
-        runtime.reconcile_accounts().await.unwrap();
+        if public_relay.is_some() {
+            runtime.start().await.unwrap();
+        } else {
+            runtime.reconcile_accounts().await.unwrap();
+        }
     }
+    let (account, contact) = if public_relay.is_some() {
+        public_onboarded_accounts(&apps, &runtimes, &url).await
+    } else {
+        ("test".to_owned(), "test".to_owned())
+    };
     let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
-    let b = managers[1]
-        .begin_device_linking_session("test")
+    let existing_chat = if public_relay.is_some() {
+        let group = managers[0]
+            .create_group(&account, "", std::slice::from_ref(&contact), None)
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while !apps[3]
+                .group(&contact, &hex::encode(group.as_slice()))
+                .unwrap()
+                .is_some_and(|row| row.pending_confirmation)
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("ordinary peer must receive the invitation");
+        managers[3]
+            .accept_group_invite(&contact, &group)
+            .await
+            .unwrap();
+        let sent = managers[0]
+            .send_message(&account, &group, b"Synthetic pre-pairing message".to_vec())
+            .await
+            .unwrap();
+        assert_eq!(sent.message_ids.len(), 1);
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while !apps[3].messages(&contact).unwrap().iter().any(|message| {
+                message.message_id_hex == sent.message_ids[0]
+                    && message.plaintext == "Synthetic pre-pairing message"
+            }) {
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("ordinary peer must receive the pre-pairing message");
+        Some((group, hex::decode(&sent.message_ids[0]).unwrap()))
+    } else {
+        None
+    };
+    let initial_display = usize::from(!reverse_initial_roles);
+    let initial_scanner = 1 - initial_display;
+    let b = managers[initial_display]
+        .begin_device_linking_session(&account)
         .await
         .unwrap();
-    let a = managers[0]
+    let a = managers[initial_scanner]
         .approve_automatic_device_linking_session(
-            "test",
+            &account,
             b.automatic_pairing_code().await.unwrap(),
             None,
         )
@@ -517,18 +688,46 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     eprintln!("automatic-enrollment-control stage=initial-two-completion");
     wait_for_automatic_phase(&a, &b, DeviceLinkingPhase::EnrollmentComplete).await;
     eprintln!("automatic-enrollment-control stage=initial-two-completed");
+    if let Some((group, event)) = &existing_chat {
+        // Match the native host journey: adding the third installation starts
+        // only after the first pair has actually exchanged existing chat data.
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let chats = managers[1]
+                    .paired_chat_list_page(&account, None, 128)
+                    .await
+                    .unwrap();
+                let messages = managers[1]
+                    .paired_chat_message_page(&account, group.clone(), None, 128)
+                    .await;
+                if chats.chats.iter().any(|chat| &chat.group_id == group)
+                    && let Ok(messages) = messages
+                    && messages
+                        .messages
+                        .iter()
+                        .any(|message| message.event_id.as_slice() == event.as_slice())
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("existing chat and history must mirror before third-device enrollment");
+        eprintln!("automatic-enrollment-control stage=initial-chat-mirrored");
+    }
     a.cancel().await.unwrap();
     b.cancel().await.unwrap();
-    let targets = managers[0].device_linking_targets("test").await.unwrap();
+    let targets = managers[0].device_linking_targets(&account).await.unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].device_count, 2);
     let c = managers[2]
-        .begin_device_linking_session("test")
+        .begin_device_linking_session(&account)
         .await
         .unwrap();
     let a = managers[0]
         .approve_automatic_device_linking_session(
-            "test",
+            &account,
             c.automatic_pairing_code().await.unwrap(),
             Some(targets[0].selector.clone()),
         )
@@ -546,7 +745,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if let Some(approval) = managers[1]
-                .pending_device_linking_approvals("test")
+                .pending_device_linking_approvals(&account)
                 .await
                 .unwrap()
                 .pop()
@@ -567,7 +766,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     ));
     approval.review_metadata(reviewed.revision).await.unwrap();
     let alias = managers[1]
-        .pending_device_linking_approvals("test")
+        .pending_device_linking_approvals(&account)
         .await
         .unwrap()
         .pop()
@@ -596,7 +795,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps[..3].iter().all(|app| {
-                let storage = app.account_storage("test").unwrap();
+                let storage = app.account_storage(&account).unwrap();
                 let store = storage.private_roster_settlement_storage().unwrap();
                 store.read_round().unwrap().is_some_and(|round| {
                     round.phase
@@ -619,7 +818,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     if !roster_setup_only {
         // COMPLETION_TEST_END
         assert!(apps[..3].iter().all(|app| {
-            app.account_storage("test")
+            app.account_storage(&account)
                 .unwrap()
                 .approved_account_sharing_policy_storage()
                 .unwrap()
@@ -649,15 +848,21 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         eprintln!("completion-wake-control stage=third-originals-retired");
     }
     // COMPLETION_TEST_END
-    let targets = managers[0].device_linking_targets("test").await.unwrap();
+    let targets = managers[0].device_linking_targets(&account).await.unwrap();
     assert_eq!(targets[0].device_count, 3);
+    if public_relay.is_some() {
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        return;
+    }
     let d = managers[3]
-        .begin_device_linking_session("test")
+        .begin_device_linking_session(&account)
         .await
         .unwrap();
     let a = managers[0]
         .approve_automatic_device_linking_session(
-            "test",
+            &account,
             d.automatic_pairing_code().await.unwrap(),
             Some(targets[0].selector.clone()),
         )
@@ -706,7 +911,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 if let Some(approval) = manager
-                    .pending_device_linking_approvals("test")
+                    .pending_device_linking_approvals(&account)
                     .await
                     .unwrap()
                     .pop()
@@ -743,7 +948,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 if apps.iter().all(|app| {
-                    let storage = app.account_storage("test").unwrap();
+                    let storage = app.account_storage(&account).unwrap();
                     let store = storage.private_roster_settlement_storage().unwrap();
                     store.read_round().unwrap().is_some_and(|round| {
                         round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed
@@ -760,7 +965,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             .expect("actual sibling consent hold acquired")
             .expect("actual sibling consent publication observed");
         eprintln!("completion-wake-control stage=actual-consent-held");
-        let periodic = runtimes[3].hold_periodic_linking_for_test("test");
+        let periodic = runtimes[3].hold_periodic_linking_for_test(&account);
         tokio::time::timeout(std::time::Duration::from_secs(10), periodic.observed())
             .await
             .expect("only recipient periodic arm must be gated");
@@ -773,7 +978,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         let progress = tokio::time::timeout(std::time::Duration::from_secs(15), async {
             loop {
                 let policies = apps[3]
-                    .account_storage("test")
+                    .account_storage(&account)
                     .unwrap()
                     .approved_account_sharing_policy_storage()
                     .unwrap()
@@ -799,7 +1004,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
                         eprintln!("completion-wake-control stage=foreground-progress");
                         // COMPLETION_ACTOR_CHECK_BEGIN
                         let targets = managers[3]
-                            .device_linking_targets("test")
+                            .device_linking_targets(&account)
                             .await
                             .expect("fresh recipient worker command remains serviceable");
                         assert!(
@@ -836,7 +1041,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             );
             loop {
                 if apps[1..3].iter().any(|app| {
-                    app.account_storage("test")
+                    app.account_storage(&account)
                         .unwrap()
                         .approved_account_sharing_policy_storage()
                         .unwrap()
@@ -887,6 +1092,11 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    {
+        assert_eq!(d.sibling_channel_progress_for_test().unwrap().len(), 2);
+        assert_eq!(d.sibling_publications_for_test().unwrap().len(), 2);
+    }
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     if completion_wake_result.is_some() {
@@ -897,7 +1107,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps.iter().all(|app| {
-                let storage = app.account_storage("test").unwrap();
+                let storage = app.account_storage(&account).unwrap();
                 let store = storage.private_roster_settlement_storage().unwrap();
                 store.read_round().unwrap().is_some_and(|round| {
                     round.phase
@@ -2195,3 +2405,6 @@ mod late_sibling_consent_acceptance;
 #[path = "recipient_sibling_admission_acceptance.rs"]
 mod recipient_sibling_admission_acceptance;
 // RECIPIENT_ADMISSION_TEST_END
+
+#[path = "sequential_installations_acceptance.rs"]
+mod sequential_installations_acceptance;

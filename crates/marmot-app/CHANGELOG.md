@@ -328,6 +328,12 @@
 - Lossless relay repairs accept case-insensitive NIP-65 read/write markers,
   matching relay-list inspection while preserving their original spelling
   and extension fields through approval and publication.
+- Retain the already-selected hidden receive route while Core owns a live
+  protected Remove rollback retry, so successor packets can still reach intake.
+
+- A rolled-back protected Remove uses its retained convergence retry instead of
+  occupying the successor-confirmation delivery slot and blocking fresh intake.
+
 - Sibling consent retries no longer preempt first policy/proof progress on a
   one-second worker cadence; consent and proof retries service the older deadline.
 

@@ -599,6 +599,36 @@ impl OriginalEnrollmentSharingChoice {
         })
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn recipient_channel_progress_for_test(&self) -> Vec<(usize, [bool; 11])> {
+        self.children
+            .lock()
+            .expect("sibling children")
+            .iter()
+            .map(|child| {
+                let observed = child.sibling_progress_for_test.load(Ordering::Acquire);
+                (
+                    observed >> 16,
+                    std::array::from_fn(|index| observed & (1 << index) != 0),
+                )
+            })
+            .collect()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn recipient_publications_for_test(&self) -> Vec<cgka_traits::MessageId> {
+        self.children
+            .lock()
+            .expect("sibling children")
+            .iter()
+            .filter_map(|child| {
+                child
+                    .sibling_publication_for_test
+                    .lock()
+                    .expect("sibling publication")
+                    .clone()
+            })
+            .collect()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn recipient_rejections_for_test(&self) -> [usize; 4] {
         std::array::from_fn(|index| self.recipient_diagnostics[index + 6].load(Ordering::Acquire))
     }
@@ -1416,6 +1446,37 @@ pub(super) struct SiblingChannel {
     pending_opaque: Mutex<Vec<PendingSiblingControl>>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pre_auth_failure: Option<Arc<SiblingPreAuthFailureProbe>>,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl SiblingChannel {
+    fn observe_progress_for_test(&self, stage: usize) {
+        let bits = [
+            self.original.live(),
+            self.state.live(),
+            self.ready,
+            self.handshake_published,
+            self.policy_committed,
+            self.proof_published,
+            self.peer_committed,
+            self.publication.is_some(),
+            self.publication
+                .as_ref()
+                .is_some_and(|p| p.task.is_finished()),
+            self.state
+                .progress
+                .lock()
+                .expect("sibling progress")
+                .complete,
+            !self.pending_controls.is_empty(),
+        ];
+        let mask = bits
+            .into_iter()
+            .enumerate()
+            .fold(0, |mask, (i, value)| mask | (usize::from(value) << i));
+        self.state
+            .sibling_progress_for_test
+            .store((stage << 16) | mask, Ordering::Release);
+    }
 }
 impl Drop for SiblingChannel {
     fn drop(&mut self) {
@@ -2309,6 +2370,8 @@ impl AppClient {
             return Ok(());
         }
         if !entry.policy_committed {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(5);
             self.persist_sibling_policy(entry)?;
             entry.policy_committed = true;
         }
@@ -2319,6 +2382,8 @@ impl AppClient {
                     .proof_retry_at
                     .is_some_and(|next| Instant::now() >= next))
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(6);
             let scope = entry.channel.scope();
             let device = if entry.recipient {
                 &scope.recipient
@@ -2355,6 +2420,8 @@ impl AppClient {
             && entry.original.live()
             && entry.state.live()
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(7);
             let mut progress = entry.state.progress.lock().expect("sibling progress");
             if !progress.complete {
                 progress.complete = true;
@@ -2593,6 +2660,14 @@ impl AppClient {
         }
         // PEER_NEGATIVE_TEST_END
         let consent = entry.recipient && !proof;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            *entry
+                .state
+                .sibling_publication_for_test
+                .lock()
+                .expect("sibling publication") = Some(request.message.id.clone());
+        }
 
         // COMPLETION_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]

@@ -74,7 +74,7 @@ def replacement(row):
     return None
 
 
-def make_plan(remaining, partitions=12):
+def make_plan(remaining, partitions=12, *, replace_known=True):
     if partitions < 1:
         raise ValueError("Partition count must be positive")
     buckets = [[] for _ in range(partitions)]
@@ -85,7 +85,7 @@ def make_plan(remaining, partitions=12):
         if key in seen:
             raise ValueError("Duplicate remaining case")
         seen.add(key)
-        role = replacement(row)
+        role = replacement(row) if replace_known else None
         if role:
             replacements.append(dict(row, required_followup=role, qualified=False))
         else:

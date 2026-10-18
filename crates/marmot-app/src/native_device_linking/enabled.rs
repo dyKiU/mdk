@@ -267,6 +267,18 @@ impl DeviceLinkingSession {
         receiver
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn enrollment_progress_for_test(&self) -> Option<[bool; 5]> {
+        self.inner.operation.try_lock().ok().map(|progress| {
+            [
+                progress.automatic_enrollment.is_some(),
+                progress.enrollment_started,
+                progress.enrollment_packet.is_some(),
+                progress.recipient_packet.is_some(),
+                progress.finalized,
+            ]
+        })
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn automatic_retirement_probe_for_test(&self) -> impl Fn() -> bool + use<> {
         let state = self.inner.clone();
         move || {
@@ -451,6 +463,26 @@ impl DeviceLinkingSession {
             .expect("sharing choice")
             .as_ref()
             .map(|choice| choice.recipient_snapshot_for_test())
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_channel_progress_for_test(&self) -> Option<Vec<(usize, [bool; 11])>> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.recipient_channel_progress_for_test())
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_publications_for_test(&self) -> Option<Vec<cgka_traits::MessageId>> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.recipient_publications_for_test())
     }
 
     // Test inspection of the original actor-owned identity, never a native API
