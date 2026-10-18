@@ -1,7 +1,11 @@
 import copy
+from pathlib import Path
+import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
-from recover_archive_gaps import prepare_plan, validate_origin, verify_selection
+from recover_archive_gaps import fetch, prepare_plan, validate_origin, validate_pr_checkout, verify_selection
 from test_recover_experimental_coverage import inventory, line
 
 
@@ -16,7 +20,81 @@ def origin():
     return run, jobs, artifact
 
 
+def pr_origin():
+    run, jobs, artifact = origin()
+    run.update(event="pull_request", pull_requests=[dict(head=dict(sha=run["head_sha"]))])
+    jobs.append(dict(id=9, run_id=7, head_sha=run["head_sha"], run_attempt=1,
+                     status="completed", conclusion="success", name="Build workspace tests"))
+    return run, jobs, artifact
+
+
 class ArchiveGapTests(unittest.TestCase):
+    def test_pr_origin_requires_exact_head_and_successful_archive_producer(self):
+        run, jobs, artifact = pr_origin()
+        self.assertEqual(len(validate_origin(run, jobs, artifact, "default", 7, "a" * 40)), 5)
+        for heads in ([], [dict(head=dict(sha="c" * 40))],
+                      [dict(head=dict(sha="a" * 40)), dict(head=dict(sha="c" * 40))]):
+            with self.subTest(heads=heads), self.assertRaises(ValueError):
+                validate_origin(dict(run, pull_requests=heads), jobs, artifact, "default", 7, "a" * 40)
+        for changed in (jobs[:-1], jobs + [jobs[-1]],
+                        jobs[:-1] + [dict(jobs[-1], conclusion="failure")],
+                        jobs[:-1] + [dict(jobs[-1], status="in_progress")],
+                        jobs[:-1] + [dict(jobs[-1], head_sha="c" * 40)],
+                        jobs[:-1] + [dict(jobs[-1], run_attempt=2)],
+                        jobs[:-1] + [dict(jobs[-1], run_id=8)],
+                        jobs[:-1] + [dict(jobs[-1], id=jobs[0]["id"])]):
+            with self.subTest(producer=changed), self.assertRaises(ValueError):
+                validate_origin(run, changed, artifact, "default", 7, "a" * 40)
+
+    def test_experimental_pr_uses_its_own_workflow_producer_and_partitions(self):
+        run, jobs, artifact = pr_origin()
+        run["path"] = ".github/workflows/experimental-sync-ci.yml"
+        artifact["name"] = "experimental-sync-tests"
+        for job in jobs[:-1]:
+            job["name"] = job["name"].replace("Rust tests", "Experimental sync tests")
+        with self.assertRaises(ValueError):
+            validate_origin(run, jobs, artifact, "experimental", 7, "a" * 40)
+        jobs[-1]["name"] = "Build experimental sync tests"
+        self.assertEqual(len(validate_origin(run, jobs, artifact, "experimental", 7, "a" * 40)), 5)
+
+    def test_pr_checkout_requires_single_exact_source_and_tree_in_raw_output(self):
+        source, tree = "a" * 40, "b" * 40
+        plain = f"qualification-source: {source}\nqualification-tree: {tree}\n"
+        validate_pr_checkout(plain, source, tree)
+        raw = "\n".join("2026-10-18T21:47:49.1234567Z \x1b[32m" + line + "\x1b[0m"
+                        for line in plain.splitlines())
+        validate_pr_checkout(raw, source, tree)
+        for changed in ("", plain.splitlines()[0], plain + plain,
+                        plain.replace(source, "c" * 40), plain.replace(tree, "c" * 40),
+                        plain + "qualification-source: malformed\n",
+                        'echo "qualification-source: ' + source + '"\n' + plain.splitlines()[1]):
+            with self.subTest(log=changed), self.assertRaises(ValueError):
+                validate_pr_checkout(changed, source, tree)
+
+    def test_pr_fetch_rejects_checkout_mismatch_before_downloading_large_archive(self):
+        run, jobs, artifact = pr_origin()
+        calls = []
+
+        def execute(command, **kwargs):
+            calls.append(command)
+            if command[0] == "gh":
+                self.assertTrue(command[-1].endswith("/logs"))
+                kwargs["stdout"].write(b"qualification-source: " + b"c" * 40 + b"\n"
+                                       b"qualification-tree: " + b"b" * 40 + b"\n")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("recover_archive_gaps.gh_json", side_effect=[[run], [dict(jobs=jobs)],
+                                                                   [dict(artifacts=[artifact])]]), \
+                patch("recover_archive_gaps.subprocess.run", side_effect=execute), \
+                patch("recover_archive_gaps.subprocess.check_output", return_value="b" * 40 + "\n"):
+            args = SimpleNamespace(run=7, source="a" * 40, cohort="default",
+                                   directory=Path(tmp) / "fresh")
+            with self.assertRaisesRegex(ValueError, "checkout source/tree"):
+                fetch(args)
+            self.assertFalse((args.directory / "original.zip").exists())
+            self.assertFalse((args.directory / "provenance.json").exists())
+        self.assertEqual(len(calls), 2)  # ancestry validation and one raw job log, no archive
+
     def test_origin_requires_exact_repository_source_attempt_and_finished_run(self):
         run, jobs, artifact = origin()
         self.assertEqual(len(validate_origin(run, jobs, artifact, "default", 7, "a" * 40)), 5)

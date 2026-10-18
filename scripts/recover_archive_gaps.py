@@ -16,6 +16,7 @@ COHORTS = {
     "experimental": (".github/workflows/experimental-sync-ci.yml",
                      "experimental-sync-tests", "experimental-tests.tar.zst", "Experimental sync tests"),
 }
+PRODUCERS = {"default": "Build workspace tests", "experimental": "Build experimental sync tests"}
 TERMINAL = re.compile(r"^\s*(PASS|FAIL|TIMEOUT|LEAK)\s+\[[^\]\n]+\]"
                       r"\s+\(\s*\d+/\d+\)\s+(\S+)\s+(.+?)\s*$", re.M)
 
@@ -35,8 +36,16 @@ def validate_origin(run, jobs, artifact, cohort, run_id, source):
         raise ValueError("Full immutable source SHA required")
     if (run["id"] != run_id or run["head_sha"] != source or run["run_attempt"] != 1
             or run["repository"]["full_name"] != REPOSITORY or run["path"] != workflow
-            or run["status"] != "completed" or run["event"] not in ("push", "workflow_dispatch")):
+            or run["status"] != "completed"
+            or run["event"] not in ("push", "workflow_dispatch", "pull_request")):
         raise ValueError("Original run provenance mismatch or still running")
+    if run["event"] == "pull_request":
+        heads = run.get("pull_requests", [])
+        if not heads or any(pr.get("head", {}).get("sha") != source for pr in heads):
+            raise ValueError("Exact original PR head required")
+        producer = pr_producer(jobs, cohort, run_id, source)
+    else:
+        producer = None
     if (artifact["name"] != name or artifact["expired"]
             or artifact["workflow_run"]["id"] != run_id
             or artifact["workflow_run"]["head_sha"] != source
@@ -45,10 +54,29 @@ def validate_origin(run, jobs, artifact, cohort, run_id, source):
     selected = [job for job in jobs if re.fullmatch(re.escape(label) + r" \([1-5]/5\)", job["name"])]
     if ({job["name"] for job in selected} != {f"{label} ({i}/5)" for i in range(1, 6)}
             or len(selected) != 5 or len({job["id"] for job in selected}) != 5
+            or (producer is not None and producer["id"] in {job["id"] for job in selected})
             or any(job["run_id"] != run_id or job["head_sha"] != source
                    or job["run_attempt"] != 1 or job["status"] != "completed" for job in selected)):
         raise ValueError("Five distinct terminal original partitions required")
     return sorted(selected, key=lambda job: job["name"])
+
+
+def pr_producer(jobs, cohort, run_id, source):
+    selected = [job for job in jobs if job["name"] == PRODUCERS[cohort]]
+    if (len(selected) != 1 or selected[0]["run_id"] != run_id
+            or selected[0]["head_sha"] != source or selected[0]["run_attempt"] != 1
+            or selected[0]["status"] != "completed" or selected[0].get("conclusion") != "success"):
+        raise ValueError("One successful original PR archive producer required")
+    return selected[0]
+
+
+def validate_pr_checkout(log, source, tree):
+    clean = ANSI.sub("", log)
+    for label, expected in (("source", source), ("tree", tree)):
+        observed = re.findall(r"^(?:\d{4}-\d\d-\d\dT\S+\s+)?qualification-" + label
+                              + r": ([^\r\n]*)\r?$", clean, re.M)
+        if observed != [expected]:
+            raise ValueError("PR archive checkout source/tree mismatch or missing marker")
 
 
 def gh_json(endpoint):
@@ -70,6 +98,24 @@ def fetch(args):
     subprocess.run(["git", "merge-base", "--is-ancestor", args.source, "HEAD"], check=True)
     for name, value in (("original-run", run), ("original-jobs", jobs), ("original-artifact", artifact)):
         write(args.directory / (name + ".json"), value)
+    hashes = {}
+    pr_checkout = None
+    captured = list(selected)
+    if run["event"] == "pull_request":
+        producer = pr_producer(jobs, args.cohort, args.run, args.source)
+        captured.append(producer)
+        tree = subprocess.check_output(["git", "rev-parse", args.source + "^{tree}"], text=True).strip()
+    for job in captured:
+        path = args.directory / f"{job['id']}.log"
+        with path.open("xb") as stream:
+            subprocess.run(["gh", "api", "--allow-escape-sequences",
+                            f"repos/{REPOSITORY}/actions/jobs/{job['id']}/logs"], stdout=stream, check=True)
+        if run["event"] == "pull_request":
+            validate_pr_checkout(path.read_text(), args.source, tree)
+        if job in selected:
+            hashes[str(job["id"])] = digest(path)
+        else:
+            pr_checkout = dict(tree=tree, producer_id=job["id"], producer_log_sha256=digest(path))
     archive = args.directory / "original.zip"
     with archive.open("xb") as stream:
         subprocess.run(["gh", "api", f"repos/{REPOSITORY}/actions/artifacts/{artifact['id']}/zip"],
@@ -83,16 +129,9 @@ def fetch(args):
                 or members[0].file_size > 4 * 1024**3):
             raise ValueError("Unexpected archive members or size")
         packed.extract(members[0], args.directory)
-    hashes = {}
-    for job in selected:
-        path = args.directory / f"{job['id']}.log"
-        with path.open("xb") as stream:
-            subprocess.run(["gh", "api", "--allow-escape-sequences",
-                            f"repos/{REPOSITORY}/actions/jobs/{job['id']}/logs"], stdout=stream, check=True)
-        hashes[str(job["id"])] = digest(path)
     write(args.directory / "provenance.json", dict(source=args.source, run=args.run, cohort=args.cohort,
           artifact_id=artifact["id"], zip_sha256=digest(archive), tar=tar,
-          tar_sha256=digest(args.directory / tar), original_log_hashes=hashes))
+          tar_sha256=digest(args.directory / tar), original_log_hashes=hashes, pr_checkout=pr_checkout))
     archive.unlink()
 
 
