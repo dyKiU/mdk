@@ -177,11 +177,15 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
     use sha2::Digest as _;
     let held_payload_digest: [u8; 32] = sha2::Sha256::digest(&held_message.payload).into();
     let mut diagnostic = Default::default();
-    let matches_held = probe.matches_held_catalog(&held_group, held_payload_digest, &mut diagnostic);
+    let matches_held =
+        probe.matches_held_catalog(&held_group, held_payload_digest, &mut diagnostic);
     eprintln!(
         "body-prerequisite known={} evaluated={} matched={} capture_ordinal={:?} observation_ordinal={:?}",
-        diagnostic.known, diagnostic.evaluated, diagnostic.matched,
-        diagnostic.capture_ordinal, diagnostic.observation_ordinal
+        diagnostic.known,
+        diagnostic.evaluated,
+        diagnostic.matched,
+        diagnostic.capture_ordinal,
+        diagnostic.observation_ordinal
     );
     assert!(
         matches_held,

@@ -122,7 +122,9 @@ impl Probe {
     ) -> bool {
         fn note(diagnostic: &mut HeldCatalogDiagnostic, index: u32, value: bool) -> bool {
             diagnostic.evaluated |= 1u16 << index;
-            if value { diagnostic.matched |= 1u16 << index; }
+            if value {
+                diagnostic.matched |= 1u16 << index;
+            }
             value
         }
         let mut progress = self.progress.lock().expect("negative probe");
@@ -135,21 +137,43 @@ impl Probe {
                 progress.diagnostic_ordinal = next;
                 diagnostic.observation_ordinal = Some(next);
             }
-            None => { progress.diagnostic_known = false; diagnostic.known = false; }
+            None => {
+                progress.diagnostic_known = false;
+                diagnostic.known = false;
+            }
         }
         // zip originally evaluates BOTH Option::as_ref values. Preserve that behavior.
         note(diagnostic, 0, progress.captured.is_some());
         note(diagnostic, 1, progress.intent_gate.is_some());
-        progress.captured.as_ref().zip(progress.intent_gate.as_ref())
+        progress
+            .captured
+            .as_ref()
+            .zip(progress.intent_gate.as_ref())
             .is_some_and(|(captured, gate)| {
                 note(diagnostic, 2, &captured.catalog_group == group)
                     && note(diagnostic, 3, captured.payload_digest == payload_digest)
                     && note(diagnostic, 4, captured.nonce == gate.binding.nonce)
                     && note(diagnostic, 5, captured.account == gate.binding.account)
-                    && note(diagnostic, 6, captured.protected_group == gate.binding.protected_group)
-                    && note(diagnostic, 7, captured.local_device == gate.binding.peer_device)
-                    && note(diagnostic, 8, captured.peer_device == gate.binding.local_device)
-                    && note(diagnostic, 9, gate.entered.load(std::sync::atomic::Ordering::Acquire))
+                    && note(
+                        diagnostic,
+                        6,
+                        captured.protected_group == gate.binding.protected_group,
+                    )
+                    && note(
+                        diagnostic,
+                        7,
+                        captured.local_device == gate.binding.peer_device,
+                    )
+                    && note(
+                        diagnostic,
+                        8,
+                        captured.peer_device == gate.binding.local_device,
+                    )
+                    && note(
+                        diagnostic,
+                        9,
+                        gate.entered.load(std::sync::atomic::Ordering::Acquire),
+                    )
                     && note(diagnostic, 10, gate.release.receiver_count() > 0)
             })
     }
