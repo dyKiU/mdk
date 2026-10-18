@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One frozen owner-contract ordinary case; not strict-integration qualification."""
+"""Four frozen owner-contract fairness/recovery cases; no full qualification."""
 import argparse
 import hashlib
 import json
@@ -16,18 +16,25 @@ import time
 BASE = '1611fa4ba239933d41875017e12464fef2f4e0d0'
 SELF = 'scripts/qualify_owner_ordinary_1611.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
-REF = 'refs/heads/ci/upstream-owner-ordinary-1611-20261018'
+REF = 'refs/heads/ci/upstream-owner-components-1611-20261018'
 FIXTURE = 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 SUFFIX = 'third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'
-NAME = 'native_device_linking::automatic_pairing_acceptance::' + SUFFIX
-OLD = '#[tokio::test]\nasync fn ' + SUFFIX + '() {'
-NEW = '#[tokio::test(flavor = "multi_thread", worker_threads = 2)]\nasync fn ' + SUFFIX + '() {'
-BEGIN = '  # OWNER_ORDINARY_1611_JOBS_BEGIN\n'
-END = '  # OWNER_ORDINARY_1611_JOBS_END\n'
-OPTIONS = 'options: [owner-ordinary-preflight, owner-ordinary-baseline, '
+PREFIX = 'native_device_linking::automatic_pairing_acceptance::'
+CASES = [
+    'blocked_sibling_consent_does_not_starve_another_approved_peer',
+    'automatic_sync_does_not_block_foreground_enrollment_completion',
+    'cancelled_setup_can_reverse_roles_after_restart_and_complete_enrollment',
+    'interrupted_first_enrollment_same_peer_completes_after_restart',
+]
+# Retain the already-qualified ordinary wrapper alignment, without rerunning it.
+ALIGNED_WRAPPERS = [SUFFIX] + CASES
+NAME = PREFIX + CASES[0]
+BEGIN = '  # OWNER_COMPONENTS_1611_JOBS_BEGIN\n'
+END = '  # OWNER_COMPONENTS_1611_JOBS_END\n'
+OPTIONS = 'options: [owner-components-preflight, owner-components-baseline, '
 FEATURES = 'marmot-app/experimental-device-sync,marmot-app/test-policy-overrides,marmot-app/otlp-export,marmot-app/product-analytics-export'
 ROOT_FEATURES = sorted(['default', 'experimental-device-sync', 'test-policy-overrides', 'otlp-export', 'product-analytics-export'])
-OUT = Path('owner-ordinary-1611-evidence')
+OUT = Path('owner-components-1611-evidence')
 
 
 class GateFailure(ValueError):
@@ -63,7 +70,7 @@ def source_guard():
            and os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' and os.environ.get('GITHUB_SHA') == source
            and os.environ.get('GITHUB_REF') == REF
            and os.environ.get('GITHUB_WORKFLOW_REF') == 'dyKiU/mdk/' + WORKFLOW + '@' + REF
-           and os.environ.get('OWNER_ORDINARY_BASELINE') == BASE, 'exact-owned-remote-source')
+           and os.environ.get('OWNER_COMPONENTS_BASELINE') == BASE, 'exact-owned-remote-source')
     ensure(os.environ.get('CARGO_INCREMENTAL') == '1' and os.environ.get('CARGO_BUILD_JOBS') == '2'
            and os.environ.get('RUST_MIN_STACK') == '4194304'
            and all(os.environ.get(k) == '0' for k in ['CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG'])
@@ -84,8 +91,13 @@ def source_guard():
         ensure(actual['mode'] == mode and (mode == '120000' or actual['actual_executable'] == (mode == '100755')), 'whole-owner-mode')
         data = os.fsencode(os.readlink(name)) if mode == '120000' else Path(name).read_bytes()
         if name == FIXTURE:
-            text = data.decode(); ensure(text.count(NEW) == 1 and OLD not in text, 'one-reviewed-test-flavor-delta')
-            data = text.replace(NEW, OLD, 1).encode()
+            text = data.decode()
+            for suffix in ALIGNED_WRAPPERS:
+                old = '#[tokio::test]\nasync fn ' + suffix + '() {'
+                new = '#[tokio::test(flavor = "multi_thread", worker_threads = 2)]\nasync fn ' + suffix + '() {'
+                ensure(text.count(new) == 1 and old not in text, 'exact-reviewed-wrapper-flavor')
+                text = text.replace(new, old, 1)
+            data = text.encode()
         if name == WORKFLOW:
             text = data.decode(); ensure(text.count(BEGIN) == text.count(END) == text.count(OPTIONS) == 1, 'one-owned-workflow-overlay')
             before, rest = text.split(BEGIN); _, after = rest.split(END)
@@ -94,8 +106,10 @@ def source_guard():
             ensure(hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == blob, 'whole-owner-content:' + name)
     ensure(not subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'], text=True).strip(), 'no-untracked-source-overlay')
     return {'source': source, 'baseline': BASE, 'all_owner_contents_and_modes_reconstructed': True,
-            'only_Rust_delta': 'selected ordinary wrapper Tokio multi_thread worker_threads=2',
+            'only_Rust_delta': 'five explicitly listed wrapper attributes Tokio multi_thread worker_threads=2',
+            'aligned_wrappers': ALIGNED_WRAPPERS, 'runtime_selected_cases': CASES,
             'owner_EnrollmentComplete_seconds': 90, 'owner_comparison_seconds': 15,
+            'owner_real_held_setup_seconds': 90, 'owner_actual_held_fairness_seconds': 10,
             'all_bodies_assertions_deadlines_lock_and_SDK_inputs_unchanged': True,
             'strict_integration_15s_oracle_adopted': False}
 
@@ -133,19 +147,19 @@ def compiler_error(item, frozen):
     return result
 
 
-def inventory(raw):
+def inventory(raw, name=NAME):
     lines = [v for v in raw.splitlines() if v]
-    return lines in [[NAME + ': test'], [NAME + ': test', '1 test, 0 benchmarks']]
+    return lines in [[name + ': test'], [name + ': test', '1 test, 0 benchmarks']]
 
 
-def body_receipt(raw, code, frozen):
+def body_receipt(raw, code, frozen, name=NAME):
     clean = re.sub(r'\x1b\[[0-9;]*m', '', raw)
     summaries = re.findall(r'^test result: (ok|FAILED)\. ([0-9]+) passed; ([0-9]+) failed; ([0-9]+) ignored; ([0-9]+) measured; ([0-9]+) filtered out;', clean, re.M)
     names = re.findall(r'^test ([A-Za-z_0-9:]+) \.\.\. ', clean, re.M)
     running = re.findall(r'^running ([0-9]+) test(?:s)?$', clean, re.M)
     panics = re.findall(r"^thread '[^'\n]+'(?: \([0-9]+\))? panicked at ([^\n]+):", clean, re.M)
     result = {'actual_counts_complete': False, 'passed': None, 'failed': None, 'ignored': None,
-              'executed_nonignored': None, 'exit_code': code, 'exact_selected_name': names == [NAME],
+              'executed_nonignored': None, 'exit_code': code, 'exact_selected_name': names == [name],
               'compiler_error_count': len(re.findall(r'^error(?:\[E[0-9]+\])?:', clean, re.M)),
               'panic_count': clean.count('panicked at '), 'safe_panic_locations': [], 'unknown_panic_locations': 0,
               'original_fixture_positive_close_counts': None}
@@ -157,14 +171,30 @@ def body_receipt(raw, code, frozen):
     result['panic_locations_truncated'] = len(panics) > 8
     if len(summaries) == 1:
         status, p, f, i, m, _ = summaries[0]; p, f, i, m = map(int, [p, f, i, m])
-        complete = names == [NAME] and running == ['1'] and p + f == 1 and i == m == 0 and status == ('FAILED' if f else 'ok')
+        complete = names == [name] and running == ['1'] and p + f == 1 and i == m == 0 and status == ('FAILED' if f else 'ok')
         result.update(actual_counts_complete=complete, passed=p, failed=f, ignored=i,
                       executed_nonignored=p + f if complete else None)
     allowed = {'initial-two-comparison', 'initial-two-completion', 'initial-two-completed',
                'third-device-completion', 'third-device-completed', 'fourth-device-completion', 'fourth-device-completed'}
     # Only closed known stage atoms survive; storage/account diagnostic lines do not.
     result['original_phase_markers'] = [v for v in re.findall(r'automatic-enrollment-control stage=([a-z0-9-]+)', clean) if v in allowed][:32]
+    clean = re.sub(r'(?m)^test ' + re.escape(name) + r' \.\.\. (?=held-consent-control )', '', clean)
+    metrics = re.findall(r'^held-consent-control setup-ms=([0-9]{1,9}) held-progress-ms=([0-9]{1,9}) other-peer-progress=(true|false)$', clean, re.M)
+    result['actual_held_metrics'] = ({'setup_ms': int(metrics[0][0]), 'held_progress_ms': int(metrics[0][1]),
+        'other_peer_progress': metrics[0][2] == 'true'} if len(metrics) == 1 else None)
+    result['actual_held_metric_count'] = len(metrics)
     return result
+
+
+def aggregate(rows):
+    complete = set(rows) == {PREFIX + suffix for suffix in CASES} and all(
+        row.get('actual_counts_complete') is True and all(type(row.get(k)) is int for k in
+        ['passed', 'failed', 'ignored', 'executed_nonignored']) and row['ignored'] == 0
+        and row['passed'] >= 0 and row['failed'] >= 0
+        and row['passed'] + row['failed'] == row['executed_nonignored'] == 1 for row in rows.values())
+    return {'actual_counts_complete': complete, **{'actual_' + k:
+        sum(row[k] for row in rows.values()) if complete else None
+        for k in ['passed', 'failed', 'ignored', 'executed_nonignored']}}
 
 
 def parser_controls():
@@ -180,8 +210,23 @@ def parser_controls():
         {'is_primary': True, 'file_name': '/private/ACCOUNT.rs', 'line_start': 1, 'column_start': 1}]}}, {FIXTURE: {}})
     ensure(error['code'] == 'E0277' and len(error['primary_locations']) == 1 and error['unknown_locations'] == 1
            and 'PRIVATE_ACCOUNT' not in json.dumps(error) and '/private/' not in json.dumps(error), 'closed-private-compiler-metadata')
+    held = body_receipt(raw + 'held-consent-control setup-ms=15000 held-progress-ms=4000 other-peer-progress=true\n', 0, {})
+    ensure(held['actual_held_metric_count'] == 1 and held['actual_held_metrics']['other_peer_progress'] is True,
+           'genuine-held-metrics-closed-positive')
+    for tail in ['held-consent-control setup-ms=PRIVATE held-progress-ms=4000 other-peer-progress=true\n',
+                 'held-consent-control setup-ms=1 held-progress-ms=2 other-peer-progress=PRIVATE\n']:
+        ensure(body_receipt(raw + tail, 0, {})['actual_held_metrics'] is None, 'unclosed-held-metadata-not-accepted')
+    rows = {PREFIX + suffix: body_receipt(raw.replace(NAME, PREFIX + suffix), 0, {}, PREFIX + suffix) for suffix in CASES}
+    ensure(aggregate(rows)['actual_passed'] == 4, 'four-actual-selected-counts')
+    for invalid in [{}, {k: v for k, v in rows.items() if k != NAME},
+                    {**rows, NAME: {**rows[NAME], 'passed': None}},
+                    {**rows, NAME: {**rows[NAME], 'passed': True}}]:
+        incomplete = aggregate(invalid)
+        ensure(not incomplete['actual_counts_complete'] and incomplete['actual_passed'] is None,
+               'partial-or-untyped-counts-stay-unknown')
     return {'inventory_positive': 2, 'inventory_negative': 4, 'body_positive': 1, 'body_negative': 5,
-            'safe_compiler_metadata_positive': 1, 'actual_runtime_bodies': 0}
+            'safe_compiler_metadata_positive': 1, 'held_metric_positive': 1, 'held_metric_negative': 2,
+            'aggregate_positive': 1, 'aggregate_negative': 4, 'actual_runtime_bodies': 0}
 
 
 def main(args):
@@ -189,7 +234,8 @@ def main(args):
     report = {'baseline': BASE, 'qualification_passed': False, 'native_acceptance_claim': False,
               'installed_binary_inclusion_known': False, 'strict_integration_15s_qualified': False,
               'owner_contract_component_passed': False, 'actual_counts_complete': False,
-              'positive_native_closures': None, 'old_locked_negentropy': '0.5.0 diagnostic baseline only'}
+              'positive_native_closures': None, 'old_locked_negentropy': '0.5.0 diagnostic baseline only',
+              'required_case_count': 4, 'cases': {}, 'one_compile_for_selected_experimental_cohort': True}
     frozen = None
     def save(): (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     try:
@@ -218,21 +264,32 @@ def main(args):
         report['compilation'].update(features=sorted(artifact['features']), binary_sha256=binary_hash,
             compiled_feature_manifest_sha256=digest(json.dumps([{'target': a['target']['name'], 'features': sorted(a['features']), 'profile': a['profile']} for a in artifacts], sort_keys=True).encode()))
         ensure(snapshot() == frozen, 'whole-inputs-pristine-after-compile')
-        code, raw, _ = capture([str(binary), '--exact', NAME, '--list', '--format', 'terse'], 60, 1024*1024)
-        ensure(code == 0 and inventory(raw), 'exact-one-nonignored-inventory')
-        code, raw, _ = capture([str(binary), '--exact', NAME, '--ignored', '--list', '--format', 'terse'], 60, 1024*1024)
-        ensure(code == 0 and raw.strip() in {'', '0 tests, 0 benchmarks'}, 'selected-body-not-ignored')
-        report['inventory'] = {'actual_selected_name': NAME, 'selected_nonignored': 1, 'selected_ignored': 0}; save()
-        ensure(snapshot() == frozen and digest(binary.read_bytes()) == binary_hash, 'before-body-source-binary-pristine')
-        report['active_phase'] = 'one-runtime-body'; save()
-        code, raw, seconds = capture([str(binary), '--exact', NAME, '--nocapture', '--test-threads=1'], 900, 8*1024*1024)
-        row = body_receipt(raw, code, frozen); row.update(seconds=seconds, binary_sha256=binary_hash)
-        report['body'] = row; report['actual_counts_complete'] = row['actual_counts_complete']; save()
-        ensure(row['actual_counts_complete'] and row['compiler_error_count'] == 0 and code in {0, 101}, 'one-real-runtime-body-not-compile-or-watchdog')
-        ensure(snapshot() == frozen and digest(binary.read_bytes()) == binary_hash, 'after-body-source-binary-pristine')
-        report['owner_contract_component_passed'] = (row['passed'] == 1 and row['failed'] == 0 and code == 0 and row['panic_count'] == 0)
-        report['active_phase'] = 'runtime-body-completed'; save()
-        ensure(report['owner_contract_component_passed'], 'owner-ordinary-runtime-not-green')
+        report['inventory'] = {}
+        for suffix in CASES:
+            name = PREFIX + suffix
+            code, raw, _ = capture([str(binary), '--exact', name, '--list', '--format', 'terse'], 60, 1024*1024)
+            ensure(code == 0 and inventory(raw, name), 'exact-one-nonignored-inventory')
+            code, raw, _ = capture([str(binary), '--exact', name, '--ignored', '--list', '--format', 'terse'], 60, 1024*1024)
+            ensure(code == 0 and raw.strip() in {'', '0 tests, 0 benchmarks'}, 'selected-body-not-ignored')
+            report['inventory'][name] = {'selected_nonignored': 1, 'selected_ignored': 0}
+        save()
+        for suffix in CASES:
+            name = PREFIX + suffix
+            ensure(snapshot() == frozen and digest(binary.read_bytes()) == binary_hash, 'before-body-source-binary-pristine')
+            report['active_phase'] = 'runtime-body'; report['active_case'] = name; save()
+            code, raw, seconds = capture([str(binary), '--exact', name, '--nocapture', '--test-threads=1'], 900, 8*1024*1024)
+            row = body_receipt(raw, code, frozen, name); row.update(seconds=seconds, binary_sha256=binary_hash)
+            row['runtime_passed'] = row['passed'] == 1 and row['failed'] == 0 and code == 0 and row['panic_count'] == 0
+            report['cases'][name] = row; report.update(aggregate(report['cases'])); save()
+            ensure(row['actual_counts_complete'] and row['compiler_error_count'] == 0 and code in {0, 101}, 'one-real-runtime-body-not-compile-or-watchdog')
+            ensure(snapshot() == frozen and digest(binary.read_bytes()) == binary_hash, 'after-body-source-binary-pristine')
+        held = report['cases'][PREFIX + CASES[0]]
+        report['genuine_held_metric_complete'] = (held['actual_held_metric_count'] == 1
+            and held['actual_held_metrics']['other_peer_progress'] is True)
+        report['owner_contract_component_passed'] = (report['actual_counts_complete']
+            and all(row['runtime_passed'] for row in report['cases'].values()) and report['genuine_held_metric_complete'])
+        report['active_phase'] = 'all-selected-bodies-completed'; save()
+        ensure(report['owner_contract_component_passed'], 'selected-owner-components-not-green')
     except Exception as error:
         report['exception_type'] = type(error).__name__
         if isinstance(error, GateFailure): report['failure_gate'] = str(error)

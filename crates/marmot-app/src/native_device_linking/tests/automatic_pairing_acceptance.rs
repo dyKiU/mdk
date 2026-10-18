@@ -7,7 +7,7 @@ async fn cancelled_setup_can_reverse_roles_and_complete_enrollment() {
     cancelled_setup_role_reversal(false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_setup_can_reverse_roles_after_restart_and_complete_enrollment() {
     cancelled_setup_role_reversal(true).await;
 }
@@ -194,12 +194,12 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
     four_device_enrollment(HeldPublication::None, None, false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn blocked_sibling_consent_does_not_starve_another_approved_peer() {
     four_device_enrollment(HeldPublication::SiblingConsent, None, false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_sync_does_not_block_foreground_enrollment_completion() {
     four_device_enrollment(HeldPublication::Automatic, None, false).await;
 }
@@ -1548,7 +1548,7 @@ async fn interrupted_first_enrollment_can_start_fresh_comparison() {
     interrupted_first_enrollment_retries(false, false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupted_first_enrollment_same_peer_completes_after_restart() {
     interrupted_first_enrollment_retries(true, false).await;
 }
