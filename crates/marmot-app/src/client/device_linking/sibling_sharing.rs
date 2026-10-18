@@ -99,18 +99,36 @@ pub(super) fn native_persist_storage_kind(
         StorageError::Backend(_) => "storage_backend",
         StorageError::Serialization(message) => match message.as_str() {
             "original pairing sharing approval unavailable" => match validation_failure {
-                Some(NativePolicyValidationFailure::OriginalUnavailable) => "storage_serialization_original_unavailable",
-                Some(NativePolicyValidationFailure::SettlementStoreMissing) => "storage_serialization_settlement_store_missing",
+                Some(NativePolicyValidationFailure::OriginalUnavailable) => {
+                    "storage_serialization_original_unavailable"
+                }
+                Some(NativePolicyValidationFailure::SettlementStoreMissing) => {
+                    "storage_serialization_settlement_store_missing"
+                }
                 // This is an observed read Err, not a native-generated denial.
-                Some(NativePolicyValidationFailure::RoundReadErr) => "storage_serialization_round_read_err",
-                Some(NativePolicyValidationFailure::RoundMissing) => "storage_serialization_round_missing",
-                Some(NativePolicyValidationFailure::GuardAnchor) => "storage_serialization_guard_anchor",
-                Some(NativePolicyValidationFailure::FreshCoreErr) => "storage_serialization_fresh_core_err",
-                Some(NativePolicyValidationFailure::FreshCoreNone) => "storage_serialization_fresh_core_none",
-                Some(NativePolicyValidationFailure::RosterChanged) => "storage_serialization_roster_changed",
+                Some(NativePolicyValidationFailure::RoundReadErr) => {
+                    "storage_serialization_round_read_err"
+                }
+                Some(NativePolicyValidationFailure::RoundMissing) => {
+                    "storage_serialization_round_missing"
+                }
+                Some(NativePolicyValidationFailure::GuardAnchor) => {
+                    "storage_serialization_guard_anchor"
+                }
+                Some(NativePolicyValidationFailure::FreshCoreErr) => {
+                    "storage_serialization_fresh_core_err"
+                }
+                Some(NativePolicyValidationFailure::FreshCoreNone) => {
+                    "storage_serialization_fresh_core_none"
+                }
+                Some(NativePolicyValidationFailure::RosterChanged) => {
+                    "storage_serialization_roster_changed"
+                }
                 None => "storage_serialization_unknown",
             },
-            "fresh original legacy acceptance unavailable" => "storage_serialization_legacy_unavailable",
+            "fresh original legacy acceptance unavailable" => {
+                "storage_serialization_legacy_unavailable"
+            }
             "invalid account sharing policy" => "storage_serialization_invalid_policy",
             _ => "storage_serialization_unknown",
         },
