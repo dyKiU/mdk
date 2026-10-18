@@ -219,29 +219,48 @@ PRIOR_OPTIONS='options: [settlement-read-preflight, settlement-read-red, settlem
 def expected_unwind(raw,code,name,row):
     clean=re.sub(r'\x1b\[[0-9;]*m','',raw)
     locations=re.findall(r'panicked at ([A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+):',clean)
-    threads=re.findall(r"(?m)^thread '([^'\n]{1,256})' panicked at ",clean)
-    verified=(name==UNWIND_NAME and row.get('actual_counts_complete') is True
-        and all(type(row.get(k)) is int and row[k]==v for k,v in {'exit_code':0,'passed':1,'failed':0,'ignored':0,
-            'executed_nonignored':1,'panic_count':1,'compiler_error_count':0}.items())
-        and code==0 and threads==[UNWIND_NAME] and len(locations)==1 and locations[0][0]==UNWIND_FILE
-        and int(locations[0][1])==UNWIND_LINE and int(locations[0][2])>0
-        and sum(line=='fixture panic' for line in clean.splitlines())==1)
-    return {'expected_caught_unwind_verified':verified,'expected_site':{'path':UNWIND_FILE,'line':UNWIND_LINE},
-        'raw_message_exported':False,'generic_panic_gate_unchanged':True}
+    headers=re.findall(r"(?m)^thread '([^'\n]{1,256})'(?: \(([1-9][0-9]{0,19})\))? panicked at ",clean)
+    one_header=len(headers)==1
+    id_valid=one_header and (not headers[0][1] or 0<int(headers[0][1])<=18446744073709551615)
+    fmt=('numeric-positive-u64' if headers[0][1] else 'plain') if one_header and id_valid else 'unknown'
+    predicates={
+        'exact_test_name':name==UNWIND_NAME,
+        'actual_pass_counts':row.get('actual_counts_complete') is True and code==0
+            and all(type(row.get(k)) is int and row[k]==v for k,v in
+                {'exit_code':0,'passed':1,'failed':0,'ignored':0,'executed_nonignored':1}.items()),
+        'one_known_thread_header':one_header and id_valid,
+        'exact_thread_name':one_header and headers[0][0]==UNWIND_NAME,
+        'exact_site':len(locations)==1 and locations[0][0]==UNWIND_FILE
+            and int(locations[0][1])==UNWIND_LINE and int(locations[0][2])>0,
+        'one_panic_count':type(row.get('panic_count')) is int and row['panic_count']==1,
+        'compiler_zero':type(row.get('compiler_error_count')) is int and row['compiler_error_count']==0,
+        'one_exact_payload':sum(line=='fixture panic' for line in clean.splitlines())==1,
+    }
+    return {'expected_caught_unwind_verified':all(predicates.values()),'predicates':predicates,
+        'observed_header_format':fmt,'matched_header_count':len(headers),'matched_location_count':len(locations),
+        'exact_payload_count':sum(line=='fixture panic' for line in clean.splitlines()),
+        'expected_site':{'path':UNWIND_FILE,'line':UNWIND_LINE},
+        'numeric_thread_id_exported':False,'raw_message_exported':False,'generic_panic_gate_unchanged':True}
 
 def expected_unwind_controls():
     raw='running 1 test\ntest '+UNWIND_NAME+' ... ok\n'
     raw+="thread '"+UNWIND_NAME+"' panicked at "+UNWIND_FILE+':'+str(UNWIND_LINE)+':21:\nfixture panic\n'
     raw+='test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n'
     ensure(expected_unwind(raw,0,UNWIND_NAME,common.parse_body(raw,0,UNWIND_NAME))['expected_caught_unwind_verified'],'specific-caught-unwind-positive')
+    numeric=raw.replace("' panicked at ","' (1) panicked at ",1)
+    maximum=raw.replace("' panicked at ","' (18446744073709551615) panicked at ",1)
+    for value in [numeric,maximum]:
+        result=expected_unwind(value,0,UNWIND_NAME,common.parse_body(value,0,UNWIND_NAME))
+        ensure(result['expected_caught_unwind_verified'] and result['observed_header_format']=='numeric-positive-u64','bounded-numeric-thread-header-positive')
     bad=[raw+raw,raw.replace('fixture panic','unknown'),raw+'fixture panic\n',raw.replace(UNWIND_FILE,'private.rs'),
         raw.replace(':'+str(UNWIND_LINE)+':',':1:'),raw.replace(UNWIND_NAME,UNWIND_NAME+'_foreign'),
         raw.replace('1 passed; 0 failed','0 passed; 1 failed'),raw.replace('0 ignored','1 ignored'),
         raw.replace('fixture panic\n',''),raw.replace("thread '"+UNWIND_NAME+"'","thread 'foreign_thread'"),raw.replace('panicked at ','unexpected at '),raw+'error[E0000]: hidden\n']
+    bad += [raw.replace("' panicked at ","' ("+value+") panicked at ",1) for value in ['0','-1','01','18446744073709551616','999999999999999999999','private']]
     for value in bad:ensure(not expected_unwind(value,0,UNWIND_NAME,common.parse_body(value,0,UNWIND_NAME))['expected_caught_unwind_verified'],'no-unexpected-panic-acceptance')
     ensure(not expected_unwind(raw,101,UNWIND_NAME,common.parse_body(raw,101,UNWIND_NAME))['expected_caught_unwind_verified'],'failed-exit-not-positive-unwind')
     ensure(not expected_unwind(raw,0,'foreign::case',common.parse_body(raw,0,UNWIND_NAME))['expected_caught_unwind_verified'],'only-one-allowlisted-control')
-    return {'positive':1,'negative':len(bad)+2,'runtime_bodies':0}
+    return {'positive':3,'negative':len(bad)+2,'runtime_bodies':0}
 
 def prior_eighteen(current_phase):
     # The failed metadata receipt is retained as FAILED; only its18strictPASS bodies are reused.
