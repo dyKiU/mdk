@@ -15,8 +15,8 @@ from upstream_extraction_cohort import frozen_inputs
 old = common.old
 ensure = old.ensure
 # Root pins only a reviewed, remote-formatted pure test-bearing commit.
-BASE = '6bb8802651b7255a83f55743311da263bbde85e8'
-TEST_SHA256 = '4df7d3b3a5ff83fa4df4c822665ad98e3abf61ff510e3010d053e6f481e0fb80'
+BASE = '8020e4215cd609ca9781897c7b396c7551ffe6cc'
+TEST_SHA256 = '22e87621403da3767f28a171015219215d5e6087b340389c1ae17a1854c4ceab'
 IDENTITY_ASSERTION_LINE = 7121
 HELD_ASSERTION_TEXT = '''assert_eq!(
         held_kind,
