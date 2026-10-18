@@ -124,6 +124,11 @@ jobs:
         with:
           shared-key: core-regressions
           cache-on-failure: 'true'
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - name: Verify pinned test inventory tool
+        run: cargo nextest --version
       - name: One original strict15 native5 body with passive weak-owned observations
         env:
           CARGO_INCREMENTAL: '1'

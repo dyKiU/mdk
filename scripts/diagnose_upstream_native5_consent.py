@@ -131,7 +131,14 @@ def main():
             ensure(code==0 and not patch,'remote-formatting-required');report['preflight_passed']=True;save();return
         frozen=frozen_inputs();report['source_manifest_sha256']=digest(json.dumps(frozen,sort_keys=True).encode())
         ensure(shutil.disk_usage('.').free>=8*1024**3,'remote-capacity')
-        compilation,cases=compile_cases([SUFFIX]);compilation.pop('compiler_headers',None);report['compilation']=compilation;save()
+        compilation,cases=compile_cases([SUFFIX])
+        # Preserve closed compiler codes/sites only; never raw compiler payloads.
+        compiler_headers=compilation.pop('compiler_headers',[])
+        compilation['closed_error_codes']=sorted(set(code for line in compiler_headers for code in re.findall(r'^error\[(E[0-9]{4})\]:',line)))
+        compilation['closed_source_locations']=[{'path':match[1],'line':int(match[2]),'column':int(match[3])}
+            for line in compiler_headers if (match:=re.fullmatch(r'\s*--> (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)',line))]
+        compilation['missing_nextest_header_observed']=any(line=="error: no such command: `nextest`" for line in compiler_headers)
+        report['compilation']=compilation;save()
         ensure(compilation.get('compile_exit_code')==0 and compilation.get('compiler_error_count')==0 and compilation.get('compiled_fingerprints',{}).get('verified') is True and set(cases)=={SUFFIX},'one-compiled-case-feature-verified')
         case=cases[SUFFIX];ensure(case['name']==NAME,'exact-one-native-five-fullname');binary=Path(case['binary']);binary_sha=case['binary_sha256']
         report['feature_identity']=feature_identity(compilation);ensure(set(report['feature_identity']['nodes'])==NODES,'six-real-dependency-fingerprints')
