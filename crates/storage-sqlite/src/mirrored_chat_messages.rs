@@ -6,7 +6,10 @@ use crate::{
 use cgka_traits::{
     GroupId,
     mirrored_chat_catalog::MirroredChatScope,
-    mirrored_chat_messages::*,
+    mirrored_chat_messages::{
+        MAX_MIRRORED_MESSAGE_BYTES, MAX_MIRRORED_MESSAGE_PAGE, MAX_MIRRORED_MESSAGE_PAYLOAD,
+        MirroredChatCursor, MirroredChatMessageStorage, MirroredChatRecord,
+    },
     storage::{StorageError, StorageResult},
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
