@@ -366,6 +366,135 @@ fn private_device_invite_rotating_sponsor_confirmation_rolls_back_before_exact_r
             .is_ok()
     );
 }
+// Synthetic Protocol storage lineage only; no SDK/MLS authority is constructed.
+fn revoked_sponsor_invite() -> (
+    SqliteAccountStorage,
+    ConfirmedPrivateInviteFact,
+    PrivateInviteFact,
+    u64,
+) {
+    use cgka_traits::MessageId;
+    use cgka_traits::private_roster_settlement::{PrivateSettlementAnchor, PrivateSettlementFact};
+    use cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupDraft;
+    let storage = store();
+    let previous = confirmed(&storage);
+    let rounds = storage.private_roster_settlement_storage().unwrap();
+    let state = rounds
+        .select_round(&PrivateSettlementAnchor {
+            origin: PrivateInviteOrigin::Confirmed(previous.scope.staging_generation),
+            account: previous.scope.account,
+            local_device: previous.scope.local_device,
+            group_id: previous.binding.group_id.clone(),
+            successor: previous.binding.successor.clone(),
+            roster_commitment: [70; 32],
+            enrollment_nonce: previous.binding.nonce,
+            context_digest: previous.binding.context_digest,
+            coordinator: previous.scope.local_device,
+        })
+        .unwrap();
+    rounds
+        .bind_round_nonce(state.generation, [71; 32], 0)
+        .unwrap();
+    for leaf in &previous.binding.successor.leaves {
+        let fact = PrivateSettlementFact {
+            format_version: 1,
+            generation: state.generation,
+            leaf_index: leaf.leaf_index,
+            signature_public_key: leaf.signature_public_key,
+            message_id: MessageId::new(vec![72 + leaf.leaf_index as u8; 32]),
+        };
+        if leaf.signature_public_key == previous.scope.local_device {
+            rounds.record_local_confirmation(&fact, &[74]).unwrap();
+        } else {
+            rounds.record_remote_confirmation(&fact).unwrap();
+        }
+    }
+    let mut successor = previous.binding.successor.clone();
+    successor.epoch.0 += 1;
+    successor.epoch_authenticator_digest = [75; 32];
+    successor
+        .leaves
+        .retain(|leaf| leaf.signature_public_key != previous.binding.recipient);
+    let revoked = storage
+        .revoked_device_group_anchor_storage()
+        .unwrap()
+        .install_revoked_anchor(&RevokedDeviceGroupDraft {
+            account: previous.scope.account,
+            local_device: previous.scope.local_device,
+            group_id: previous.binding.group_id.clone(),
+            predecessor: previous.binding.successor.clone(),
+            predecessor_origin: state.anchor.origin,
+            predecessor_settlement_generation: state.generation,
+            source_leaf_index: 0,
+            source_device: previous.scope.local_device,
+            removed_leaf_index: 1,
+            removed_device: previous.binding.recipient,
+            actual_commit_digest: [76; 32],
+            action_binding: [77; 32],
+            nonce: [78; 32],
+            context_digest: [79; 32],
+            successor,
+        })
+        .unwrap();
+    let cap = storage.private_device_invite_storage().unwrap();
+    cap.deny_confirmed_private_invite(&previous.scope, &previous.binding.group_id)
+        .unwrap();
+    let mut next = next_raw(verified_attempt(&storage), &previous);
+    next.binding.origin = PrivateInviteOrigin::Revoked(revoked.generation);
+    next.binding.predecessor = revoked.draft.successor;
+    next.binding.recipient = [80; 32];
+    next.binding.successor = next.binding.predecessor.clone();
+    next.binding.successor.epoch.0 += 1;
+    next.binding.successor.epoch_authenticator_digest = [81; 32];
+    next.binding.successor.leaves.push(GenesisLeaf {
+        leaf_index: 2,
+        account: previous.scope.account,
+        signature_public_key: next.binding.recipient,
+    });
+    let pending = cap.stage_private_invite(&next).unwrap();
+    cap.cache_private_invite_transport(&pending.scope, &transport())
+        .unwrap();
+    let pending = cap.mark_private_invite_dispatch(&pending.scope).unwrap();
+    (storage, previous, pending, revoked.generation)
+}
+
+#[test]
+fn private_device_invite_rotating_sponsor_confirms_current_revoked_origin() {
+    let (storage, previous, pending, _) = revoked_sponsor_invite();
+    let cap = storage.private_device_invite_storage().unwrap();
+    let current = cap
+        .confirm_private_invite(&pending.scope, &pending.raw.binding.successor)
+        .expect("fresh revoked-member lineage must allow the sponsor's next confirmation");
+    assert!(current.scope == pending.scope && !current.denied);
+    assert!(
+        cap.confirm_private_invite(&previous.scope, &previous.binding.successor)
+            .is_err()
+    );
+    assert!(
+        cap.deny_confirmed_private_invite(&previous.scope, &previous.binding.group_id)
+            .is_err()
+    );
+    assert!(cap.confirmed_private_invite().unwrap() == Some(current));
+}
+
+#[test]
+fn private_device_invite_rotating_sponsor_cannot_revive_denied_revoked_origin() {
+    let (storage, previous, pending, generation) = revoked_sponsor_invite();
+    storage
+        .revoked_device_group_anchor_storage()
+        .unwrap()
+        .deny_revoked_anchor(generation, &pending.raw.binding.group_id)
+        .unwrap();
+    let cap = storage.private_device_invite_storage().unwrap();
+    assert!(
+        cap.confirm_private_invite(&pending.scope, &pending.raw.binding.successor)
+            .is_err()
+    );
+    let retained = cap.confirmed_private_invite().unwrap().unwrap();
+    assert!(retained.scope == previous.scope && retained.denied);
+    assert!(cap.private_invite().unwrap().unwrap() == pending);
+}
+
 #[test]
 fn private_device_invite_uncertain_publication_cannot_retire_or_replace() {
     let storage = store();
