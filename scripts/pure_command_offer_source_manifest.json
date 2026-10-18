@@ -1,0 +1,89 @@
+{
+  "baseline": "ec5cc63762304b265fffe6a52b6ac227dc8e3bf1",
+  "owned_metadata": [
+    "scripts/qualify_upstream_pure_command_offer.py",
+    "scripts/qualify_upstream_pure_native5.py",
+    "scripts/pure_command_offer_source_manifest.json"
+  ],
+  "helpers": {
+    "scripts/qualify_upstream_command_backlog_red.py": {
+      "sha256": "7581507845da9e588866d10cbbe59dee98a2dddd878212243c23111a0a47585d",
+      "mode": "100644",
+      "source": "89326048c400e87671e2f66eb192547109265eae"
+    },
+    "scripts/qualify_upstream_command_backlog_pair.py": {
+      "sha256": "6e6600e422d4930b8c3ad9c9ce6e31bfe6910385335e2a0c32dfdd211dd7d9ec",
+      "mode": "100644",
+      "source": "89326048c400e87671e2f66eb192547109265eae"
+    }
+  },
+  "workflow_overlays": [
+    {
+      "name": "offer",
+      "begin": "  # PURE_COMMAND_OFFER_JOBS_BEGIN\n",
+      "end": "  # PURE_COMMAND_OFFER_JOBS_END\n",
+      "options": "options: [pure-command-offer-preflight, pure-command-offer-pfp, "
+    },
+    {
+      "name": "native5",
+      "begin": "  # PURE_NATIVE5_JOBS_BEGIN\n",
+      "end": "  # PURE_NATIVE5_JOBS_END\n",
+      "options": "options: [pure-native5-preflight, pure-native5-green, "
+    }
+  ],
+  "product": {
+    "path": "crates/marmot-app/src/runtime/account_worker.rs",
+    "git_mode": "100644",
+    "before_sha256": "dbb496a73a3ca47bed7695698119eccaf7e38faef91e329a6b99ef15d4898f24",
+    "after_sha256": "74f0eb0d9abd7036fa8f60adec0cd26c15a04ad90c95e8ea3f888f474e354f33",
+    "edits": [
+      {
+        "before": "    let mut yield_to_convergence = false;\n",
+        "after": "    let mut yield_to_convergence = false;\n    #[cfg(feature = \"experimental-device-sync\")]\n    let mut command_input_service_owed = false;\n"
+      },
+      {
+        "before": "                    command = async {\n                        match ready_command.and_then(|index| pending.remove(index)) {\n",
+        "after": "                    command = async {\n                        #[cfg(feature = \"experimental-device-sync\")]\n                        if command_input_service_owed {\n                            // Retain consumption across select cancellation. Do not\n                            // remove a command before offering other ready input.\n                            command_input_service_owed = false;\n                            tokio::task::yield_now().await;\n                        }\n                        match ready_command.and_then(|index| pending.remove(index)) {\n"
+      },
+      {
+        "before": "                        match command {\n                            Some((command, approved_pending)) => {\n",
+        "after": "                        match command {\n                            Some((command, approved_pending)) => {\n                                #[cfg(feature = \"experimental-device-sync\")]\n                                { command_input_service_owed = true; }\n"
+      }
+    ]
+  },
+  "reviewed_paired_RED_control": {
+    "source": "89326048c400e87671e2f66eb192547109265eae",
+    "run_id": "39145323017",
+    "artifact_id": 12143367050,
+    "artifact_sha256": "c69173651dcfe235c649bd89057655d24dbf279f32545a38f729a20cef3f2af6",
+    "paired_red_control_verified": true,
+    "actual_passed": 1,
+    "actual_failed": 1,
+    "actual_ignored": 0,
+    "actual_executed_nonignored": 2,
+    "compiler_error_count": 0,
+    "post_and_final_binary_sha256": "4d734159e99c7e092b439358f6726c8fd633da242d5bd87162d37e65dc1215e8",
+    "reviewed_receipt_sha256": "b69a43715dc9d23e6adbc1eede769f35cad871e0bcec6be48712561e8e14b812"
+  },
+  "reviewed_diagnostic_PFP": {
+    "source": "a9c99b7025f1b4d4a948a041b2d6d0e0ed9ddd55",
+    "run_id": "39146044785",
+    "actual_passed": 4,
+    "actual_failed": 1,
+    "actual_ignored": 0,
+    "actual_executed_nonignored": 5,
+    "component_PFP_verified": true,
+    "receipt_sha256": "d64b92a37ced5bdd450c47ce593613a3e4942e856104ab7891b05136f249dc94",
+    "evidence_reused_for_pure_PFP": false
+  },
+  "runtime_evidence_reused": false,
+  "projection_identity_provisional_until_root_final_format_and_App_pins": false,
+  "native5": {
+    "fixture": "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs",
+    "fixture_sha256": "a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca",
+    "parent": "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
+    "parent_sha256": "35ff6d576a49cfae6054e6603321b0e4a47e4d7f1b1e4bc1c7f216990daf9440",
+    "strict_helper_sha256": "a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2",
+    "oracle_region_sha256": "88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72"
+  }
+}
