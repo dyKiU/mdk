@@ -15,8 +15,8 @@ import qualify_upstream_storage_app_handles as counts
 from upstream_completion_ci import compile_cases, digest, ensure, parse_body as basic_parse_body
 from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
-BASE='212d1b90df2c658eb02178b625aa21b97bf544b2'
-MANIFEST_SHA='1d22bca9b35434bf18ea50255c510d9e4804ed956d50cbad72f2144b41817f42'
+BASE='d2f9b701b98ed30be04e46acdcedfed931a1c8e5'
+MANIFEST_SHA='6c4b9bc09b21c96533f2bb123122c9b934bc4012103a8db9610b603be647c4e2'
 SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
 REF='refs/heads/ci/upstream-command-offer-pure-20261018'
@@ -258,11 +258,17 @@ def static_diagnostics(raw,tracked):
     raw=re.sub(r'\x1b\[[0-9;]*m','',raw)
     errors=re.findall(r'^error(?:\[E[0-9]+\])?:',raw,re.M)
     codes=sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]',raw)))
+    # Export only bounded identifier tokens, never the surrounding diagnostic or URL.
+    lint_id=r'([a-z][a-z0-9_]{0,79})(?![A-Za-z0-9_:/.-])'
+    lints=sorted(set(re.findall(r'(?<![A-Za-z0-9_:/.-])clippy::'+lint_id,raw)
+        +re.findall(r'(?<![A-Za-z0-9_:/.-])https://rust-lang\.github\.io/rust-clippy/(?:master|stable|beta|nightly|rust-[0-9.]{1,20})/index\.html#'+lint_id,raw)))
     sites=[{'file':file,'line':int(line),'column':int(column)}
         for file,line,column in re.findall(r'(?m)^\s*--> (crates/[A-Za-z0-9_./-]+\.rs):([0-9]{1,7}):([0-9]{1,7})\s*$',raw) if file in tracked]
     return {'compiler_error_count':len(errors),'compiler_codes':codes[:32],'compiler_code_count':len(codes),
         'compiler_sites':sites[:32],'compiler_site_count':len(sites),
-        'closed_diagnostics_truncated':len(codes)>32 or len(sites)>32,'raw_diagnostics_retained':False}
+        'clippy_lint_identifiers':lints[:32],'clippy_lint_identifier_count':len(lints),
+        'clippy_lint_identifiers_truncated':len(lints)>32,
+        'closed_diagnostics_truncated':len(codes)>32 or len(sites)>32 or len(lints)>32,'raw_diagnostics_retained':False}
 
 
 def static_unit_candidate(path):
@@ -302,7 +308,15 @@ def static_parser_controls():
     for value in ['marmot-app-PRIVATE0123456789/lib-marmot_app.json','marmot-app-0123456789abcdef/lib-private.json',
         'marmot-app-private-0123456789abcdef/lib-marmot_app.json','marmot-app-0123456789abcde/lib-marmot_app.json']:
         ensure(not static_unit_candidate(Path(value)),'static-unbound-label-not-exported')
-    return {'positive':4,'privacy_or_bounds_controls':6,'actual_runtime_bodies':0}
+    lint=static_diagnostics('\x1b[31mnote: clippy::collapsible_if\x1b[0m PRIVATE_SENTINEL\nhelp: https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity\nclippy::collapsible_if\n',set())
+    ensure(lint['clippy_lint_identifiers']==['collapsible_if','type_complexity'] and lint['clippy_lint_identifier_count']==2
+        and not lint['clippy_lint_identifiers_truncated'] and 'PRIVATE_SENTINEL' not in json.dumps(lint),'static-closed-lint-identifiers-positive-and-private-text-omitted')
+    private=static_diagnostics('https://private.example/index.html#private_secret clippy::UPPER clippy::bad/path xclippy::hidden https://rust-lang.github.io.evil/rust-clippy/master/index.html#secret clippy::'+('a'*81),set())
+    ensure(private['clippy_lint_identifiers']==[] and private['clippy_lint_identifier_count']==0,'static-unofficial-or-open-identifier-rejected')
+    many_lints=static_diagnostics(' '.join('clippy::lint_'+str(i) for i in range(40)),set())
+    ensure(many_lints['clippy_lint_identifier_count']==40 and len(many_lints['clippy_lint_identifiers'])==32
+        and many_lints['clippy_lint_identifiers_truncated'] and many_lints['closed_diagnostics_truncated'],'static-lint-identifier-truncation')
+    return {'positive':5,'privacy_or_bounds_controls':8,'actual_runtime_bodies':0}
 
 
 def execute_static(report,save,cohort):

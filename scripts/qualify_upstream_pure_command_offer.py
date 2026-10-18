@@ -15,11 +15,11 @@ import time
 import qualify_upstream_command_backlog_pair as pair
 red=pair.red
 ensure=red.ensure
-BASE='212d1b90df2c658eb02178b625aa21b97bf544b2'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
+BASE='d2f9b701b98ed30be04e46acdcedfed931a1c8e5'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
 SELF='scripts/qualify_upstream_pure_command_offer.py'
 PEER_SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
-MANIFEST_SHA='1d22bca9b35434bf18ea50255c510d9e4804ed956d50cbad72f2144b41817f42'  # Root pins the shared reviewed manifest after final formatting/source freeze.
+MANIFEST_SHA='6c4b9bc09b21c96533f2bb123122c9b934bc4012103a8db9610b603be647c4e2'  # Root pins the shared reviewed manifest after final formatting/source freeze.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 REF='refs/heads/ci/upstream-command-offer-pure-20261018'
 OUT=Path('pure-command-offer-evidence')
@@ -148,7 +148,7 @@ def source_guard():
             continue
         if blob is not None:
             ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-pure-content-no-Rust-exceptions:'+name)
-    allowed={'pure-command-offer-evidence/result.json','pure-native5-evidence/result.json','pure-watch-pressure-evidence/result.json','pure-watch-offer-pfp-evidence/result.json'}
+    allowed={'pure-command-offer-evidence/result.json','pure-native5-evidence/result.json','pure-watch-pressure-evidence/result.json','pure-watch-offer-pfp-evidence/result.json','pure-directed-evidence/result.json'}
     ensure(set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())<=allowed,'no-untracked-source-overlay')
     return manifest,{'source':head,'baseline':BASE,'whole_source_modes_reconstructed':True,'no_Rust_exceptions':True,
         'owned_metadata_union':[SELF,PEER_SELF,MANIFEST],'baseline_owned_metadata_present':sorted(owned_metadata.intersection(baseline)),'metadata_controllers_commit_bound_by_GITHUB_SHA_and_pristine_HEAD':True,

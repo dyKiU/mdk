@@ -1,5 +1,5 @@
 {
-  "baseline": "212d1b90df2c658eb02178b625aa21b97bf544b2",
+  "baseline": "d2f9b701b98ed30be04e46acdcedfed931a1c8e5",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -186,5 +186,21 @@
     ],
     "runtime_bodies": 0,
     "requested_features_and_unbound_cached_unit_features_distinguished": true
+  },
+  "test_observer_style": {
+    "source": "e5135f7e8460cfabce8a9e12abd428636d48502c",
+    "formatted_source": "f9cd5e1f042122c6ba9785ab471c457a64f3c247",
+    "exact_hosted_format_patch_sha256": "5b90bf8bdb4c11dbf2f9089a36f185bbae09d15a3bb5916fa033ca2a878e9fe8",
+    "scope": "test-support tuple aliases and equivalent ingress activation condition; unchanged facts/assertions/deadlines",
+    "runtime_evidence_reused": false
+  },
+  "directed": {
+    "ordinary_controller": "scripts/qualify_upstream_pure_directed.py",
+    "controller_sha256": "a8f60c6c82defd7a421365f39eb8d55db3b904677064a04839b49be42ddf7f3f",
+    "ordinary_oracle": "scripts/pure_directed_snapshot_oracles.py",
+    "ordinary_manifest": "scripts/pure_directed_source_manifest.json",
+    "none_are_owned_metadata_exemptions": true,
+    "historic_guards_mains_globals_used": false,
+    "runtime_evidence_reused": false
   }
 }
