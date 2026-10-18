@@ -12,7 +12,7 @@ static LOST: AtomicBool = AtomicBool::new(false);
 
 pub(in super::super) struct Probe {
     owner: Weak<SessionState>,
-    // First attempted failure: origin(1refresh/2driver), finitecategory, verifierdetail(or0NA).
+    // First attempted failure: origin(1refresh/2driver), finitecategory, verifier/runtime detail (0=unclassified/not applicable).
     attempted_error: Mutex<Option<[u8; 3]>>,
     accepted_terminal: Mutex<Option<[u8; 2]>>,
 }
@@ -96,7 +96,32 @@ pub(super) fn refresh_error(owner: &SessionState, error: &ClientLinkingError) {
             LinkError::AlreadyConsumed => 11,
             LinkError::Sdk => 12,
         },
-        _ => 0, // Not a verifier error; this does not classify an opaque Engine/Runtime payload.
+        ClientLinkingError::Runtime(error) => match error.privacy_safe_kind() {
+            "transport_closed" => 1,
+            "account_worker_response_timed_out" => 2,
+            "runtime_stopping" => 3,
+            "runtime_busy" => 4,
+            "account_worker_busy" => 5,
+            "account_session_busy" => 6,
+            "relay_directory" => 7,
+            "onboarding_required" => 8,
+            "account_setup_recovery_required" => 9,
+            "storage_busy" => 10,
+            "storage_closed" => 11,
+            "storage_backend" => 12,
+            "storage_serialization" => 13,
+            "storage_capacity" => 14,
+            "storage_corruption" => 15,
+            "storage_not_found" => 16,
+            "storage_already_exists" => 17,
+            "storage_unsupported_schema_version" => 18,
+            "sqlite" => 19,
+            "io" => 20,
+            "account_home_secret_not_found" => 21,
+            "account_home_unknown_account" => 22,
+            _ => 0, // Runtime privacy kind outside this small set: UNKNOWN, never NA.
+        },
+        _ => 0, // Non-verifier/non-Runtime detail remains not applicable.
     };
     observe(owner, |probe| {
         first(&probe.attempted_error, [1, category, detail])

@@ -13,6 +13,7 @@ import qualify_owner_ordinary_1611 as owner
 BASE = 'c75d41ce5070f4d99d12e8c933cdc67733eb4aa6'
 SELF = 'scripts/diagnose_owner_five_terminal.py'
 REF = 'refs/heads/ci/upstream-owner-five-diagnostic-20261018'
+RUNTIME_DETAILS = {1: 'transport_closed', 2: 'account_worker_response_timed_out', 3: 'runtime_stopping', 4: 'runtime_busy', 5: 'account_worker_busy', 6: 'account_session_busy', 7: 'relay_directory', 8: 'onboarding_required', 9: 'account_setup_recovery_required', 10: 'storage_busy', 11: 'storage_closed', 12: 'storage_backend', 13: 'storage_serialization', 14: 'storage_capacity', 15: 'storage_corruption', 16: 'storage_not_found', 17: 'storage_already_exists', 18: 'storage_unsupported_schema_version', 19: 'sqlite', 20: 'io', 21: 'account_home_secret_not_found', 22: 'account_home_unknown_account'}
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 BEGIN = '  # OWNER_FIVE_DIAGNOSTIC_JOBS_BEGIN\n'
 END = '  # OWNER_FIVE_DIAGNOSTIC_JOBS_END\n'
@@ -21,7 +22,7 @@ OUT = Path('owner-five-terminal-evidence')
 PINS = {
     'crates/marmot-app/src/native_device_linking/enabled.rs': 'a1346c0e15ecfcb39899ffefe1c580b29fa4d5a570983274967c6258d9513975',
     'crates/marmot-app/src/native_device_linking/enabled/automatic.rs': '69437cd30b2c435667a5d0d2318dd6f83b44cf82615d151f4751c17e1c122abd',
-    'crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs': 'c41b5b4ce0354e4fba0189568f81c7396ca16c31cdb61619087bd5bd119ba4db',
+    'crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs': 'f0c071f6f4b91d19ec1b54717e3d92d083422ac681701d9bf538ab92f2bc6d60',
     owner.FIVE_FILE: '5b53c21843dfbe8712bdfb5298ba586505adc543c3ae55348adbdbafaa6a4c0a',
 }
 PROBE = 'crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs'
@@ -92,20 +93,25 @@ def parse(raw):
         if error is not None:
             owner.ensure(isinstance(error,list) and len(error)==3 and all(type(x) is int for x in error),'finite-error-shape')
             origin,category,detail=error
-            owner.ensure((origin==1 and 1<=category<=7 and (0<=detail<=12 if category==1 else detail==0))
+            owner.ensure((origin==1 and 1<=category<=7 and (0<=detail<=12 if category==1 else 0<=detail<=22 if category==3 else detail==0))
                 or (origin==2 and 1<=category<=6 and detail==0),'finite-error-domain')
         if transition is not None:
             owner.ensure(isinstance(transition,list) and len(transition)==2 and all(type(x) is int for x in transition)
                 and 0<=transition[0]<=4 and transition[1] in {5,6,7,8},'actual-accepted-terminal-domain')
         if progress is not None: owner.ensure(isinstance(progress,list) and len(progress)==5 and all(type(x) is bool for x in progress),'closed-progress')
         result[side]={'known':known=='true','pre_arm_unknown':True,'attempted_error':error,'accepted_terminal':transition,'progress':progress}
+        runtime=error is not None and error[:2]==[1,3]
+        result[side]['runtime_detail_known']=bool(runtime and known=='true' and error[2] in RUNTIME_DETAILS)
+        result[side]['runtime_privacy_kind']=RUNTIME_DETAILS.get(error[2]) if runtime else None
+        result[side]['runtime_detail_is_not_producer_site']=True
+        result[side]['terminal_timeout_source_contradiction']=bool(runtime and error[2]==2)
     phases=[]
     for match in re.finditer(r'\b(left|right) expected=([A-Za-z]+) observed=([A-Za-z]+)',clean):
         side,expected,observed=match.groups(); owner.ensure(expected in PHASES and observed in PHASES,'closed-original-panic-phase')
         phases.append({'side':side,'expected':expected,'observed':observed})
     owner.ensure(len(phases)<=2,'bounded-original-panic-phases')
     return {'sessions':result,'original_wait_terminal_phases':phases,'attempted_error_is_not_accepted_origin_proof':True,
-        'error_encoding':{'origin_1':'borrowed_refresh_ClientLinkingError_category_and_verifier_detail','origin_2':'mapped_native_DeviceLinkingError_only_not_raw_Core_cause'},
+        'error_encoding':{'origin_1':'borrowed_refresh_ClientLinkingError_category_and_verifier_detail','origin_2':'mapped_native_DeviceLinkingError_only_not_raw_Core_cause','refresh_Runtime_detail_codes':RUNTIME_DETAILS,'Runtime_0':'unknown_unclassified_never_NA'},
         'attribution_known':all(row['known'] for row in result.values())}
 
 
@@ -114,12 +120,16 @@ def parser_controls():
     good=row.format('source')+'\n'+row.format('recipient')
     owner.ensure(parse(good)['sessions']['source']['attempted_error']==[1,1,6],'finite-positive')
     owner.ensure(parse(good.replace(' known=true ',' known=false ').replace('Some([1, 1, 6])','None').replace('Some([4, 6])','None').replace('Some([true, false, true, false, false])','None'))['sessions']['recipient']['known'] is False,'unknown-positive')
-    bad=['',good+'\n'+row.format('source'),good.replace('side=recipient','side=source'),good.replace('pre_arm_unknown=true','pre_arm_unknown=false'),good.replace('Some([1, 1, 6])','Some([1, 1, 13])'),good.replace('Some([4, 6])','Some([7, 6])'),good.replace('Some([true, false, true, false, false])','Some([1, false, true, false, false])'),good+' private=hidden',good.replace('Some([1, 1, 6])','Some([2, 7, 0])'),good.replace('Some([1, 1, 6])','Some([true, 1, 6])')]
+    for detail in [0,5,10,21,22]:
+        parsed=parse(good.replace('Some([1, 1, 6])','Some([1, 3, '+str(detail)+'])'))
+        owner.ensure(parsed['sessions']['source']['runtime_detail_known']==(detail!=0),'runtime-known-or-explicit-unknown')
+    owner.ensure(parse(good.replace('Some([1, 1, 6])','Some([1, 3, 2])'))['sessions']['source']['terminal_timeout_source_contradiction'],'timeout-is-not-legitimate-terminal-cause')
+    bad=['',good+'\n'+row.format('source'),good.replace('side=recipient','side=source'),good.replace('pre_arm_unknown=true','pre_arm_unknown=false'),good.replace('Some([1, 1, 6])','Some([1, 1, 13])'),good.replace('Some([4, 6])','Some([7, 6])'),good.replace('Some([true, false, true, false, false])','Some([1, false, true, false, false])'),good+' private=hidden',good.replace('Some([1, 1, 6])','Some([2, 7, 0])'),good.replace('Some([1, 1, 6])','Some([true, 1, 6])'),good.replace('Some([1, 1, 6])','Some([1, 3, 23])'),good.replace('Some([1, 1, 6])','Some([1, 4, 10])')]
     for raw in bad:
         try: parse(raw)
         except (ValueError,TypeError): continue
         raise ValueError('invalid-observation-accepted')
-    return {'positive':2,'negative':len(bad),'actual_runtime_bodies':0}
+    return {'positive':8,'negative':len(bad),'actual_runtime_bodies':0}
 
 
 def main(args):
