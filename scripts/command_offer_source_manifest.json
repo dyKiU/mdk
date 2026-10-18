@@ -1,0 +1,38 @@
+{
+  "baseline": "89326048c400e87671e2f66eb192547109265eae",
+  "product": {
+    "path": "crates/marmot-app/src/runtime/account_worker.rs",
+    "git_mode": "100644",
+    "before_sha256": "64d0cc8bc654a482d301031ce4c7876992713e094a3f90033561f231b864f744",
+    "after_sha256": "dc35d1d24a21fb0ac85ab9353217272bdd9797fb780fcab23afbbae24d1cf767",
+    "edits": [
+      {
+        "before": "    let mut yield_to_convergence = false;\n",
+        "after": "    let mut yield_to_convergence = false;\n    #[cfg(feature = \"experimental-device-sync\")]\n    let mut command_input_service_owed = false;\n"
+      },
+      {
+        "before": "                            command = async {\n                                match ready_command.and_then(|index| pending.remove(index)) {\n",
+        "after": "                            command = async {\n                                #[cfg(feature = \"experimental-device-sync\")]\n                                if command_input_service_owed {\n                                    // Retain consumption across select cancellation. Do not\n                                    // remove a command before offering other ready input.\n                                    command_input_service_owed = false;\n                                    tokio::task::yield_now().await;\n                                }\n                                match ready_command.and_then(|index| pending.remove(index)) {\n"
+      },
+      {
+        "before": "                                match command {\n                                    Some((command, approved_pending)) => {\n",
+        "after": "                                match command {\n                                    Some((command, approved_pending)) => {\n                                        #[cfg(feature = \"experimental-device-sync\")]\n                                        { command_input_service_owed = true; }\n"
+      }
+    ]
+  },
+  "reviewed_paired_RED_control": {
+    "source": "89326048c400e87671e2f66eb192547109265eae",
+    "run_id": "39145323017",
+    "artifact_id": 12143367050,
+    "artifact_sha256": "c69173651dcfe235c649bd89057655d24dbf279f32545a38f729a20cef3f2af6",
+    "paired_red_control_verified": true,
+    "actual_passed": 1,
+    "actual_failed": 1,
+    "actual_ignored": 0,
+    "actual_executed_nonignored": 2,
+    "compiler_error_count": 0,
+    "post_and_final_binary_sha256": "4d734159e99c7e092b439358f6726c8fd633da242d5bd87162d37e65dc1215e8",
+    "reviewed_receipt_sha256": "b69a43715dc9d23e6adbc1eede769f35cad871e0bcec6be48712561e8e14b812"
+  },
+  "prior_runtime_evidence_reused_for_PFP": false
+}

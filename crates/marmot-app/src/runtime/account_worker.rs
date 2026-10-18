@@ -1952,6 +1952,8 @@ async fn run_app_runtime_account_worker(
         });
 
     let mut yield_to_convergence = false;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut command_input_service_owed = false;
     let mut local_submission_service_owed = false;
     let mut comparison_recovery: Option<ComparisonRecoveryJob> = None;
     #[cfg(feature = "experimental-device-sync")]
@@ -2338,6 +2340,13 @@ async fn run_app_runtime_account_worker(
                             // Alternate a command and a ready recovery quantum. A permanently
                             // nonempty command channel must not starve group convergence.
                             command = async {
+                                #[cfg(feature = "experimental-device-sync")]
+                                if command_input_service_owed {
+                                    // Retain consumption across select cancellation. Do not
+                                    // remove a command before offering other ready input.
+                                    command_input_service_owed = false;
+                                    tokio::task::yield_now().await;
+                                }
                                 match ready_command.and_then(|index| pending.remove(index)) {
                                     Some(command) => Some((command, true)),
                                     None => commands.recv().await.map(|command| (command, false)),
@@ -2350,6 +2359,8 @@ async fn run_app_runtime_account_worker(
                                 yield_to_convergence = true;
                                 match command {
                                     Some((command, approved_pending)) => {
+                                        #[cfg(feature = "experimental-device-sync")]
+                                        { command_input_service_owed = true; }
                                         #[cfg(test)]
                                         tests::secondary_retry_scheduler_tests::record_command(&account_id_hex, &command);
                                         // ready_command_index has already approved pending work
