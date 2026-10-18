@@ -580,8 +580,14 @@ impl PrivateDeviceInviteStorage for SqliteAccountStorage {
                 if old.denied || old.scope.staging_generation!=origin_generation
                     || old.binding.group_id!=current.raw.binding.group_id
                     || old.binding.successor!=current.raw.binding.predecessor {return Err(Error::ScopeMismatch);}
-            } else if old.as_ref().is_some_and(|old| old.binding.group_id==current.raw.binding.group_id) {
-                return Err(Error::ScopeMismatch);
+            } else if let Some(old) = old.as_ref().filter(|old| old.binding.group_id==current.raw.binding.group_id) {
+                // check_origin freshly validated the exact existing/removal successor.
+                // A denied historical confirmation must not veto this new generation;
+                // it still cannot be reused as the current Confirmed origin above.
+                if !old.denied || !matches!(current.raw.binding.origin,
+                    PrivateInviteOrigin::Existing(_) | PrivateInviteOrigin::Revoked(_)) {
+                    return Err(Error::ScopeMismatch);
+                }
             }
             let bytes=binding_bytes(&current.raw.binding)?;
             connection.execute("INSERT INTO private_device_invite_confirmed(singleton,generation,account,local_device,group_id,binding,denied) VALUES(1,?1,?2,?3,?4,?5,0) ON CONFLICT(singleton) DO UPDATE SET generation=excluded.generation,group_id=excluded.group_id,binding=excluded.binding,denied=0",params![generation(scope.staging_generation)?,scope.account.as_slice(),scope.local_device.as_slice(),current.raw.binding.group_id.as_slice(),bytes]).storage()?;

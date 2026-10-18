@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
@@ -25,6 +25,134 @@ env:
   UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && '0c9065255fa16292e84e12b32fb920db0494b9aa' || inputs.extraction_cohort_baseline }}
 
 jobs:
+  # ROTATING_SPONSOR_CANDIDATE_JOBS_BEGIN
+  rotating-sponsor-candidate-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["rotating-sponsor-candidate-preflight","rotating-sponsor-candidate-green","rotating-sponsor-candidate-mutations"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ROTATING_SPONSOR_CANDIDATE_BASELINE: 58b40563064795d48f018b23bd5b76644978e179
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact reviewed source and closed parser controls
+        run: |
+          python3 -m py_compile scripts/qualify_upstream_rotating_sponsor_candidate.py
+          python3 scripts/qualify_upstream_rotating_sponsor_candidate.py --mode preflight
+      - name: Remote product-only Rust formatting gate and exact patch
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" rustfmt --edition 2024 --config skip_children=true crates/storage-sqlite/src/private_device_invite.rs
+          git diff --binary -- crates/storage-sqlite/src/private_device_invite.rs > "$RUNNER_TEMP/rotating-sponsor-candidate-format.patch"
+          git diff --exit-code -- crates/storage-sqlite/src/private_device_invite.rs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-candidate-preflight
+          path: |
+            rotating-sponsor-candidate-evidence/result.json
+            ${{ runner.temp }}/rotating-sponsor-candidate-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  rotating-sponsor-candidate-green:
+    needs: rotating-sponsor-candidate-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'rotating-sponsor-candidate-green'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ROTATING_SPONSOR_CANDIDATE_BASELINE: 58b40563064795d48f018b23bd5b76644978e179
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: One experimental storage compile and every exact invite component body
+        env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/qualify_upstream_rotating_sponsor_candidate.py --mode green
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-candidate-green
+          path: rotating-sponsor-candidate-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  rotating-sponsor-candidate-mutations:
+    needs: rotating-sponsor-candidate-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'rotating-sponsor-candidate-mutations'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        chain: [old_veto, no_origin]
+    env:
+      ROTATING_SPONSOR_CANDIDATE_BASELINE: 58b40563064795d48f018b23bd5b76644978e179
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: Five actual controls then exact counterfactual then five restored controls
+        env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/qualify_upstream_rotating_sponsor_candidate.py --mode '${{ matrix.chain }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rotating-sponsor-candidate-${{ matrix.chain }}
+          path: rotating-sponsor-candidate-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # ROTATING_SPONSOR_CANDIDATE_JOBS_END
   # ROTATING_SPONSOR_RED_JOBS_BEGIN
   rotating-sponsor-red-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["rotating-sponsor-red-preflight","rotating-sponsor-red"]'), inputs.case)
