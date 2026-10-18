@@ -8,13 +8,12 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='6e71aaf89f9df400be23c7e3183f0212c026c9ce'
-SOURCE_PARENT='288544fe2d9dc3323cb1df3b99f35cc017375e13'
-RAW_SOURCE='6e71aaf89f9df400be23c7e3183f0212c026c9ce'
-PARENT_BEFORE_SHA='49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa'
-PARENT_RAW_SHA='1f8bdf8ce473f756786997b5b615926cc9c6c88bb245227501400afcc254c8d0'
+BASE='b41b55a4cc0c4479fbc7248ff0d77f27ffcde81f'
+SOURCE_PARENT='11eb96f4f72d17d0b40136bdfb6749acf6b676c4'
+RAW_SOURCE='b41b55a4cc0c4479fbc7248ff0d77f27ffcde81f'
+RESULT_SOURCE_PATHS={'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before': 'a5bd3b37d749ac3ca186db601c1eb181b50bf1b524aaf593222fdbda970c2542', 'raw': '10878f748eccfaa8d13993aa283701c77eb7d02c9a6fde428b204c15ece3f5bc', 'canonical': '10878f748eccfaa8d13993aa283701c77eb7d02c9a6fde428b204c15ece3f5bc', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/setup.rs': {'before': 'e39b0995598e1e4282d19a9d6d44525bcb67249acaf484aad0a80e1319b2cb48', 'raw': 'd1a9c8bc9c32d82b01aacabe20995197270aaf9c0db81277a91d4a2d1dc0fd5e', 'canonical': 'd1a9c8bc9c32d82b01aacabe20995197270aaf9c0db81277a91d4a2d1dc0fd5e', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking.rs': {'before': 'cdbf436572af474205ba6eb770cfa2ada705a74f433fb763f69be8af53b7fbf4', 'raw': 'd8fe4e03929c7c462ca7b0efdbafce07628858b2bdc01b323360a8152b928948', 'canonical': 'd8fe4e03929c7c462ca7b0efdbafce07628858b2bdc01b323360a8152b928948', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before': 'e0b1126b4e90d35bd681e9474184dbdd6d73a14acce27a013a094a7a5a44df52', 'raw': 'fe7416043f2c3eda3fa76979509a206cbc38f710cc52159117a5d77b964a0634', 'canonical': 'fe7416043f2c3eda3fa76979509a206cbc38f710cc52159117a5d77b964a0634', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before': '49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa', 'raw': '13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2', 'canonical': '13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2', 'mode': '100644'}}
 FAILURE_LABELS=('original_2','stress_0','stress_1','stress_2')
-WORKFLOW_SHA='b13b8f5a7cf685e85cdf0d68204dcfc07b2958c44ec60fa070fc793c34827873'
+WORKFLOW_SHA='70e54566b89a0193f9001d8d05ddd8d2675f6480a91f3c913de097f05d591e25'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261018'
@@ -23,8 +22,8 @@ OUT=Path('current-enrollment-evidence')
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 FIXTURE_SHA='a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca'
-PARENT_SHA='1f8bdf8ce473f756786997b5b615926cc9c6c88bb245227501400afcc254c8d0'
-STRICT_HELPER_SHA='a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2'
+PARENT_SHA='13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2'
+STRICT_HELPER_SHA='18f35458f2b9d280211d12ac58fd59d18c970512f90bfc1f59bf110502ab5618'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
 NATIVE_HELPER='scripts/qualify_upstream_pure_native5.py'
 ACK_HELPER='scripts/qualify_upstream_request_retry_ack.py'
@@ -63,11 +62,13 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
-    ensure(all(subprocess.run(['git','merge-base','--is-ancestor',a,b]).returncode==0 for a,b in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,BASE)]),'reviewed-test-source-ancestry')
-    ensure(set(git('diff','--name-only',SOURCE_PARENT,RAW_SOURCE).decode().splitlines())=={PARENT}
-        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<={PARENT},'one-reviewed-test-path-then-hosted-format')
-    for ref,expected_sha in [(SOURCE_PARENT,PARENT_BEFORE_SHA),(RAW_SOURCE,PARENT_RAW_SHA),(BASE,PARENT_SHA)]:
-        ensure(layout(ref)[PARENT][0]=='100644' and digest(git('show',ref+':'+PARENT))==expected_sha,'reviewed-parent-full-blob-and-mode')
+    ensure(type(RAW_SOURCE)is str and re.fullmatch('[0-9a-f]{40}',RAW_SOURCE),'root-reviewed-raw-result-source-required')
+    ensure(all(subprocess.run(['git','merge-base','--is-ancestor',a,b]).returncode==0 for a,b in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,BASE)]),'latest-owner-then-result-source-ancestry')
+    ensure(set(git('diff','--name-only',SOURCE_PARENT,RAW_SOURCE).decode().splitlines())==set(RESULT_SOURCE_PATHS)
+        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<=set(RESULT_SOURCE_PATHS),'exact-five-result-paths-then-format-only')
+    for path,pins in RESULT_SOURCE_PATHS.items():
+        for ref,key in [(SOURCE_PARENT,'before'),(RAW_SOURCE,'raw'),(BASE,'canonical')]:
+            ensure(layout(ref)[path][0]==pins['mode'] and digest(git('show',ref+':'+path))==pins[key],'reviewed-result-path-full-source-and-mode')
     baseline=layout(BASE);current=layout('HEAD')
     ensure(SELF not in baseline and WORKFLOW not in baseline and set(current)==set(baseline)|{SELF,WORKFLOW},'only-two-owned-metadata')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -289,6 +290,44 @@ def hold_timeout_controls():
         bad=closed_hold_timeout(text);ensure(not bad['schema_known'] and 'PRIVATE' not in json.dumps(bad),'closed-hold-invalid-or-privacy')
     return {'positive':4,'negative':11,'runtime_bodies':0}
 
+RESULT_ORDER=('RosterNone','RosterSome','RosterErr','NativePersistErr','MaintenancePersistErr','AutomaticOk','AutomaticErr')
+def closed_native_results(raw):
+    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    lines=[line for line in text.splitlines() if line.startswith('native-result-counts')]
+    n=PROGRESS_UINT;array=r'\['+', '.join([n]*7)+r'\]'
+    pattern=r'native-result-counts stage=(PhaseWait|AutomaticPublicationHold|SiblingConsentPeerProgress) side=(left|right|source|recipient) counts_overflow=(None|Some\(\(('+array+r'), (true|false)\)\))'
+    result={'schema_known':True,'records':[],'candidate_count':len(lines),'counter_order':list(RESULT_ORDER),'cumulative_per_original':True,'post_timeout_independent_samples':True,'per_pass_or_helper_attribution':False,'all_zero_is_no_recorded_result_not_no_errors':True,'automatic_only_entered_calls':True,'no_current_authority_claim':True}
+    seen=set();stages=set()
+    if len(lines)>2:result['schema_known']=False;return result
+    for line in lines:
+        match=re.fullmatch(pattern,line) if len(line)<=1024 else None
+        if match is None:result['schema_known']=False;continue
+        stage,side=match[1],match[2]
+        if side not in (('left','right') if stage=='PhaseWait' else ('source','recipient')) or (stage,side) in seen:
+            result['schema_known']=False;continue
+        counts=None if match[3]=='None' else [int(value) for value in match[4][1:-1].split(', ')]
+        if counts is not None and any(value>2**64-1 for value in counts):result['schema_known']=False;continue
+        seen.add((stage,side));stages.add(stage)
+        overflow=None if counts is None else match[5]=='true'
+        result['records'].append({'stage':stage,'side':side,'counts':counts,'overflow':overflow,'any_result_recorded':None if counts is None else any(counts),'counts_not_saturated':None if counts is None else not overflow})
+    if lines and (len(stages)!=1 or len(seen)!=2):result['schema_known']=False
+    return result
+
+def native_result_controls():
+    line=lambda side,counts:'native-result-counts stage=PhaseWait side='+side+' counts_overflow='+counts
+    observed='Some(([1, 2, 3, 4, 5, 6, 7], false))'
+    good=line('left',observed)+'\n'+line('right','None')
+    row=closed_native_results(good)
+    ensure(row['schema_known'] and row['records'][0]['counts']==[1,2,3,4,5,6,7] and row['records'][1]['counts']is None,'actual-seven-result-counts-and-None')
+    zero=good.replace('[1, 2, 3, 4, 5, 6, 7]','[0, 0, 0, 0, 0, 0, 0]')
+    ensure(closed_native_results(zero)['schema_known'] and not closed_native_results(zero)['records'][0]['any_result_recorded'],'allzero-no-recorded-result-only')
+    overflow=good.replace('7], false','18446744073709551615], true')
+    ensure(closed_native_results(overflow)['schema_known'] and not closed_native_results(overflow)['records'][0]['counts_not_saturated'],'overflow-retained-not-complete')
+    ensure(closed_native_results('')['schema_known'] and not closed_native_results('')['records'],'no-timeout-records-unknown')
+    for text in [good+'\n'+good,line('left',observed),good.replace('side=right','side=left'),good.replace('1, 2, 3, 4, 5, 6, 7','1, 2, 3, 4, 5, 6'),good.replace('7], false','18446744073709551616], false'),good.replace('1, 2','-1, 2'),good.replace('false','PRIVATE'),good+' PRIVATE',good.replace('side=right','side=recipient'),good.replace('stage=PhaseWait','stage=PRIVATE')]:
+        bad=closed_native_results(text);ensure(not bad['schema_known'] and 'PRIVATE' not in json.dumps(bad),'closed-result-schema-privacy-bound')
+    return {'positive':4,'negative':10,'runtime_bodies':0}
+
 def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
     save(report)
@@ -314,6 +353,7 @@ def execute_case(report,row,binary,before,mode,inputs,label,name,five):
         row['phase_timeout']=closed_phase_timeout(raw,name);save(report)
         row['timeout_progress']=closed_timeout_progress(raw);save(report)
         if label in FAILURE_LABELS:row['hold_timeout']=closed_hold_timeout(raw);save(report)
+        row['native_results']=closed_native_results(raw);save(report)
     ensure(row['source_after_body_pristine'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
     parsed=native.parse(raw,code) if five else ack.parse_case(label,raw,code)
     row['original_oracle']=closed_oracle(parsed)
@@ -357,7 +397,7 @@ def parser_controls(mode):
     for text in [phase_header+phase_payload+' PRIVATE',phase_header+phase_payload.replace('VerificationCompleteEnrollmentPending','PRIVATE'),phase_header.replace(':'+str(phase_column)+':',':999:')+phase_payload,(phase_header+phase_payload+'\n')*2,phase_payload+'\n',phase_header+phase_payload.replace('Some((', '('),phase_header.replace('(123)','(PRIVATE)')+phase_payload]:
         row=closed_phase_timeout(text,native.NAME)
         ensure(not row['closed_phase_record_available'] and 'PRIVATE' not in json.dumps(row),'no-foreign-or-malformed-phase-payload-export')
-    return {'hold_timeout_controls':hold_timeout_controls(),'timeout_progress_controls':timeout_progress_controls(),'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
+    return {'native_result_controls':native_result_controls(),'hold_timeout_controls':hold_timeout_controls(),'timeout_progress_controls':timeout_progress_controls(),'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
 
 def main(args):
     os.umask(0o077)
