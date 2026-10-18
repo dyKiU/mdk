@@ -90,7 +90,7 @@ jobs:
         with:
           shared-key: experimental-sync-tests
           cache-on-failure: true
-      - name: One storage compile and three exact policy regressions, no retry
+      - name: One storage compile and five exact policy regressions, no retry
         env:
           CARGO_INCREMENTAL: '1'
         run: python3 scripts/qualify_upstream_rotating_sponsor_red.py
