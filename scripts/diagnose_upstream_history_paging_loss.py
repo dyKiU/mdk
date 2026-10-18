@@ -6,8 +6,8 @@ import qualify_upstream_storage_boundary as bounded
 import qualify_upstream_storage_app_handles as counts
 ensure=bounded.ensure
 def digest(data):return hashlib.sha256(data).hexdigest()
-BASE='66f643d9bd3616d5172efb106462b3b77ec43e5e'
-MANIFEST_SHA='4c162d084d9d3d78203fb478eb22e112270ddd31c4dc7eefcfb83d77ba96fd4f'
+BASE='ccb839af8771b759daa7cd446d2bf8f9a68a36ee'
+MANIFEST_SHA='854e158179c7904b0d9d91273d854c8ea804389d2981b1c98697735ed7b1198a'
 SELF='scripts/diagnose_upstream_history_paging_loss.py'
 MANIFEST='scripts/history_paging_loss_source_manifest.json'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
