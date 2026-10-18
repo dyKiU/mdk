@@ -8,6 +8,10 @@ on:
         description: Generate canonical source before final qualification without running product tests
         type: boolean
         default: false
+      windows_source_probe:
+        description: Reproduce and verify Windows source-provenance quoting only
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -154,3 +158,67 @@ jobs:
           path: repair/
           retention-days: 7
           if-no-files-found: error
+
+  windows-source-probe:
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_source_probe && github.ref == 'refs/heads/ci/upstream-windows-provenance-20261018'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify immutable shallow source
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA) { throw 'wrong source' }
+          $shallow = git rev-parse --is-shallow-repository
+          if ($LASTEXITCODE -ne 0 -or $shallow -cne 'true') { throw 'not the original shallow checkout' }
+      - name: Reproduce the original unquoted PowerShell failure
+        id: unquoted
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+      - name: Verify quoted tree against the commit object
+        shell: pwsh
+        env:
+          ORIGINAL_OUTCOME: ${{ steps.unquoted.outcome }}
+        run: |
+          if ($env:ORIGINAL_OUTCOME -cne 'failure') { throw 'original command did not reproduce failure' }
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA) { throw 'source changed' }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0 -or $tree -cnotmatch '^[0-9a-f]{40}$') { throw 'quoted tree failed' }
+          $commit = @(git cat-file commit HEAD)
+          if ($LASTEXITCODE -ne 0 -or $commit.Count -eq 0) { throw 'cannot read encoded commit' }
+          $encoded = $commit[0] -replace '^tree ', ''
+          if ($encoded -cnotmatch '^[0-9a-f]{40}$' -or $tree -cne $encoded) { throw 'tree differs from commit object' }
+          $workflow = Get-Content -Raw .github/workflows/ci.yml
+          $windows = ($workflow -split '  windows-filesystem:', 2)[1] -split '  required-ci:', 2
+          if (-not $windows[0].Contains("git rev-parse 'HEAD^{tree}'")) { throw 'actual Windows source step lacks fix' }
+          git diff --exit-code HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'source mutated' }
+          New-Item -ItemType Directory -Force windows-provenance-evidence | Out-Null
+          [ordered]@{
+            source_sha = $head
+            tree_sha = $tree
+            original_outcome = $env:ORIGINAL_OUTCOME
+            quoted_exit_code = 0
+            tree_equals_commit_object = $true
+            shallow_checkout = $true
+            source_pristine = $true
+            compiler_invoked = $false
+            runtime_test_bodies = 0
+            scope = 'actual PowerShell source-provenance regression only'
+          } | ConvertTo-Json | Set-Content -Encoding utf8 windows-provenance-evidence/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: windows-source-probe
+          path: windows-provenance-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
