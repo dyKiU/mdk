@@ -1755,7 +1755,11 @@ impl AppClient {
         // NATIVE5_REQUEST_GAP_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(entry) = self.linking_owner.sibling_channels.last() {
-            peer_proof_probe::native5_timing::request_source(entry, Some(native5_request_before), Some(native5_request_after));
+            peer_proof_probe::native5_timing::request_source(
+                entry,
+                Some(native5_request_before),
+                Some(native5_request_after),
+            );
         }
         // NATIVE5_REQUEST_GAP_END
         Ok(())
@@ -1782,10 +1786,11 @@ impl AppClient {
             if received.source.as_slice() == choice.context.approver {
                 return Ok(false);
             }
-        // NATIVE5_REQUEST_GAP_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        let native5_request = peer_proof_probe::native5_timing::request_dispatch(&choice, received);
-        // NATIVE5_REQUEST_GAP_END
+            // NATIVE5_REQUEST_GAP_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let native5_request =
+                peer_proof_probe::native5_timing::request_dispatch(&choice, received);
+            // NATIVE5_REQUEST_GAP_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 let mut observations = choice
@@ -1870,10 +1875,12 @@ impl AppClient {
                 .runtime
                 .session()
                 .authenticate_account_sharing_request(wire);
-        // NATIVE5_REQUEST_GAP_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_request { token.stage(9, Some((4, request_result.is_ok()))); }
-        // NATIVE5_REQUEST_GAP_END
+            // NATIVE5_REQUEST_GAP_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &native5_request {
+                token.stage(9, Some((4, request_result.is_ok())));
+            }
+            // NATIVE5_REQUEST_GAP_END
             let request = request_result.map_err(|_| Error::NotReady)?;
             let scope = request.scope();
             // A request without the original enrollment identity belongs to a different flow.
@@ -1929,10 +1936,12 @@ impl AppClient {
                     }),
                 )
                 .map_err(|_| Error::NotReady);
-        // NATIVE5_REQUEST_GAP_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_request { token.stage(10, Some((5, channel.is_ok()))); }
-        // NATIVE5_REQUEST_GAP_END
+            // NATIVE5_REQUEST_GAP_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &native5_request {
+                token.stage(10, Some((5, channel.is_ok())));
+            }
+            // NATIVE5_REQUEST_GAP_END
             let channel = match channel {
                 Ok(channel) => channel,
                 Err(error) => {
@@ -1967,12 +1976,15 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 pre_auth_failure: None,
             });
-        // NATIVE5_REQUEST_GAP_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(entry) = self.linking_owner.sibling_channels.last() {
-            peer_proof_probe::native5_timing::request_installed(entry, native5_request.as_ref());
-        }
-        // NATIVE5_REQUEST_GAP_END
+            // NATIVE5_REQUEST_GAP_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(entry) = self.linking_owner.sibling_channels.last() {
+                peer_proof_probe::native5_timing::request_installed(
+                    entry,
+                    native5_request.as_ref(),
+                );
+            }
+            // NATIVE5_REQUEST_GAP_END
             // RECIPIENT_ADMISSION_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             peer_proof_probe::recipient_admission::admitted(
@@ -2428,10 +2440,12 @@ impl AppClient {
             if pending.outcome.is_none() {
                 pending.outcome = Some(match pending.result.try_recv() {
                     Ok(result) => {
-        // NATIVE5_REQUEST_GAP_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &pending.native5_request { token.stage(6, Some((2, result.is_ok()))); }
-        // NATIVE5_REQUEST_GAP_END
+                        // NATIVE5_REQUEST_GAP_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(token) = &pending.native5_request {
+                            token.stage(6, Some((2, result.is_ok())));
+                        }
+                        // NATIVE5_REQUEST_GAP_END
                         // NATIVE5_TIMING_BEGIN
                         #[cfg(all(test, feature = "test-policy-overrides"))]
                         if let Some(token) = &pending.native5_timing {
@@ -2482,10 +2496,12 @@ impl AppClient {
                 entry.handshake_published = true;
                 entry.handshake_retry_at = retry_at;
             }
-        // NATIVE5_REQUEST_GAP_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &pending.native5_request { token.stage(7, Some((3, true))); }
-        // NATIVE5_REQUEST_GAP_END
+            // NATIVE5_REQUEST_GAP_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &pending.native5_request {
+                token.stage(7, Some((3, true)));
+            }
+            // NATIVE5_REQUEST_GAP_END
             // NATIVE5_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(token) = &pending.native5_timing {
@@ -2837,7 +2853,9 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let native5_request = if kind == AccountSharingControl::Request {
             peer_proof_probe::native5_timing::request_begin(entry)
-        } else { None };
+        } else {
+            None
+        };
         // NATIVE5_REQUEST_GAP_END
         let state = entry.state.clone();
         let revoked_wrap = state.revoked.notified();
@@ -2985,7 +3003,9 @@ impl AppClient {
         // NATIVE5_TIMING_END
         // NATIVE5_REQUEST_GAP_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_request { token.stage(3, None); }
+        if let Some(token) = &native5_request {
+            token.stage(3, None);
+        }
         // NATIVE5_REQUEST_GAP_END
         self.runtime
             .session()
