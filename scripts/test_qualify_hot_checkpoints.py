@@ -1,13 +1,63 @@
 """Mechanical acceptance for qualification counts, oracle and restoration."""
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import unittest
 
-from qualify_hot_checkpoints import CASES, READY_FAILURE, check_case, restore_actor
+from qualify_hot_checkpoints import CASES, READY_FAILURE, binary_identity, check_case, inputs, restore_actor
 
 
 class CheckpointQualificationTests(unittest.TestCase):
+    def test_input_identity_detects_mode_only_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            path = root / "source"
+            path.write_text("unchanged bytes")
+            path.chmod(0o644)
+            subprocess.run(["git", "add", "source"], cwd=root, check=True)
+            before = inputs(root)
+            path.chmod(0o755)
+            self.assertNotEqual(inputs(root), before)
+
+    def test_source_identity_refuses_a_symlink_outside_the_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "repo"
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (parent / "outside").write_text("synthetic source")
+            (root / "source").symlink_to(parent / "outside")
+            subprocess.run(["git", "add", "source"], cwd=root, check=True)
+            with self.assertRaises(ValueError):
+                inputs(root)
+
+    def test_binary_identity_binds_bytes_modes_and_regular_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "binary"
+            path.write_bytes(b"synthetic executable")
+            path.chmod(0o755)
+            before = binary_identity(path)
+            path.chmod(0o700)
+            self.assertNotEqual(binary_identity(path), before)
+            path.write_bytes(b"changed synthetic executable")
+            self.assertNotEqual(binary_identity(path)["sha256"], before["sha256"])
+            link = path.with_name("link")
+            link.symlink_to(path)
+            with self.assertRaises(ValueError):
+                binary_identity(link)
+            path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                binary_identity(path)
+
+    def test_case_status_must_agree_with_its_summary(self):
+        for mutant in (False, True):
+            text = self.output(mutant)
+            original = " ... FAILED" if mutant else " ... ok"
+            replacement = " ... ok" if mutant else " ... FAILED"
+            with self.subTest(mutant=mutant), self.assertRaises(ValueError):
+                check_case(text.replace(original, replacement), CASES[0], 101 if mutant else 0, mutant)
+
     def output(self, mutant=False):
         return (f"running 1 test\ntest {CASES[0]} ... " + ("FAILED" if mutant else "ok")
                 + "\ntest result: " + ("FAILED. 0 passed; 1 failed;" if mutant else "ok. 1 passed; 0 failed;")
@@ -60,6 +110,7 @@ class CheckpointQualificationTests(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.scope == 'default-checkpoint-regression'", job)
         self.assertIn('CARGO_INCREMENTAL: "1"', job)
         self.assertEqual(job.count('run: python3 scripts/qualify_hot_checkpoints.py --directory "$RUNNER_TEMP/checkpoint-proof"'), 1)
+        self.assertIn('path: ${{ runner.temp }}/checkpoint-proof/proof/checkpoint-proof.json', job)
         other = workflow.split("  core-regressions:\n", 1)[1].split("    name:", 1)[0]
         self.assertNotIn("default-checkpoint-regression", other)
 
