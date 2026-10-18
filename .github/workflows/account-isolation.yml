@@ -14,8 +14,8 @@ on:
         default: default
       expected:
         type: choice
-        options: [red, green]
-        default: red
+        options: [red, green, pfp]
+        default: green
 permissions:
   contents: read
 concurrency:
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: 1b5628e6e4d83f6ce1e24d3b5115d2ba288c8e41
+      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: ff76aaba0eeffc0c84a1b9b59923ac165400c8fc
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -63,9 +63,9 @@ jobs:
     needs: preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-account-isolation-20261018'
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: ${{ inputs.expected == 'pfp' && 180 || 70 }}
     env:
-      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: 1b5628e6e4d83f6ce1e24d3b5115d2ba288c8e41
+      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: ff76aaba0eeffc0c84a1b9b59923ac165400c8fc
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -86,7 +86,7 @@ jobs:
         with:
           shared-key: experimental-sync-tests
           cache-on-failure: true
-      - name: One real exact account ownership case; no retries
+      - name: Focused ownership cases and optional filter PFP; no retries
         env:
           CARGO_INCREMENTAL: '1'
           CASE_COHORT: ${{ inputs.cohort }}
