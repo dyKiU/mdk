@@ -1262,11 +1262,16 @@ impl AppClient {
             )))
         })?;
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let persist_observer = self.linking_owner.sharing_approval.as_ref().map(Arc::downgrade);
+        let persist_observer = self
+            .linking_owner
+            .sharing_approval
+            .as_ref()
+            .map(Arc::downgrade);
         self.persist_completed_pair_sharing_approval()
             .inspect_err(|_| {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
-                if let Some(observer) = persist_observer.as_ref().and_then(std::sync::Weak::upgrade) {
+                if let Some(observer) = persist_observer.as_ref().and_then(std::sync::Weak::upgrade)
+                {
                     observer.record_observation_result_for_test(
                         sibling_sharing::NativeObservationResult::MaintenancePersistErr,
                     );
