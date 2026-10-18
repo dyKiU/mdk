@@ -193,6 +193,7 @@ impl AppClient {
             .filter(|attempt| attempt.guard.binding() == binding)
             .ok_or_else(denied)?;
         attempt.published = true;
+        self.note_owned_sibling_source_readiness();
         Ok(())
     }
     pub(super) fn select_owned_private_settlement(&mut self) -> Result<(), ClientLinkingError> {

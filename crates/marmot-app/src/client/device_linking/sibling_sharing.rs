@@ -1398,6 +1398,7 @@ pub(super) struct SiblingChannel {
     recipient: bool,
     ready: bool,
     consent_progress_due: bool,
+    initial_source_due: bool,
     publication: Option<SiblingPublication>,
     handshake_attempted: bool,
     deferred_initial_error: Option<ClientLinkingError>,
@@ -1432,6 +1433,14 @@ struct CommitProof {
     device: [u8; 32],
 }
 impl AppClient {
+    /// A wake only asks the serial owner to recheck its retained original.
+    /// Neither an ingest result nor a watch notification grants sharing authority.
+    pub(crate) fn note_owned_sibling_source_readiness(&self) {
+        if self.linking_owner.pending_sibling_source.is_some() {
+            self.linking_owner.sibling_publication_completions.send_replace(());
+        }
+    }
+
     pub(crate) fn sibling_publication_completions(&self) -> tokio::sync::watch::Receiver<()> {
         self.linking_owner
             .sibling_publication_completions
@@ -1443,6 +1452,32 @@ impl AppClient {
     pub(crate) async fn service_sibling_publication_completions(
         &mut self,
     ) -> Result<(), ClientLinkingError> {
+        let previous_channels = self.linking_owner.sibling_channels.len();
+        let mut failure = None;
+        match self.recheck_owned_sibling_source_readiness() {
+            Ok(Some(original)) => {
+                let mut actual_channel = false;
+                for (index, entry) in self.linking_owner.sibling_channels.iter_mut().enumerate() {
+                    if !entry.recipient && matches!(entry.original.as_ref(),
+                        SiblingOriginal::Existing { original: held, .. } if Arc::ptr_eq(held, &original))
+                    {
+                        actual_channel = true;
+                        // Only a newly created exact source gets this first shot.
+                        // A consumed or failed attempt can never be revived here.
+                        if index >= previous_channels && !entry.handshake_attempted
+                            && entry.deferred_initial_error.is_none()
+                        {
+                            entry.initial_source_due = true;
+                        }
+                    }
+                }
+                if actual_channel {
+                    self.linking_owner.pending_sibling_source = None;
+                }
+            }
+            Ok(None) => {}
+            Err(error) => failure = Some(error),
+        }
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
         let mut in_flight = channels
             .iter()
@@ -1450,7 +1485,6 @@ impl AppClient {
             .count();
         let mut initial = Vec::with_capacity(MAX_SIBLING_PUBLICATIONS);
         let mut harvested_success = false;
-        let mut failure = None;
         // Harvest every owned result before a successful channel reuses a slot.
         for (index, entry) in channels.iter_mut().enumerate() {
             if entry.deferred_initial_error.is_some() {
@@ -1490,14 +1524,14 @@ impl AppClient {
             }
         }
         let mut starts_left = MAX_SIBLING_PUBLICATIONS;
-        // An admitted recipient owns a fresh first Consent attempt. Source
-        // first shots still require a successful harvest. Attempts are consumed
-        // before awaiting; periodic retries keep their existing rules.
+        // Fresh recipients and exact newly ready sources own one first attempt.
+        // All other sources still require a successful harvest. Attempts are
+        // consumed before awaiting; periodic retries keep their existing rules.
         for entry in &mut channels {
             if starts_left == 0 || in_flight >= MAX_SIBLING_PUBLICATIONS {
                 break;
             }
-            if (harvested_success || entry.recipient)
+            if (harvested_success || entry.recipient || entry.initial_source_due)
                 && entry.publication.is_none()
                 && !entry.handshake_attempted
                 && entry.deferred_initial_error.is_none()
@@ -1510,12 +1544,14 @@ impl AppClient {
                     Ok(false) => {}
                     Err(error) => {
                         starts_left -= 1;
+                        entry.initial_source_due = false;
                         entry.handshake_attempted = true;
                         entry.deferred_initial_error = Some(error);
                         continue;
                     }
                 }
                 starts_left -= 1;
+                entry.initial_source_due = false;
                 entry.handshake_attempted = true;
                 match self.start_sibling_publication(entry, None).await {
                     Ok(()) => in_flight += 1,
@@ -1622,6 +1658,7 @@ impl AppClient {
             recipient: false,
             ready: false,
             consent_progress_due: false,
+            initial_source_due: false,
             publication: None,
             handshake_attempted: false,
             deferred_initial_error: None,
@@ -1818,6 +1855,7 @@ impl AppClient {
                 recipient: true,
                 ready: true,
                 consent_progress_due: false,
+                initial_source_due: false,
                 publication: None,
                 handshake_attempted: false,
                 deferred_initial_error: None,
@@ -2256,6 +2294,7 @@ impl AppClient {
                         && entry.handshake_retry_at <= entry.proof_retry_at)))
         {
             if *in_flight < MAX_SIBLING_PUBLICATIONS {
+                entry.initial_source_due = false;
                 entry.handshake_attempted = true;
                 self.start_sibling_publication(entry, None).await?;
                 *in_flight += 1;

@@ -2,6 +2,29 @@
 use super::*;
 use cgka_traits::StorageProvider;
 impl AppClient {
+    pub(crate) fn recheck_owned_sibling_source_readiness(
+        &mut self,
+    ) -> Result<Option<std::sync::Arc<OriginalSiblingSharingApproval>>, ClientLinkingError> {
+        let original = self.linking_owner.pending_sibling_source.as_ref()
+            .and_then(std::sync::Weak::upgrade);
+        let Some(original) = original else {
+            self.linking_owner.pending_sibling_source = None;
+            return Ok(None);
+        };
+        let current = self.linking_owner.received_endorsement.as_ref().is_some_and(|action| {
+            !action.cancelled && original.state.live() && !original.complete()
+                && action.sharing.as_ref().is_some_and(|held| std::sync::Arc::ptr_eq(held, &original))
+        });
+        if !current {
+            self.linking_owner.pending_sibling_source = None;
+            return Ok(None);
+        }
+        // The existing path rereads Core settlement, validates its exact live
+        // guard and settled roster, then creates the actual original's channel.
+        self.begin_completed_sibling_sharing()?;
+        Ok(Some(original))
+    }
+
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn arm_sibling_pre_auth_failure(
         &mut self,

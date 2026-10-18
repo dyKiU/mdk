@@ -371,6 +371,10 @@ impl AppClient {
             cancelled: false,
             sharing: sharing.clone(),
         });
+        if let Some(original) = &sharing {
+            self.linking_owner.pending_sibling_source = Some(Arc::downgrade(original));
+            self.note_owned_sibling_source_readiness();
+        }
         Ok(sharing)
     }
 
@@ -512,6 +516,7 @@ impl AppClient {
         };
         // Negative fence first, even if the Core cleanup subsequently fails.
         attempt.cancelled = true;
+        self.linking_owner.pending_sibling_source = None;
         if let Some(original) = &attempt.sharing {
             original.cancel();
         }

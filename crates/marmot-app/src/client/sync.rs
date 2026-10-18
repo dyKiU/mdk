@@ -1921,6 +1921,8 @@ impl AppClient {
             ));
         }
         let effects = self.runtime.drain().await?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.note_owned_sibling_source_readiness();
         self.observe_drained_session_events(&effects).await
     }
 
@@ -3869,6 +3871,10 @@ impl AppClient {
             });
         }
         let effects = ingest?;
+        #[cfg(feature = "experimental-device-sync")]
+        if !effects.left_object_unpersisted {
+            client.note_owned_sibling_source_readiness();
+        }
         let queued = client.pending_applied_effects.len();
         client.retain_effect_projection(
             &effects.effects,
