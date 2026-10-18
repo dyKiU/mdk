@@ -2861,7 +2861,11 @@ impl AppClient {
             let event_id = hex::encode(delivery.message.id.as_slice());
             let already_held = self.transport_receipts()?.contains(&event_id);
             // NATIVE5_INTAKE_TIMING_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             self.native5_intake_receipt_for_test(&delivery.message.id, 0, already_held);
             // NATIVE5_INTAKE_TIMING_END
             if already_held {
@@ -2972,7 +2976,11 @@ impl AppClient {
         let event_id = hex::encode(delivery.message.id.as_slice());
         let already_held = self.transport_receipts()?.contains(&event_id);
         // NATIVE5_INTAKE_TIMING_BEGIN
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         self.native5_intake_receipt_for_test(&delivery.message.id, 1, already_held);
         // NATIVE5_INTAKE_TIMING_END
         if already_held {

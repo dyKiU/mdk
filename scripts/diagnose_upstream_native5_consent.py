@@ -11,7 +11,7 @@ from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='df214431c8aad2fd22dfeb3b756206e98a8e2ec8' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='7453fecc1197bebff750c40ced1f4d483df7346d348acd36173532a99df159c2' # Root MUST pin exact reviewed/reformatted reversal manifest.
+MANIFEST_SHA='5d00f0900383e70a9b2341057603dd292aa02c0aeed7132a6df3d40e25148b1c' # Root MUST pin exact reviewed/reformatted reversal manifest.
 PARSER_SHA='a19df4757825eae363c378d8c9945cb6d8bbb65c2acfad88cdaee0dc52eeb125' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'

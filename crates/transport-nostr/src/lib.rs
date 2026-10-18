@@ -260,7 +260,9 @@ struct AutomaticBodyPublicationGate {
     feature = "test-policy-overrides"
 ))]
 #[derive(Default)]
-struct NotificationDispositionObserver(std::sync::Mutex<HashMap<String, ([u64; 8], [Option<std::time::Instant>; 8])>>);
+struct NotificationDispositionObserver(
+    std::sync::Mutex<HashMap<String, ([u64; 8], [Option<std::time::Instant>; 8])>>,
+);
 
 #[cfg(all(
     any(test, feature = "test-support"),
@@ -1938,12 +1940,23 @@ impl MarmotRelayPlane {
     }
 
     /// Copy the same observer entry, including actual earliest stage instants.
-    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     #[doc(hidden)]
     pub fn account_notification_timing_for_test(
-        &self, account: &MemberId, id: &str,
+        &self,
+        account: &MemberId,
+        id: &str,
     ) -> Option<([u64; 8], [Option<std::time::Instant>; 8])> {
-        let observers = self.inner.transport.test_notification_dispositions.lock().unwrap();
+        let observers = self
+            .inner
+            .transport
+            .test_notification_dispositions
+            .lock()
+            .unwrap();
         let observer = observers.get(account)?;
         let entries = observer.0.lock().unwrap();
         entries.get(id).copied()

@@ -310,21 +310,35 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             guard.freeze(|origin, peer_outer_ids| {
                 std::array::from_fn(|plane| {
                     std::array::from_fn(|channel| {
-                        peer_outer_ids[channel].as_ref().and_then(|message| {
-                            apps[plane].relay_plane.account_notification_timing_for_test(
-                                &account, &hex::encode(message.as_slice()),
-                            )
-                        }).map(|(counts, instants)| {
-                            let mut invalid = 0u8;
-                            let times = std::array::from_fn(|stage| instants[stage].and_then(|instant| {
-                                let time = instant.checked_duration_since(origin)
-                                    .and_then(|duration| u64::try_from(duration.as_micros()).ok())
-                                    .filter(|time| *time <= 600_000_000);
-                                if time.is_none() { invalid |= 1 << stage; }
-                                time
-                            }));
-                            (Some(counts), Some(times), Some(invalid))
-                        }).unwrap_or((None, None, None))
+                        peer_outer_ids[channel]
+                            .as_ref()
+                            .and_then(|message| {
+                                apps[plane]
+                                    .relay_plane
+                                    .account_notification_timing_for_test(
+                                        &account,
+                                        &hex::encode(message.as_slice()),
+                                    )
+                            })
+                            .map(|(counts, instants)| {
+                                let mut invalid = 0u8;
+                                let times = std::array::from_fn(|stage| {
+                                    instants[stage].and_then(|instant| {
+                                        let time = instant
+                                            .checked_duration_since(origin)
+                                            .and_then(|duration| {
+                                                u64::try_from(duration.as_micros()).ok()
+                                            })
+                                            .filter(|time| *time <= 600_000_000);
+                                        if time.is_none() {
+                                            invalid |= 1 << stage;
+                                        }
+                                        time
+                                    })
+                                });
+                                (Some(counts), Some(times), Some(invalid))
+                            })
+                            .unwrap_or((None, None, None))
                     })
                 })
             }),
