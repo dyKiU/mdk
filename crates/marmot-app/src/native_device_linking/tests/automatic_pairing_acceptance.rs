@@ -1656,44 +1656,67 @@ async fn wait_for_automatic_phase_with_approvals(
     approvals: &[DeviceLinkingApproval],
 ) {
     let mut observed = None;
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     let receive_frontier = b.active_receive_frontier_for_test();
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-    if let Some(probe) = &receive_frontier { probe.wait_before(); }
-    let receive_frontier_timeout = tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        loop {
-            let ap = a.snapshot().await.unwrap().phase;
-            let bp = b.snapshot().await.unwrap().phase;
-            observed = Some((ap, bp));
-            assert!(
-                !matches!(
-                    ap,
-                    DeviceLinkingPhase::Failed
-                        | DeviceLinkingPhase::Cancelled
-                        | DeviceLinkingPhase::Expired
-                ),
-                "left expected={phase:?} observed={ap:?}"
-            );
-            assert!(
-                !matches!(
-                    bp,
-                    DeviceLinkingPhase::Failed
-                        | DeviceLinkingPhase::Cancelled
-                        | DeviceLinkingPhase::Expired
-                ),
-                "right expected={phase:?} observed={bp:?}"
-            );
-            if ap == phase && bp == phase {
-                break;
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    if let Some(probe) = &receive_frontier {
+        probe.wait_before();
+    }
+    let receive_frontier_timeout =
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let ap = a.snapshot().await.unwrap().phase;
+                let bp = b.snapshot().await.unwrap().phase;
+                observed = Some((ap, bp));
+                assert!(
+                    !matches!(
+                        ap,
+                        DeviceLinkingPhase::Failed
+                            | DeviceLinkingPhase::Cancelled
+                            | DeviceLinkingPhase::Expired
+                    ),
+                    "left expected={phase:?} observed={ap:?}"
+                );
+                assert!(
+                    !matches!(
+                        bp,
+                        DeviceLinkingPhase::Failed
+                            | DeviceLinkingPhase::Cancelled
+                            | DeviceLinkingPhase::Expired
+                    ),
+                    "right expected={phase:?} observed={bp:?}"
+                );
+                if ap == phase && bp == phase {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
-    });
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-    if let Some(probe) = &receive_frontier { probe.wait_after(); }
+        });
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    if let Some(probe) = &receive_frontier {
+        probe.wait_after();
+    }
     let receive_frontier_result = receive_frontier_timeout.await;
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-    if let Some(probe) = &receive_frontier { probe.wait_observed(receive_frontier_result.is_ok()); }
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    if let Some(probe) = &receive_frontier {
+        probe.wait_observed(receive_frontier_result.is_ok());
+    }
     receive_frontier_result.unwrap_or_else(|_| {
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
