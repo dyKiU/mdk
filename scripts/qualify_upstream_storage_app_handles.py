@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Finite App-handle compile/control qualification; no full/native claim."""
 import argparse
+import copy
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import qualify_upstream_storage_boundary as old
 from upstream_extraction_cohort import frozen_inputs
 
@@ -16,7 +18,7 @@ WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
 REF = 'refs/heads/ci/upstream-storage-app-handles-20261018'
 BEGIN = '  # STORAGE_APP_HANDLES_JOBS_BEGIN\n'
 END = '  # STORAGE_APP_HANDLES_JOBS_END\n'
-OPTIONS = 'options: [storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, '
+OPTIONS = 'options: [storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-app-handles-mutations, '
 OUT = Path('storage-app-handles-evidence')
 BOUNDARY = sorted('base::boundary_tests::' + n for n in [
     'table_registry_names_every_table', 'storage_boundary_matches_the_allow_list',
@@ -155,15 +157,122 @@ def compile_app_only(frozen, report, save):
     report['app_compile_only_passed']=row['passed']; save()
     ensure(row['passed'],'finite-experimental-App-alltargets-required')
 
+MUTATION_TESTS = 'crates/storage-sqlite/src/cross/private_app_capabilities/tests.rs'
+MUTATIONS = {
+    'query-only': {
+        'path':'crates/storage-sqlite/src/app/handle.rs',
+        'old':'.with_transaction_mode(true, || self.connection.with_query_only(|| f(self)))',
+        'new':'.with_transaction_mode(true, || f(self))',
+        'test':'cross::private_app_capabilities::tests::private_app_read_snapshot_is_query_only_restores_mode_and_observes_close',
+        'line':128, 'message':'actual App read snapshots must reject writes'},
+    'callback': {
+        'path':'crates/storage-sqlite/src/cross/private_app_capabilities.rs',
+        'old':'.put_approved_account_sharing_policy(policy, validate_original)',
+        'new':'.put_approved_account_sharing_policy(policy, &|| Ok(()))',
+        'test':'cross::private_app_capabilities::tests::private_app_capability_keeps_protocol_outer_rollback_and_exact_callbacks',
+        'line':62, 'message':'the same callback must run before work and at tail'},
+}
+
+def intended_mutant(raw, code, spec):
+    row=parse_body(raw,code,spec['test'])
+    headers=re.findall(r"^thread '([^'\n]+)'(?: \(\d+\))? panicked at ([^\n]+):\n",raw,re.M)
+    location=MUTATION_TESTS+':'+str(spec['line'])+':5'
+    if spec['message']=='actual App read snapshots must reject writes':
+        payload='\n'+spec['message']+'\n'
+    else:
+        payload='\nassertion `left == right` failed: '+spec['message']+'\n  left: 0\n right: 2\n'
+    return (row['actual_counts_complete'] and row['failed']==1 and row['passed']==row['ignored']==row['compiler_error_count']==0
+        and code==101 and row['panic_count']==1 and headers==[(spec['test'],location)]
+        and raw.count(payload)==1)
+
+def mutation_parser_controls():
+    count=0
+    for key,spec in MUTATIONS.items():
+        payload=spec['message'] if key=='query-only' else 'assertion `left == right` failed: '+spec['message']+'\n  left: 0\n right: 2'
+        raw=('running 1 test\ntest '+spec['test']+" ... \nthread '"+spec['test']+"' panicked at "+MUTATION_TESTS+':'+str(spec['line'])+':5:\n'
+             +payload+'\nFAILED\nfailures:\n    '+spec['test']+'\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 999 filtered out; finished in 1.0s\n')
+        ensure(intended_mutant(raw,101,spec),'intended-mutation-parser-positive')
+        bad=[(raw,0),(raw+raw,101),(raw.replace(':5:',':6:'),101),
+            (raw.replace(payload,'different assertion'),101),(raw.replace('0 ignored','1 ignored'),101),
+            (raw.replace('0 passed; 1 failed','0 passed; 0 failed'),101),(raw+'error[E0000]: hidden\n',101),
+            (raw.replace("thread '"+spec['test'],"thread 'foreign"),101)]
+        if key=='callback': bad += [(raw.replace('left: 0','left: 1'),101),(raw.replace('right: 2','right: 3'),101)]
+        for text,code in bad: ensure(not intended_mutant(text,code,spec),'intended-mutation-parser-negative')
+        count+=len(bad)
+    return {'positive':2,'negative':count,'runtime_bodies':0}
+
+def run_mutation(label, frozen, report, save):
+    spec=MUTATIONS[label]; target=Path(spec['path']); original=target.read_bytes(); mode=target.stat().st_mode
+    ensure(original.decode().count(spec['old'])==1,'single-reviewed-product-mutant-anchor')
+    fixture=Path(MUTATION_TESTS).read_bytes()
+    ensure(fixture.decode().splitlines()[spec['line']-1].strip() in {'assert!(','assert_eq!('},'exact-unchanged-assertion-location')
+    chain={'label':label,'selected_test':spec['test'],'product_path':spec['path'],'phases':{},'qualified':False}
+    report['mutation_chain']=chain; report['runtime_scope']='one selected synthetic persistence control per phase; no Core/native authority claim'
+    try:
+        for phase_name in ['baseline','mutant','restored']:
+            body=original.replace(spec['old'].encode(),spec['new'].encode(),1) if phase_name=='mutant' else original
+            target.write_bytes(body); target.chmod(mode)
+            expected=copy.deepcopy(frozen); expected[spec['path']]['sha256']=old.digest(body)
+            ensure(frozen_inputs()==expected and Path(MUTATION_TESTS).read_bytes()==fixture,'only-exact-reviewed-mutation')
+            phase={'actual_counts_complete':False,'intended_runtime_kill':False,'runtime_started':False,
+                'source_manifest_sha256':old.digest(json.dumps(expected,sort_keys=True).encode())}
+            chain['phases'][phase_name]=phase; save()
+            binary=compile_storage('experimental',expected,phase,save); binary_hash=old.digest(binary.read_bytes())
+            code,listed,_=old.capture([str(binary),'--exact',spec['test'],'--list','--format','terse'],60)
+            phase['inventory']=parse_inventory(listed,spec['test']); phase['inventory']['exit_code']=code; save()
+            ensure(code==0 and phase['inventory']['passed'],'exact-mutant-selected-inventory')
+            code,ignored,_=old.capture([str(binary),'--exact',spec['test'],'--ignored','--list','--format','terse'],60)
+            phase['ignored_inventory']=parse_inventory(ignored,spec['test'],True); phase['ignored_inventory']['exit_code']=code; save()
+            ensure(code==0 and phase['ignored_inventory']['passed'],'mutation-case-not-ignored')
+            ensure(frozen_inputs()==expected and old.digest(binary.read_bytes())==binary_hash,'before-mutant-body-pristine')
+            phase['runtime_started']=True; save()
+            code,raw,seconds=old.capture([str(binary),'--exact',spec['test'],'--nocapture','--test-threads=1'],300,limit=8*1024*1024)
+            phase['body']=parse_body(raw,code,spec['test']); phase['body']['wall_seconds']=seconds
+            phase['actual_counts_complete']=phase['body']['actual_counts_complete']; save()
+            phase['source_pristine']=frozen_inputs()==expected and target.stat().st_mode==mode
+            phase['binary_pristine']=old.digest(binary.read_bytes())==binary_hash
+            phase['intended_runtime_kill']=intended_mutant(raw,code,spec) if phase_name=='mutant' else False
+            save()
+            ensure(phase['source_pristine'] and phase['binary_pristine'],'mutation-phase-pristine')
+            ensure(phase['intended_runtime_kill'] if phase_name=='mutant' else phase['body']['passed_gate'],'runtime-only-specific-mutant-or-positive-control')
+        baseline=chain['phases']['baseline']; mutant=chain['phases']['mutant']; restored=chain['phases']['restored']
+        def compiled(phase): return phase['compilation']
+        ensure(compiled(baseline)['binary_sha256']==compiled(restored)['binary_sha256']
+            and compiled(mutant)['binary_sha256']!=compiled(baseline)['binary_sha256']
+            and compiled(baseline)['compiler_artifact_feature_manifest_sha256']==compiled(restored)['compiler_artifact_feature_manifest_sha256']==compiled(mutant)['compiler_artifact_feature_manifest_sha256']
+            and baseline['source_manifest_sha256']==restored['source_manifest_sha256'],'exact-restored-binary-feature-source-identity')
+        chain['qualified']=True
+        report.update(component_mutation_qualified=True,qualification_passed=False)
+    finally:
+        original_error_active=sys.exc_info()[0] is not None
+        try:
+            target.write_bytes(original); target.chmod(mode)
+            chain['exact_source_restored']=target.read_bytes()==original and target.stat().st_mode==mode and frozen_inputs()==frozen
+        except Exception as error:
+            chain['exact_source_restored']=False; chain['restoration_error_type']=type(error).__name__
+        rows=[v['body'] for v in chain['phases'].values() if 'body' in v]
+        complete=len(rows)==3 and all(v['actual_counts_complete'] for v in rows)
+        report['actual_counts_complete']=complete
+        report['known_partial_counts']={key:sum(v[key] for v in rows if type(v.get(key)) is int) for key in ['passed','failed','ignored','executed_nonignored']}
+        for key in ['passed','failed','ignored','executed_nonignored']:
+            report['actual_'+key]=sum(v[key] for v in rows) if complete else None
+        if not chain['exact_source_restored']:
+            chain['qualified']=False; report['component_mutation_qualified']=False
+        save()
+        if not original_error_active: ensure(chain['exact_source_restored'],'mutation-final-source-restoration')
+
 def main(args):
     os.umask(0o077); OUT.mkdir(exist_ok=True)
     report = {'cohort':args.cohort,'qualification_passed':False,'full_MDK_qualified':False,'native_qualified':False,'bodies':{},'all_target_compilations':[]}
     def save(): (OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     frozen=None
     try:
-        report['source_guard']=source_guard(); report['parser_controls']=parser_controls(); save()
+        report['source_guard']=source_guard(); report['parser_controls']=parser_controls(); report['mutation_parser_controls']=mutation_parser_controls(); save()
         if args.preflight: report['preflight_passed']=True; save(); return
         frozen=frozen_inputs(); report['input_manifest_sha256']=old.digest(json.dumps(frozen,sort_keys=True).encode())
+        if args.mutation:
+            ensure(not args.app_compile_only and args.cohort=='experimental','mutation-scope-experimental-only')
+            run_mutation(args.mutation,frozen,report,save); return
         if args.app_compile_only:
             ensure(args.cohort=='experimental','app-only-is-experimental')
             report.update(scope='experimental-App-alltargets-compile-only',actual_counts_complete=True,
@@ -233,4 +342,4 @@ def main(args):
         save()
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('--preflight',action='store_true'); parser.add_argument('--app-compile-only',action='store_true'); parser.add_argument('--cohort',choices=['default','experimental'],default='experimental'); main(parser.parse_args())
+    parser=argparse.ArgumentParser(); parser.add_argument('--preflight',action='store_true'); parser.add_argument('--mutation',choices=sorted(MUTATIONS)); parser.add_argument('--app-compile-only',action='store_true'); parser.add_argument('--cohort',choices=['default','experimental'],default='experimental'); main(parser.parse_args())
