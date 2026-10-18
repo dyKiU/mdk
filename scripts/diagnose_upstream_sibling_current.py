@@ -20,7 +20,7 @@ HOOKS = {
     ROOT + 'client/device_linking.rs': 14,
     ROOT + 'client/account_chat_sharing/automatic.rs': 8,
     ROOT + 'native_device_linking/enabled.rs': 2,
-    ROOT + 'client/private_enrollment_proposal.rs': 1,
+    ROOT + 'client/private_enrollment_proposal.rs': 2,
     ROOT + 'client/private_enrollment_proposal/sibling_sharing.rs': 19,
     ROOT + 'native_device_linking/tests/automatic_pairing_acceptance.rs': 13,
 }
@@ -69,8 +69,8 @@ STAGES = {
     89: 'RetainedRequestLookupResult', 90: 'BeginSourceChannelCall',
     91: 'ExistingAccountStorageEnter', 92: 'ExistingAccountStorageResult',
 }
-HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '7da356dfaa48bf9ca3dc1e75a8e8f0cd85d8a3538aabd5678c8c252b10670dac', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': '8f815fdd6d804d9111e87cd3e44120cb5fda28d27629b3b7681a1b46d93f5941', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623', 'crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs': '9744d3283b134b302524f44eec206d10fd668abb4175d7acdb2b8c912ef3f6c5'}
-MODULE_SHA256 = 'e9bcbf59ce3589af7eb940a85e594ae1406192d107e283fd23389e4a5e03b64b'
+HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '7da356dfaa48bf9ca3dc1e75a8e8f0cd85d8a3538aabd5678c8c252b10670dac', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': 'd0a7a8d3fd9c69433e604cce36aaf8f63659c9a3517839d7b676d1d92bd32c5c', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623', 'crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs': '9744d3283b134b302524f44eec206d10fd668abb4175d7acdb2b8c912ef3f6c5'}
+MODULE_SHA256 = 'dc9515086b8dc28c653fbb7797333e1888ae23d89cead30f75fdd84de6157fc8'
 STRIP = re.compile(rb'(?m)^[ \t]*// BROAD_TRACE_BEGIN\n.*?^[ \t]*// BROAD_TRACE_END\n', re.S)
 
 

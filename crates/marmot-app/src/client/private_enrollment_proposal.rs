@@ -74,6 +74,18 @@ fn rejected() -> ClientLinkingError {
     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::InvalidContext))
 }
 impl AppClient {
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(in crate::client) fn broad_existing_sharing_state_for_test(
+        &self,
+    ) -> Option<&Arc<crate::account_chat_sharing::enabled::State>> {
+        self.linking_owner
+            .received_endorsement
+            .as_ref()
+            .and_then(|action| action.sharing.as_ref())
+            .map(|original| &original.state)
+    }
+    // BROAD_TRACE_END
     /// Read-only correlation of actual retained observations; not approval.
     pub(crate) fn received_enrollment_proposal_bindings(
         &mut self,
