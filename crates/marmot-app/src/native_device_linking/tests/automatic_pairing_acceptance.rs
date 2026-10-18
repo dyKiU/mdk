@@ -493,7 +493,8 @@ async fn public_third_device_enrollment(reverse_initial_roles: bool) {
         relay.as_str(),
         "wss://relay.eu.whitenoise.chat" | "wss://relay.us.whitenoise.chat"
     ));
-    four_device_enrollment_with_relay(HeldPublication::None, Some(&relay), reverse_initial_roles).await;
+    four_device_enrollment_with_relay(HeldPublication::None, Some(&relay), reverse_initial_roles)
+        .await;
 }
 
 async fn public_onboarded_accounts(
