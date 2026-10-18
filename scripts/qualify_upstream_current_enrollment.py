@@ -158,6 +158,31 @@ def closed_panic_sites(raw,name,tracked,read_bytes=None):
     return {'sites':found[:32],'truncated':len(found)>32,'source_valid_location_count':len(found),
         'other_panic_headers_unknown':max(0,raw.count('panicked at ')-len(found)),'panic_payloads_exported':False}
 
+# DeviceLinkingPhase is a source-frozen payload-free unit enum. No Debug
+# snapshot, decimals, revision, packet or arbitrary panic message is exported.
+PHASES=('AwaitingSetup','AwaitingPeer','ComparisonAvailable','AwaitingPeerVerification','VerificationCompleteEnrollmentPending','Cancelled','Expired','Failed','EnrollmentComplete')
+def phase_timeout_site():
+    lines=Path(PARENT).read_text().splitlines()
+    literal='panic!("automatic pairing did not reach required phase: expected={phase:?} observed={observed:?}")'
+    hits=[i for i,line in enumerate(lines) if literal in line]
+    ensure(len(hits)==1,'unique-original-phase-timeout-site')
+    index=hits[0];return index+1,lines[index].index('panic!')+1
+
+def closed_phase_timeout(raw,name):
+    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    line,column=phase_timeout_site();phase='(?:'+'|'.join(PHASES)+')'
+    header=r"(?m)^thread '([^'\n]{0,512})'(?: \([0-9]{1,10}\))? panicked at "+re.escape(PARENT)+':'+str(line)+':'+str(column)+':$'
+    payload=r'automatic pairing did not reach required phase: expected=('+phase+r') observed=(None|Some\(\(('+phase+'), ('+phase+r')\)\))'
+    headers=list(re.finditer(header,text));matches=list(re.finditer(header+r'\n'+payload+r'$',text))
+    result={'source_site_header_count':len(headers),'closed_payload_count':len(matches),'closed_phase_record_available':False,
+        'expected_phase':None,'last_completed_serial_pair':None,'observed_pair_available':None,'thread_matches_selected':None,
+        'source_site':{'file':PARENT,'line':line,'column':column},'last_sample_timestamp_unknown':True,
+        'fresh_deadline_snapshot':False,'blocking_side_identified':False,'raw_message_or_thread_ID_exported':False}
+    if len(headers)==len(matches)==1:
+        match=matches[0];result.update(closed_phase_record_available=True,thread_matches_selected=match[1]==name,
+            expected_phase=match[2],observed_pair_available=match[3]!='None',last_completed_serial_pair=None if match[3]=='None' else [match[4],match[5]])
+    return result
+
 def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
     save(report)
@@ -179,6 +204,8 @@ def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     for dest,key in [('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored'),('actual_executed_nonignored','executed_nonignored')]:row[dest]=basic.get(key)
     row['actual_test_passed']=basic.get('passed_gate') is True;save(report)
     row['panic_locations']=closed_panic_sites(raw,name,set(inputs));save(report)
+    if five:
+        row['phase_timeout']=closed_phase_timeout(raw,name);save(report)
     ensure(row['source_after_body_pristine'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
     parsed=native.parse(raw,code) if five else ack.parse_case(label,raw,code)
     row['original_oracle']=closed_oracle(parsed)
@@ -209,7 +236,20 @@ def parser_controls(mode):
         ensure(not closed_panic_sites(text,name,{path},read)['sites'],'unknown-or-out-of-source-site-not-exported')
     many=closed_panic_sites(header*33,name,{path},read)
     ensure(len(many['sites'])==32 and many['truncated'] is True,'bounded-source-sites')
-    return {'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'actual_runtime_bodies':0}
+    phase_source=Path('crates/marmot-app/src/native_device_linking.rs').read_text()
+    match=re.search(r'pub enum DeviceLinkingPhase \{([^}]+)\}',phase_source)
+    ensure(match is not None and tuple(part.strip() for part in match[1].split(',') if part.strip())==PHASES,'exact-nine-source-unit-phases')
+    phase_line,phase_column=phase_timeout_site()
+    phase_header="thread '"+native.NAME+"' (123) panicked at "+PARENT+':'+str(phase_line)+':'+str(phase_column)+':\n'
+    phase_payload='automatic pairing did not reach required phase: expected=EnrollmentComplete observed=Some((EnrollmentComplete, VerificationCompleteEnrollmentPending))'
+    closed=closed_phase_timeout(phase_header+phase_payload+'\n',native.NAME)
+    ensure(closed['closed_phase_record_available'] and closed['last_completed_serial_pair']==['EnrollmentComplete','VerificationCompleteEnrollmentPending'],'exact-cached-closed-pair-positive')
+    none=closed_phase_timeout(phase_header+phase_payload.replace('Some((EnrollmentComplete, VerificationCompleteEnrollmentPending))','None')+'\n',native.NAME)
+    ensure(none['closed_phase_record_available'] and none['observed_pair_available'] is False and none['last_completed_serial_pair'] is None,'no-completed-pair-is-unknown-positive')
+    for text in [phase_header+phase_payload+' PRIVATE',phase_header+phase_payload.replace('VerificationCompleteEnrollmentPending','PRIVATE'),phase_header.replace(':'+str(phase_column)+':',':999:')+phase_payload,(phase_header+phase_payload+'\n')*2,phase_payload+'\n',phase_header+phase_payload.replace('Some((', '('),phase_header.replace('(123)','(PRIVATE)')+phase_payload]:
+        row=closed_phase_timeout(text,native.NAME)
+        ensure(not row['closed_phase_record_available'] and 'PRIVATE' not in json.dumps(row),'no-foreign-or-malformed-phase-payload-export')
+    return {'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
 
 def main(args):
     os.umask(0o077)
