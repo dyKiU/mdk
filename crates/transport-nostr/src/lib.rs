@@ -254,6 +254,28 @@ struct AutomaticBodyPublicationGate {
 }
 // AUTOMATIC_BODY_TEST_END
 
+/// Read-only summaries of records already retained by the diagnostic observer.
+/// Delivery callbacks only: neither raw arrivals nor Overflow queue records.
+#[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub struct AccountNotificationPrefixRow {
+    pub target_first_accepted: std::time::Instant,
+    pub qualifying_distinct: u16,
+    pub qualifying_callbacks: u64,
+    pub older_without_dequeue: u16,
+    pub older_first_dequeued_before_anchor: u16,
+    pub earliest_qualifying_first_dequeue: Option<std::time::Instant>,
+    pub latest_qualifying_first_dequeue: Option<std::time::Instant>,
+    pub invalid: bool,
+}
+#[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub struct AccountNotificationPrefixSnapshot {
+    pub entries: usize,
+    pub at_capacity: bool,
+    pub rows: [Option<AccountNotificationPrefixRow>; 3],
+}
+
 #[cfg(all(
     any(test, feature = "test-support"),
     feature = "experimental-device-sync",
@@ -2056,6 +2078,59 @@ impl MarmotRelayPlane {
                 ),
             )
         })
+    }
+
+    /// One bounded read of the existing observer map. No queue operation or new
+    /// recorder. The anchor and dequeue clocks are callback/mutex observations,
+    /// not channel-removal times or exact FIFO positions. Old-ID later repeats
+    /// cannot be assigned after the anchor from a first timestamp alone.
+    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[doc(hidden)]
+    pub fn account_notification_prefix_for_test(
+        &self,
+        account: &MemberId,
+        ids: [Option<&str>; 3],
+    ) -> Option<AccountNotificationPrefixSnapshot> {
+        let observer = {
+            let observers = self.inner.transport.test_notification_dispositions.lock().unwrap();
+            observers.get(account)?.clone()
+        };
+        let entries = observer.0.lock().unwrap();
+        if entries.len() > 512 { return None; }
+        let mut rows: [Option<AccountNotificationPrefixRow>; 3] = std::array::from_fn(|channel| {
+            let entry = entries.get(ids[channel]?)?;
+            let anchor = entry.3[0]?;
+            Some(AccountNotificationPrefixRow {
+                target_first_accepted: anchor, qualifying_distinct: 0,
+                qualifying_callbacks: 0, older_without_dequeue: 0,
+                older_first_dequeued_before_anchor: 0,
+                earliest_qualifying_first_dequeue: None,
+                latest_qualifying_first_dequeue: None, invalid: entry.4.invalid,
+            })
+        });
+        // Each map entry is read once; only three fixed anchor accumulators.
+        for entry in entries.values() {
+            let Some(first_accepted) = entry.3[0] else { continue; };
+            for row in rows.iter_mut().flatten() {
+                if first_accepted >= row.target_first_accepted { continue; }
+                let queue = entry.4;
+                if queue.invalid { row.invalid = true; }
+                match (queue.dequeued, queue.first_dequeued) {
+                    (0, None) => row.older_without_dequeue += 1,
+                    (0, Some(_)) | (1.., None) => row.invalid = true,
+                    (count, Some(first)) if first >= row.target_first_accepted => {
+                        row.qualifying_distinct += 1;
+                        if let Some(total) = row.qualifying_callbacks.checked_add(count) {
+                            row.qualifying_callbacks = total;
+                        } else { row.invalid = true; }
+                        row.earliest_qualifying_first_dequeue = Some(row.earliest_qualifying_first_dequeue.map_or(first, |old| old.min(first)));
+                        row.latest_qualifying_first_dequeue = Some(row.latest_qualifying_first_dequeue.map_or(first, |old| old.max(first)));
+                    }
+                    (_, Some(_)) => row.older_first_dequeued_before_anchor += 1,
+                }
+            }
+        }
+        Some(AccountNotificationPrefixSnapshot { entries: entries.len(), at_capacity: entries.len() == 512, rows })
     }
 
     /// Observe the actual registered SDK context without traffic or new ownership.
