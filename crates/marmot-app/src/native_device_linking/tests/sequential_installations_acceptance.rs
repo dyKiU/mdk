@@ -267,7 +267,7 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                                 apps[plane].relay_plane.account_notification_timing_for_test(
                                     &account, &hex::encode(message.as_slice()),
                                 )
-                            }).map(|(counts, instants)| {
+                            }).map(|(counts, instants, placements, placement_instants)| {
                                 let mut invalid = 0u8;
                                 let times = std::array::from_fn(|stage| instants[stage].and_then(|instant| {
                                     let time = instant.checked_duration_since(origin)
@@ -276,8 +276,16 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                                     if time.is_none() { invalid |= 1 << stage; }
                                     time
                                 }));
-                                (Some(counts), Some(times), Some(invalid))
-                            }).unwrap_or((None, None, None))
+                                let mut placement_invalid = 0u8;
+                                let placement_times = std::array::from_fn(|stage| placement_instants[stage].and_then(|instant| {
+                                    let time = instant.checked_duration_since(origin)
+                                        .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+                                        .filter(|time| *time <= 600_000_000);
+                                    if time.is_none() { placement_invalid |= 1 << stage; }
+                                    time
+                                }));
+                                (Some(counts), Some(times), Some(invalid), Some(placements), Some(placement_times), Some(placement_invalid))
+                            }).unwrap_or((None, None, None, None, None, None))
                         })
                     })
                 })));
@@ -320,7 +328,7 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                                         &hex::encode(message.as_slice()),
                                     )
                             })
-                            .map(|(counts, instants)| {
+                            .map(|(counts, instants, placements, placement_instants)| {
                                 let mut invalid = 0u8;
                                 let times = std::array::from_fn(|stage| {
                                     instants[stage].and_then(|instant| {
@@ -336,9 +344,17 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                                         time
                                     })
                                 });
-                                (Some(counts), Some(times), Some(invalid))
+                                let mut placement_invalid = 0u8;
+                                let placement_times = std::array::from_fn(|stage| placement_instants[stage].and_then(|instant| {
+                                    let time = instant.checked_duration_since(origin)
+                                        .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+                                        .filter(|time| *time <= 600_000_000);
+                                    if time.is_none() { placement_invalid |= 1 << stage; }
+                                    time
+                                }));
+                                (Some(counts), Some(times), Some(invalid), Some(placements), Some(placement_times), Some(placement_invalid))
                             })
-                            .unwrap_or((None, None, None))
+                            .unwrap_or((None, None, None, None, None, None))
                     })
                 })
             }),

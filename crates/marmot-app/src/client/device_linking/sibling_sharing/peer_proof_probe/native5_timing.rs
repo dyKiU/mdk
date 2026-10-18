@@ -1056,16 +1056,15 @@ impl Default for Data {
         }
     }
 }
-// Optional intake observations never lock the native timing Data. Weak keys are
-// copied at existing bind/publication sites only, after those locks are released.
+// Immutable weak bindings are published at existing token boundaries, outside
+// native Data locks. Unrelated calls never contend on optional row recording.
 #[derive(Clone, Default)]
 struct IntakeData {
-    owner: Option<Weak<OriginalEnrollmentSharingChoice>>,
-    recipient: [Option<Key>; 3],
-    peer: [Option<Key>; 3],
     selection: [[Option<(u64, u8, u32)>; 3]; 5],
     gates: [Option<GateRow>; 5],
-    receipts: [[Option<(u64, bool, u32, u32)>; 3]; 2],
+    receipts: [[Option<(u64, bool, u32, u32)>; 3]; 3],
+    ingests: [[Option<(u64, Option<u64>, Option<bool>, u32, u32)>; 3]; 2],
+    receives: [Option<(Option<u64>, Option<[bool; 3]>, Option<u64>, u32, u32)>; 5],
 }
 #[derive(Clone, Copy)]
 struct GateRow {
@@ -1074,285 +1073,239 @@ struct GateRow {
     repeated: u32,
     last: bool,
 }
+struct IntakeLoss {
+    count: AtomicU32,
+    first: std::sync::atomic::AtomicU64,
+    mask: AtomicU32,
+}
+impl IntakeLoss {
+    fn new() -> Self { Self { count: AtomicU32::new(0), first: std::sync::atomic::AtomicU64::new(0), mask: AtomicU32::new(0) } }
+    fn record(&self, reason: u32, time: Option<u64>) {
+        self.mask.fetch_or(reason | if time.is_none() { OVERFLOW } else { 0 }, Ordering::AcqRel);
+        if let Some(time) = time {
+            let _ = self.first.compare_exchange(0, time + 1, Ordering::AcqRel, Ordering::Acquire);
+        }
+        if self.count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| value.checked_add(1)).is_err() {
+            self.mask.fetch_or(OVERFLOW, Ordering::AcqRel);
+        }
+    }
+}
 struct IntakeRecorder {
     origin: Instant,
     status: AtomicU32,
+    active: AtomicU32,
+    owner: OnceLock<Weak<OriginalEnrollmentSharingChoice>>,
+    recipient: [OnceLock<Key>; 3],
+    peer: [OnceLock<Key>; 3],
+    losses: [IntakeLoss; 53],
     data: Mutex<IntakeData>,
+}
+struct IntakeOperation<'a>(&'a IntakeRecorder);
+impl Drop for IntakeOperation<'_> {
+    fn drop(&mut self) { self.0.active.fetch_sub(1, Ordering::AcqRel); }
 }
 impl IntakeRecorder {
     fn new(origin: Instant) -> Self {
-        Self {
-            origin,
-            status: AtomicU32::new(0),
-            data: Mutex::new(IntakeData::default()),
-        }
+        Self { origin, status: AtomicU32::new(0), active: AtomicU32::new(0),
+            owner: OnceLock::new(), recipient: std::array::from_fn(|_| OnceLock::new()),
+            peer: std::array::from_fn(|_| OnceLock::new()), losses: std::array::from_fn(|_| IntakeLoss::new()),
+            data: Mutex::new(IntakeData::default()) }
     }
-    fn loss(&self, reason: u32) {
-        let _ = self
-            .status
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                (old & FROZEN == 0).then_some(old | reason)
-            });
+    fn time(&self) -> Option<u64> {
+        Instant::now().checked_duration_since(self.origin)
+            .and_then(|duration| u64::try_from(duration.as_micros()).ok()).filter(|time| *time <= MAX_US)
     }
-    fn observe(&self, operation: impl FnOnce(&mut IntakeData, u64)) {
-        if self.status.load(Ordering::Acquire) & FROZEN != 0 {
-            return;
-        }
+    fn enter(&self) -> Option<IntakeOperation<'_>> {
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 { return None; }
+        // Only existing bounded actors and publication callbacks enter; never
+        // spans an await. Freeze does not wait for this counter to reach zero.
+        self.active.fetch_add(1, Ordering::AcqRel);
+        let operation = IntakeOperation(self);
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 { return None; }
+        Some(operation)
+    }
+    fn loss(&self, slot: usize, reason: u32) {
+        if let Some(row) = self.losses.get(slot) { row.record(reason, self.time()); }
+    }
+    fn observe(&self, slot: usize, operation: impl FnOnce(&mut IntakeData, u64)) {
+        let Some(_operation) = self.enter() else { return; };
         let mut data = match self.data.try_lock() {
             Ok(data) => data,
-            Err(TryLockError::WouldBlock) => {
-                self.loss(LOCK_BUSY);
-                return;
-            }
-            Err(TryLockError::Poisoned(_)) => {
-                self.loss(LOCK_POISONED);
-                return;
-            }
+            Err(TryLockError::WouldBlock) => { self.loss(slot, LOCK_BUSY); return; }
+            Err(TryLockError::Poisoned(_)) => { self.loss(slot, LOCK_POISONED); return; }
         };
-        if self.status.load(Ordering::Acquire) & FROZEN != 0 {
-            return;
-        }
-        let time = Instant::now()
-            .checked_duration_since(self.origin)
-            .and_then(|duration| u64::try_from(duration.as_micros()).ok())
-            .filter(|time| *time <= MAX_US);
-        let Some(time) = time else {
-            self.loss(OVERFLOW);
-            return;
-        };
+        let Some(time) = self.time() else { self.loss(slot, OVERFLOW); return; };
         operation(&mut data, time);
     }
-    fn increment(&self, counter: &mut u32) {
-        if let Some(next) = counter.checked_add(1) {
-            *counter = next;
-        } else {
-            self.loss(OVERFLOW);
-        }
+    fn increment(&self, slot: usize, counter: &mut u32) {
+        if let Some(next) = counter.checked_add(1) { *counter = next; }
+        else { self.loss(slot, OVERFLOW); }
+    }
+    fn owner_matches(&self, current: Option<&Arc<OriginalEnrollmentSharingChoice>>) -> bool {
+        self.owner.get().is_some_and(|owner| current.is_some_and(|current| owner.ptr_eq(&Arc::downgrade(current))))
+    }
+    fn peer_index(&self, message: &cgka_traits::MessageId) -> Option<usize> {
+        self.peer.iter().position(|key| key.get().is_some_and(|key| &key.message == message))
     }
     fn bind_owner(&self, owner: Weak<OriginalEnrollmentSharingChoice>) {
-        self.observe(|data, _| {
-            if let Some(old) = &data.owner {
-                if !old.ptr_eq(&owner) {
-                    self.loss(IDENTITY);
-                }
-            } else {
-                data.owner = Some(owner);
-            }
-        });
+        let Some(_operation) = self.enter() else { return; };
+        if let Err(owner) = self.owner.set(owner) {
+            if !self.owner.get().is_some_and(|old| old.ptr_eq(&owner)) { self.loss(0, IDENTITY); }
+        }
     }
     fn bind_key(&self, index: usize, key: &Key, peer: bool) {
-        self.observe(|data, _| {
-            let keys = if peer {
-                &mut data.peer
-            } else {
-                &mut data.recipient
-            };
-            let Some(slot) = keys.get_mut(index) else {
-                self.loss(CAPACITY);
-                return;
-            };
-            if let Some(old) = slot {
-                if !old.state.ptr_eq(&key.state)
-                    || old.nonce != key.nonce
-                    || old.message != key.message
-                {
-                    self.loss(IDENTITY);
-                }
-            } else {
-                *slot = Some(key.clone());
+        let Some(_operation) = self.enter() else { return; };
+        let loss_slot = if peer { 4 + index.min(2) } else { 1 + index.min(2) };
+        let keys = if peer { &self.peer } else { &self.recipient };
+        let Some(slot) = keys.get(index) else { self.loss(loss_slot, CAPACITY); return; };
+        if let Err(key) = slot.set(key.clone()) {
+            if !slot.get().is_some_and(|old| old.state.ptr_eq(&key.state) && old.nonce == key.nonce && old.message == key.message) {
+                self.loss(loss_slot, IDENTITY);
             }
-        });
+        }
     }
-    fn report(
-        &self,
-        native_ids: &[Option<cgka_traits::MessageId>; 3],
-        native_snapshot: bool,
-    ) -> String {
+    fn report(&self, native_ids: &[Option<cgka_traits::MessageId>; 3], native_snapshot: bool) -> String {
         use std::fmt::Write as _;
-        let (snapshot, loss) = match self.data.try_lock() {
-            Ok(data) => {
-                // Freeze while holding the only optional-ledger mutex. Loss
-                // updates after this boundary are ignored, never half-exported.
-                let mut loss = self.status.fetch_or(FROZEN, Ordering::AcqRel) & !FROZEN;
-                if native_snapshot
-                    && data
-                        .peer
-                        .iter()
-                        .zip(native_ids)
-                        .any(|(key, id)| key.as_ref().map(|key| &key.message) != id.as_ref())
-                {
-                    loss |= IDENTITY;
-                }
-                (Some(data.clone()), loss)
-            }
-            Err(error) => {
-                let reason = match error {
-                    TryLockError::WouldBlock => LOCK_BUSY,
-                    TryLockError::Poisoned(_) => LOCK_POISONED,
-                };
-                (
-                    None,
-                    (self.status.fetch_or(FROZEN | reason, Ordering::AcqRel) | reason) & !FROZEN,
-                )
-            }
+        self.status.fetch_or(FROZEN, Ordering::AcqRel);
+        // No waiting: a live operation makes all absence/completeness claims
+        // unknown. Positive atomic loss fields remain supplemental observations.
+        let inflight = self.active.load(Ordering::Acquire);
+        let snapshot = match self.data.try_lock() {
+            Ok(data) => Some(data.clone()),
+            Err(error) => { self.loss(52, match error { TryLockError::WouldBlock => LOCK_BUSY, TryLockError::Poisoned(_) => LOCK_POISONED }); None }
         };
+        if native_snapshot && self.peer.iter().zip(native_ids).any(|(key, id)| key.get().map(|key| &key.message) != id.as_ref()) { self.loss(52, IDENTITY); }
+        let losses: [(u32, Option<u64>, u32); 53] = std::array::from_fn(|index| {
+            let row = &self.losses[index];
+            (row.count.load(Ordering::Acquire), row.first.load(Ordering::Acquire).checked_sub(1), row.mask.load(Ordering::Acquire))
+        });
+        let loss = losses.iter().fold(0, |mask, row| mask | row.2);
         let available = snapshot.is_some();
-        let owner_bound = snapshot.as_ref().is_some_and(|data| data.owner.is_some());
-        let bound: [Option<bool>; 3] =
-            std::array::from_fn(|index| snapshot.as_ref().map(|data| data.peer[index].is_some()));
+        let owner_bound = available && self.owner.get().is_some();
+        let bound: [Option<bool>; 3] = std::array::from_fn(|index| available.then(|| self.peer[index].get().is_some()));
         let mut output = String::new();
-        let _ = writeln!(
-            &mut output,
-            "native5-intake-meta known={} loss_mask={loss} snapshot_available={available} owner_bound={owner_bound} source_id_bound={bound:?}",
-            available && loss == 0
-        );
+        let _ = writeln!(&mut output, "native5-intake-meta known={} loss_mask={loss} snapshot_available={available} owner_bound={owner_bound} source_id_bound={bound:?} inflight_at_freeze={inflight}", available && loss == 0 && inflight == 0);
+        for worker in 0..5 { for channel in 0..3 {
+            let row = snapshot.as_ref().and_then(|data| data.selection[worker][channel]);
+            let _ = writeln!(&mut output, "native5-intake-selection worker={worker} channel={channel} observation={row:?}");
+        } }
         for worker in 0..5 {
-            for channel in 0..3 {
-                let row = snapshot
-                    .as_ref()
-                    .and_then(|data| data.selection[worker][channel]);
-                let _ = writeln!(
-                    &mut output,
-                    "native5-intake-selection worker={worker} channel={channel} observation={row:?}"
-                );
-            }
+            let row = snapshot.as_ref().and_then(|data| data.gates[worker].map(|row| (row.samples, row.transitions, row.repeated)));
+            let _ = writeln!(&mut output, "native5-intake-gate worker={worker} observation={row:?}");
         }
+        for path in 0..3 { for channel in 0..3 {
+            let row = snapshot.as_ref().and_then(|data| data.receipts[path][channel]);
+            let _ = writeln!(&mut output, "native5-intake-receipt path={path} channel={channel} observation={row:?}");
+        } }
+        for path in 0..2 { for channel in 0..3 {
+            let row = snapshot.as_ref().and_then(|data| data.ingests[path][channel]);
+            let _ = writeln!(&mut output, "native5-intake-ingest path={path} channel={channel} observation={row:?}");
+        } }
         for worker in 0..5 {
-            let row = snapshot.as_ref().and_then(|data| {
-                data.gates[worker].map(|row| (row.samples, row.transitions, row.repeated))
-            });
-            let _ = writeln!(
-                &mut output,
-                "native5-intake-gate worker={worker} observation={row:?}"
-            );
+            let row = snapshot.as_ref().and_then(|data| data.receives[worker]);
+            let _ = writeln!(&mut output, "native5-intake-receive worker={worker} observation={row:?}");
         }
-        for path in 0..2 {
-            for channel in 0..3 {
-                let row = snapshot
-                    .as_ref()
-                    .and_then(|data| data.receipts[path][channel]);
-                let _ = writeln!(
-                    &mut output,
-                    "native5-intake-receipt path={path} channel={channel} observation={row:?}"
-                );
-            }
+        for (slot, (count, first, mask)) in losses.into_iter().enumerate() {
+            let _ = writeln!(&mut output, "native5-intake-loss slot={slot} count={count} first_us={first:?} mask={mask}");
         }
         output
     }
 }
-fn intake_owner_matches(
-    owner: &Weak<OriginalEnrollmentSharingChoice>,
-    current: Option<&Arc<OriginalEnrollmentSharingChoice>>,
-) -> bool {
-    current.is_some_and(|current| owner.ptr_eq(&Arc::downgrade(current)))
-}
 pub(in super::super::super) fn intake_selected(
-    current: Option<&Arc<OriginalEnrollmentSharingChoice>>,
-    entries: &[SiblingChannel],
-    message: &cgka_traits::MessageId,
-    worker: usize,
+    current: Option<&Arc<OriginalEnrollmentSharingChoice>>, entries: &[SiblingChannel], message: &cgka_traits::MessageId, worker: usize,
 ) {
-    let Some(probe) = active_probe() else {
-        return;
+    let Some(probe) = active_probe() else { return; };
+    let Some(index) = probe.intake.peer_index(message) else { return; };
+    let loss_slot = 7 + worker.min(4) * 3 + index;
+    let reason = match current {
+        None => 1,
+        Some(current) if probe.intake.owner_matches(Some(current)) => {
+            if probe.intake.recipient[index].get().is_some_and(|key| entries.iter().any(|entry| {
+                key.state.ptr_eq(&Arc::downgrade(&entry.state)) && key.nonce == entry.channel.scope().nonce
+                && matches!(entry.original.as_ref(), SiblingOriginal::Recipient { choice, .. } if Arc::ptr_eq(choice, current))
+            })) { 0 } else { 3 }
+        }
+        _ => 2,
     };
-    probe.intake.observe(|data, time| {
-        let Some(index) = data.peer.iter().position(|key| key.as_ref().is_some_and(|key| &key.message == message)) else { return; };
-        if worker >= 5 { probe.intake.loss(CAPACITY); return; }
-        let reason = match (&data.owner, current) {
-            (_, None) => 1,
-            (Some(owner), Some(current)) if intake_owner_matches(owner, Some(current)) => {
-                if data.recipient[index].as_ref().is_some_and(|key| entries.iter().any(|entry| {
-                    key.state.ptr_eq(&Arc::downgrade(&entry.state)) && key.nonce == entry.channel.scope().nonce
-                    && matches!(entry.original.as_ref(), SiblingOriginal::Recipient { choice, .. } if Arc::ptr_eq(choice, current))
-                })) { 0 } else { 3 }
-            }
-            _ => 2,
-        };
-        if let Some(row) = &mut data.selection[worker][index] { probe.intake.increment(&mut row.2); }
+    probe.intake.observe(loss_slot, |data, time| {
+        if worker >= 5 { probe.intake.loss(loss_slot, CAPACITY); return; }
+        if let Some(row) = &mut data.selection[worker][index] { probe.intake.increment(loss_slot, &mut row.2); }
         else { data.selection[worker][index] = Some((time, reason, 0)); }
     });
 }
-pub(in super::super::super) fn intake_gate(
-    current: Option<&Arc<OriginalEnrollmentSharingChoice>>,
-    worker: usize,
-    enabled: bool,
-) {
-    let Some(probe) = active_probe() else {
-        return;
-    };
-    probe.intake.observe(|data, time| {
-        if !data
-            .owner
-            .as_ref()
-            .is_some_and(|owner| intake_owner_matches(owner, current))
-        {
-            return;
-        }
-        let Some(slot) = data.gates.get_mut(worker) else {
-            probe.intake.loss(CAPACITY);
-            return;
-        };
-        let row = slot.get_or_insert(GateRow {
-            samples: [None; 16],
-            transitions: 0,
-            repeated: 0,
-            last: enabled,
-        });
-        let length = row
-            .samples
-            .iter()
-            .take_while(|sample| sample.is_some())
-            .count();
-        if length == 0 {
-            row.samples[0] = Some((time, enabled));
-        } else if row.last == enabled {
-            probe.intake.increment(&mut row.repeated);
-        } else {
-            probe.intake.increment(&mut row.transitions);
-            if length < 16 {
-                row.samples[length] = Some((time, enabled));
-            } else {
-                probe.intake.loss(CAPACITY);
-            }
-        }
+pub(in super::super::super) fn intake_gate(current: Option<&Arc<OriginalEnrollmentSharingChoice>>, worker: usize, enabled: bool) {
+    let Some(probe) = active_probe() else { return; };
+    if !probe.intake.owner_matches(current) { return; }
+    let loss_slot = 22 + worker.min(4);
+    probe.intake.observe(loss_slot, |data, time| {
+        let Some(slot) = data.gates.get_mut(worker) else { probe.intake.loss(loss_slot, CAPACITY); return; };
+        let row = slot.get_or_insert(GateRow { samples: [None; 16], transitions: 0, repeated: 0, last: enabled });
+        let length = row.samples.iter().take_while(|sample| sample.is_some()).count();
+        if length == 0 { row.samples[0] = Some((time, enabled)); }
+        else if row.last == enabled { probe.intake.increment(loss_slot, &mut row.repeated); }
+        else { probe.intake.increment(loss_slot, &mut row.transitions); if length < 16 { row.samples[length] = Some((time, enabled)); } else { probe.intake.loss(loss_slot, CAPACITY); } }
         row.last = enabled;
     });
 }
-pub(in super::super::super) fn intake_receipt(
-    current: Option<&Arc<OriginalEnrollmentSharingChoice>>,
-    message: &cgka_traits::MessageId,
-    path: usize,
-    already_held: bool,
-) {
-    let Some(probe) = active_probe() else {
-        return;
-    };
-    probe.intake.observe(|data, time| {
-        if !data
-            .owner
-            .as_ref()
-            .is_some_and(|owner| intake_owner_matches(owner, current))
-        {
-            return;
-        }
-        let Some(index) = data
-            .peer
-            .iter()
-            .position(|key| key.as_ref().is_some_and(|key| &key.message == message))
-        else {
-            return;
-        };
-        let Some(rows) = data.receipts.get_mut(path) else {
-            probe.intake.loss(CAPACITY);
-            return;
-        };
-        if let Some(row) = &mut rows[index] {
-            probe
-                .intake
-                .increment(if already_held { &mut row.2 } else { &mut row.3 });
-        } else {
-            rows[index] = Some((time, already_held, 0, 0));
-        }
+#[derive(Clone)]
+pub(crate) struct IntakeToken { probe: Weak<Probe>, index: usize }
+pub(in super::super::super) fn intake_token(current: Option<&Arc<OriginalEnrollmentSharingChoice>>, message: &cgka_traits::MessageId) -> Option<IntakeToken> {
+    let probe = active_probe()?;
+    if !probe.intake.owner_matches(current) { return None; }
+    let index = probe.intake.peer_index(message)?;
+    Some(IntakeToken { probe: Arc::downgrade(&probe), index })
+}
+impl IntakeToken {
+    pub(crate) fn receipt(&self, path: usize, already_held: bool) {
+        let Some(probe) = self.probe.upgrade() else { return; };
+        let loss_slot = 27 + path.min(2) * 3 + self.index;
+        probe.intake.observe(loss_slot, |data, time| {
+            let Some(rows) = data.receipts.get_mut(path) else { probe.intake.loss(loss_slot, CAPACITY); return; };
+            if let Some(row) = &mut rows[self.index] { probe.intake.increment(loss_slot, if already_held { &mut row.2 } else { &mut row.3 }); }
+            else { rows[self.index] = Some((time, already_held, 0, 0)); }
+        });
+    }
+    pub(crate) fn begin_ingest(&self, path: usize) -> Option<IntakeIngest> {
+        let probe = self.probe.upgrade()?;
+        let loss_slot = 36 + path.min(1) * 3 + self.index;
+        let mut first = None;
+        probe.intake.observe(loss_slot, |data, time| {
+            let Some(rows) = data.ingests.get_mut(path) else { probe.intake.loss(loss_slot, CAPACITY); return; };
+            if let Some(row) = &mut rows[self.index] { probe.intake.increment(loss_slot, &mut row.3); first = Some(false); }
+            else { rows[self.index] = Some((time, None, None, 0, 0)); first = Some(true); }
+        });
+        Some(IntakeIngest { token: self.clone(), path, first: first? })
+    }
+}
+pub(crate) struct IntakeIngest { token: IntakeToken, path: usize, first: bool }
+impl IntakeIngest {
+    pub(crate) fn finish(&self, ok: bool) {
+        let Some(probe) = self.token.probe.upgrade() else { return; };
+        let loss_slot = 36 + self.path * 3 + self.token.index;
+        probe.intake.observe(loss_slot, |data, time| {
+            let Some(row) = data.ingests[self.path][self.token.index].as_mut() else { probe.intake.loss(loss_slot, IDENTITY); return; };
+            if self.first {
+                if row.1.is_some() { probe.intake.loss(loss_slot, IDENTITY); return; }
+                row.1 = Some(time); row.2 = Some(ok);
+            } else { probe.intake.increment(loss_slot, &mut row.4); }
+        });
+    }
+}
+pub(in super::super::super) fn intake_receipt(current: Option<&Arc<OriginalEnrollmentSharingChoice>>, message: &cgka_traits::MessageId, path: usize, already_held: bool) {
+    if let Some(token) = intake_token(current, message) { token.receipt(path, already_held); }
+}
+pub(in super::super::super) fn intake_receive(current: Option<&Arc<OriginalEnrollmentSharingChoice>>, worker: usize, stage: usize, retries: Option<[bool; 3]>) {
+    let Some(probe) = active_probe() else { return; };
+    if !probe.intake.owner_matches(current) { return; }
+    let loss_slot = 42 + worker.min(4) * 2 + stage.min(1);
+    probe.intake.observe(loss_slot, |data, time| {
+        if worker >= 5 || stage > 1 || (stage == 0) != retries.is_some() { probe.intake.loss(loss_slot, IDENTITY); return; }
+        let row = data.receives[worker].get_or_insert((None, None, None, 0, 0));
+        if stage == 0 {
+            if row.0.is_none() { row.0 = Some(time); row.1 = retries; }
+            else { probe.intake.increment(loss_slot, &mut row.3); }
+        } else if row.2.is_none() { row.2 = Some(time); }
+        else { probe.intake.increment(loss_slot, &mut row.4); }
     });
 }
 
@@ -2125,8 +2078,7 @@ impl Guard {
             Instant,
             [Option<cgka_traits::MessageId>; 3],
         )
-            -> [[(Option<[u64; 8]>, Option<[Option<u64>; 8]>, Option<u8>); 3];
-            5],
+            -> [[(Option<[u64; 8]>, Option<[Option<u64>; 8]>, Option<u8>, Option<[u64; 6]>, Option<[Option<u64>; 6]>, Option<u8>); 3]; 5],
     ) -> String {
         use std::fmt::Write as _;
         let worker_report = self.0.worker.report();
@@ -2354,10 +2306,10 @@ impl Guard {
             "native5-notification-meta source_ids_snapshot_available={source_ids_snapshot_available} source_id_bound={source_id_bound:?}"
         );
         for (plane, rows) in notification_counts.into_iter().enumerate() {
-            for (channel, (counts, first_us, clock_invalid_mask)) in rows.into_iter().enumerate() {
+            for (channel, (counts, first_us, clock_invalid_mask, placement_counts, placement_first_us, placement_clock_invalid_mask)) in rows.into_iter().enumerate() {
                 let _ = writeln!(
                     &mut output,
-                    "native5-notification-disposition plane={plane} channel={channel} counts={counts:?} first_us={first_us:?} clock_invalid_mask={clock_invalid_mask:?}"
+                    "native5-notification-disposition plane={plane} channel={channel} counts={counts:?} first_us={first_us:?} clock_invalid_mask={clock_invalid_mask:?} placement_counts={placement_counts:?} placement_first_us={placement_first_us:?} placement_clock_invalid_mask={placement_clock_invalid_mask:?}"
                 );
             }
         }

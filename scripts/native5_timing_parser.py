@@ -488,9 +488,9 @@ def worker_output_capacity_control():
         worker.extend('native5-worker-focus worker='+str(index)+' channel='+str(channel)+' observation=Some('+samples+')' for channel in range(3))
     notification=notification_maximum_width_appendix();intake=intake_maximum_width_appendix()
     report='\n'.join(native+sdk+worker+notification+intake)+'\n'
-    require(len(native)==159 and len(sdk)==10 and len(worker)==21 and len(notification)==16 and len(intake)==27 and all(len(line)<4096 for line in native+sdk+worker+notification+intake),'maximum-closed-report-shape')
+    require(len(native)==159 and len(sdk)==10 and len(worker)==21 and len(notification)==16 and len(intake)==94 and all(len(line)<4096 for line in native+sdk+worker+notification+intake),'maximum-closed-report-shape')
     require(len(report.encode())<=65536,'existing-64KiB-output-capacity')
-    return {'maximum_width_serialized_bytes':len(report.encode()),'existing_cap_bytes':65536,'maximum_RPC_rows':128,'maximum_notification_rows':15,'maximum_intake_rows':26,'maximum_intake_appendix_bytes':len(('\n'.join(intake)+'\n').encode()),'maximum_notification_appendix_bytes':len(('\n'.join(notification)+'\n').encode()),'maximum_longest_poll_samples':20,'maximum_focus_candidates':60,'runtime_bodies':0,'capacity_fixture_is_not_runtime_evidence':True}
+    return {'maximum_width_serialized_bytes':len(report.encode()),'existing_cap_bytes':65536,'maximum_RPC_rows':128,'maximum_notification_rows':15,'maximum_intake_rows':93,'maximum_intake_appendix_bytes':len(('\n'.join(intake)+'\n').encode()),'maximum_notification_appendix_bytes':len(('\n'.join(notification)+'\n').encode()),'maximum_longest_poll_samples':20,'maximum_focus_candidates':60,'runtime_bodies':0,'capacity_fixture_is_not_runtime_evidence':True}
 
 
 def safe_worker_timing(raw):
@@ -535,10 +535,13 @@ NOTIFICATION_COUNTERS = [
     'adapter_ok_nonzero', 'adapter_error', 'plane_router_inlet',
     'no_account_delivery_route', 'account_delivery_route_present',
 ]
+PLACEMENT_COUNTERS = ['queue_accepted','queue_full','queue_closed','spill_offered','spill_rejected','omitted']
 U64 = r'(?:0|[1-9][0-9]{0,19})'
 U64_MAX = 18446744073709551615
 NOTIFICATION_OPTION = r'(?:None|Some\(\[' + U64 + r'(?:, ' + U64 + r'){7}\]\))'
 NOTIFICATION_TIMES = r'(?:None|Some\(\[' + ON + r'(?:, ' + ON + r'){7}\]\))'
+PLACEMENT_OPTION = r'(?:None|Some\(\[' + U64 + r'(?:, ' + U64 + r'){5}\]\))'
+PLACEMENT_TIMES = r'(?:None|Some\(\[' + ON + r'(?:, ' + ON + r'){5}\]\))'
 NOTIFICATION_MASK = r'(?:None|Some\((?:0|[1-9][0-9]{0,2})\))'
 
 
@@ -572,7 +575,7 @@ def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_
     rows = []
     for index, line in enumerate(lines[1:]):
         match = re.fullmatch(r'native5-notification-disposition plane=([0-4]) channel=([0-2]) counts=('
-            + NOTIFICATION_OPTION + r') first_us=(' + NOTIFICATION_TIMES + r') clock_invalid_mask=(' + NOTIFICATION_MASK + ')', line)
+            + NOTIFICATION_OPTION + r') first_us=(' + NOTIFICATION_TIMES + r') clock_invalid_mask=(' + NOTIFICATION_MASK + r') placement_counts=(' + PLACEMENT_OPTION + r') placement_first_us=(' + PLACEMENT_TIMES + r') placement_clock_invalid_mask=(' + NOTIFICATION_MASK + ')', line)
         require(match is not None and (int(match[1]),int(match[2])) == (index//3,index%3),
             'notification-ordered-five-by-three-rows')
         plane,channel = int(match[1]),int(match[2])
@@ -592,11 +595,29 @@ def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_
                 require((count == 0 and stamp is None and not invalid) or
                         (count > 0 and ((invalid and stamp is None) or (not invalid and stamp is not None))),
                     'notification-first-clock-count-coherence')
+        placement = None if match[6] == 'None' else [int(value) for value in match[6][6:-2].split(', ')]
+        placement_first = None if match[7] == 'None' else [opt(value) for value in match[7][6:-2].split(', ')]
+        placement_mask = None if match[8] == 'None' else int(match[8][5:-1])
+        require((placement is None) == (values is None),'notification-placement-same-registry-entry-presence')
+        if placement is None:
+            require(placement_first is None and placement_mask is None,'notification-missing-placement-clock-unknown')
+        else:
+            require(len(placement) == 6 and all(0 <= value <= U64_MAX for value in placement) and
+                isinstance(placement_first,list) and len(placement_first) == 6 and type(placement_mask) is int and 0 <= placement_mask <= 63,
+                'notification-six-placement-clocks-and-counters')
+            for stage,(count,stamp) in enumerate(zip(placement,placement_first)):
+                invalid=bool(placement_mask & (1<<stage))
+                require((count == 0 and stamp is None and not invalid) or
+                    (count > 0 and ((invalid and stamp is None) or (not invalid and stamp is not None))),
+                    'notification-placement-count-clock-coherence')
         require((available and bindings[channel] is True) or values is None, 'notification-unbound-or-unavailable-row-unknown')
         rows.append({'plane':plane,'channel':channel,'recipient_plane_for_this_join':plane == ordinal-1,
             'registry_entry_observed':values is not None,'counters':None if values is None else dict(zip(NOTIFICATION_COUNTERS,values)),
             'first_dispatcher_stage_us':None if first is None else dict(zip(NOTIFICATION_COUNTERS,first)),
-            'clock_invalid_mask':mask,'stage_clocks_are_socket_arrival_times':False,
+            'clock_invalid_mask':mask,'placement_counters':None if placement is None else dict(zip(PLACEMENT_COUNTERS,placement)),
+            'placement_first_dispatcher_us':None if placement_first is None else dict(zip(PLACEMENT_COUNTERS,placement_first)),
+            'placement_clock_invalid_mask':placement_mask,'queue_accepted_does_not_mean_dequeued':True,
+            'spill_offered_does_not_mean_durable':True,'stage_clocks_are_socket_arrival_times':False,
             'counts_and_first_instants_from_same_entry_mutex':True})
     return {'observed':True,'schema_complete':True,'source_ids_snapshot_available':available,
         'source_id_bound':bindings,'native_ledger_known':native_known,'native_first_proof_crossbinding_verified':available and native_known,
@@ -628,7 +649,7 @@ def notification_parser_controls():
             for channel in range(3):
                 counts = observations.get((plane,channel),'None')
                 first,mask = stamps.get((plane,channel),('None','None') if counts == 'None' else ('Some(['+', '.join(['None']*8)+'])','Some(0)'))
-                rows.append('native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counts+' first_us='+first+' clock_invalid_mask='+mask)
+                rows.append('native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counts+' first_us='+first+' clock_invalid_mask='+mask+' placement_counts='+('None' if counts == 'None' else 'Some([0, 0, 0, 0, 0, 0])')+' placement_first_us='+('None' if counts == 'None' else 'Some([None, None, None, None, None, None])')+' placement_clock_invalid_mask='+('None' if counts == 'None' else 'Some(0)'))
         return '\n'.join(rows)
     proofs = [{'first_attempt_actual_message_bound':True},None,None]
     baseline = appendix()
@@ -691,33 +712,47 @@ def notification_parser_controls():
         stamps={(3,0):('Some([Some(0), None, None, None, None, None, None, None])','Some(0)')})
     require(notification_dispositions(observed,4,proofs,True)['rows'][9]['first_dispatcher_stage_us']['event_handler_entered'] == 0,
         'notification-real-converted-zero-not-unknown-fallback')
-    invalid_clock = observed.replace('Some([Some(0), None','Some([None, None').replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(1)')
+    invalid_clock = observed.replace('Some([Some(0), None','Some([None, None').replace(' clock_invalid_mask=Some(0)',' clock_invalid_mask=Some(1)')
     require(notification_dispositions(invalid_clock,4,proofs,True)['rows'][9]['clock_invalid_mask'] == 1,
         'notification-preorigin-or-invalid-clock-explicit-None')
     clock_bad = [observed.replace('first_us=Some([Some(0), None','first_us=None IGNORESome([Some(0), None'),
         observed.replace('Some([Some(0), None','Some([Some(600000001), None'),
-        observed.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(256)'),
-        observed.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=None'),
+        observed.replace(' clock_invalid_mask=Some(0)',' clock_invalid_mask=Some(256)'),
+        observed.replace(' clock_invalid_mask=Some(0)',' clock_invalid_mask=None'),
         observed.replace('Some([Some(0), None','Some([None, None'),
-        observed.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(1)'),
+        observed.replace(' clock_invalid_mask=Some(0)',' clock_invalid_mask=Some(1)'),
         zero.replace('first_us=Some([None','first_us=Some([Some(1)',1),
-        zero.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(1)'),
+        zero.replace(' clock_invalid_mask=Some(0)',' clock_invalid_mask=Some(1)'),
         baseline.replace('first_us=None','first_us=Some(['+', '.join(['None']*8)+'])',1)]
     for value in clock_bad:
         try:notification_dispositions(value,4,proofs,True)
         except ValueError:continue
         raise ValueError('notification-clock-adversary-accepted')
-    return {'positive':9,'negative':len(bad)+len(clock_bad)+5,'safe_unknown_controls':2,'actual_runtime_bodies':0,
+    placed=zero.replace('placement_counts=Some([0, 0, 0, 0, 0, 0])','placement_counts=Some([1, 0, 0, 0, 0, 0])').replace('placement_first_us=Some([None','placement_first_us=Some([Some(1)',1)
+    require(notification_dispositions(placed,4,proofs,True)['rows'][9]['placement_counters']['queue_accepted']==1,'notification-actual-placement-positive')
+    placement_bad=[placed.replace('placement_first_us=Some([Some(1)','placement_first_us=Some([None'),
+        placed.replace('placement_clock_invalid_mask=Some(0)','placement_clock_invalid_mask=Some(64)'),
+        placed.replace('placement_counts=Some([1','placement_counts=Some([18446744073709551616'),
+        placed.replace(' placement_counts=Some([1, 0, 0, 0, 0, 0])',' placement_counts=None'),
+        placed.replace('placement_first_us=Some([Some(1)','placement_first_us=Some([Some(600000001)'),
+        zero.replace('placement_clock_invalid_mask=Some(0)','placement_clock_invalid_mask=Some(1)')]
+    for value in placement_bad:
+        try:notification_dispositions(value,4,proofs,True)
+        except ValueError:continue
+        raise ValueError('notification-placement-adversary-accepted')
+    return {'positive':10,'negative':len(bad)+len(clock_bad)+len(placement_bad)+5,'safe_unknown_controls':2,'actual_runtime_bodies':0,
         'None_never_means_no_arrival':True,'authored_fixture_not_runtime_evidence':True}
 
 
 def notification_maximum_width_appendix():
     header = 'native5-notification-meta source_ids_snapshot_available=true source_id_bound=[Some(true), Some(true), Some(true)]'
     counters = 'Some(['+', '.join([str(U64_MAX)]*8)+'])'
-    rows = [header]+['native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counters+' first_us=Some(['+', '.join(['Some(600000000)']*8)+']) clock_invalid_mask=Some(0)'
+    rows = [header]+['native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counters+' first_us=Some(['+', '.join(['Some(600000000)']*8)+']) clock_invalid_mask=Some(0) placement_counts=Some(['+', '.join([str(U64_MAX)]*6)+']) placement_first_us=Some(['+', '.join(['Some(600000000)']*6)+']) placement_clock_invalid_mask=Some(0)'
         for plane in range(5) for channel in range(3)]
     require(len(rows) == 16 and all(len(line.encode()) <= 1024 for line in rows), 'notification-maximum-closed-shape')
     return rows
+
+
 
 
 # Additional optional ledger: never merges its loss into native/SDK/worker state.
@@ -726,6 +761,9 @@ INTAKE_SELECTION_REASONS = ['MatchedCurrentOwnerAndChild','CurrentChoiceMissing'
 INTAKE_GATE_SAMPLE = r'(?:None|Some\(\(' + N + r', (?:true|false)\)\))'
 INTAKE_SELECTION = r'(?:None|Some\(\(' + N + r', [0-3], ' + N + r'\)\))'
 INTAKE_GATE = r'(?:None|Some\(\(\[' + INTAKE_GATE_SAMPLE + r'(?:, ' + INTAKE_GATE_SAMPLE + r'){15}\], ' + N + r', ' + N + r'\)\))'
+INTAKE_INGEST = r'(?:None|Some\(\(' + N + r', ' + ON + r', ' + OB + r', ' + N + r', ' + N + r'\)\))'
+INTAKE_FLAGS = r'(?:true|false), (?:true|false), (?:true|false)'
+INTAKE_RECEIVE = r'(?:None|Some\(\(' + ON + r', (?:None|Some\(\[' + INTAKE_FLAGS + r'\]\)), ' + ON + r', ' + N + r', ' + N + r'\)\))'
 INTAKE_RECEIPT = r'(?:None|Some\(\(' + N + r', (?:true|false), ' + N + r', ' + N + r'\)\))'
 
 
@@ -738,13 +776,14 @@ def intake_dispositions(raw,ordinal,native_known,peer_proofs,required=False):
         return {'observed':False,'schema_complete':False,'known':False,'loss_mask':None,
             'snapshot_available':None,'owner_bound':None,'source_id_bound':None,'selections':None,
             'receive_gates':None,'receipt_decisions':None,'missing_reason':'MissingAppendix'}
-    require(len(lines) == 27 and all(len(line.encode()) <= 4096 for line in lines), 'intake-fixed-header-fifteen-five-six')
+    require(len(lines) == 94 and all(len(line.encode()) <= 4096 for line in lines), 'intake-fixed-header-fifteen-five-nine-six-five-fiftythree')
     header = re.fullmatch(r'native5-intake-meta known=(true|false) loss_mask=(' + N + r') snapshot_available=(true|false) owner_bound=(true|false) source_id_bound=\[('
-        + OB + '), (' + OB + '), (' + OB + r')\]',lines[0])
+        + OB + '), (' + OB + '), (' + OB + r')\] inflight_at_freeze=(' + N + ')',lines[0])
     require(header is not None,'intake-closed-header')
     known,loss,available,owner = header[1] == 'true',number(header[2],31),header[3] == 'true',header[4] == 'true'
     bindings = [boolean(header[index]) for index in range(5,8)]
-    require(known == (loss == 0 and available),'intake-exact-known-lossless-snapshot')
+    inflight=number(header[8],4294967295)
+    require(known == (loss == 0 and available and inflight == 0),'intake-exact-known-lossless-snapshot')
     if available:
         require(all(type(value) is bool for value in bindings),'intake-available-bindings-known')
     else:
@@ -797,8 +836,8 @@ def intake_dispositions(raw,ordinal,native_known,peer_proofs,required=False):
                 'positive_original_owner_bound':True,'no_new_ready_poll_or_queue_query':True}
         gates.append({'worker_ordinal':index,'observation':observation})
     receipts=[]
-    for index,line in enumerate(lines[21:]):
-        match=re.fullmatch(r'native5-intake-receipt path=([01]) channel=([0-2]) observation=('+INTAKE_RECEIPT+r')',line)
+    for index,line in enumerate(lines[21:30]):
+        match=re.fullmatch(r'native5-intake-receipt path=([0-2]) channel=([0-2]) observation=('+INTAKE_RECEIPT+r')',line)
         require(match is not None and (int(match[1]),int(match[2])) == (index//3,index%3),'intake-path-major-receipt-order')
         observation=None
         if match[3] != 'None':
@@ -807,10 +846,70 @@ def intake_dispositions(raw,ordinal,native_known,peer_proofs,required=False):
             observation={'existing_contains_decision_us':number(value[1]),'first_already_held':value[2] == 'true',
                 'later_held_decisions':number(value[3],4294967295),'later_fresh_decisions':number(value[4],4294967295),
                 'decision_is_not_Core_or_native_acceptance':True}
-        receipts.append({'path':'Live' if index//3 == 0 else 'Comparison','channel':index%3,'observation':observation})
+        receipts.append({'path':['Live','Comparison','SDKDrain'][index//3],'channel':index%3,'observation':observation})
+    ingests=[]
+    for index,line in enumerate(lines[30:36]):
+        match=re.fullmatch(r'native5-intake-ingest path=([01]) channel=([0-2]) observation=('+INTAKE_INGEST+r')',line)
+        require(match is not None and (int(match[1]),int(match[2]))==(index//3,index%3),'intake-ingest-path-major-order')
+        observation=None
+        if match[3]!='None':
+            require(available and owner and bindings[index%3] is True,'intake-ingest-positive-original-owner-and-first-key')
+            value=re.fullmatch(r'Some\(\(('+N+r'), ('+ON+r'), ('+OB+r'), ('+N+r'), ('+N+r')\)\)',match[3])
+            begin,end,ok=number(value[1]),opt(value[2]),boolean(value[3])
+            require((end is None)==(ok is None) and (end is None or end>=begin),'intake-ingest-actual-result-end-coherence')
+            observation={'first_begin_us':begin,'first_returned_us':end,'first_result_ok':ok,
+                'later_begin_count':number(value[4],4294967295),'later_end_count':number(value[5],4294967295),
+                'result_does_not_establish_final_native_acceptance':True}
+        ingests.append({'path':['OnceObserved','SDKDrain'][index//3],'channel':index%3,'observation':observation})
+    receives=[]
+    for index,line in enumerate(lines[36:41]):
+        match=re.fullmatch(r'native5-intake-receive worker=([0-4]) observation=('+INTAKE_RECEIVE+r')',line)
+        require(match is not None and int(match[1])==index,'intake-receive-worker-order')
+        observation=None
+        if match[2]!='None':
+            require(available and owner,'intake-receive-positive-original-owner')
+            value=re.fullmatch(r'Some\(\(('+ON+r'), (None|Some\(\[('+INTAKE_FLAGS+r')\]\)), ('+ON+r'), ('+N+r'), ('+N+r')\)\)',match[2])
+            first,before=opt(value[1]),opt(value[4]);flags=None if value[2]=='None' else [v=='true' for v in value[3].split(', ')]
+            require((first is None)==(flags is None) and (first is not None or before is not None),'intake-receive-initial-execution-flags-coherent')
+            require(first is None or before is None or before>=first,'intake-receive-observed-order-without-attempt-coupling')
+            observation={'first_async_body_execution_us':first,'initial_cached_retry_slot_present':flags,
+                'first_before_actual_receive_next_delivery_us':before,'later_execution_count':number(value[5],4294967295),
+                'later_before_receive_count':number(value[6],4294967295),'before_call_may_follow_later_execution':True,
+                'no_new_poll_or_ready_query':True}
+        receives.append({'worker_ordinal':index,'observation':observation})
+    losses=[];combined_mask=0
+    for index,line in enumerate(lines[41:]):
+        match=re.fullmatch(r'native5-intake-loss slot=('+N+r') count=('+N+r') first_us=('+ON+r') mask=('+N+r')',line)
+        require(match is not None and number(match[1],52)==index,'intake-localized-loss-slot-order')
+        count,first,mask=number(match[2],4294967295),opt(match[3]),number(match[4],31)
+        if inflight==0:
+            require((count==0 and first is None and mask==0) or (count>0 and mask!=0 and (first is not None or mask&16)),
+                'intake-quiescent-localized-loss-coherence')
+        combined_mask|=mask
+        losses.append({'slot':index,'count':count,'first_us':first,'mask':mask,'atomic_loss_fields_quiescent':inflight==0})
+    require(combined_mask==loss,'intake-header-exact-exported-localized-loss-mask-union')
+    if inflight==0:
+        for index,item in enumerate(gates):
+            observation=item['observation']
+            if observation is not None and observation['transition_count']>len(observation['samples'])-1:
+                require(losses[22+index]['mask'] & 4,'intake-truncated-gate-needs-own-capacity-loss')
+    binding_loss=0
+    for item in losses[:7]:binding_loss|=item['mask']
+    for items,start,width in [(selections,7,1),(gates,22,1),(receipts,27,1),(ingests,36,1),(receives,42,2)]:
+        for index,item in enumerate(items):
+            own=losses[start+index*width:start+(index+1)*width];own_mask=0
+            for entry in own:own_mask|=entry['mask']
+            item['localized_loss_slots']=[entry['slot'] for entry in own]
+            item['localized_loss_mask']=own_mask;item['binding_loss_mask']=binding_loss
+            item['snapshot_inflight_unknown']=inflight!=0
+            item['missing_observation_is_unknown']=item['observation'] is None
+
     return {'observed':True,'schema_complete':True,'known':known,'loss_mask':loss,'snapshot_available':available,
-        'owner_bound':owner,'source_id_bound':bindings,'native_first_proof_binding_crosschecked':crosschecked,
-        'selections':selections,'receive_gates':gates,'receipt_decisions':receipts,
+        'owner_bound':owner,'inflight_at_freeze':inflight,'source_id_bound':bindings,'native_first_proof_binding_crosschecked':crosschecked,
+        'selections':selections,'receive_gates':gates,'receipt_decisions':receipts,'common_ingest':ingests,
+        'receive_execution':receives,'localized_losses':losses,'localized_loss_slot_map':{'owner_bind':0,'recipient_bind':[1,3],'peer_bind':[4,6],
+            'selection_worker_major':[7,21],'gate_worker_major':[22,26],'receipt_path_major':[27,35],
+            'ingest_path_major':[36,41],'receive_worker_stage_major':[42,51],'freeze':52},
         'recipient_plane':ordinal-1,'plane_to_worker_mapping_assumed':False,
         'None_is_unknown_not_no_selection_or_no_receipt':True,'loss_is_independent_of_native_SDK_worker':True,
         'sequential_postwait_not_joint_deadline_snapshot':True,'IDs_or_payloads_exported':False}
@@ -824,47 +923,69 @@ def safe_intake_dispositions(raw,ordinal,native_known,peer_proofs):
         'failure_category':'ClosedOptionalIntakeSchemaRejected','inherited_native_SDK_worker_ledger_retained':True}
 
 
-def intake_fixture(known=True,loss=0,available=True,owner=True,bindings=None,selections=None,gates=None,receipts=None):
+
+
+def intake_fixture(known=True,loss=0,available=True,owner=True,bindings=None,selections=None,gates=None,receipts=None,ingests=None,receives=None,losses=None,inflight=0):
     bindings=bindings if bindings is not None else (['Some(true)','Some(false)','Some(true)'] if available else ['None']*3)
-    rows=['native5-intake-meta known='+str(known).lower()+' loss_mask='+str(loss)+' snapshot_available='+str(available).lower()+' owner_bound='+str(owner).lower()+' source_id_bound=['+', '.join(bindings)+']']
+    rows=['native5-intake-meta known='+str(known).lower()+' loss_mask='+str(loss)+' snapshot_available='+str(available).lower()+' owner_bound='+str(owner).lower()+' source_id_bound=['+', '.join(bindings)+'] inflight_at_freeze='+str(inflight)]
     rows.extend('native5-intake-selection worker='+str(w)+' channel='+str(c)+' observation='+(selections or {}).get((w,c),'None') for w in range(5) for c in range(3))
     rows.extend('native5-intake-gate worker='+str(w)+' observation='+(gates or {}).get(w,'None') for w in range(5))
-    rows.extend('native5-intake-receipt path='+str(p)+' channel='+str(c)+' observation='+(receipts or {}).get((p,c),'None') for p in range(2) for c in range(3))
+    rows.extend('native5-intake-receipt path='+str(p)+' channel='+str(c)+' observation='+(receipts or {}).get((p,c),'None') for p in range(3) for c in range(3))
+    rows.extend('native5-intake-ingest path='+str(p)+' channel='+str(c)+' observation='+(ingests or {}).get((p,c),'None') for p in range(2) for c in range(3))
+    rows.extend('native5-intake-receive worker='+str(w)+' observation='+(receives or {}).get(w,'None') for w in range(5))
+    if losses is None:losses={52:(1,'Some(0)',loss)} if loss else {}
+    for slot in range(53):
+        count,first,mask=losses.get(slot,(0,'None',0))
+        rows.append('native5-intake-loss slot='+str(slot)+' count='+str(count)+' first_us='+first+' mask='+str(mask))
     return '\n'.join(rows)
 
 
 def intake_parser_controls():
     proofs=[{'first_attempt_actual_message_bound':True},None,{'first_attempt_actual_message_bound':True}]
     slots='[Some((0, false)), Some((1, true)), '+', '.join(['None']*14)+']'
-    baseline=intake_fixture(selections={(3,0):'Some((1, 0, 0))'},gates={3:'Some(('+slots+', 1, 2))'},receipts={(0,0):'Some((2, false, 0, 1))'})
-    good=[baseline,intake_fixture(),intake_fixture(False,1),intake_fixture(False,0,False,False),intake_fixture(owner=False),intake_fixture(selections={(0,0):'Some((600000000, 3, 4294967295))'})]
+    baseline=intake_fixture(selections={(3,0):'Some((1, 0, 0))'},gates={3:'Some(('+slots+', 1, 2))'},
+        receipts={(0,0):'Some((2, false, 0, 1))',(2,0):'Some((3, true, 1, 0))'},
+        ingests={(0,0):'Some((2, Some(3), Some(true), 0, 0))'},
+        receives={3:'Some((Some(0), Some([false, true, false]), Some(1), 2, 1))'})
+    good=[baseline,intake_fixture(),intake_fixture(False,1),intake_fixture(False,0,False,False),intake_fixture(owner=False),
+        intake_fixture(selections={(0,0):'Some((600000000, 3, 4294967295))'}),
+        intake_fixture(False,0,inflight=1,losses={42:(0,'Some(1)',0)}),
+        intake_fixture(ingests={(1,0):'Some((0, None, None, 0, 0))'}),
+        intake_fixture(receives={3:'Some((None, None, Some(1), 0, 0))'}),
+        intake_fixture(False,16,losses={42:(1,'None',16)})]
     for raw in good:require(intake_dispositions(raw,4,True,proofs)['schema_complete'],'intake-positive-schema')
     independent=intake_dispositions(baseline,5,False,None)
     require(not independent['native_first_proof_binding_crosschecked'] and independent['known'],'intake-positive-independent-native-loss')
     packed='['+', '.join('Some(('+str(i)+', '+str(bool(i%2)).lower()+'))' for i in range(16))+']'
-    capacity=intake_fixture(False,4,gates={0:'Some(('+packed+', 20, 0))'})
+    capacity=intake_fixture(False,4,gates={0:'Some(('+packed+', 20, 0))'},losses={22:(1,'Some(0)',4)})
     require(len(intake_dispositions(capacity,4,True,proofs)['receive_gates'][0]['observation']['samples'])==16,'intake-explicit-capacity-partial-positive')
     bad=[
         '\n'.join(baseline.splitlines()[:-1]),baseline+'\n'+baseline.splitlines()[1],
-        baseline.replace('worker=0 channel=0','worker=1 channel=0',1),
-        baseline.replace('path=0 channel=0','path=1 channel=0',1),
+        baseline.replace('worker=0 channel=0','worker=1 channel=0',1),baseline.replace('path=0 channel=0','path=1 channel=0',1),
         baseline.replace('loss_mask=0','loss_mask=32',1),baseline.replace('loss_mask=0','loss_mask=1',1),
         baseline.replace('known=true','known=false',1),baseline.replace('snapshot_available=true','snapshot_available=false',1),
         baseline.replace('source_id_bound=[Some(true)','source_id_bound=[None',1),
-        baseline.replace('Some((1, 0, 0))','Some((600000001, 0, 0))'),
-        baseline.replace('Some((1, 0, 0))','Some((1, 4, 0))'),
-        baseline.replace('Some((1, 0, 0))','Some((1, 0, 4294967296))'),
-        baseline.replace('owner_bound=true','owner_bound=false',1),
+        baseline.replace('Some((1, 0, 0))','Some((600000001, 0, 0))'),baseline.replace('Some((1, 0, 0))','Some((1, 4, 0))'),
+        baseline.replace('Some((1, 0, 0))','Some((1, 0, 4294967296))'),baseline.replace('owner_bound=true','owner_bound=false',1),
         baseline.replace('Some((0, false)), Some((1, true))','None, Some((1, true))'),
         baseline.replace('Some((0, false)), Some((1, true))','Some((2, false)), Some((1, true))'),
-        baseline.replace('Some((1, true))','Some((1, false))'),
-        baseline.replace('], 1, 2))','], 0, 2))'),baseline.replace('], 1, 2))','], 2, 2))'),
+        baseline.replace('Some((1, true))','Some((1, false))'),baseline.replace('], 1, 2))','], 0, 2))'),baseline.replace('], 1, 2))','], 2, 2))'),
         baseline.replace('Some((2, false, 0, 1))','Some((2, false, 0, 4294967296))'),
         baseline.replace('native5-intake-gate worker=4 observation=None','native5-intake-gate worker=4 observation=PRIVATE_PAYLOAD'),
-        intake_fixture(selections={(0,1):'Some((1, 1, 0))'}),
-        intake_fixture(receipts={(1,1):'Some((1, false, 0, 0))'}),
-        intake_fixture(gates={0:'Some((['+', '.join(['None']*16)+'], 0, 0))'}),
-        capacity.replace('loss_mask=4','loss_mask=1'),
+        intake_fixture(selections={(0,1):'Some((1, 1, 0))'}),intake_fixture(receipts={(1,1):'Some((1, false, 0, 0))'}),
+        intake_fixture(gates={0:'Some((['+', '.join(['None']*16)+'], 0, 0))'}),capacity.replace('loss_mask=4','loss_mask=1'),
+        baseline.replace('inflight_at_freeze=0','inflight_at_freeze=1'),baseline.replace('slot=52 count=0','slot=52 count=1'),
+        baseline.replace('slot=0 count=0 first_us=None mask=0','slot=0 count=0 first_us=Some(0) mask=0'),
+        intake_fixture(False,1,losses={0:(1,'None',1)}),intake_fixture(False,0,losses={0:(1,'Some(0)',1)}),
+        baseline.replace('native5-intake-loss slot=52','native5-intake-loss slot=51'),
+        baseline.replace('Some((2, Some(3), Some(true), 0, 0))','Some((2, None, Some(true), 0, 0))'),
+        baseline.replace('Some((2, Some(3), Some(true), 0, 0))','Some((2, Some(1), Some(true), 0, 0))'),
+        baseline.replace('Some((Some(0), Some([false, true, false])','Some((None, Some([false, true, false])'),
+        baseline.replace('Some((Some(0), Some([false, true, false]), Some(1)','Some((Some(2), Some([false, true, false]), Some(1)'),
+        intake_fixture(receives={0:'Some((None, None, None, 0, 0))'}),
+        baseline.replace('native5-intake-ingest path=0 channel=0','native5-intake-ingest path=2 channel=0',1),
+        baseline.replace('native5-intake-receive worker=0','native5-intake-receive worker=1',1),
+        capacity.replace('slot=22 count=1 first_us=Some(0) mask=4','slot=22 count=0 first_us=None mask=0').replace('slot=52 count=0 first_us=None mask=0','slot=52 count=1 first_us=Some(0) mask=4'),
     ]
     for raw in bad:
         try:intake_dispositions(raw,4,True,proofs)
@@ -878,14 +999,17 @@ def intake_parser_controls():
         try:intake_dispositions(baseline,4,True,mismatch)
         except ValueError:continue
         raise ValueError('intake-native-binding-mismatch-accepted')
-    safe=safe_intake_dispositions(bad[-5],4,True,proofs)
+    safe=safe_intake_dispositions(bad[19],4,True,proofs)
     require(not safe['schema_complete'] and 'PRIVATE_PAYLOAD' not in str(safe),'intake-rejected-safe-ledger-preserved')
     return {'positive':len(good)+3,'negative':len(bad)+3,'safe_unknown_controls':1,'runtime_bodies':0,'fixtures_authored_for_remote_execution':True}
 
 
 def intake_maximum_width_appendix():
     samples='['+', '.join('Some((600000000, '+str(bool(i%2)).lower()+'))' for i in range(16))+']'
-    return intake_fixture(False,31,bindings=['Some(true)']*3,
+    return intake_fixture(False,31,bindings=['Some(true)']*3,inflight=4294967295,
         selections={(w,c):'Some((600000000, 3, 4294967295))' for w in range(5) for c in range(3)},
         gates={w:'Some(('+samples+', 4294967295, 4294967295))' for w in range(5)},
-        receipts={(p,c):'Some((600000000, false, 4294967295, 4294967295))' for p in range(2) for c in range(3)}).splitlines()
+        receipts={(p,c):'Some((600000000, false, 4294967295, 4294967295))' for p in range(3) for c in range(3)},
+        ingests={(p,c):'Some((600000000, Some(600000000), Some(false), 4294967295, 4294967295))' for p in range(2) for c in range(3)},
+        receives={w:'Some((Some(600000000), Some([false, false, false]), Some(600000000), 4294967295, 4294967295))' for w in range(5)},
+        losses={slot:(4294967295,'Some(600000000)',31) for slot in range(53)}).splitlines()

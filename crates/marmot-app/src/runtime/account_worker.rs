@@ -2659,6 +2659,10 @@ async fn run_app_runtime_account_worker(
                                 let _ = result;
                             }
                             received = async {
+                                // NATIVE5_INTAKE_EXECUTION_BEGIN
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                client.native5_intake_receive_for_test(native5_worker_tag.ordinal(), 0, Some([selected_welcome_retry.is_some(), revoked_confirmation_retry.is_some(), enrollment_capacity_retry.is_some()]));
+                                // NATIVE5_INTAKE_EXECUTION_END
                                 #[cfg(feature = "experimental-device-sync")]
                                 if let Some((_, _, retry_at)) = selected_welcome_retry.as_ref() {
                                     // Commands can cancel this select future; retain the timer
@@ -2688,7 +2692,13 @@ async fn run_app_runtime_account_worker(
                                     Ok(transport_nostr::AccountDeliveryReceive::Delivery(
                                         enrollment_capacity_retry.take().expect("one exact capacity envelope"),
                                     ))
-                                } else { client.receive_next_delivery().await }
+                                } else {
+                                    // NATIVE5_INTAKE_EXECUTION_BEGIN
+                                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                    client.native5_intake_receive_for_test(native5_worker_tag.ordinal(), 1, None);
+                                    // NATIVE5_INTAKE_EXECUTION_END
+                                    client.receive_next_delivery().await
+                                }
                             }, if {
                                 let receive_enabled = !client.has_pending_effect_projections();
                                 // NATIVE5_INTAKE_TIMING_BEGIN

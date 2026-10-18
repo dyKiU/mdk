@@ -261,7 +261,7 @@ struct AutomaticBodyPublicationGate {
 ))]
 #[derive(Default)]
 struct NotificationDispositionObserver(
-    std::sync::Mutex<HashMap<String, ([u64; 8], [Option<std::time::Instant>; 8])>>,
+    std::sync::Mutex<HashMap<String, ([u64; 8], [Option<std::time::Instant>; 8], [u64; 6], [Option<std::time::Instant>; 6])>>,
 );
 
 #[cfg(all(
@@ -270,6 +270,14 @@ struct NotificationDispositionObserver(
     feature = "test-policy-overrides"
 ))]
 impl NotificationDispositionObserver {
+    fn placement(&self, id: &str, slot: usize) {
+        let mut counts = self.0.lock().unwrap();
+        if counts.len() < 512 || counts.contains_key(id) {
+            let entry = counts.entry(id.to_owned()).or_default();
+            entry.2[slot] += 1;
+            if entry.3[slot].is_none() { entry.3[slot] = Some(std::time::Instant::now()); }
+        }
+    }
     fn record(&self, id: &str, slot: usize) {
         let mut counts = self.0.lock().unwrap();
         if counts.len() < 512 || counts.contains_key(id) {
@@ -1950,7 +1958,7 @@ impl MarmotRelayPlane {
         &self,
         account: &MemberId,
         id: &str,
-    ) -> Option<([u64; 8], [Option<std::time::Instant>; 8])> {
+    ) -> Option<([u64; 8], [Option<std::time::Instant>; 8], [u64; 6], [Option<std::time::Instant>; 6])> {
         let observers = self
             .inner
             .transport
@@ -5254,6 +5262,8 @@ fn route_account_delivery(
                 .try_send(AccountDeliveryEvent::Delivery(Box::new(delivery)))
             {
                 Ok(()) => {
+                    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    if let Some(observer) = &observer { observer.placement(&observed_id, 0); }
                     let queue_depth = route
                         .sender
                         .max_capacity()
@@ -5261,6 +5271,8 @@ fn route_account_delivery(
                     route.overflow.observe_queue_depth(queue_depth);
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
+                    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    if let Some(observer) = &observer { observer.placement(&observed_id, 1); }
                     route.overflow.unqueue(route.epoch, key);
                     // Only this router writes the route, and it reserves one
                     // control slot above, so reaching Full here indicates a
@@ -5274,6 +5286,8 @@ fn route_account_delivery(
                     );
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
+                    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    if let Some(observer) = &observer { observer.placement(&observed_id, 2); }
                     route.overflow.unqueue(route.epoch, key);
                 }
             }
@@ -5283,6 +5297,8 @@ fn route_account_delivery(
                 .spill
                 .as_ref()
                 .is_some_and(|spill| spill.offer(delivery.into_delivery()));
+            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            if let Some(observer) = &observer { observer.placement(&observed_id, if spilled { 3 } else { 4 }); }
             if !spilled {
                 // Record the loss before releasing the placement's fence, so
                 // the cursor stays fenced throughout.
@@ -5290,7 +5306,11 @@ fn route_account_delivery(
                 route.overflow.finish_spill(1, 0, 0);
             }
         }
-        AccountDeliveryPlacement::Omit => omit_account_delivery(&route, Some(created_at)),
+        AccountDeliveryPlacement::Omit => {
+            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            if let Some(observer) = &observer { observer.placement(&observed_id, 5); }
+            omit_account_delivery(&route, Some(created_at));
+        }
     }
 }
 

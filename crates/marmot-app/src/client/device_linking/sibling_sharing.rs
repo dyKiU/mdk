@@ -2204,6 +2204,14 @@ impl AppClient {
             already_held,
         );
     }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn native5_intake_token_for_test(&self, message: &cgka_traits::MessageId) -> Option<peer_proof_probe::native5_timing::IntakeToken> {
+        peer_proof_probe::native5_timing::intake_token(self.linking_owner.sharing_approval.as_ref(), message)
+    }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn native5_intake_receive_for_test(&self, worker: usize, stage: usize, retries: Option<[bool; 3]>) {
+        peer_proof_probe::native5_timing::intake_receive(self.linking_owner.sharing_approval.as_ref(), worker, stage, retries);
+    }
     // NATIVE5_INTAKE_TIMING_END
     fn validate_c_sibling_original(
         &self,
