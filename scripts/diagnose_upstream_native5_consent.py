@@ -12,7 +12,7 @@ import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='0aeb969a5c17102c00945b1c856fdc59983e2718' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
 MANIFEST_SHA='e23b666d63249ad47418111a7e19f430aecfc1f906fd7db0d761893a5b4e3308' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='1a6c532d51d09b308ca65c6b92db747c9761454e094b2c84f78adb887addc49a' # Root MUST pin exact reviewed closed parser.
+PARSER_SHA='96c414c2462712f0f827b324edf01586044431d5a6ff12db77a2b9e8f524d84b' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -135,12 +135,50 @@ def panic_location_parser_controls():
     row=safe_panic_locations(safe*17,{path});ensure(len(row['safe_locations'])==16 and row['locations_truncated'] is True and row['all_panic_header_count']==17,'bounded-panic-export-all-counts')
     return {'positive':2,'negative':5,'actual_runtime_bodies':0}
 
-def closed_failure_observations(raw):
+
+def native5_post_failure_diagnostics(clean,completed_steps):
+    # Historical parser remains byte-exact. Only fifth-join's third existing
+    # approver is extracted using that parser's SAME closed CHANNEL schema.
+    lines=clean.splitlines();prefix=rich.PREFIX+'existing_index=2 '
+    extras=[line for line in lines if line.startswith(prefix)]
+    if not extras:return rich.diagnostics(clean)
+    ensure(type(completed_steps) is int and completed_steps==3 and len(extras)==1,'exact-fifth-join-third-approver-context')
+    line=extras[0];ensure(len(line)<=4096,'bounded-third-approver-line')
+    match=re.fullmatch(re.escape(rich.PREFIX)+r'existing_index=(2) child_channel=('+rich.option(rich.CHANNEL)+')',line)
+    ensure(match is not None,'closed-third-approver-channel')
+    flags=re.findall(r'\(('+rich.NUMBER+'), '+rich.NUMBER+', '+rich.NUMBER+r', (?:None|Some\('+rich.FAILURE+r'\)),',match[2])
+    ensure(all(int(value)<=255 for value in flags),'known-third-approver-channel-bitmask')
+    observations=rich.diagnostics('\n'.join(value for value in lines if value!=line))
+    expected={(kind,side) for kind in ['aggregates','child_channels','native_rpc'] for side in ['left','right']}|{('existing_child','0'),('existing_child','1')}
+    ensure(len(observations['aggregates'])==8 and {(row['category'],row['side_or_existing_index']) for row in observations['aggregates']}==expected,'exact-fifth-join-eight-historical-rows')
+    observations['aggregates'].append({'category':'existing_child','side_or_existing_index':'2','closed_schema_values':[match[2]]})
+    ensure(len(observations['aggregates'])==9,'bounded-native5-nine-rows')
+    observations['native5_third_approver_extension']=True
+    return observations
+
+def native5_rich_parser_controls():
+    rows=[]
+    for side in ['left','right']:
+        rows.extend([rich.PREFIX+'side='+side+' primary/expected/children/completed=None intake=None rejections=None context_rejections=None projection=None',rich.PREFIX+'side='+side+' child_channels=None',rich.PREFIX+'side='+side+' native_rpc_counts/elapsed_ms/branch=None'])
+    rows.extend(rich.PREFIX+'existing_index='+str(i)+' child_channel=None' for i in range(3))
+    fifth='\n'.join(rows);legacy='\n'.join(rows[:-1])
+    ensure(len(native5_post_failure_diagnostics(legacy,2)['aggregates'])==8,'historical-eight-unchanged')
+    ensure(len(native5_post_failure_diagnostics(fifth,3)['aggregates'])==9,'fifth-nine-closed-rows')
+    tuple_line=rows[-1].replace('None','Some((255, 2, 0, None, Some(AfterRelayPublication)))')
+    ensure(native5_post_failure_diagnostics(fifth.replace(rows[-1],tuple_line),3)['aggregates'][-1]['side_or_existing_index']=='2','same-closed-CHANNEL-schema')
+    bad=[(fifth,2),(fifth,True),(fifth+'\n'+rows[-1],3),(fifth.replace(rows[-1],tuple_line.replace('255','256')),3),(fifth.replace(rows[-1],tuple_line+' private'),3),(fifth.replace(rows[-1],tuple_line.replace('255','-1')),3),(fifth.replace('existing_index=2','existing_index=3'),3),(fifth.replace('existing_index=2','existing_index=20'),3),('\n'.join(rows[:-2]+rows[-1:]),3),(fifth+'\n'+rich.PREFIX+'private=secret',3)]
+    for raw,steps in bad:
+        try:native5_post_failure_diagnostics(raw,steps)
+        except ValueError:continue
+        raise ValueError('adversarial-native5-rich-schema-accepted')
+    return {'positive':3,'negative':len(bad),'actual_runtime_bodies':0,'historical_parser_unchanged':True}
+
+def closed_failure_observations(raw,completed_steps=None):
     clean=re.sub(r'\x1b\[[0-9;]*m','',raw)
     clean,normalized=re.subn(r'(?m)^test '+re.escape(NAME)+r' \.\.\. (?=automatic-enrollment-control )','',clean)
     try:
         return {'closed_schema_accepted':True,'exact_prefix_normalizations':normalized,
-            'observations':rich.diagnostics(clean),'at_deadline_state_known':False,
+            'observations':native5_post_failure_diagnostics(clean,completed_steps),'at_deadline_state_known':False,
             'observation_timing':'existing post-failure output only; not original deadline state'}
     except ValueError:
         return {'closed_schema_accepted':False,'exact_prefix_normalizations':normalized,
@@ -153,7 +191,7 @@ def main():
     frozen=None;binary=None;binary_sha=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['window_parser_controls']=timing_parser.window_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['window_parser_controls']=timing_parser.window_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['native5_rich_parser_controls']=native5_rich_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
         if args.preflight:
             code,raw,wall=bounded.capture(['cargo','fmt','--all'],180,limit=8*1024*1024)
             report['format']={'exit_code':code,'wall_seconds':wall};patch=subprocess.check_output(['git','diff','--binary'])
@@ -185,7 +223,7 @@ def main():
         for dest,key in [('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored'),('actual_executed_nonignored','executed_nonignored')]:report[dest]=row.get(key)
         save();report['body']=parse(raw,code);report['journey_passed']=green(report['body']);report['panic_observations']=safe_panic_locations(raw,frozen);save()
         if code!=0:
-            report['closed_failure_observations']=closed_failure_observations(raw);save()
+            report['closed_failure_observations']=closed_failure_observations(raw,(report['body'].get('facts') or {}).get('completed_steps'));save()
         report['timing_windows']=timing_parser.timing_windows(raw,NAME)
         windows=report['timing_windows']['windows']
         def known_window(window):

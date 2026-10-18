@@ -160,11 +160,11 @@ def timing(raw,name):
     for i,line in enumerate(lines[26:29]):
         m=re.fullmatch(delivery_pattern,line);require(m is not None and int(m[1])==i,'exact-first-outer-delivery-indices')
         if line.endswith('observation=None'):deliveries.append(None);continue
-        worker=number(m[2],4);before=opt(m[3]);after=opt(m[4]);ok=boolean(m[5]);later=number(m[6],4294967295)
+        worker=number(m[2],4);delivery_before=opt(m[3]);delivery_after=opt(m[4]);ok=boolean(m[5]);later=number(m[6],4294967295)
         if known:
             require(rows[i] is not None and peer_proofs[i] is not None and peer_proofs[i]['first_attempt_actual_message_bound'],'first-outer-real-actual-message-binding')
-            require(before is not None and (after is None or before<=after) and (ok is None or after is not None),'first-outer-result-bracket')
-        deliveries.append({'channel_index':i,'recipient_worker_ordinal':worker,'selected_before_ingest_us':before,'ingest_returned_us':after,'first_ingest_result_ok':ok,'later_exact_outer_delivery_reselections':later,'actual_first_peer_outer_message_identity_matched':True,'recipient_original_and_child_matched':True,'content_only_AppRoute_not_automatically_same_outer_delivery':True})
+            require(delivery_before is not None and (delivery_after is None or delivery_before<=delivery_after) and (ok is None or delivery_after is not None),'first-outer-result-bracket')
+        deliveries.append({'channel_index':i,'recipient_worker_ordinal':worker,'selected_before_ingest_us':delivery_before,'ingest_returned_us':delivery_after,'first_ingest_result_ok':ok,'later_exact_outer_delivery_reselections':later,'actual_first_peer_outer_message_identity_matched':True,'recipient_original_and_child_matched':True,'content_only_AppRoute_not_automatically_same_outer_delivery':True})
     result['first_peer_outer_delivery']=deliveries
     c=re.fullmatch(r'native5-consent-rpc-count count=('+N+r')',lines[29]);require(c is not None,'closed-rpc-count');count=number(c[1],128);require(len(lines)==31+count,'all-rpc-rows-and-terminal-cost-exact')
     pattern=r'native5-consent-rpc index=('+N+r') times=\['+', '.join(['('+ON+')']*5)+r'\] results=\['+', '.join(['('+ON+')']*2)+r'\] sent=('+OB+r')'
@@ -239,9 +239,10 @@ def parser_controls():
         try:timing(value,name)
         except ValueError:continue
         raise ValueError('adversarial-terminal-cost-accepted')
+    delivery_scope=delivery_wait_scope_controls(sample,name)
     reciprocal=peer_parser_controls(sample,name)
     worker=worker_parser_controls();capacity=worker_output_capacity_control()
-    return {'worker':worker,'output_capacity':capacity,'reciprocal':reciprocal,'positive':len(positives)+4,'negative':len(bad)+len(extra_bad)+len(terminal_bad),'actual_runtime_bodies':0}
+    return {'delivery_wait_scope':delivery_scope,'worker':worker,'output_capacity':capacity,'reciprocal':reciprocal,'positive':len(positives)+4,'negative':len(bad)+len(extra_bad)+len(terminal_bad),'actual_runtime_bodies':0}
 
 
 SDK_STAGES=['sdk_entry','verify_before','verify_after','lease_retain_before','lease_retain_after','endpoint_task_first_poll','connect_before','connect_after','first_send_before','first_send_returned','first_attempt_receipt_constructed','lease_release_before','lease_release_after','single_call_finished','single_call_accepted_receipt']
@@ -487,3 +488,33 @@ def worker_output_capacity_control():
 def safe_worker_timing(raw):
     try:return worker_timing(raw)
     except ValueError:return {'observed':True,'known':False,'loss_mask':None,'workers':None,'focus':None,'parser_failure_category':'ClosedWorkerSchemaRejected','protocol_ledger_retained':True,'no_joint_snapshot_claim':True}
+
+def delivery_wait_scope_controls(sample,name):
+    # A completed real-shaped outer delivery is later than the unrelated
+    # terminal-call start, while both follow the ORIGINAL wait construction.
+    peer='native5-consent-peer-proof index=0 observation=Some((true, [Some(14), Some(15), Some(16), Some(17), Some(18), Some(19), Some(21), Some(20), Some(22)], [Some(true), Some(true), Some(true), Some(true), Some(true)], [Some(10), Some(11), Some(12), Some(13)], 0, [Some(15), Some(15), Some(15), Some(15), Some(15), Some(17)]))'
+    progress='native5-consent-peer-progress index=0 observation=Some(([Some(1), Some(2), Some(3), Some(4), Some(5), Some(6), Some(7)], [0, 0, 0, 0, 0, 0, 0], [1, 0], [1, 0, 0, 0, 0, 0, 0, 0]))'
+    delivery='native5-consent-first-outer-delivery index=0 observation=Some((0, Some(100), Some(101), Some(true), 0))'
+    cost='native5-consent-terminal-cost observation=([1, 1, 0, 1, 1, 1, 1, 1], 0, [Some(4), Some(5)])'
+    report=sample.replace('native5-consent-peer-proof index=0 observation=None',peer).replace('native5-consent-peer-progress index=0 observation=None',progress).replace('native5-consent-first-outer-delivery index=0 observation=None',delivery).replace('native5-consent-terminal-cost observation=([0, 0, 0, 0, 0, 0, 0, 0], 0, [None, None])',cost)
+    restored=timing(report,name)
+    require(restored['wait']['constructed_after_us']==3 and restored['first_peer_outer_delivery'][0]['ingest_returned_us']==101 and restored['terminal_validation_cost']['first_start_us']==4,'distinct-original-wait-delivery-terminal-times')
+    import inspect
+    fixed="worker=number(m[2],4);delivery_before=opt(m[3]);delivery_after=opt(m[4]);ok=boolean(m[5]);later=number(m[6],4294967295)"
+    source=inspect.getsource(timing)
+    require(source.count(fixed)==1,'counterfactual-exact-delivery-binding')
+    # Recreate ONLY the historical variable shadow, in a remote parser-control
+    # namespace. No input file/product/module state is changed.
+    begin=source.index("    delivery_pattern=");end=source.index("    result['first_peer_outer_delivery']=deliveries",begin)
+    segment=source[begin:end]
+    mutant=source[:begin]+segment.replace('delivery_before','before').replace('delivery_after','after')+source[end:]
+    namespace=dict(globals());exec(compile(mutant,'<remote-delivery-shadow-counterfactual>','exec'),namespace)
+    try:namespace['timing'](report,name)
+    except ValueError as error:require(str(error)=='terminal-started-in-fourth-wait','historical-shadow-sole-intended-gate')
+    else:raise ValueError('historical-shadow-counterfactual-survived')
+    require(timing(report,name)['terminal_validation_cost']['first_start_us']==4,'restored-original-wait-invariant')
+    bad=report.replace('[Some(4), Some(5)]','[Some(2), Some(5)]')
+    try:timing(bad,name)
+    except ValueError as error:require(str(error)=='terminal-started-in-fourth-wait','actual-before-wait-still-rejected')
+    else:raise ValueError('terminal-invariant-weakened')
+    return {'positive':2,'negative':2,'historical_shadow_parser_counterfactual_rejected':True,'original_wait_invariant_unchanged':True,'actual_runtime_bodies':0}
