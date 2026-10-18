@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [storage-handle-preflight, storage-handle-diagnostics-default, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
@@ -27,7 +27,7 @@ env:
 jobs:
   # STORAGE_HANDLE_JOBS_BEGIN
   storage-handle-preflight:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["storage-handle-preflight","storage-handle-red"]'), inputs.case)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["storage-handle-preflight","storage-handle-diagnostics-default","storage-handle-red"]'), inputs.case)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -63,14 +63,14 @@ jobs:
           retention-days: 7
   storage-handle-red:
     needs: storage-handle-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-handle-red'
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["storage-handle-diagnostics-default","storage-handle-red"]'), inputs.case)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        cohort: [default, experimental]
+        cohort: ${{ fromJSON(inputs.case == 'storage-handle-diagnostics-default' && '["default"]' || '["default","experimental"]') }}
     env:
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'

@@ -16,7 +16,7 @@ WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
 REF = 'refs/heads/ci/upstream-storage-handle-20261018'
 BEGIN = '  # STORAGE_HANDLE_JOBS_BEGIN\n'
 END = '  # STORAGE_HANDLE_JOBS_END\n'
-OPTIONS = 'options: [storage-handle-preflight, storage-handle-red, '
+OPTIONS = 'options: [storage-handle-preflight, storage-handle-diagnostics-default, storage-handle-red, '
 OUT = Path('storage-handle-evidence')
 PREFIX = 'base::boundary_tests::'
 CONTROLS = sorted(PREFIX + n for n in ['table_registry_names_every_table',
@@ -94,6 +94,74 @@ def known_crossing(line, context, section):
             and re.search(r'\b' + re.escape(target) + r'\b', protocol) is not None)
 
 
+def protocol_root_provenance(context):
+    """Read only the explicit frozen private-root Protocol arm, fail closed."""
+    source = context['sources'].get('base/boundary_tests.rs', '')
+    try:
+        body = old.rust_function(source, 'private_root_side')
+    except (ValueError, IndexError):
+        return None
+    if body.count('match root {') != 1 or body.count('=> Some(Side::Protocol),') != 1:
+        return None
+    arm = body.split('match root {', 1)[1].split('=> Some(Side::Protocol),', 1)[0]
+    if not re.fullmatch(r'\s*"[a-z][a-z0-9_]{0,127}"(?:\s*\|\s*"[a-z][a-z0-9_]{0,127}")*\s*', arm):
+        return None
+    roots = re.findall(r'"([a-z][a-z0-9_]*)"', arm)
+    if not roots or len(roots) > 64 or len(set(roots)) != len(roots):
+        return None
+    return set(roots)
+
+
+def source_grounded_rejection(line, section, context):
+    """Additional trait metadata grants no acceptance or schema allowance."""
+    detail = old.source_grounded_rejection(line, section, context)
+    parts = line.split(' ')
+    if len(parts) != 3 or ' '.join(parts) != line or len(line) > 512 or parts[0] != 'trait':
+        return detail
+    _, origin, target = parts
+    detail.update(kind='trait', target_mentioned_in_origin=False,
+                  target_seen_in_canonical_protocol_sources=False,
+                  canonical_private_protocol_registry_known=False,
+                  protocol_source_provenance=[], acceptance_widened=False)
+    if (origin not in context['sources'] or not re.fullmatch(r'[A-Za-z0-9_/-]+\.rs', origin)
+            or '..' in origin):
+        return detail
+    detail['origin'] = origin
+    detail['origin_is_tracked_source'] = True
+    if target == 'cgka_traits::*':
+        if re.search(r'\buse\s+cgka_traits\b[^;]*\*\s*;', context['sources'][origin]):
+            detail.update(target_atoms=['cgka_traits', '*'], target_atoms_proven_static=True,
+                          target_mentioned_in_origin=True)
+        return detail
+    if (not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', target)
+            or re.fullmatch(r'[a-fA-F0-9]{24,}', target)
+            or re.fullmatch(r'(?:npub|nsec|note|nevent|nprofile|naddr)1[0-9a-z]+', target)):
+        return detail
+    mentioned = re.search(r'\b' + re.escape(target) + r'\b', context['sources'][origin]) is not None
+    detail['target_mentioned_in_origin'] = mentioned
+    if not mentioned:
+        return detail
+    # Static name export requires the exact frozen origin's own token. It does
+    # not require or pretend this token is a trait implemented by Protocol.
+    detail.update(target_atoms=[target], target_atoms_proven_static=True)
+    roots = protocol_root_provenance(context)
+    detail['canonical_private_protocol_registry_known'] = roots is not None
+    if roots is None:
+        return detail
+    sources = []
+    for path, body in sorted(context['sources'].items()):
+        if not re.fullmatch(r'[A-Za-z0-9_/-]+\.rs', path) or '..' in path:
+            continue
+        root = path.split('/', 1)[0].removesuffix('.rs')
+        if path.startswith('protocol/') or root in roots:
+            if re.search(r'\b' + re.escape(target) + r'\b', body):
+                sources.append(path)
+    detail['target_seen_in_canonical_protocol_sources'] = bool(sources)
+    detail['protocol_source_provenance'] = sources[:16]
+    detail['protocol_source_provenance_truncated'] = len(sources) > 16
+    return detail
+
+
 def crossing_inventory(raw, code, context, line):
     row = old.parse_body(raw, code, BOUNDARY)
     locations = row['safe_panic_locations']
@@ -126,7 +194,7 @@ def crossing_inventory(raw, code, context, line):
             return {'status': 'rejected', 'reason': 'unknown-crossing-row-rejected',
                     'new': [], 'stale': [], 'counts': None,
                     'automatically_allowed': False, 'inventory_complete': False,
-                    'unqualified_rejection_detail': old.source_grounded_rejection(value, section, context)}
+                    'unqualified_rejection_detail': source_grounded_rejection(value, section, context)}
         ensure(value not in seen, 'unique-crossing-row'); seen.add(value)
         kind, origin, target = value.split(' ')
         result[section].append({'kind': kind, 'origin': origin, 'target': target})
@@ -204,6 +272,33 @@ def parser_controls():
     ensure(private['status'] == 'rejected' and private['counts'] is None
            and private['unqualified_rejection_detail']['target_atoms'] == []
            and 'PRIVATE_ACCOUNT' not in json.dumps(private), 'unproven-private-atoms-not-exported')
+    registry = '\nfn private_root_side(root: &str) -> Option<Side> {\n    match root {\n        "accepted_welcome" => Some(Side::Protocol),\n        "mirrored_chat_messages" => Some(Side::App),\n        _ => None,\n    }\n}\n'
+    trait_context = {**context, 'sources': {**context['sources'],
+        'base/boundary_tests.rs': registry, 'protocol/storage.rs': '',
+        'accepted_welcome.rs': 'impl GroupStorage for SqliteAccountStorage {}',
+        'mirrored_chat_messages.rs': 'trait PrivateAppTrait {}'}}
+    trait = source_grounded_rejection('trait app/test.rs GroupStorage', 'new', trait_context)
+    ensure(trait['kind'] == 'trait' and trait['target_atoms'] == ['GroupStorage']
+           and trait['target_seen_in_canonical_protocol_sources'] is True
+           and trait['protocol_source_provenance'] == ['accepted_welcome.rs']
+           and trait['automatically_allowed'] is False and trait['acceptance_widened'] is False,
+           'explicit-private-protocol-provenance-metadata-only')
+    ensure(not known_crossing('trait app/test.rs GroupStorage', trait_context, 'new'),
+           'metadata-does-not-widen-original-protocol-path-acceptance')
+    rejected_trait = crossing_inventory(raw, 101, trait_context, 91)
+    ensure(rejected_trait['status'] == 'rejected' and rejected_trait['counts'] is None
+           and rejected_trait['unqualified_rejection_detail']['kind'] == 'trait', 'trait-stays-rejected')
+    for target in ['PRIVATE_ACCOUNT', 'nsec1private', 'a' * 64]:
+        rejected = source_grounded_rejection('trait app/test.rs ' + target, 'new', trait_context)
+        ensure(rejected['target_atoms'] == [] and target not in json.dumps(rejected), 'private-trait-token-not-exported')
+    app_only = {**trait_context, 'sources': {**trait_context['sources'],
+        'app/test.rs': 'PrivateAppTrait', 'accepted_welcome.rs': ''}}
+    ensure(source_grounded_rejection('trait app/test.rs PrivateAppTrait', 'new', app_only)
+           ['target_seen_in_canonical_protocol_sources'] is False, 'app-only-token-not-protocol')
+    unknown_registry = {**trait_context, 'sources': {**trait_context['sources'],
+                        'base/boundary_tests.rs': registry.replace('Side::Protocol', 'Side::Unknown')}}
+    ensure(source_grounded_rejection('trait app/test.rs GroupStorage', 'new', unknown_registry)
+           ['canonical_private_protocol_registry_known'] is False, 'unknown-registry-no-provenance-claim')
     complete_rows = {name: {'actual_counts_complete': True, 'passed': 1, 'failed': 0,
                           'ignored': 0, 'executed_nonignored': 1} for name in TESTS}
     ensure(aggregate_counts(complete_rows)['actual_passed'] == 5, 'five-real-receipts-counted')
@@ -217,6 +312,7 @@ def parser_controls():
                'incomplete-counts-stay-unknown')
     return {'historical_body_parser': inherited, 'trait_positive': 3, 'trait_negative': len(negatives),
             'inventory_positive': 1, 'inventory_negative': 6, 'safe_rejection_controls': 2,
+            'trait_metadata_positive': 2, 'trait_metadata_negative': 5,
             'aggregate_positive': 1, 'aggregate_negative': 5, 'runtime_bodies': 0}
 
 
