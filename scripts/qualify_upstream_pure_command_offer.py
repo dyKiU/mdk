@@ -15,11 +15,11 @@ import time
 import qualify_upstream_command_backlog_pair as pair
 red=pair.red
 ensure=red.ensure
-BASE='ec5cc63762304b265fffe6a52b6ac227dc8e3bf1'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
+BASE='75fb999ceea4ef5abefe25060298b6fe021067f3'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
 SELF='scripts/qualify_upstream_pure_command_offer.py'
 PEER_SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
-MANIFEST_SHA='4d8da570530fda7ec26010c4697bb70910dc4c9615a04ba8ad171127b7afb6f4'  # Root pins the shared reviewed manifest after final formatting/source freeze.
+MANIFEST_SHA='9d98f90a6a1e80d77b80a6abbd4f514abf66bff347cf2046a329be6d554ddc55'  # Root pins the shared reviewed manifest after final formatting/source freeze.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 REF='refs/heads/ci/upstream-command-offer-pure-20261018'
 OUT=Path('pure-command-offer-evidence')
@@ -32,6 +32,55 @@ OVERLAYS=[
     {'name':'native5','begin':'  # PURE_NATIVE5_JOBS_BEGIN\n','end':'  # PURE_NATIVE5_JOBS_END\n',
      'options':'options: [pure-native5-preflight, pure-native5-green, '},
 ]
+
+
+def strip_owned_workflow(data, required):
+    text=data.decode()
+    present=[(text.count(item['begin']),text.count(item['end'])) for item in OVERLAYS]
+    if not required and all(row==(0,0) for row in present):
+        ensure(all(item['options'] not in text for item in OVERLAYS),'no-unowned-option-prefix-without-blocks')
+        return data
+    ensure(all(row==(1,1) for row in present),'exact-complete-owned-workflow-union')
+    for overlay in OVERLAYS:
+        before,rest=text.split(overlay['begin']);_,after=rest.split(overlay['end']);text=before+after
+    for overlay in OVERLAYS:
+        ensure(text.count(overlay['options'])==1,'exact-owned-option-prefix-order')
+        text=text.replace(overlay['options'],'options: [',1)
+    return text.encode()
+
+
+def workflow_metadata_controls():
+    # Synthetic metadata only: no source reads, builds, protocol bodies or RED claim.
+    bare='name: synthetic\noptions: [legacy]\njobs:\n'
+    full=bare
+    for overlay in reversed(OVERLAYS):full=full.replace('options: [',overlay['options'],1)
+    blocks=[item['begin']+'  owned_'+item['name']+': synthetic\n'+item['end'] for item in OVERLAYS]
+    full+=''.join(blocks)
+    ensure(strip_owned_workflow(bare.encode(),False)==bare.encode(),'workflow-optional-absent-positive')
+    ensure(strip_owned_workflow(full.encode(),True)==bare.encode(),'workflow-current-complete-positive')
+    ensure(strip_owned_workflow(full.encode(),False)==bare.encode(),'workflow-BASE-complete-positive')
+    bad=[(bare,True),
+        (full.replace(blocks[0],'',1),False),
+        (full+blocks[0],True),
+        (full.replace(OVERLAYS[1]['end'],'',1),True),
+        (full.replace(OVERLAYS[0]['options']+'pure-native5-preflight, pure-native5-green, ',
+            OVERLAYS[1]['options']+'pure-command-offer-preflight, pure-command-offer-pfp, ',1),True),
+        (full.replace(''.join(blocks),'',1),False),
+        (full.replace(OVERLAYS[0]['options'],'options: [',1),True),
+        (full.replace(OVERLAYS[0]['options'],OVERLAYS[0]['options']+'pure-command-offer-preflight, pure-command-offer-pfp, ',1),True)]
+    for candidate,required in bad:
+        rejected=False
+        try:strip_owned_workflow(candidate.encode(),required)
+        except ValueError:rejected=True
+        ensure(rejected,'malformed-owned-workflow-union-rejected')
+    changed_owned=full.replace('owned_offer: synthetic','owned_offer: reviewed-change',1)
+    ensure(strip_owned_workflow(changed_owned.encode(),True)==bare.encode(),'only-declared-owned-body-removed')
+    foreign=full.replace('name: synthetic','name: foreign',1)
+    expected_foreign=bare.replace('name: synthetic','name: foreign',1).encode()
+    normalized=strip_owned_workflow(foreign.encode(),True)
+    ensure(normalized==expected_foreign and normalized!=strip_owned_workflow(bare.encode(),False),'foreign-outside-bytes-survive-and-mismatch')
+    return {'synthetic_metadata_positive':3,'malformed_union_negative':len(bad),
+        'owned_body_normalized':1,'foreign_outside_comparison_mismatch':1,'actual_runtime_bodies':0}
 
 
 def source_guard():
@@ -65,14 +114,16 @@ def source_guard():
             meta,name=item.split(b'\t',1);mode,kind,blob=meta.decode().split()
             ensure(kind=='blob' and mode in {'100644','100755','120000'},'ordinary-pure-baseline')
             baseline[os.fsdecode(name)]=(mode,blob)
-    additions={SELF,PEER_SELF,MANIFEST}|set(HELPERS)
+    owned_metadata={SELF,PEER_SELF,MANIFEST}
+    declared=owned_metadata|set(HELPERS)
     current=red.layout()
-    ensure(not additions.intersection(baseline) and set(current)==set(baseline)|additions,'exact-whole-pure-inventory-and-owned-metadata-union')
+    ensure(set(current)==set(baseline)|declared,'exact-whole-pure-inventory-and-owned-metadata-union')
     product=manifest['product']
     ensure(product['path']=='crates/marmot-app/src/runtime/account_worker.rs' and product['git_mode']=='100644'
         and len(product['edits'])==3,'exact-three-production-insertions-witness')
     for name,meta in current.items():
         mode,blob=baseline.get(name,('100644',None))
+        if name in declared:ensure(mode=='100644','owned-metadata-and-helper-normal-file-mode')
         ensure(meta['git_mode']==mode and meta['symlink']==(mode=='120000')
             and (meta['symlink'] or meta['actual_executable']==(mode=='100755')),'whole-modes-and-executability')
         data=os.fsencode(os.readlink(name)) if meta['symlink'] else Path(name).read_bytes()
@@ -85,24 +136,80 @@ def source_guard():
                 witness=witness.replace(edit['after'],edit['before'],1)
             ensure(red.digest(witness.encode())==product['before_sha256'],'exact-worker-omission-witness')
             # Do not replace data: the candidate Rust MUST match BASE byte-for-byte.
+        if name in owned_metadata:
+            # These three reviewed metadata files may already exist in BASE.
+            # SELF bytes are bound by signed/pristine GitHEAD==GITHUB_SHA; the
+            # manifest additionally has its explicit non-circular SHA pin above.
+            continue
         if name==WORKFLOW:
-            text=data.decode()
-            for overlay in OVERLAYS:
-                ensure(text.count(overlay['begin'])==text.count(overlay['end'])==1,'one-each-reviewed-owned-block')
-                before,rest=text.split(overlay['begin']);_,after=rest.split(overlay['end']);text=before+after
-            # Root composes dispatch options offer-first, then native5. No arbitrary option removal.
-            for overlay in OVERLAYS:
-                ensure(text.count(overlay['options'])==1,'exact-owned-option-prefix-order')
-                text=text.replace(overlay['options'],'options: [',1)
-            data=text.encode()
+            ensure(blob is not None,'baseline-workflow-required')
+            expected=subprocess.check_output(['git','cat-file','blob',blob])
+            ensure(strip_owned_workflow(data,True)==strip_owned_workflow(expected,False),'exact-workflow-outside-owned-union')
+            continue
         if blob is not None:
             ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-pure-content-no-Rust-exceptions:'+name)
     allowed={'pure-command-offer-evidence/result.json','pure-native5-evidence/result.json'}
     ensure(set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())<=allowed,'no-untracked-source-overlay')
     return manifest,{'source':head,'baseline':BASE,'whole_source_modes_reconstructed':True,'no_Rust_exceptions':True,
-        'owned_metadata_union':[SELF,PEER_SELF,MANIFEST],'metadata_controllers_commit_bound_by_GITHUB_SHA_and_pristine_HEAD':True,
+        'owned_metadata_union':[SELF,PEER_SELF,MANIFEST],'baseline_owned_metadata_present':sorted(owned_metadata.intersection(baseline)),'metadata_controllers_commit_bound_by_GITHUB_SHA_and_pristine_HEAD':True,
         'helper_guards_called':False,'reviewed_prior_control_pins':prior,'prior_control_verified_by_this_controller':False,
         'runtime_evidence_reused':False,'native_qualification_is_separate':True}
+
+
+def extract_ingress(raw):
+    ensure(len(raw.encode())<=8*1024*1024,'ingress-bounded-input')
+    clean=re.sub(r'\x1b\[[0-9;]*m','',raw)
+    lines=[line for line in clean.splitlines() if line.startswith('command-backlog-ingress')]
+    ensure(len(lines)==1 and len(lines[0].encode())<1024,'one-closed-ingress-marker')
+    pattern=(r'command-backlog-ingress schedule=(None|Some\(\(\[(true|false), (true|false), (true|false), (true|false)\], '
+             r'([01]), (0|[1-9][0-9]?), (0|[1-9][0-9]?), (true|false)\)\))')
+    match=re.fullmatch(pattern,lines[0]);ensure(match is not None,'closed-ingress-schedule')
+    schedule=None
+    if match[1]!='None':
+        held,replayed=int(match[7]),int(match[8]);ensure(held<=32 and replayed<=held,'ingress-bounded-held-replayed')
+        schedule={'armed':match[2]=='true','valid':match[3]=='true','released':match[4]=='true','flushed':match[5]=='true',
+            'target_passes':int(match[6]),'held':held,'replayed':replayed,'overflow':match[9]=='true'}
+    row={'schema_complete':True,'schedule':schedule,'controlled_test_arrivals_not_production_FIFO_evidence':True,
+        'missing_schedule_is_unknown_not_no_arrival':True,'IDs_or_payloads_exported':False}
+    filtered=''.join(line for line in clean.splitlines(keepends=True) if line.rstrip('\r\n')!=lines[0])
+    return filtered,row
+
+
+def ingress_gate(row):
+    schedule=row.get('schedule')
+    return (row.get('schema_complete') is True and isinstance(schedule,dict)
+        and all(schedule.get(key) is True for key in ['armed','valid','released','flushed'])
+        and type(schedule.get('target_passes')) is int and schedule['target_passes']==1
+        and all(type(schedule.get(key)) is int and 0<=schedule[key]<=32 for key in ['held','replayed'])
+        and schedule['held']==schedule['replayed'] and schedule.get('overflow') is False)
+
+
+def ingress_parser_controls():
+    marker='command-backlog-ingress schedule=Some(([true, true, true, true], 1, 2, 2, false))'
+    raw='command-backlog facts=UNCHANGED\n'+marker+'\ncommand-backlog-queue UNCHANGED\n'
+    filtered,row=extract_ingress(raw)
+    ensure(ingress_gate(row) and filtered=='command-backlog facts=UNCHANGED\ncommand-backlog-queue UNCHANGED\n','ingress-only-validated-line-removed')
+    for value in [0,32]:
+        ensure(ingress_gate(extract_ingress(marker.replace(', 2, 2,',', '+str(value)+', '+str(value)+','))[1]),'ingress-real-bounded-replay-positive')
+    unknown=extract_ingress('command-backlog-ingress schedule=None')[1]
+    ensure(unknown['schema_complete'] and unknown['schedule'] is None and not ingress_gate(unknown),'unknown-schedule-retained-not-qualified')
+    negatives=0
+    for key in ['armed','valid','released','flushed']:
+        altered={**row,'schedule':{**row['schedule'],key:False}};ensure(not ingress_gate(altered),'ingress-prerequisite-required');negatives+=1
+    for delta in [{'target_passes':True},{'target_passes':0},{'held':True},{'replayed':False},{'held':33},
+                  {'replayed':1},{'overflow':True}]:
+        ensure(not ingress_gate({**row,'schedule':{**row['schedule'],**delta}}),'ingress-invalid-setup-not-qualified');negatives+=1
+    # Typed setup failures are useful observations, not schema failures or product RED.
+    partial=extract_ingress(marker.replace('[true, true, true, true]','[true, false, true, false]').replace(', false))',', true))'))[1]
+    ensure(partial['schema_complete'] and not ingress_gate(partial),'ingress-partial-failure-preserved')
+    for bad in ['',marker+'\n'+marker,marker+' private=PAYLOAD',marker.replace(', 1, 2, 2,',', 2, 2, 2,'),
+                marker.replace(', 1, 2, 2,',', 1, 33, 2,'),marker.replace(', 1, 2, 2,',', 1, 1, 2,'),
+                marker.replace(', 1, 2, 2,',', 1, 02, 2,'),marker.replace('true, true, true, true','1, true, true, true'),
+                marker.replace(', 1, 2, 2,',', 1, -1, 2,')]:
+        try:extract_ingress(bad)
+        except ValueError:negatives+=1;continue
+        raise ValueError('ingress-malformed-marker-accepted')
+    return {'positive':3,'typed_unknown_or_setup_failure_controls':2,'negative':negatives,'actual_runtime_bodies':0}
 
 
 def original_green(row):
@@ -125,6 +232,8 @@ def totals(phases):
 
 
 def parser_controls():
+    workflow_controls=workflow_metadata_controls()
+    ingress_controls=ingress_parser_controls()
     inherited=pair.parser_controls()
     marker='command-backlog facts=['+', '.join(['true']*13)+'] completed_before=Some(1) runtime_closes=3 plane_shutdown_returns=3 relay_closed=true attempt_completed=true'
     raw='running 1 test\ntest '+red.NAME+' ... ok\n'+marker+'\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n'
@@ -138,7 +247,7 @@ def parser_controls():
         ensure(not original_green(dict(row,**delta)),'non-GREEN-original-rejected');negatives+=1
     for field in ORIGINAL_FIELDS:
         ensure(not original_green(dict(row,facts=dict(row['facts'],**{field:False}))),'all-thirteen-original-facts-required');negatives+=1
-    return {'historical_pair_controls':inherited,'original_GREEN_positive':2,'original_GREEN_negative':negatives,'runtime_bodies':0}
+    return {'workflow_metadata_controls':workflow_controls,'ingress_controls':ingress_controls,'historical_pair_controls':inherited,'original_GREEN_positive':2,'original_GREEN_negative':negatives,'runtime_bodies':0}
 
 
 def write_fresh(path,data,mode):
@@ -180,11 +289,13 @@ def run_phase(label,expected,modes,expected_cases,save,report):
                 case_row['post_body_binary_sha256']=red.digest(Path(phase['binary_path']).read_bytes())
                 case_row['post_body_binary_pristine']=case_row['post_body_binary_sha256']==phase['binary_sha256'];save()
                 ensure(case_row['post_body_binary_pristine'],'actual-post-body-binary-pristine')
-                filtered,case_row['queue_observation']=pair.extract_queue(raw);save()
+                filtered,case_row['ingress_observation']=extract_ingress(raw);save()
+                filtered,case_row['queue_observation']=pair.extract_queue(filtered);save()
                 parser=red.parse if suffix==red.CASE else pair.parse_counter
                 case_row['body']=dict(parser(filtered,code),seconds=seconds)
                 gate=red.intended_red if label=='mutant' else (original_green if suffix==red.CASE else pair.counter_green)
-                case_row['expected_outcome_verified']=gate(case_row['body']) and pair.queue_gate(case_row['queue_observation'],suffix==red.CASE)
+                case_row['expected_outcome_verified']=(gate(case_row['body']) and pair.queue_gate(case_row['queue_observation'],suffix==red.CASE)
+                    and ingress_gate(case_row['ingress_observation']))
             except red.bounded.GateFailure as error:
                 case_row['watchdog_triggered']=str(error)=='bounded-command-timeout';case_row['output_limit_triggered']=str(error)=='bounded-command-output-limit'
                 case_row['actual_count_unknown']=True;case_row['exception_type']=type(error).__name__

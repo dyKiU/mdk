@@ -1,5 +1,5 @@
 {
-  "baseline": "ec5cc63762304b265fffe6a52b6ac227dc8e3bf1",
+  "baseline": "75fb999ceea4ef5abefe25060298b6fe021067f3",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -85,5 +85,25 @@
     "parent_sha256": "35ff6d576a49cfae6054e6603321b0e4a47e4d7f1b1e4bc1c7f216990daf9440",
     "strict_helper_sha256": "a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2",
     "oracle_region_sha256": "88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72"
+  },
+  "controlled_ingress": {
+    "source": "0c1c7bb1f8dc67469c340738cfeefe71566e94db",
+    "formatted_source": "75fb999ceea4ef5abefe25060298b6fe021067f3",
+    "exact_hosted_format_patch_sha256": "10fea844ee750d7cb018304cac19e6e4e1947e2e3a2b7360baaba9c1765f7c89",
+    "test_only": true,
+    "capacity": 32,
+    "genuine_target_and_historical_helpers_unchanged": true,
+    "all_five_runtime_cases_require_positive_armed_valid_released_flushed_target1_equal_replay_nooverflow": true,
+    "evidence_is_controlled_test_arrivals_not_production_FIFO": true
+  },
+  "retained_failed_pure_PFP": {
+    "source": "e517436acc84d8ed6aab5c073381e8f26e7a3114",
+    "run_id": "39147054910",
+    "actual_passed": 3,
+    "actual_failed": 2,
+    "actual_ignored": 0,
+    "restored_setup_prerequisite_failed": true,
+    "receipt_sha256": "681050540e06b0cba42a532831476beb45768e15d5253fe7611066548e3a07d0",
+    "does_not_qualify": true
   }
 }
