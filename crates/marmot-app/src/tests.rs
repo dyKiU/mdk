@@ -528,6 +528,7 @@ pub(crate) struct ScriptedPushRelayClient {
     fail_next_subscribe: std::sync::atomic::AtomicBool,
     block_next_unsubscribe: std::sync::atomic::AtomicBool,
     block_next_publish: std::sync::atomic::AtomicBool,
+    blocked_publish_kind: std::sync::Mutex<Option<u64>>,
     block_publish_count: std::sync::atomic::AtomicUsize,
     blocked_publish_count: std::sync::atomic::AtomicUsize,
     block_account_subscribe: std::sync::Mutex<Option<Vec<u8>>>,
@@ -1310,6 +1311,7 @@ impl NostrRelayClient for ScriptedPushRelayClient {
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
         {
             let released = registered_release(&self.publish_release);
+            self.blocked_publish_kind.lock().unwrap().get_or_insert(event.kind);
             self.blocked_publish_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.publish_started.notify_one();
@@ -7079,12 +7081,23 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     );
     assert!(result.profile.is_some());
     assert_eq!(result.readiness, AccountSetupReadiness::LocalReady);
-    assert_eq!(
-        runtime
-            .account_setup_readiness(&result.account.account_id_hex)
-            .unwrap(),
-        AccountSetupReadiness::Publishing
+    let live_readiness = runtime
+        .account_setup_readiness(&result.account.account_id_hex)
+        .unwrap();
+    let held_kind = *relay.blocked_publish_kind.lock().unwrap();
+    let readiness_code = |value| match value {
+        AccountSetupReadiness::Initializing => 0,
+        AccountSetupReadiness::LocalReady => 1,
+        AccountSetupReadiness::Publishing => 2,
+        AccountSetupReadiness::NetworkReady => 3,
+        AccountSetupReadiness::RecoveryRequired => 4,
+    };
+    eprintln!(
+        "generated_identity_blocked_publication held_kind_known={} held_kind={} returned_readiness={} live_readiness={}",
+        held_kind.is_some(), held_kind.unwrap_or(0),
+        readiness_code(result.readiness), readiness_code(live_readiness),
     );
+    assert_eq!(live_readiness, AccountSetupReadiness::Publishing);
     let lifecycle = app
         .account_storage(&result.account.label)
         .unwrap()
@@ -13837,7 +13850,7 @@ async fn own_relay_echo_requires_known_event_id_not_just_pubkey() {
 fn account_worker_is_spawned_as_abortable_async_task() {
     let source = include_str!("runtime/account_worker.rs");
 
-    assert!(source.contains("tokio::spawn(run_app_runtime_account_worker"));
+    assert!(source.contains("tokio::spawn(Box::pin(run_app_runtime_account_worker("));
     assert!(source.contains("managed account worker shutdown timed out; aborting"));
 }
 
