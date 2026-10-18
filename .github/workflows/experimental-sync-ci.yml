@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-directed-preflight, pure-directed-readiness, pure-directed-snapshot-mutations, pure-directed-snapshot-full19, pure-directed-storage-static, pure-directed-all, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       native_case:
         description: Exact native component mode (static executes no runtime bodies)
@@ -3624,3 +3624,286 @@ jobs:
           name: body-late-ack-qualification
           path: body-late-ack-evidence/result.json
           if-no-files-found: warn
+  # Ordinary directed qualification jobs: freeze these bytes into BASE before metadata repinning.
+  pure-directed-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pure-directed-preflight","pure-directed-readiness","pure-directed-snapshot-mutations","pure-directed-snapshot-full19","pure-directed-storage-static","pure-directed-all"]'), inputs.scope)
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read the current reviewed shared BASE literal without a third owned overlay
+        run: |
+          python3 - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import qualify_upstream_pure_command_offer as offer
+          with Path(os.environ['GITHUB_ENV']).open('a') as output:
+              output.write('UPSTREAM_PURE_QUALIFICATION_BASELINE=' + str(offer.BASE) + '\n')
+          PYCODE
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - name: Whole reviewed BASE, immutable oracles and closed parser adversaries
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 -m py_compile scripts/qualify_upstream_pure_directed.py scripts/pure_directed_snapshot_oracles.py
+          python3 scripts/qualify_upstream_pure_directed.py --preflight
+      - name: Hosted formatting only; preserve exact patch on failure
+        run: |
+          cargo fmt --all
+          git diff --binary > "$RUNNER_TEMP/pure-directed-format.patch"
+          sha256sum "$RUNNER_TEMP/pure-directed-format.patch" > "$RUNNER_TEMP/pure-directed-format.patch.sha256"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pure-directed-preflight
+          path: |
+            pure-directed-evidence/result.json
+            ${{ runner.temp }}/pure-directed-format.patch
+            ${{ runner.temp }}/pure-directed-format.patch.sha256
+          if-no-files-found: error
+          retention-days: 7
+  pure-directed-readiness:
+    needs: pure-directed-preflight
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pure-directed-readiness","pure-directed-all"]'), inputs.scope)
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        mutation: [consume, permit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read the current reviewed shared BASE literal without a third owned overlay
+        run: |
+          python3 - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import qualify_upstream_pure_command_offer as offer
+          with Path(os.environ['GITHUB_ENV']).open('a') as output:
+              output.write('UPSTREAM_PURE_QUALIFICATION_BASELINE=' + str(offer.BASE) + '\n')
+          PYCODE
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - name: Actual pinned nextest version
+        run: cargo nextest --version
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: true
+      - name: Fresh bounded directed component evidence only, without retries
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Fresh directed component readiness' --output "$RUNNER_TEMP/pure-directed-capacity.json"
+          python3 scripts/qualify_upstream_pure_directed.py --mode readiness --mutation ${{ matrix.mutation }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pure-directed-readiness-${{ matrix.mutation }}
+          path: |
+            pure-directed-evidence/result.json
+            ${{ runner.temp }}/pure-directed-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  pure-directed-snapshot-mutations:
+    needs: pure-directed-preflight
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pure-directed-snapshot-mutations","pure-directed-all"]'), inputs.scope)
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        mutation: [round, facts]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read the current reviewed shared BASE literal without a third owned overlay
+        run: |
+          python3 - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import qualify_upstream_pure_command_offer as offer
+          with Path(os.environ['GITHUB_ENV']).open('a') as output:
+              output.write('UPSTREAM_PURE_QUALIFICATION_BASELINE=' + str(offer.BASE) + '\n')
+          PYCODE
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: true
+      - name: Fresh bounded directed component evidence only, without retries
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Fresh directed component snapshot-mutations' --output "$RUNNER_TEMP/pure-directed-capacity.json"
+          python3 scripts/qualify_upstream_pure_directed.py --mode snapshot --mutation ${{ matrix.mutation }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pure-directed-snapshot-${{ matrix.mutation }}
+          path: |
+            pure-directed-evidence/result.json
+            ${{ runner.temp }}/pure-directed-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  pure-directed-snapshot-full19:
+    needs: pure-directed-preflight
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pure-directed-snapshot-full19","pure-directed-all"]'), inputs.scope)
+    timeout-minutes: 180
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read the current reviewed shared BASE literal without a third owned overlay
+        run: |
+          python3 - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import qualify_upstream_pure_command_offer as offer
+          with Path(os.environ['GITHUB_ENV']).open('a') as output:
+              output.write('UPSTREAM_PURE_QUALIFICATION_BASELINE=' + str(offer.BASE) + '\n')
+          PYCODE
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: true
+      - name: Fresh bounded directed component evidence only, without retries
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Fresh directed component snapshot-full19' --output "$RUNNER_TEMP/pure-directed-capacity.json"
+          python3 scripts/qualify_upstream_pure_directed.py --mode full19
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pure-directed-snapshot-full19
+          path: |
+            pure-directed-evidence/result.json
+            ${{ runner.temp }}/pure-directed-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  pure-directed-storage-static:
+    needs: pure-directed-preflight
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pure-directed-storage-static","pure-directed-all"]'), inputs.scope)
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read the current reviewed shared BASE literal without a third owned overlay
+        run: |
+          python3 - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import qualify_upstream_pure_command_offer as offer
+          with Path(os.environ['GITHUB_ENV']).open('a') as output:
+              output.write('UPSTREAM_PURE_QUALIFICATION_BASELINE=' + str(offer.BASE) + '\n')
+          PYCODE
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: true
+      - name: Fresh bounded directed component evidence only, without retries
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Fresh directed component storage-static' --output "$RUNNER_TEMP/pure-directed-capacity.json"
+          python3 scripts/qualify_upstream_pure_directed.py --mode storage-static
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pure-directed-storage-static
+          path: |
+            pure-directed-evidence/result.json
+            ${{ runner.temp }}/pure-directed-capacity.json
+          if-no-files-found: error
+          retention-days: 7
