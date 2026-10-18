@@ -5,16 +5,28 @@ impl AppClient {
     pub(crate) fn recheck_owned_sibling_source_readiness(
         &mut self,
     ) -> Result<Option<std::sync::Arc<OriginalSiblingSharingApproval>>, ClientLinkingError> {
-        let original = self.linking_owner.pending_sibling_source.as_ref()
+        let original = self
+            .linking_owner
+            .pending_sibling_source
+            .as_ref()
             .and_then(std::sync::Weak::upgrade);
         let Some(original) = original else {
             self.linking_owner.pending_sibling_source = None;
             return Ok(None);
         };
-        let current = self.linking_owner.received_endorsement.as_ref().is_some_and(|action| {
-            !action.cancelled && original.state.live() && !original.complete()
-                && action.sharing.as_ref().is_some_and(|held| std::sync::Arc::ptr_eq(held, &original))
-        });
+        let current = self
+            .linking_owner
+            .received_endorsement
+            .as_ref()
+            .is_some_and(|action| {
+                !action.cancelled
+                    && original.state.live()
+                    && !original.complete()
+                    && action
+                        .sharing
+                        .as_ref()
+                        .is_some_and(|held| std::sync::Arc::ptr_eq(held, &original))
+            });
         if !current {
             self.linking_owner.pending_sibling_source = None;
             return Ok(None);
