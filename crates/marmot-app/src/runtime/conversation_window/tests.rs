@@ -2415,7 +2415,8 @@ async fn assert_hot_checkpoints_do_not_postpone_refresh(prior_not_ready: bool) {
     f.close().await;
     assert!(
         produced_before_stop > 100,
-        "the checkpoint watch stayed hot throughout the observation"
+        "the checkpoint watch stayed hot throughout the observation: produced={produced_before_stop}, refresh_observed={}",
+        observed.is_ok()
     );
     let observed = observed
         .expect("a continuing checkpoint producer must not postpone a ready refresh until quiet");
