@@ -2,6 +2,7 @@
 use super::*;
 use std::sync::atomic::AtomicUsize;
 use tokio::sync::{Notify, oneshot};
+pub(crate) mod watch_pressure;
 type Reply = oneshot::Receiver<Result<Vec<crate::HistoryNotice>, crate::AppError>>;
 struct Probe {
     target: Weak<Existing>,
@@ -11,6 +12,7 @@ struct Probe {
     own_message: OnceLock<cgka_traits::MessageId>,
     pause_rx_len: OnceLock<usize>,
     ingress_armed: AtomicBool,
+    watch_pressure: OnceLock<watch_pressure::Pressure>,
     fired: AtomicBool,
     known: AtomicBool,
     active_ingest: AtomicUsize,
@@ -117,6 +119,7 @@ impl super::Guard {
             own_message: OnceLock::new(),
             pause_rx_len: OnceLock::new(),
             ingress_armed: AtomicBool::new(false),
+            watch_pressure: OnceLock::new(),
             fired: AtomicBool::new(false),
             known: AtomicBool::new(true),
             active_ingest: AtomicUsize::new(0),
@@ -173,6 +176,7 @@ pub(in super::super) fn pause(
     entries: &[SiblingChannel],
     receive: [bool; 5],
     queue_len: impl FnOnce(&cgka_traits::MessageId) -> Option<usize>,
+    completion: &tokio::sync::watch::Sender<()>,
 ) -> Option<Pause> {
     let probe = probe()?;
     let entry = entries.iter().find(|entry| target(&probe, entry))?;
@@ -197,6 +201,7 @@ pub(in super::super) fn pause(
     if queue_len != 0 {
         return None;
     }
+    if let Some(pressure) = probe.watch_pressure.get() { pressure.capture_sender(completion); }
     if probe.fired.swap(true, Ordering::AcqRel) {
         return None;
     }
@@ -247,6 +252,10 @@ pub(in super::super) fn accepted(entry: &SiblingChannel) {
         return;
     };
     if !target(&probe, entry) || probe.active_ingest.load(Ordering::Acquire) != 1 {
+        return;
+    }
+    if let Some(pressure) = probe.watch_pressure.get() {
+        pressure.accepted(&probe);
         return;
     }
     let Ok(mut accepted) = probe.accepted.try_lock() else {

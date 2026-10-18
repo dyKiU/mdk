@@ -84,8 +84,7 @@ async fn eight_history_reads_complete_while_actual_peer_proof_is_held() {
 }
 
 async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
-    static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _serial = SERIAL.lock().await;
+    let _serial = super::finite_sibling_input_scenario_lock().await;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
     let keys = nostr::prelude::Keys::generate();

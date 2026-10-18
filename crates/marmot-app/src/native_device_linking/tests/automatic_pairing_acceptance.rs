@@ -2405,6 +2405,16 @@ mod request_retry_completion_acceptance;
 #[path = "command_backlog_acceptance.rs"]
 mod command_backlog_acceptance;
 // COMMAND_BACKLOG_TEST_END
+// WATCH_PRESSURE_TEST_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[path = "watch_pressure_acceptance.rs"]
+mod watch_pressure_acceptance;
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+async fn finite_sibling_input_scenario_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    SERIAL.lock().await
+}
+// WATCH_PRESSURE_TEST_END
 // LATE_CONSENT_TEST_BEGIN
 #[cfg(feature = "test-policy-overrides")]
 #[path = "late_sibling_consent_acceptance.rs"]

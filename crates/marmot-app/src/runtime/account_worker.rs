@@ -2607,7 +2607,10 @@ async fn run_app_runtime_account_worker(
                         match result {
                             Err(_) => sibling_completions_open = false,
                             Ok(()) if !lifecycle.is_stopping() => {
-                                if client.service_sibling_publication_completions().await.is_err() {
+                                let completion_result = client.service_sibling_publication_completions().await;
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                client.note_watch_pressure_service_for_test(completion_result.is_ok());
+                                if completion_result.is_err() {
                                     tracing::debug!(target: "marmot_app::device_linking", method = "worker_sibling_completion", "sibling publication completion deferred");
                                 }
                             }

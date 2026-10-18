@@ -2524,6 +2524,7 @@ impl AppClient {
                 }
                 self.adapter.account_delivery_queue_len_for_test()
             },
+            &self.linking_owner.sibling_publication_completions,
         )
     }
     #[cfg(all(
@@ -2536,6 +2537,12 @@ impl AppClient {
         message: &cgka_traits::MessageId,
     ) -> Option<peer_proof_probe::command_backlog::Ingest> {
         peer_proof_probe::command_backlog::begin(&self.linking_owner.sibling_channels, message)
+    }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn note_watch_pressure_service_for_test(&self, ok: bool) {
+        peer_proof_probe::command_backlog::watch_pressure::service(
+            &self.linking_owner.sibling_channels, ok,
+        );
     }
     // COMMAND_BACKLOG_TEST_END
     async fn start_sibling_publication(
