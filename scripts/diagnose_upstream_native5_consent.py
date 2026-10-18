@@ -11,8 +11,8 @@ from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='df214431c8aad2fd22dfeb3b756206e98a8e2ec8' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='c0a1b8594d3184f254fd2e752dbfa1d682226d2c8d6e19dbdf193253148420aa' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='96c414c2462712f0f827b324edf01586044431d5a6ff12db77a2b9e8f524d84b' # Root MUST pin exact reviewed closed parser.
+MANIFEST_SHA='3a6bfb386cdaf8f7e03a2d30b5394b11b8964e5619e01cc762febebff4e49112' # Root MUST pin exact reviewed/reformatted reversal manifest.
+PARSER_SHA='7e0b7fbb81b1191f0bf953c57a3c817446962b44a0addb02aa49d04dd1a0a463' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -191,7 +191,7 @@ def main():
     frozen=None;binary=None;binary_sha=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['window_parser_controls']=timing_parser.window_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['native5_rich_parser_controls']=native5_rich_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['notification_parser_controls']=timing_parser.notification_parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['window_parser_controls']=timing_parser.window_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['native5_rich_parser_controls']=native5_rich_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
         if args.preflight:
             code,raw,wall=bounded.capture(['cargo','fmt','--all'],180,limit=8*1024*1024)
             report['format']={'exit_code':code,'wall_seconds':wall};patch=subprocess.check_output(['git','diff','--binary'])
@@ -229,12 +229,17 @@ def main():
         def known_window(window):
             timing=window['timing'];wait=timing.get('wait')
             return (timing['known'] is True and isinstance(wait,dict) and all(type(wait.get(k)) is int for k in ['constructed_before_us','constructed_after_us','observed_us']) and type(wait.get('outcome_ok')) is bool)
-        report['diagnostic_completed']=bool(windows) and all(known_window(window) for window in windows)
+        report['native_timing_windows_completed']=bool(windows) and all(known_window(window) for window in windows)
+        report['notification_dispositions_complete']=bool(windows) and all(
+            window['notification_dispositions'].get('observed') is True and
+            window['notification_dispositions'].get('schema_complete') is True for window in windows)
+        report['diagnostic_completed']=report['native_timing_windows_completed'] and report['notification_dispositions_complete']
         report['native_and_SDK_known_are_independent']=True
         report['missing_fifth_window_is_not_zero_or_pass']=True;save()
         # A valid observed FAIL remains an actual FAIL. Missing later milestones
         # do not reject useful observations or become invented false/zero facts.
         ensure(row['actual_counts_complete'] is True and row.get('executed_nonignored')==1 and row.get('ignored')==0 and row.get('compiler_error_count')==0,'one-actual-body-no-ignore-or-compiler-error')
+        ensure(report['notification_dispositions_complete'],'closed-notification-appendix-required-per-reached-window')
         ensure(report['diagnostic_completed'],'known-lossless-passive-observations-required')
     except Exception as error:
         report['exception_type']=type(error).__name__

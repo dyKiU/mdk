@@ -260,7 +260,18 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
 // NATIVE5_TIMING_BEGIN
             #[cfg(feature = "test-policy-overrides")]
             if let Some((ordinal, guard)) = native5_timing.take() {
-                native5_timing_reports.push((ordinal, guard.freeze()));
+                native5_timing_reports.push((ordinal, guard.freeze(|peer_outer_ids| {
+                    std::array::from_fn(|plane| {
+                        std::array::from_fn(|channel| {
+                            peer_outer_ids[channel].as_ref().and_then(|message| {
+                                apps[plane].relay_plane.account_notification_disposition_for_test(
+                                    &account,
+                                    &hex::encode(message.as_slice()),
+                                )
+                            })
+                        })
+                    })
+                })));
             }
 // NATIVE5_TIMING_END
             tokio::time::timeout(Duration::from_secs(20), async {
@@ -285,7 +296,18 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     if let Some((ordinal, guard)) = native5_timing.take() {
-        native5_timing_reports.push((ordinal, guard.freeze()));
+        native5_timing_reports.push((ordinal, guard.freeze(|peer_outer_ids| {
+                    std::array::from_fn(|plane| {
+                        std::array::from_fn(|channel| {
+                            peer_outer_ids[channel].as_ref().and_then(|message| {
+                                apps[plane].relay_plane.account_notification_disposition_for_test(
+                                    &account,
+                                    &hex::encode(message.as_slice()),
+                                )
+                            })
+                        })
+                    })
+                })));
     }
     // NATIVE5_TIMING_END
     let mut runtime_closes = 0usize;

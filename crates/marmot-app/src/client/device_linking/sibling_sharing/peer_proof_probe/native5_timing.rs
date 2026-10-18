@@ -1812,15 +1812,30 @@ impl Rpc {
 impl Guard {
     // Freeze and copy first, release the try-lock, then serialize bounded closed
     // values. Only the recognized test fixture emits this returned text.
-    pub(crate) fn freeze(self) -> String {
+    pub(crate) fn freeze(
+        self,
+        observe_notifications: impl FnOnce([Option<cgka_traits::MessageId>; 3]) -> [[Option<[u64; 8]>; 3]; 5],
+    ) -> String {
         use std::fmt::Write as _;
         let worker_report = self.0.worker.report();
         let sdk_report = self.0.sdk.freeze();
         let mut output = String::with_capacity(65536);
         let old = self.0.status.fetch_or(FROZEN, Ordering::AcqRel);
         // Copy only closed aggregates; print after the lock has been dropped.
+        let mut peer_outer_ids = std::array::from_fn::<_, 3, _>(|_| None);
         let snapshot = match self.0.data.try_lock() {
-            Ok(data) => Some((
+            Ok(data) => {
+                // Copy the first actual outer IDs in this SAME snapshot. These
+                // locators carry no state/authority and never enter the report.
+                peer_outer_ids = std::array::from_fn(|index| {
+                    data.slots[index]
+                        .as_ref()
+                        .and_then(|slot| slot.peer.as_ref())
+                        .and_then(|peer| peer.proof.as_ref())
+                        .and_then(|proof| proof.key.as_ref())
+                        .map(|key| key.message.clone())
+                });
+                Some((
                 data.before,
                 data.after,
                 data.wait_outcome,
@@ -1903,10 +1918,15 @@ impl Guard {
                 data.worker.deliveries.map(|row| {
                     row.map(|row| (row.worker, row.before, row.after, row.ok, row.later))
                 }),
-            )),
+                ))
+            }
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => None,
         };
+        let source_ids_snapshot_available = snapshot.is_some();
+        let source_id_bound = std::array::from_fn::<_, 3, _>(|index| {
+            source_ids_snapshot_available.then_some(peer_outer_ids[index].is_some())
+        });
         let mut loss = old & !FROZEN;
         if snapshot.as_ref().is_some_and(|row| !row.4) {
             loss |= ARM_UNAVAILABLE;
@@ -2008,6 +2028,21 @@ impl Guard {
         }
         output.push_str(&sdk_report);
         output.push_str(&worker_report);
+        // The native lock is released before these existing plane-counter
+        // lookups. Planes are read sequentially after the wait, not at deadline.
+        let notification_counts = observe_notifications(peer_outer_ids);
+        let _ = writeln!(
+            &mut output,
+            "native5-notification-meta source_ids_snapshot_available={source_ids_snapshot_available} source_id_bound={source_id_bound:?}"
+        );
+        for (plane, rows) in notification_counts.into_iter().enumerate() {
+            for (channel, counts) in rows.into_iter().enumerate() {
+                let _ = writeln!(
+                    &mut output,
+                    "native5-notification-disposition plane={plane} channel={channel} counts={counts:?}"
+                );
+            }
+        }
         if output.len() > 65536 {
             return "native5-consent-timing known=false loss_mask=4 snapshot_available=false\n"
                 .to_owned();

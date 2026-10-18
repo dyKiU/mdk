@@ -320,14 +320,18 @@ def timing_windows(raw,name):
             else:
                 require(active==ordinal,'same-window-end')
                 parsed=timing('\n'.join(data),name)
-                frames.append({'actual_join_ordinal':ordinal,'timing':parsed,'independent_origin_and_snapshot':True})
+                frames.append({'actual_join_ordinal':ordinal,'timing':parsed,
+                    'notification_dispositions':safe_notification_dispositions('\n'.join(data),ordinal,parsed.get('peer_proofs'),parsed.get('known') is True),
+                    'independent_origin_and_snapshot':True})
                 active=None;data=[]
         elif active is not None:data.append(line)
-        elif line.startswith('native5-consent-') or line.startswith('native5-sdk-'):raise ValueError('orphan-unframed-native-sdk-observation')
+        elif line.startswith('native5-consent-') or line.startswith('native5-sdk-') or line.startswith('native5-notification-'):raise ValueError('orphan-unframed-native-sdk-observation')
     require(active is None,'closed-window-before-end-of-output')
     return {'observed':bool(frames),'exact_prefix_normalizations':prefix,'windows':frames,
-        'fourth':{'reached_diagnostic_arm':bool(frames),'timing':frames[0]['timing'] if frames else None},
-        'fifth':{'reached_diagnostic_arm':len(frames)==2,'timing':frames[1]['timing'] if len(frames)==2 else None,'missing_reason':None if len(frames)==2 else 'NotReachedDiagnosticArm'},
+        'fourth':{'reached_diagnostic_arm':bool(frames),'timing':frames[0]['timing'] if frames else None,
+            'notification_dispositions':frames[0]['notification_dispositions'] if frames else None},
+        'fifth':{'reached_diagnostic_arm':len(frames)==2,'timing':frames[1]['timing'] if len(frames)==2 else None,
+            'notification_dispositions':frames[1]['notification_dispositions'] if len(frames)==2 else None,'missing_reason':None if len(frames)==2 else 'NotReachedDiagnosticArm'},
         'no_cross_window_clock_or_state_merge':True,'no_joint_snapshot_claim':True}
 
 def window_parser_controls():
@@ -479,10 +483,11 @@ def worker_output_capacity_control():
     for index in range(5):
         worker.append('native5-worker-poll index='+str(index)+' observation=Some(('+array('600000000',7)+', 255, Some((1000000, 600000000, 7, 6)), '+samples+'))')
         worker.extend('native5-worker-focus worker='+str(index)+' channel='+str(channel)+' observation=Some('+samples+')' for channel in range(3))
-    report='\n'.join(native+sdk+worker)+'\n'
-    require(len(native)==159 and len(sdk)==10 and len(worker)==21 and all(len(line)<4096 for line in native+sdk+worker),'maximum-closed-report-shape')
+    notification=notification_maximum_width_appendix()
+    report='\n'.join(native+sdk+worker+notification)+'\n'
+    require(len(native)==159 and len(sdk)==10 and len(worker)==21 and len(notification)==16 and all(len(line)<4096 for line in native+sdk+worker+notification),'maximum-closed-report-shape')
     require(len(report.encode())<=65536,'existing-64KiB-output-capacity')
-    return {'maximum_width_serialized_bytes':len(report.encode()),'existing_cap_bytes':65536,'maximum_RPC_rows':128,'maximum_longest_poll_samples':20,'maximum_focus_candidates':60,'runtime_bodies':0,'capacity_fixture_is_not_runtime_evidence':True}
+    return {'maximum_width_serialized_bytes':len(report.encode()),'existing_cap_bytes':65536,'maximum_RPC_rows':128,'maximum_notification_rows':15,'maximum_notification_appendix_bytes':len(('\n'.join(notification)+'\n').encode()),'maximum_longest_poll_samples':20,'maximum_focus_candidates':60,'runtime_bodies':0,'capacity_fixture_is_not_runtime_evidence':True}
 
 
 def safe_worker_timing(raw):
@@ -518,3 +523,153 @@ def delivery_wait_scope_controls(sample,name):
     except ValueError as error:require(str(error)=='terminal-started-in-fourth-wait','actual-before-wait-still-rejected')
     else:raise ValueError('terminal-invariant-weakened')
     return {'positive':2,'negative':2,'historical_shadow_parser_counterfactual_rejected':True,'original_wait_invariant_unchanged':True,'actual_runtime_bodies':0}
+
+
+# Notification disposition appendix: separate from the inherited timing schema.
+# These are registry counters, not timestamps and not delivery/authority proofs.
+NOTIFICATION_COUNTERS = [
+    'event_handler_entered', 'raw_message_event', 'adapter_ok_zero',
+    'adapter_ok_nonzero', 'adapter_error', 'plane_router_inlet',
+    'no_account_delivery_route', 'account_delivery_route_present',
+]
+U64 = r'(?:0|[1-9][0-9]{0,19})'
+U64_MAX = 18446744073709551615
+NOTIFICATION_OPTION = r'(?:None|Some\(\[' + U64 + r'(?:, ' + U64 + r'){7}\]\))'
+
+
+def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_known=True):
+    require(type(ordinal) is int and ordinal in {4,5}, 'notification-join-ordinal')
+    require(type(native_known) is bool, 'notification-native-known-flag')
+    require(len(raw.encode()) <= 8*1024*1024, 'notification-bounded-input')
+    lines = [line for line in raw.splitlines() if line.startswith('native5-notification-')]
+    if not lines:
+        require(not required, 'notification-required-appendix-missing')
+        return {'observed':False, 'schema_complete':False, 'source_ids_snapshot_available':None,
+            'source_id_bound':None, 'rows':None, 'missing_reason':'MissingAppendix',
+            'none_is_unknown_not_no_arrival':True, 'sequential_postwait_not_joint_deadline_snapshot':True}
+    require(len(lines) == 16 and all(len(line.encode()) <= 1024 for line in lines), 'notification-exact-header-and-fifteen-rows')
+    header = re.fullmatch(r'native5-notification-meta source_ids_snapshot_available=(true|false) source_id_bound=\[('
+        + OB + '), (' + OB + '), (' + OB + r')\]', lines[0])
+    require(header is not None, 'notification-exact-header')
+    available = header[1] == 'true'
+    bindings = [boolean(header[index]) for index in range(2,5)]
+    if available:
+        require(all(type(value) is bool for value in bindings), 'notification-available-bindings-must-be-known')
+        if native_known:
+            require(isinstance(peer_proofs,list) and len(peer_proofs) == 3, 'notification-native-proof-snapshot-required')
+        for index, proof in enumerate(peer_proofs if native_known else []):
+            require(proof is None or (isinstance(proof,dict) and type(proof.get('first_attempt_actual_message_bound')) is bool),
+                'notification-closed-native-proof-binding')
+            actual = proof['first_attempt_actual_message_bound'] if proof is not None else False
+            require(bindings[index] is actual, 'notification-same-first-proof-binding')
+    else:
+        require(bindings == [None,None,None], 'notification-unavailable-bindings-unknown')
+    rows = []
+    for index, line in enumerate(lines[1:]):
+        match = re.fullmatch(r'native5-notification-disposition plane=([0-4]) channel=([0-2]) counts=('
+            + NOTIFICATION_OPTION + ')', line)
+        require(match is not None and (int(match[1]),int(match[2])) == (index//3,index%3),
+            'notification-ordered-five-by-three-rows')
+        plane,channel = int(match[1]),int(match[2])
+        values = None
+        if match[3] != 'None':
+            values = [int(value) for value in match[3][6:-2].split(', ')]
+            require(len(values) == 8 and all(0 <= value <= U64_MAX for value in values), 'notification-u64-counters')
+        require((available and bindings[channel] is True) or values is None, 'notification-unbound-or-unavailable-row-unknown')
+        rows.append({'plane':plane,'channel':channel,'recipient_plane_for_this_join':plane == ordinal-1,
+            'registry_entry_observed':values is not None,'counters':None if values is None else dict(zip(NOTIFICATION_COUNTERS,values))})
+    return {'observed':True,'schema_complete':True,'source_ids_snapshot_available':available,
+        'source_id_bound':bindings,'native_ledger_known':native_known,'native_first_proof_crossbinding_verified':available and native_known,
+        'source_binding_flags_crosschecked':available and native_known,
+        'supplemental_counter_facts_remain_separate_when_native_unknown':True,
+        'recipient_plane':ordinal-1,'rows':rows,'counter_scope':'existing canonical registry counters for exact immutable first-proof key',
+        'none_is_unknown_not_no_arrival':True,'registry_capacity':512,
+        'registry_observation_does_not_establish_native_acceptance_or_authority':True,
+        'sequential_postwait_not_joint_deadline_snapshot':True,'IDs_exported':False}
+
+
+def safe_notification_dispositions(raw,ordinal,peer_proofs,native_known):
+    try:
+        return notification_dispositions(raw,ordinal,peer_proofs,native_known=native_known)
+    except ValueError:
+        return {'observed':any(line.startswith('native5-notification-') for line in raw.splitlines()),
+            'schema_complete':False,'source_ids_snapshot_available':None,'source_id_bound':None,'rows':None,
+            'failure_category':'ClosedNotificationSchemaRejected','none_is_unknown_not_no_arrival':True,
+            'sequential_postwait_not_joint_deadline_snapshot':True,'inherited_native_SDK_worker_ledger_retained':True}
+
+
+def notification_parser_controls():
+    def appendix(available=True, bindings=None, observations=None):
+        bindings = ['Some(true)','Some(false)','Some(false)'] if bindings is None else bindings
+        observations = {} if observations is None else observations
+        rows = ['native5-notification-meta source_ids_snapshot_available='+str(available).lower()+' source_id_bound=['+', '.join(bindings)+']']
+        rows.extend('native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+observations.get((plane,channel),'None')
+            for plane in range(5) for channel in range(3))
+        return '\n'.join(rows)
+    proofs = [{'first_attempt_actual_message_bound':True},None,None]
+    baseline = appendix()
+    row = notification_dispositions(baseline,4,proofs,True)
+    require(row['schema_complete'] and row['recipient_plane'] == 3 and all(value['counters'] is None for value in row['rows']),
+        'notification-bound-unknown-registration-is-not-no-arrival')
+    zero = appendix(observations={(3,0):'Some([0, 0, 0, 0, 0, 0, 0, 0])'})
+    require(notification_dispositions(zero,4,proofs,True)['rows'][9]['registry_entry_observed'], 'notification-actual-registered-zero-distinct-from-None')
+    unknown = appendix(False,['None']*3)
+    require(notification_dispositions(unknown,5,None,True)['source_ids_snapshot_available'] is False, 'notification-unavailable-snapshot-unknown')
+    false_proof = [proofs[0],{'first_attempt_actual_message_bound':False},None]
+    require(notification_dispositions(baseline,4,false_proof,True)['source_id_bound'][1] is False, 'notification-unbound-native-observation-allowed')
+    maximum = appendix(observations={(4,0):'Some(['+', '.join([str(U64_MAX)]*8)+'])'})
+    require(notification_dispositions(maximum,5,proofs,True)['rows'][12]['counters']['event_handler_entered'] == U64_MAX,
+        'notification-exact-u64-maximum')
+    require(notification_dispositions('',4,proofs)['observed'] is False, 'notification-optional-only-for-inherited-fixtures')
+    bad = [baseline+'\n'+baseline.splitlines()[1], '\n'.join(baseline.splitlines()[:-1]),
+        baseline.replace('plane=0 channel=0','plane=0 channel=1'),
+        '\n'.join([baseline.splitlines()[0],baseline.splitlines()[2],baseline.splitlines()[1]]+baseline.splitlines()[3:]),
+        baseline.replace('native5-notification-meta','native5-notification-private'),
+        baseline.replace('snapshot_available=true','snapshot_available=PRIVATE'),
+        baseline.replace('Some(true)','None',1), baseline.replace('Some(true)','Some(false)',1),
+        unknown.replace('source_id_bound=[None','source_id_bound=[Some(true)',1),
+        zero.replace('Some([0, 0, 0, 0, 0, 0, 0, 0])','Some([true, 0, 0, 0, 0, 0, 0, 0])'),
+        zero.replace('Some([0, 0, 0, 0, 0, 0, 0, 0])','Some([18446744073709551616, 0, 0, 0, 0, 0, 0, 0])'),
+        zero.replace('Some([0, 0, 0, 0, 0, 0, 0, 0])','Some([00, 0, 0, 0, 0, 0, 0, 0])'),
+        zero.replace('Some([0, 0, 0, 0, 0, 0, 0, 0])','Some([-1, 0, 0, 0, 0, 0, 0, 0])'),
+        zero.replace('Some([0, 0, 0, 0, 0, 0, 0, 0])','Some([0, 0, 0, 0, 0, 0, 0])'),
+        zero.replace('Some([0, 0, 0, 0, 0, 0, 0, 0])','Some([0, 0, 0, 0, 0, 0, 0, 0, 0])'),
+        baseline.replace('plane=4 channel=2 counts=None','plane=4 channel=2 counts=Some([1, 0, 0, 0, 0, 0, 0, 0])'),
+        baseline.replace('plane=4 channel=2 counts=None','plane=4 channel=2 counts=None private=PAYLOAD'),
+        unknown.replace('plane=0 channel=0 counts=None','plane=0 channel=0 counts=Some([0, 0, 0, 0, 0, 0, 0, 0])')]
+    for value in bad:
+        try:
+            notification_dispositions(value,4,proofs,True)
+        except ValueError:
+            continue
+        raise ValueError('notification-adversary-accepted')
+    for value in (None,[{'first_attempt_actual_message_bound':None},None,None],
+                  [{'first_attempt_actual_message_bound':1},None,None],[None,None,None]):
+        try:
+            notification_dispositions(baseline,4,value,True)
+        except ValueError:
+            continue
+        raise ValueError('notification-unknown-or-mismatched-proof-binding-accepted')
+    try:
+        notification_dispositions('',4,proofs,True)
+    except ValueError:
+        pass
+    else:
+        raise ValueError('notification-current-runtime-missing-appendix-accepted')
+    require(safe_notification_dispositions(bad[0],4,proofs,True)['schema_complete'] is False,
+        'notification-safe-wrapper-keeps-inherited-ledger')
+    require('PAYLOAD' not in str(safe_notification_dispositions(bad[-2],4,proofs,True)), 'notification-raw-values-never-exported')
+    independent = notification_dispositions(zero,4,None,True,native_known=False)
+    require(independent['rows'][9]['registry_entry_observed'] and not independent['native_first_proof_crossbinding_verified'],
+        'notification-positive-counters-do-not-promote-unknown-native-identity')
+    return {'positive':7,'negative':len(bad)+5,'safe_unknown_controls':2,'actual_runtime_bodies':0,
+        'None_never_means_no_arrival':True,'authored_fixture_not_runtime_evidence':True}
+
+
+def notification_maximum_width_appendix():
+    header = 'native5-notification-meta source_ids_snapshot_available=true source_id_bound=[Some(true), Some(true), Some(true)]'
+    counters = 'Some(['+', '.join([str(U64_MAX)]*8)+'])'
+    rows = [header]+['native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counters
+        for plane in range(5) for channel in range(3)]
+    require(len(rows) == 16 and all(len(line.encode()) <= 1024 for line in rows), 'notification-maximum-closed-shape')
+    return rows
