@@ -129,6 +129,16 @@ impl AppClient {
             choice(original, stage, 0);
             attributed = true;
         }
+        // Attribute existing source housekeeping even before channel creation.
+        // When its same State already occurs below, do not emit it twice.
+        if let Some(original) = self.linking_owner.received_endorsement.as_ref()
+            .and_then(|action| action.sharing.as_ref())
+            && !self.linking_owner.sibling_channels.iter()
+                .any(|entry| Arc::ptr_eq(&entry.state, &original.state))
+        {
+            channel(&original.state, stage, 0);
+            attributed = true;
+        }
         for entry in &self.linking_owner.sibling_channels {
             channel(&entry.state, stage, 0);
             attributed = true;

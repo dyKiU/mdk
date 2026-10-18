@@ -21,6 +21,7 @@ HOOKS = {
     ROOT + 'client/account_chat_sharing/automatic.rs': 8,
     ROOT + 'native_device_linking/enabled.rs': 2,
     ROOT + 'client/private_enrollment_proposal.rs': 1,
+    ROOT + 'client/private_enrollment_proposal/sibling_sharing.rs': 19,
     ROOT + 'native_device_linking/tests/automatic_pairing_acceptance.rs': 13,
 }
 MODULE = ROOT + 'client/device_linking/sibling_sharing/broad_trace.rs'
@@ -57,9 +58,19 @@ STAGES = {
     67: 'RecipientRequestAuthenticateEnter', 68: 'RecipientRequestAuthenticateSucceeded',
     69: 'RecipientCoreApproveEnter', 70: 'RecipientCoreApproveSucceeded',
     71: 'RecipientAdmissionWakeSent', 72: 'ObsoleteRequestRetryPublicationRetired',
+    73: 'BeginCompletedSiblingSourceEntered', 74: 'NoReceivedEndorsementBypass',
+    75: 'NoSharingOriginalBypass', 76: 'OriginalEligibilityEnter',
+    77: 'OriginalIneligibleLiveCancelledOrCompleteBypass', 78: 'OriginalEligibilityAccepted',
+    79: 'ExistingAttemptMatchEnter', 80: 'ExistingAttemptMismatchOrDeadBypass',
+    81: 'ExistingAttemptMatchAccepted', 82: 'ReadRetainedRoundEnter',
+    83: 'ReadRetainedRoundResultPhase', 84: 'ValidateExistingGuardEnter',
+    85: 'ValidateExistingGuardResult', 86: 'ValidatedSettledRosterEnter',
+    87: 'ValidatedSettledRosterResult', 88: 'RetainedRequestLookupEnter',
+    89: 'RetainedRequestLookupResult', 90: 'BeginSourceChannelCall',
+    91: 'ExistingAccountStorageEnter', 92: 'ExistingAccountStorageResult',
 }
-HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '7da356dfaa48bf9ca3dc1e75a8e8f0cd85d8a3538aabd5678c8c252b10670dac', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': '8f815fdd6d804d9111e87cd3e44120cb5fda28d27629b3b7681a1b46d93f5941', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623'}
-MODULE_SHA256 = '8c557de110038b0c9e2feb0efb98dfd2dcb69d25871d0f9ef9eb4e4129c867cd'
+HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '7da356dfaa48bf9ca3dc1e75a8e8f0cd85d8a3538aabd5678c8c252b10670dac', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': '8f815fdd6d804d9111e87cd3e44120cb5fda28d27629b3b7681a1b46d93f5941', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623', 'crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs': 'ef7adf871b542236cb262b984fa86d959169b1a9d58cfa2e3f51a49732c7db3e'}
+MODULE_SHA256 = 'ff5cbb8bf79d5c4d2044a7a21a563687a6af3a5b897efae84ae82727e600cd26'
 STRIP = re.compile(rb'(?m)^[ \t]*// BROAD_TRACE_BEGIN\n.*?^[ \t]*// BROAD_TRACE_END\n', re.S)
 
 
@@ -158,15 +169,22 @@ def timeline(raw, name):
                 ensure(key > 0 and keys[key - 1] == 1 and value <= 5, 'closed-observation-reason')
             elif stage in {53, 65}:
                 ensure(key > 0 and keys[key - 1] == 2 and value <= 3, 'closed-owned-publication-kind')
+            elif stage in {83, 85, 87, 89, 92}:
+                maximum = {83: 4, 85: 1, 87: 2, 89: 1, 92: 1}[stage]
+                ensure(key > 0 and keys[key - 1] == 2 and value <= maximum, 'closed-source-prerequisite-result')
             elif stage in {63, 64}:
                 ensure(key > 0 and keys[key - 1] == 2 and value <= 1, 'closed-actual-publication-outcome')
             else:
                 ensure(value == 0, 'no-unreviewed-event-values')
-                if stage in {25, 26, 27, 28, 29, 33, 43, 44}:
+                if stage == 73:
+                    pass  # broad_trace_for_test preserves its actual existing attribution.
+                elif stage in {74, 75}:
+                    ensure(key == 0, 'unattributed-absent-source-original')
+                elif stage in {25, 26, 27, 28, 29, 33, 43, 44}:
                     ensure(key > 0 and keys[key - 1] == 1, 'original-choice-observation-key')
                 elif stage == 32:
                     ensure(key > 0 and keys[key - 1] == 2, 'existing-original-state-key')
-                elif stage in {50, 51, 52, 54, 56, 57, 58, 59, 60, 61, 62, 69, 70, 72}:
+                elif stage in {50, 51, 52, 54, 56, 57, 58, 59, 60, 61, 62, 69, 70, 72, 76, 77, 78, 79, 80, 81, 82, 84, 86, 88, 90, 91}:
                     ensure(key > 0 and keys[key - 1] == 2, 'original-channel-pipeline-key')
                 elif stage in {66, 67, 68, 71}:
                     ensure(key > 0 and keys[key - 1] == 1, 'original-recipient-pipeline-key')
@@ -198,6 +216,8 @@ def parser_controls():
     ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 53, 3]'), name)['known'], 'closed-publication-kind-positive')
     ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 63, 1]'), name)['known'], 'closed-publication-ack-positive')
     ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 72, 0]'), name)['known'], 'closed-actual-retirement-positive')
+    ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 83, 2]'), name)['known'], 'actual-retained-round-completed-phase-positive')
+    ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 85, 1]'), name)['known'], 'actual-existing-guard-rejection-positive')
     ensure(timeline(valid.replace('[1, 1, 31, 2]', '[1, 1, 66, 0]'), name)['known'], 'closed-recipient-intake-positive')
     negatives = [valid + '\nbroad-trace private=secret', valid + '\n' + valid,
                  valid.replace('keys=2', 'keys=65'), valid.replace('events=4', 'events=3'),
@@ -218,14 +238,21 @@ def parser_controls():
                  valid.replace('[2, 2, 30, 1]', '[2, 1, 69, 0]'),
                  valid.replace('[1, 1, 31, 2]', '[1, 2, 66, 0]'),
                  valid.replace('[2, 2, 30, 1]', '[2, 1, 72, 0]'),
-                 valid.replace('[2, 2, 30, 1]', '[2, 2, 72, 1]')]
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 72, 1]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 1, 83, 2]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 83, 5]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 85, 2]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 87, 3]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 89, 2]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 92, 2]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 74, 0]')]
     for raw in negatives:
         try:
             timeline(raw, name)
         except ValueError:
             continue
         raise ValueError('unsafe-or-incomplete-timeline-accepted')
-    return {'positive': 7, 'negative': len(negatives), 'executed_remotely': True}
+    return {'positive': 9, 'negative': len(negatives), 'executed_remotely': True}
 
 
 def main(options):
@@ -233,7 +260,7 @@ def main(options):
     report = {'qualification_passed': False, 'product_green_claim': False, 'native_closes': 'unknown-original-fixtures',
               'historical_runtime_evidence_reused': False, 'actual_counts_complete': False,
               'trace_scope': 'fourth-device-handoff-through-case-return-or-unwind',
-              'diagnostic_extension': 'current-owned-pipeline-and-obsolete-request-retirement',
+              'diagnostic_extension': 'current-source-prerequisite-attribution-and-owned-pipeline',
               'publication_kind_legend': {'0': 'SourceRequest', '1': 'RecipientConsent',
                                           '2': 'SourceProof', '3': 'RecipientProof'},
               'setup_prefix_intentionally_omitted': True, 'event_capacity_unchanged': 8192, 'cases': {}}
