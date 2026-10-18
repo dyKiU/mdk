@@ -198,13 +198,89 @@
           "after": "            VerifierCommand::Setup(SetupCommand::Observe {\n                scope: scope.clone(),\n                respond,\n                // NATIVE5_TIMING_BEGIN\n                #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                native5_rpc,\n                // NATIVE5_TIMING_END\n            })\n        })\n        .await\n"
         }
       ]
+    },
+    "crates/transport-nostr-adapter/src/lib.rs": {
+      "draft_file": "lib.rs",
+      "mode": "100644",
+      "before_sha256": "23b336a426c239352f46e5377bdb21cf9dc8dce11270d0deca831ee5d311820a",
+      "after_sha256": "d3502d4adcb3ecddba0323e0bb79e1ee05801911e03c33a08ca0c2f379d1cb6b",
+      "exact_substitutions": [
+        {
+          "before": "mod relay_list;\n#[cfg(feature = \"sdk\")]\nmod sdk_client;\nmod telemetry;\n\npub use acquisition::{\n",
+          "after": "mod relay_list;\n#[cfg(feature = \"sdk\")]\nmod sdk_client;\n#[cfg(all(feature = \"sdk\", feature = \"test-policy-overrides\"))]\n#[doc(hidden)]\npub mod sdk_publication_timing;\nmod telemetry;\n\npub use acquisition::{\n"
+        }
+      ]
+    },
+    "crates/transport-nostr-adapter/src/sdk_client.rs": {
+      "draft_file": "sdk_client.rs",
+      "mode": "100644",
+      "before_sha256": "46148971fde842009edfc5f634c1ba43fe71abb35364ea8e66e5171955783ca0",
+      "after_sha256": "527c752f5c5ff64a6f9071026e68208929d52bc0cc456e563fa81581ec3e0b9d",
+      "exact_substitutions": [
+        {
+          "before": "}\n\nstruct PreparedPublish {\n    endpoints: Vec<RelayUrl>,\n    event: Event,\n    required_acks: usize,\n",
+          "after": "}\n\nstruct PreparedPublish {\n    #[cfg(feature = \"test-policy-overrides\")]\n    trace: Option<crate::sdk_publication_timing::Token>,\n    endpoints: Vec<RelayUrl>,\n    event: Event,\n    required_acks: usize,\n"
+        },
+        {
+          "before": "        endpoint: &RelayUrl,\n        event: &Event,\n        transport_endpoint: &TransportEndpoint,\n    ) -> Result<Option<TransportEndpointAckKind>, TransportEndpointFailure> {\n        let local_failure = |reason: &str| TransportEndpointFailure {\n            endpoint: transport_endpoint.clone(),\n",
+          "after": "        endpoint: &RelayUrl,\n        event: &Event,\n        transport_endpoint: &TransportEndpoint,\n        #[cfg(feature = \"test-policy-overrides\")] trace: Option<&crate::sdk_publication_timing::Token>,\n    ) -> Result<Option<TransportEndpointAckKind>, TransportEndpointFailure> {\n        let local_failure = |reason: &str| TransportEndpointFailure {\n            endpoint: transport_endpoint.clone(),\n"
+        },
+        {
+          "before": "        };\n        match &self.publication {\n            SdkPublication::OpaqueClient => {\n                let output = self\n                    .client\n                    .send_event(event)\n                    .to([endpoint.clone()])\n                    .await\n                    .map_err(|_| local_failure(\"send event failed\"))?;\n                let remote = output.failed.get(endpoint).map(String::as_str);\n                if relay_endpoint_publish_accepted(output.success.contains_key(endpoint), remote) {\n                    Ok(typed_relay_ack_kind(output.success.get(endpoint)))\n",
+          "after": "        };\n        match &self.publication {\n            SdkPublication::OpaqueClient => {\n                #[cfg(feature = \"test-policy-overrides\")]\n                if let Some(token) = trace { token.route(0); token.stage(8, None); }\n                let actual_send = self.client.send_event(event).to([endpoint.clone()]).await;\n                #[cfg(feature = \"test-policy-overrides\")]\n                if let Some(token) = trace { token.stage(9, Some((3, if actual_send.is_ok() { 0 } else { 2 }))); }\n                let output = actual_send.map_err(|_| local_failure(\"send event failed\"))?;\n                let remote = output.failed.get(endpoint).map(String::as_str);\n                if relay_endpoint_publish_accepted(output.success.contains_key(endpoint), remote) {\n                    Ok(typed_relay_ack_kind(output.success.get(endpoint)))\n"
+        },
+        {
+          "before": "                    .ok_or_else(|| local_failure(\"send event failed\"))?;\n                #[cfg(feature = \"test-policy-overrides\")]\n                self.diagnose_publish_stage(\"sdk-send-start\");\n                let result = relay.send_event(event).await;\n                #[cfg(feature = \"test-policy-overrides\")]\n                self.diagnose_publish_stage(\"sdk-send-returned\");\n                match result {\n",
+          "after": "                    .ok_or_else(|| local_failure(\"send event failed\"))?;\n                #[cfg(feature = \"test-policy-overrides\")]\n                self.diagnose_publish_stage(\"sdk-send-start\");\n                #[cfg(feature = \"test-policy-overrides\")]\n                if let Some(token) = trace { token.route(1); token.stage(8, None); }\n                let result = relay.send_event(event).await;\n                #[cfg(feature = \"test-policy-overrides\")]\n                if let Some(token) = trace { token.stage(9, Some((3, match &result { Ok(_) => 0, Err(error) if error.kind() == SdkErrorKind::Rejected => 1, Err(_) => 2 }))); }\n                #[cfg(feature = \"test-policy-overrides\")]\n                self.diagnose_publish_stage(\"sdk-send-returned\");\n                match result {\n"
+        },
+        {
+          "before": "        &self,\n        endpoint: RelayUrl,\n        event: Event,\n    ) -> Result<TransportEndpointReceipt, TransportEndpointFailure> {\n        let transport_endpoint = TransportEndpoint(endpoint.to_string());\n        let mut last_failure = TransportEndpointFailure {\n",
+          "after": "        &self,\n        endpoint: RelayUrl,\n        event: Event,\n        #[cfg(feature = \"test-policy-overrides\")] trace: Option<crate::sdk_publication_timing::Token>,\n    ) -> Result<TransportEndpointReceipt, TransportEndpointFailure> {\n        let transport_endpoint = TransportEndpoint(endpoint.to_string());\n        let mut last_failure = TransportEndpointFailure {\n"
+        },
+        {
+          "before": "            rejection_category: None,\n        };\n        for attempt in 1..=SDK_RELAY_PUBLISH_ATTEMPTS {\n            match timeout(\n                SDK_RELAY_PUBLISH_WAIT,\n                self.send_event_attempt(&endpoint, &event, &transport_endpoint),\n            )\n            .await\n            {\n                Ok(Ok(ack_kind)) => {\n                    return Ok(TransportEndpointReceipt {\n                        endpoint: transport_endpoint,\n                        accepted_at: None,\n",
+          "after": "            rejection_category: None,\n        };\n        for attempt in 1..=SDK_RELAY_PUBLISH_ATTEMPTS {\n            #[cfg(feature = \"test-policy-overrides\")]\n            if attempt > 1 { if let Some(token) = &trace { token.later_send(); } }\n            match timeout(\n                SDK_RELAY_PUBLISH_WAIT,\n                self.send_event_attempt(&endpoint, &event, &transport_endpoint,\n                    #[cfg(feature = \"test-policy-overrides\")]\n                    if attempt == 1 { trace.as_ref() } else { None },\n                ),\n            )\n            .await\n            {\n                Ok(Ok(ack_kind)) => {\n                    #[cfg(feature = \"test-policy-overrides\")]\n                    if attempt == 1 { if let Some(token) = &trace { token.stage(10, Some((4, u8::from(ack_kind.is_some())))); } }\n                    return Ok(TransportEndpointReceipt {\n                        endpoint: transport_endpoint,\n                        accepted_at: None,\n"
+        },
+        {
+          "before": "        let mut accepted = Vec::new();\n        let mut failed = Vec::new();\n        let mut publishes = JoinSet::new();\n        for endpoint in request.endpoints {\n            if let Some(failure) = unavailable.get(&endpoint) {\n                failed.push(failure.clone());\n",
+          "after": "        let mut accepted = Vec::new();\n        let mut failed = Vec::new();\n        let mut publishes = JoinSet::new();\n        #[cfg(feature = \"test-policy-overrides\")]\n        let trace = request.trace.clone();\n        for endpoint in request.endpoints {\n            if let Some(failure) = unavailable.get(&endpoint) {\n                failed.push(failure.clone());\n"
+        },
+        {
+          "before": "            }\n            let sdk = self.clone();\n            let event = request.event.clone();\n            publishes.spawn(async move {\n                if connect_before_send {\n                    sdk.connect_publish_relay(endpoint.clone()).await?;\n                }\n                sdk.send_event_to_relay(endpoint, event).await\n            });\n        }\n\n",
+          "after": "            }\n            let sdk = self.clone();\n            let event = request.event.clone();\n            #[cfg(feature = \"test-policy-overrides\")]\n            let endpoint_trace = trace.clone();\n            publishes.spawn(async move {\n                #[cfg(feature = \"test-policy-overrides\")]\n                if let Some(token) = &endpoint_trace { token.stage(5, None); }\n                if connect_before_send {\n                    #[cfg(feature = \"test-policy-overrides\")]\n                    if let Some(token) = &endpoint_trace { token.stage(6, None); }\n                    let connected = sdk.connect_publish_relay(endpoint.clone()).await;\n                    #[cfg(feature = \"test-policy-overrides\")]\n                    if let Some(token) = &endpoint_trace { token.stage(7, Some((2, u8::from(connected.is_ok())))); }\n                    connected?;\n                }\n                sdk.send_event_to_relay(endpoint, event,\n                    #[cfg(feature = \"test-policy-overrides\")]\n                    endpoint_trace,\n                ).await\n            });\n        }\n\n"
+        },
+        {
+          "before": "                }\n                Ok(Some(result)) => match result {\n                    Ok(Ok(receipt)) => {\n                        accepted.push(receipt);\n                        if accepted.len() >= ack_goal {\n                            publishes.abort_all();\n",
+          "after": "                }\n                Ok(Some(result)) => match result {\n                    Ok(Ok(receipt)) => {\n                        #[cfg(feature = \"test-policy-overrides\")]\n                        if let Some(token) = &trace { token.stage(14, Some((6, u8::from(receipt.ack_kind.is_some())))); }\n                        accepted.push(receipt);\n                        if accepted.len() >= ack_goal {\n                            publishes.abort_all();\n"
+        },
+        {
+          "before": "        &self,\n        request: PreparedPublish,\n    ) -> Result<NostrPublishOutcome, TransportAdapterError> {\n        let mut lease = ScopedPublishRelayLease::new(self.clone());\n        let mut unavailable = HashMap::new();\n        for endpoint in &request.endpoints {\n            match lease.retain(endpoint).await {\n                Ok(()) => {}\n                Err(failure) => {\n                    unavailable.insert(endpoint.clone(), failure);\n",
+          "after": "        &self,\n        request: PreparedPublish,\n    ) -> Result<NostrPublishOutcome, TransportAdapterError> {\n        #[cfg(feature = \"test-policy-overrides\")]\n        let trace = request.trace.clone();\n        let mut lease = ScopedPublishRelayLease::new(self.clone());\n        let mut unavailable = HashMap::new();\n        for endpoint in &request.endpoints {\n            #[cfg(feature = \"test-policy-overrides\")]\n            if let Some(token) = &trace { token.stage(3, None); }\n            let retained = lease.retain(endpoint).await;\n            #[cfg(feature = \"test-policy-overrides\")]\n            if let Some(token) = &trace { token.stage(4, Some((1, u8::from(retained.is_ok())))); }\n            match retained {\n                Ok(()) => {}\n                Err(failure) => {\n                    unavailable.insert(endpoint.clone(), failure);\n"
+        },
+        {
+          "before": "            .await;\n        #[cfg(feature = \"test-policy-overrides\")]\n        self.diagnose_publish_stage(\"single-release-start\");\n        lease.release().await;\n        #[cfg(feature = \"test-policy-overrides\")]\n        self.diagnose_publish_stage(\"single-release-returned\");\n\n        outcome\n    }\n",
+          "after": "            .await;\n        #[cfg(feature = \"test-policy-overrides\")]\n        self.diagnose_publish_stage(\"single-release-start\");\n        #[cfg(feature = \"test-policy-overrides\")]\n        if let Some(token) = &trace { token.stage(11, None); }\n        lease.release().await;\n        #[cfg(feature = \"test-policy-overrides\")]\n        if let Some(token) = &trace { token.stage(12, None); }\n        #[cfg(feature = \"test-policy-overrides\")]\n        self.diagnose_publish_stage(\"single-release-returned\");\n        #[cfg(feature = \"test-policy-overrides\")]\n        if let Some(token) = &trace { token.stage(13, Some((5, u8::from(outcome.is_ok())))); }\n\n        outcome\n    }\n"
+        },
+        {
+          "before": "        requests: &[NostrEventPublishRequest],\n    ) -> NostrPublishBatch {\n        let batch_started_at = std::time::Instant::now();\n        if self.validate_publish_context().await.is_err() {\n            return NostrPublishBatch {\n                outcomes: requests\n",
+          "after": "        requests: &[NostrEventPublishRequest],\n    ) -> NostrPublishBatch {\n        let batch_started_at = std::time::Instant::now();\n        #[cfg(feature = \"test-policy-overrides\")]\n        let sdk_call = requests.first().filter(|_| requests.len() == 1).and_then(|request| crate::sdk_publication_timing::begin(&request.event.id, request.endpoints.len()));\n        if self.validate_publish_context().await.is_err() {\n            return NostrPublishBatch {\n                outcomes: requests\n"
+        },
+        {
+          "before": "                    continue;\n                }\n            };\n            let event = match self.event_for_publish(&request.event).await {\n                Ok(event) => event,\n                Err(error) => {\n                    prepared.push(Err(error));\n                    continue;\n                }\n            };\n            prepared.push(Ok(PreparedPublish {\n                endpoints,\n                event,\n                required_acks: request.required_acks,\n",
+          "after": "                    continue;\n                }\n            };\n            #[cfg(feature = \"test-policy-overrides\")]\n            let trace = sdk_call.as_ref().map(|call| call.token());\n            #[cfg(feature = \"test-policy-overrides\")]\n            if let Some(token) = &trace { token.stage(1, None); }\n            let verified = self.event_for_publish(&request.event).await;\n            #[cfg(feature = \"test-policy-overrides\")]\n            if let Some(token) = &trace { match &verified { Ok(event) => token.verified(event.id.to_bytes(), true), Err(_) => token.stage(2, Some((0, 0))) } }\n            let event = match verified {\n                Ok(event) => event,\n                Err(error) => { prepared.push(Err(error)); continue; }\n            };\n            prepared.push(Ok(PreparedPublish {\n                #[cfg(feature = \"test-policy-overrides\")]\n                trace,\n                endpoints,\n                event,\n                required_acks: request.required_acks,\n"
+        }
+      ]
     }
   },
   "new_modules": {
     "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/native5_timing.rs": {
       "draft_file": "native5_timing.rs",
       "mode": "100644",
-      "sha256": "61d84b754894f780a60f7e4753a07d2265b2a186ededc901a9090fb5d0c7a34f"
+      "sha256": "684cbc64494e0393cba1bb337161c288f11b7c9b3dd26ff7fab914a41e0e18f9"
+    },
+    "crates/transport-nostr-adapter/src/sdk_publication_timing.rs": {
+      "mode": "100644",
+      "sha256": "8a1f9373ae15f5caf73c1cc0a3ca323446061f5ebd20cd8d7a92b84e9f434bae"
     }
   }
 }

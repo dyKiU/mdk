@@ -33,12 +33,13 @@ def timing(raw,name):
         return {'observed':False,'known':False,'loss_mask':None,'snapshot_available':False,
             'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,
             'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,
-            'missing_is_not_zero':True,'all_milestones_observed':False,'missing_reason':'NoOwnedProbeReport'}
+            'missing_is_not_zero':True,'all_milestones_observed':False,'missing_reason':'NoOwnedProbeReport','sdk_publication':sdk_timing(raw,name,None,None,None,None)}
     require(len(lines)<=141 and all(len(s)<4096 for s in lines),'bounded-lines')
     h=re.fullmatch(r'native5-consent-timing known=(true|false) loss_mask=('+N+r') snapshot_available=(true|false)',lines[0]);require(h is not None,'closed-header')
     known=h[1]=='true';loss=number(h[2],127);available=h[3]=='true'
     require(known==(loss==0) and (available or not known),'loss-unknown-semantics')
     result={'observed':True,'known':known,'loss_mask':loss,'snapshot_available':available,'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,'missing_is_not_zero':True,'all_milestones_observed':False}
+    result['sdk_publication']=sdk_timing(raw,name,None,None,None,None)
     if not available:require(len(lines)==1,'no-invented-unavailable-rows');return result
     require(len(lines)>=12,'three-channel-phase-slots-and-rpc-count')
     w=re.fullmatch(r'native5-consent-wait constructed_before_us=('+ON+r') constructed_after_us=('+ON+r') deadline_lower_us=('+ON+r') deadline_upper_us=('+ON+r') outcome_ok=('+OB+r') observed_us=('+ON+r') exact_deadline_known=false',lines[1]);require(w is not None,'closed-wait')
@@ -125,6 +126,7 @@ def timing(raw,name):
     require(completed>0 or total==maximum==errors==before_count==before_total==before_max==0,'terminal-empty-completions')
     require(before_count>0 or before_total==before_max==0,'terminal-empty-deadline-subset')
     result['terminal_validation_cost']={'known':known,'scope':'all-actors-terminal-no-publication-periodic-calls-started-during-fourth-wait','started':started,'completed':completed,'errors':errors,'in_flight_at_freeze':inflight,'completed_wall_total_us':total,'completed_wall_max_us':maximum,'first_start_us':first,'last_completion_us':last,'definitely_inside_deadline_completed_count':before_count,'definitely_inside_deadline_wall_total_us':before_total,'definitely_inside_deadline_wall_max_us':before_max,'wall_includes_preemption':True,'CPU_time_known':False,'inflight_duration_unknown':inflight>0,'overlapping_totals_are_not_exclusive_time':True}
+    result['sdk_publication']=sdk_timing(raw,name,lo,hi,rows,proofs)
     result['all_milestones_observed']=known and all(row is not None and all(t is not None for t in row['milestone_us'].values()) for row in rows)
     return result
 
@@ -175,3 +177,59 @@ def parser_controls():
         raise ValueError('adversarial-terminal-cost-accepted')
     return {'positive':len(positives)+4,'negative':len(bad)+len(extra_bad)+len(terminal_bad),'actual_runtime_bodies':0}
 
+
+SDK_STAGES=['sdk_entry','verify_before','verify_after','lease_retain_before','lease_retain_after','endpoint_task_first_poll','connect_before','connect_after','first_send_before','first_send_returned','first_attempt_receipt_constructed','lease_release_before','lease_release_after','single_call_finished','single_call_accepted_receipt']
+SDK_OUTCOMES=['verified_ok','retain_ok','connect_ok','first_send_result_category','first_attempt_receipt_typed_ack','single_call_result_ok','single_call_receipt_typed_ack']
+def sdk_timing(raw,name,lo,hi,slots,proofs):
+    lines=[line for line in raw.splitlines() if line.startswith('native5-sdk-')]
+    if not lines:return {'observed':False,'known':False,'loss_mask':None,'slots':None,'missing_is_unknown':True}
+    require(len(lines)<=7 and all(len(line)<4096 for line in lines),'bounded-sdk-report')
+    h=re.fullmatch(r'native5-sdk-timing known=(true|false) loss_mask=('+N+r') snapshot_available=(true|false)',lines[0]);require(h is not None,'closed-sdk-header')
+    known=h[1]=='true';loss=number(h[2],127);available=h[3]=='true'
+    require(known==(loss==0) and (available or not known),'sdk-loss-unknown')
+    result={'observed':True,'known':known,'loss_mask':loss,'snapshot_available':available,'slots':None,'no_identifiers_exported':True,'same_origin_as_native_clock':True,'later_calls_and_attempts_not_merged':True,'scope_drop_does_not_prove_cancellation_reason':True}
+    if not available:require(len(lines)==1,'no-invented-sdk-rows');return result
+    require(len(lines)==7,'six-fixed-sdk-keys')
+    pattern=r'native5-sdk-slot index=([0-5]) observation=(?:None|Some\(\((true|false), \['+', '.join(['('+ON+')']*15)+r'\], \['+', '.join(['('+ON+')']*7)+r'\], ('+ON+r'), ('+N+r'), ('+N+r'), (true|false)\)\))'
+    result['slots']=[]
+    for i,line in enumerate(lines[1:]):
+        m=re.fullmatch(pattern,line);require(m is not None and int(m[1])==i,'closed-ordered-sdk-index')
+        if line.endswith('observation=None'):result['slots'].append(None);continue
+        called=m[2]=='true';times=[opt(m[j]) for j in range(3,18)];values=[opt(m[j],2 if j==21 else 1) for j in range(18,25)];route=opt(m[25],1);later_calls=number(m[26],4294967295);later_sends=number(m[27],4294967295);dropped=m[28]=='true'
+        if known:
+            require(called==(times[0] is not None),'sdk-call-entry-exists')
+            require(called or all(value is None for value in times+values+[route]) and later_calls==later_sends==0 and not dropped,'bound-but-unobserved-sdk-call')
+            require(ordered_observed(times[:11]) and ordered_observed([times[0],times[14],times[11],times[12],times[13]]),'sdk-partial-order')
+            require(all(value is None or times[event] is not None for value,event in zip(values,[2,4,7,9,10,13,14])),'sdk-result-has-event')
+            require(route is None or times[8] is not None,'sdk-route-at-actual-send')
+            require(times[10] is None or times[9] is not None,'first-attempt-receipt-after-first-send')
+            require(times[13] is None or times[12] is not None and not dropped,'sdk-finished-after-release-without-abandon')
+            if slots is not None:
+                require(slots[i//2] is not None,'sdk-key-bound-to-observed-native-channel')
+                if i%2:require(proofs is not None and proofs[i//2] is not None and proofs[i//2]['first_attempt_actual_message_bound'],'sdk-proof-key-is-actual-first-body0')
+        result['slots'].append({'channel_index':i//2,'phase':'Consent' if i%2==0 else 'Body0','first_sdk_call_observed':called,'milestone_us':dict(zip(SDK_STAGES,times)),'deadline_relation':dict(zip(SDK_STAGES,[relation(t,lo,hi) for t in times])),'closed_outcome_values':dict(zip(SDK_OUTCOMES,values)),'publication_route':None if route is None else ['OpaqueClient','OwnedRelay'][route],'later_sdk_calls':later_calls,'later_send_attempts':later_sends,'scope_state':('BoundNotCalled' if not called else 'Finished' if times[13] is not None else 'DroppedBeforeFinalMarker' if dropped else 'InFlightAtFreeze'),'scope_dropped_before_final_marker':dropped,'scope_drop_reason':'Unknown' if dropped else None})
+    return result
+
+def sdk_parser_controls():
+    name='native::exact';header='native5-sdk-timing known=true loss_mask=0 snapshot_available=true'
+    absent=['native5-sdk-slot index='+str(i)+' observation=None' for i in range(6)]
+    empty='\n'.join([header,*absent]);sdk_timing(empty,name,None,None,None,None)
+    row='native5-sdk-slot index=0 observation=Some((true, [Some(1), Some(2), Some(3), Some(4), Some(5), Some(6), Some(7), Some(8), Some(9), Some(10), Some(11), Some(13), Some(14), Some(15), Some(12)], [Some(1), Some(1), Some(1), Some(0), Some(1), Some(1), Some(1)], Some(1), 0, 0, false))'
+    positive=empty.replace(absent[0],row)
+    sdk_timing(positive,name,20,21,None,None)
+    in_flight=positive.replace('Some(15), Some(12)', 'None, Some(12)').replace('[Some(1), Some(1), Some(1), Some(0), Some(1), Some(1), Some(1)]','[Some(1), Some(1), Some(1), Some(0), Some(1), None, Some(1)]')
+    later_accepted=positive.replace('Some(11), Some(13)', 'None, Some(13)').replace('[Some(1), Some(1), Some(1), Some(0), Some(1), Some(1), Some(1)]','[Some(1), Some(1), Some(1), Some(2), None, Some(1), Some(1)]').replace('Some(1), 0, 0, false','Some(1), 0, 1, false')
+    sdk_timing(in_flight,name,20,21,None,None)
+    sdk_timing(later_accepted,name,20,21,None,None)
+    partial='native5-sdk-slot index=0 observation=Some((true, [Some(1), Some(2), Some(3), Some(4), None, None, None, None, None, None, None, None, None, None, None], [Some(1), None, None, None, None, None, None], None, 0, 0, true))'
+    sdk_timing(empty.replace(absent[0],partial),name,None,None,None,None)
+    unseen='native5-sdk-slot index=0 observation=Some((false, [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None], [None, None, None, None, None, None, None], None, 0, 0, false))'
+    sdk_timing(empty.replace(absent[0],unseen),name,None,None,None,None)
+    sdk_timing('native5-sdk-timing known=false loss_mask=1 snapshot_available=false',name,None,None,None,None)
+    sdk_timing('',name,None,None,None,None)
+    negatives=[positive+'\n'+header,positive.replace('index=5','index=4'),positive.replace('Some(1), Some(2)','Some(2), Some(1)',1),positive.replace('Some(1), Some(1), Some(1), Some(0)','Some(1), Some(1), Some(1), Some(3)'),positive.replace('Some(1), 0, 0, false','Some(2), 0, 0, false'),positive.replace('0, 0, false','4294967296, 0, false'),positive.replace('0, 0, false','0, 0, true'),positive.replace('known=true loss_mask=0','known=true loss_mask=1'),positive.replace('Some(15), Some(12)','None, Some(12)'),positive.replace('Some(14), Some(15)','None, Some(15)'),positive.replace('Some(11), Some(13)','None, Some(13)'),empty.replace(absent[0],unseen.replace('0, 0, false','0, 1, false')),positive+'\nnative5-sdk-secret private',positive.replace('Some(1)','Some(secret)',1)]
+    for value in negatives:
+        try:sdk_timing(value,name,None,None,None,None)
+        except ValueError:continue
+        raise ValueError('adversarial-sdk-observation-accepted')
+    return {'positive':8,'negative':len(negatives),'actual_runtime_bodies':0}

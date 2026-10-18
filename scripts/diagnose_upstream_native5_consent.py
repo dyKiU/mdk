@@ -11,8 +11,8 @@ from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='77caba679ab5986df88fd7296b5446004fba8bb7' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='ae178e51233b67f0ce1dcb1f9a2a53f8061f14f0b514bcfc6ad8e2cf0a2b7fbe' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='7ed580141faf140cea08d66e23af26b785aaff763c855bb6c819c3c7d9f60c80' # Root MUST pin exact reviewed closed parser.
+MANIFEST_SHA='528a9f9ab7407e2b49938eb6541f65835aa02094604340696fe104cf1e234598' # Root MUST pin exact reviewed/reformatted reversal manifest.
+PARSER_SHA='08eb7fe9bed96cd54be363817eccaf7f21be276a444cd062d40c14e2de5d0390' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -153,7 +153,7 @@ def main():
     frozen=None;binary=None;binary_sha=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
         if args.preflight:
             code,raw,wall=bounded.capture(['cargo','fmt','--all'],180,limit=8*1024*1024)
             report['format']={'exit_code':code,'wall_seconds':wall};patch=subprocess.check_output(['git','diff','--binary'])

@@ -109,6 +109,7 @@ impl Default for Data {
     }
 }
 struct Probe {
+    sdk: transport_nostr_adapter::sdk_publication_timing::Guard,
     origin: Instant,
     status: AtomicU32,
     data: Mutex<Data>,
@@ -252,9 +253,11 @@ impl TerminalValidation {
 }
 pub(crate) struct Guard(Arc<Probe>);
 pub(crate) fn arm() -> (Guard, Pending) {
+    let origin = Instant::now();
     let probe = Arc::new(Probe {
+        sdk: transport_nostr_adapter::sdk_publication_timing::Guard::arm(origin),
         status: AtomicU32::new(0),
-        origin: Instant::now(),
+        origin,
         data: Mutex::new(Data::default()),
     });
     if registry().set(Arc::downgrade(&probe)).is_err() {
@@ -349,6 +352,9 @@ pub(crate) struct Token {
     proof: bool,
 }
 impl Token {
+    fn bind_sdk(&self) {
+        if let Some(probe) = self.probe.upgrade() { probe.sdk.bind(self.index * 2 + usize::from(self.proof), self.key.message.as_slice()); }
+    }
     pub(in super::super::super) fn spawn_boundary(&self, index: usize) {
         if !self.proof {
             return;
@@ -522,7 +528,7 @@ impl ProofAttempt {
                 proof: true,
             });
         });
-        selected
+        selected.map(|token| { token.bind_sdk(); token })
     }
 }
 fn same_entry(slot: &Slot, entry: &SiblingChannel) -> bool {
@@ -677,7 +683,7 @@ pub(in super::super::super) fn prepared(
             proof: false,
         });
     });
-    selected
+    selected.map(|token| { token.bind_sdk(); token })
 }
 pub(crate) fn armed() -> bool {
     registry().get().and_then(Weak::upgrade).is_some()
@@ -791,6 +797,7 @@ impl Guard {
     // values. Only the recognized test fixture emits this returned text.
     pub(crate) fn freeze(self) -> String {
         use std::fmt::Write as _;
+        let sdk_report = self.0.sdk.freeze();
         let mut output = String::with_capacity(65536);
         let old = self.0.status.fetch_or(FROZEN, Ordering::AcqRel);
         // Copy only closed aggregates; print after the lock has been dropped.
@@ -907,6 +914,7 @@ impl Guard {
                 "native5-consent-terminal-cost observation={terminal_cost:?}"
             );
         }
+        output.push_str(&sdk_report);
         if output.len() > 65536 {
             return "native5-consent-timing known=false loss_mask=4 snapshot_available=false\n"
                 .to_owned();

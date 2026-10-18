@@ -83,6 +83,9 @@ mod publish_accounting;
 mod relay_list;
 #[cfg(feature = "sdk")]
 mod sdk_client;
+#[cfg(all(feature = "sdk", feature = "test-policy-overrides"))]
+#[doc(hidden)]
+pub mod sdk_publication_timing;
 mod telemetry;
 
 pub use acquisition::{
