@@ -1656,6 +1656,11 @@ async fn wait_for_automatic_phase_with_approvals(
     approvals: &[DeviceLinkingApproval],
 ) {
     let mut observed = None;
+// NATIVE5_TIMING_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let native5_timing_wait = b.native5_timing_wait_for_test();
+    let native5_timing_timeout =
+// NATIVE5_TIMING_END
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             let ap = a.snapshot().await.unwrap().phase;
@@ -1685,8 +1690,24 @@ async fn wait_for_automatic_phase_with_approvals(
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
     })
+// NATIVE5_TIMING_BEGIN
+    ;
+    #[cfg(feature = "test-policy-overrides")]
+    if let Some(wait) = &native5_timing_wait { wait.constructed(); }
+    native5_timing_timeout
+// NATIVE5_TIMING_END
     .await
+// NATIVE5_TIMING_BEGIN
+    .inspect(|_| {
+        #[cfg(feature = "test-policy-overrides")]
+        if let Some(wait) = &native5_timing_wait { wait.observed(true); }
+    })
+// NATIVE5_TIMING_END
     .unwrap_or_else(|_| {
+// NATIVE5_TIMING_BEGIN
+        #[cfg(feature = "test-policy-overrides")]
+        if let Some(wait) = &native5_timing_wait { wait.observed(false); }
+// NATIVE5_TIMING_END
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
             eprintln!(

@@ -1,0 +1,181 @@
+{
+  "reviewed_source": "77caba679ab5986df88fd7296b5446004fba8bb7",
+  "formatted_pure_baseline": "77caba679ab5986df88fd7296b5446004fba8bb7",
+  "paths": {
+    "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
+      "draft_file": "sibling_sharing.rs",
+      "mode": "100644",
+      "before_sha256": "9aabb6dec76aaa79a8fee990973983cce3c0b4cf9fd7056fe35d13040179fd98",
+      "after_sha256": "b6fa9a41c83c220da6c4dfa31ec3d148b7f43b74a4b5f932f1cbb0e494f888a9",
+      "exact_substitutions": [
+        {
+          "before": "    task: tokio::task::JoinHandle<()>,\n}\nimpl Drop for SiblingPublication",
+          "after": "    task: tokio::task::JoinHandle<()>,\n// NATIVE5_TIMING_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    native5_timing: Option<peer_proof_probe::native5_timing::Token>,\n// NATIVE5_TIMING_END\n}\nimpl Drop for SiblingPublication"
+        },
+        {
+          "before": "                    Ok(result) => result,\n",
+          "after": "                    Ok(result) => {\n// NATIVE5_TIMING_BEGIN\n                        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                        if let Some(token) = &pending.native5_timing { token.stage(7, Some((3, result.is_ok()))); }\n// NATIVE5_TIMING_END\n                        result\n                    },\n"
+        },
+        {
+          "before": "            return Ok(true);\n        }\n        Ok(false)\n    }\n\n    fn validate_sibling_publication(",
+          "after": "// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &pending.native5_timing { token.stage(8, Some((4, true))); }\n// NATIVE5_TIMING_END\n            return Ok(true);\n        }\n        Ok(false)\n    }\n\n    fn validate_sibling_publication("
+        },
+        {
+          "before": "        self.runtime\n            .session()\n            .validate_account_sharing_channel(&entry.channel)\n            .map_err(ClientLinkingError::Engine)?;\n        let adapter = self.adapter.clone();",
+          "after": "// NATIVE5_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        let native5_timing = peer_proof_probe::native5_timing::prepared(entry, &request, kind);\n// NATIVE5_TIMING_END\n        self.runtime\n            .session()\n            .validate_account_sharing_channel(&entry.channel)\n            .map_err(ClientLinkingError::Engine)?;\n// NATIVE5_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        if let Some(token) = &native5_timing { token.stage(1, None); }\n// NATIVE5_TIMING_END\n        let adapter = self.adapter.clone();"
+        },
+        {
+          "before": "        let (result_tx, result) = tokio::sync::oneshot::channel();\n        let task = tokio::spawn(async move {\n            let outcome = async {",
+          "after": "        let (result_tx, result) = tokio::sync::oneshot::channel();\n// NATIVE5_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        let native5_timing_task = native5_timing.clone();\n// NATIVE5_TIMING_END\n        let task = tokio::spawn(async move {\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &native5_timing_task { token.stage(2, None); }\n// NATIVE5_TIMING_END\n            let outcome = async {"
+        },
+        {
+          "before": "                    if consent { adapter.publish_sibling_consent(request).await }\n                    else { adapter.publish_selected_chat(request).await }",
+          "after": "                    if consent {\n// NATIVE5_TIMING_BEGIN\n                        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                        if let Some(token) = &native5_timing_task { token.stage(3, None); }\n// NATIVE5_TIMING_END\n                        let consent_result = adapter.publish_sibling_consent(request).await;\n// NATIVE5_TIMING_BEGIN\n                        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                        if let Some(token) = &native5_timing_task {\n                            token.report(consent_result.is_ok(), consent_result.as_ref().ok().map(|report| report.met_required_acks()));\n                        }\n// NATIVE5_TIMING_END\n                        consent_result\n                    }\n                    else { adapter.publish_selected_chat(request).await }"
+        },
+        {
+          "before": "            if !original.live() || !state.live() || !report.met_required_acks() {\n                return Err(denied());\n            }\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]",
+          "after": "            if !original.live() || !state.live() || !report.met_required_acks() {\n                return Err(denied());\n            }\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &native5_timing_task { token.stage(5, None); }\n// NATIVE5_TIMING_END\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]"
+        },
+        {
+          "before": "            if result_tx.send(outcome).is_ok() && success {\n                completion.send_replace(());\n            }",
+          "after": "            let sent = result_tx.send(outcome).is_ok();\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &native5_timing_task { token.stage(6, Some((2, sent))); }\n// NATIVE5_TIMING_END\n            if sent && success {\n                completion.send_replace(());\n            }"
+        },
+        {
+          "before": "            outcome: None,\n            task,\n        });",
+          "after": "            outcome: None,\n            task,\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            native5_timing,\n// NATIVE5_TIMING_END\n        });"
+        }
+      ]
+    },
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs": {
+      "draft_file": "peer_proof_probe.rs",
+      "mode": "100644",
+      "before_sha256": "7c05429876cd4e7566a5496213ffc950c031e2a668c9cd9e6caf2ca861fc60d1",
+      "after_sha256": "d901904302cc3ebe262d9a5bfb9298ec11a1ee03664fa042ef96838d308a2567",
+      "exact_substitutions": [
+        {
+          "before": "//! Test-only passive snapshots and one original recipient's real publication hold.\n",
+          "after": "//! Test-only passive snapshots and one original recipient's real publication hold.\n// NATIVE5_TIMING_BEGIN\npub(crate) mod native5_timing;\n// NATIVE5_TIMING_END\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/enabled.rs": {
+      "draft_file": "enabled.rs",
+      "mode": "100644",
+      "before_sha256": "e0b1126b4e90d35bd681e9474184dbdd6d73a14acce27a013a094a7a5a44df52",
+      "after_sha256": "2bfa5148bf928af1be4e1f3ef80362c6c9fbf3a8efb12cee897d6011b58c7305",
+      "exact_substitutions": [
+        {
+          "before": "pub(super) struct SessionState {",
+          "after": "// NATIVE5_TIMING_BEGIN\n#[cfg(all(test, feature = \"test-policy-overrides\"))]\nstruct NativeConsentTimingRegistration {\n    owner: std::sync::Weak<SessionState>,\n    probe: crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Pending,\n}\n// NATIVE5_TIMING_END\npub(super) struct SessionState {"
+        },
+        {
+          "before": "    snapshot: Mutex<DeviceLinkingSnapshot>,",
+          "after": "    // NATIVE5_TIMING_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    native5_timing_registration: Mutex<Option<NativeConsentTimingRegistration>>,\n    // NATIVE5_TIMING_END\n    snapshot: Mutex<DeviceLinkingSnapshot>,"
+        },
+        {
+          "before": "            sharing_choice: Mutex::new(None),\n            snapshot:",
+          "after": "            sharing_choice: Mutex::new(None),\n            // NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            native5_timing_registration: Mutex::new(None),\n            // NATIVE5_TIMING_END\n            snapshot:"
+        },
+        {
+          "before": "            *held = Some(choice);\n        }\n        if operation.enrollment_started",
+          "after": "            *held = Some(choice);\n            // NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            {\n                use crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing;\n                if native5_timing::armed() {\n                    match self.inner.native5_timing_registration.try_lock() {\n                        Ok(slot) => {\n                            if let Some(registration) = slot.as_ref() {\n                                if registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {\n                                    if let Some(actual) = held.as_ref() {\n                                        registration.probe.bind(Arc::downgrade(actual));\n                                    }\n                                } else { registration.probe.identity_failed(); }\n                            }\n                        }\n                        Err(error) => native5_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_))),\n                    }\n                }\n            }\n            // NATIVE5_TIMING_END\n        }\n        if operation.enrollment_started"
+        },
+        {
+          "before": "    // PEER_PROOF_TEST_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(crate) fn arm_late_peer_proof_for_test(",
+          "after": "    // NATIVE5_TIMING_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn arm_native5_timing_for_test(\n        &self,\n    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Guard {\n        use crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing;\n        let (guard, pending) = native5_timing::arm();\n        match self.inner.native5_timing_registration.try_lock() {\n            Ok(mut slot) => {\n                if slot.is_some() { pending.duplicate_registration(); }\n                else {\n                    *slot = Some(NativeConsentTimingRegistration {\n                        owner: Arc::downgrade(&self.inner), probe: pending.clone(),\n                    });\n                }\n            }\n            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),\n        };\n        // Registration is installed and its try-lock guard is released first.\n        // Catch up once if the actual choice won the install race; never poll.\n        match self.inner.sharing_choice.try_lock() {\n            Ok(held) => {\n                if let Some(actual) = held.as_ref() { pending.bind(Arc::downgrade(actual)); }\n            }\n            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),\n        };\n        guard\n    }\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn native5_timing_wait_for_test(\n        &self,\n    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Wait> {\n        use crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing;\n        if !native5_timing::armed() { return None; }\n        match self.inner.native5_timing_registration.try_lock() {\n            Ok(slot) => {\n                let registration = slot.as_ref()?;\n                if !registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {\n                    registration.probe.identity_failed(); return None;\n                }\n                registration.probe.wait_before()\n            }\n            Err(error) => {\n                native5_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_)));\n                None\n            }\n        }\n    }\n    // NATIVE5_TIMING_END\n    // PEER_PROOF_TEST_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(crate) fn arm_late_peer_proof_for_test("
+        },
+        {
+          "before": "        let observation = self\n            .manager\n            .linking_native_observation(&self.account, &self.scope)\n            .await;",
+          "after": "// NATIVE5_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        let native5_rpc = match self.native5_timing_registration.try_lock() {\n            Ok(slot) => slot.as_ref().and_then(|registration| {\n                if std::ptr::eq(registration.owner.as_ptr(), self) { registration.probe.rpc() }\n                else { registration.probe.identity_failed(); None }\n            }),\n            Err(error) => { crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_))); None }\n        };\n// NATIVE5_TIMING_END\n        let observation = self\n            .manager\n            .linking_native_observation(&self.account, &self.scope,\n// NATIVE5_TIMING_BEGIN\n                #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                native5_rpc.clone(),\n// NATIVE5_TIMING_END\n            )\n            .await;\n// NATIVE5_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        if let Some(token) = &native5_rpc { token.facade(&observation); }\n// NATIVE5_TIMING_END\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": {
+      "draft_file": "automatic_pairing_acceptance.rs",
+      "mode": "100644",
+      "before_sha256": "bdfaa128d2709348de0f6530de967f3267ec1b215f3c635f13db264721eb74c5",
+      "after_sha256": "b966b0548054fa3091b581ba5c18e419f1d8cfa50aab9a74f345cf548d290414",
+      "exact_substitutions": [
+        {
+          "before": "    let mut observed = None;\n    tokio::time::timeout(std::time::Duration::from_secs(15), async {",
+          "after": "    let mut observed = None;\n// NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    let native5_timing_wait = b.native5_timing_wait_for_test();\n    let native5_timing_timeout =\n// NATIVE5_TIMING_END\n    tokio::time::timeout(std::time::Duration::from_secs(15), async {"
+        },
+        {
+          "before": "    })\n    .await\n    .unwrap_or_else(|_| {\n        #[cfg(feature = \"test-policy-overrides\")]\n        for (side, original) in [(\"left\", a), (\"right\", b)] {",
+          "after": "    })\n// NATIVE5_TIMING_BEGIN\n    ;\n    #[cfg(feature = \"test-policy-overrides\")]\n    if let Some(wait) = &native5_timing_wait { wait.constructed(); }\n    native5_timing_timeout\n// NATIVE5_TIMING_END\n    .await\n// NATIVE5_TIMING_BEGIN\n    .inspect(|_| {\n        #[cfg(feature = \"test-policy-overrides\")]\n        if let Some(wait) = &native5_timing_wait { wait.observed(true); }\n    })\n// NATIVE5_TIMING_END\n    .unwrap_or_else(|_| {\n// NATIVE5_TIMING_BEGIN\n        #[cfg(feature = \"test-policy-overrides\")]\n        if let Some(wait) = &native5_timing_wait { wait.observed(false); }\n// NATIVE5_TIMING_END\n        #[cfg(feature = \"test-policy-overrides\")]\n        for (side, original) in [(\"left\", a), (\"right\", b)] {"
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs": {
+      "draft_file": "sequential_installations_acceptance.rs",
+      "mode": "100644",
+      "before_sha256": "a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca",
+      "after_sha256": "30a681bf3092f8fe067d9d20a9d87415f9ad630989692ba8cd5b52bcb05e130e",
+      "exact_substitutions": [
+        {
+          "before": "    sponsor: usize,\n    newcomer: usize,\n",
+          "after": "    sponsor: usize,\n    newcomer: usize,\n// NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    timing: &mut Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Guard>,\n// NATIVE5_TIMING_END\n"
+        },
+        {
+          "before": "    compare_and_confirm_pair(&source, &recipient).await;\n    recipient",
+          "after": "    compare_and_confirm_pair(&source, &recipient).await;\n// NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    if newcomer == 4 { *timing = Some(recipient.arm_native5_timing_for_test()); }\n// NATIVE5_TIMING_END\n    recipient"
+        },
+        {
+          "before": "    let mut final_roster_and_policies = false;\n",
+          "after": "    let mut final_roster_and_policies = false;\n// NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    let mut native5_timing = None;\n// NATIVE5_TIMING_END\n"
+        },
+        {
+          "before": "join_installation(&apps, &managers, &account, sponsor, newcomer).await",
+          "after": "join_installation(&apps, &managers, &account, sponsor, newcomer,\n// NATIVE5_TIMING_BEGIN\n                #[cfg(feature = \"test-policy-overrides\")]\n                &mut native5_timing,\n// NATIVE5_TIMING_END\n            ).await"
+        },
+        {
+          "before": "    }).catch_unwind().await;\n    let mut runtime_closes",
+          "after": "    }).catch_unwind().await;\n// NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    let native5_timing_report = native5_timing.take().map(|guard| guard.freeze());\n// NATIVE5_TIMING_END\n    let mut runtime_closes"
+        },
+        {
+          "before": "    let listener_closed = owned_listener_closed(address).await;\n    eprintln!(",
+          "after": "    let listener_closed = owned_listener_closed(address).await;\n// NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    if let Some(report) = native5_timing_report { eprint!(\"{report}\"); }\n// NATIVE5_TIMING_END\n    eprintln!("
+        }
+      ]
+    },
+    "crates/marmot-app/src/runtime/device_linking/setup.rs": {
+      "draft_file": "setup.rs",
+      "mode": "100644",
+      "before_sha256": "460dca11b2a23a92bd9678540e5a37d95aecb641ad11c09f2aec5a4fc78a2725",
+      "after_sha256": "dc9c9a0309c6eae11e7197e9f6f36a3a5c231953133801f38c113992cbf2e289",
+      "exact_substitutions": [
+        {
+          "before": "    Observe {\n        scope: PurposeAttemptScope,\n        respond: Reply<(",
+          "after": "    Observe {\n        scope: PurposeAttemptScope,\n// NATIVE5_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        native5_rpc: Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Rpc>,\n// NATIVE5_TIMING_END\n        respond: Reply<("
+        },
+        {
+          "before": "        SetupCommand::Observe { scope, respond } => {",
+          "after": "        SetupCommand::Observe { scope, respond,\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            native5_rpc,\n// NATIVE5_TIMING_END\n        } => {\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &native5_rpc { token.stage(1); }\n// NATIVE5_TIMING_END\n"
+        },
+        {
+          "before": "            let result = client.linking_native_observation(&scope);",
+          "after": "            let result = client.linking_native_observation(&scope);\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &native5_rpc { token.worker_returned(&result); }\n// NATIVE5_TIMING_END\n"
+        },
+        {
+          "before": "            let _ = respond.send(result);\n        }\n        SetupCommand::ReserveRequest",
+          "after": "            let native5_sent = respond.send(result).is_ok();\n// NATIVE5_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &native5_rpc { token.sent(native5_sent); }\n// NATIVE5_TIMING_END\n            let _ = native5_sent;\n        }\n        SetupCommand::ReserveRequest"
+        },
+        {
+          "before": "    pub(crate) async fn linking_native_observation(\n        &self,\n        account: &str,\n        scope: &PurposeAttemptScope,\n",
+          "after": "    pub(crate) async fn linking_native_observation(\n        &self,\n        account: &str,\n        scope: &PurposeAttemptScope,\n// NATIVE5_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        native5_rpc: Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Rpc>,\n// NATIVE5_TIMING_END\n"
+        },
+        {
+          "before": "            VerifierCommand::Setup(SetupCommand::Observe {\n                scope: scope.clone(),\n                respond,\n            })",
+          "after": "            VerifierCommand::Setup(SetupCommand::Observe {\n                scope: scope.clone(),\n                respond,\n// NATIVE5_TIMING_BEGIN\n                #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                native5_rpc,\n// NATIVE5_TIMING_END\n            })"
+        }
+      ]
+    }
+  },
+  "new_modules": {
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/native5_timing.rs": {
+      "draft_file": "native5_timing.rs",
+      "mode": "100644",
+      "sha256": "98c4f811533b9877215d524134522dc7e3cba053c5fbb0f1ec5cd63466c8480e"
+    }
+  }
+}

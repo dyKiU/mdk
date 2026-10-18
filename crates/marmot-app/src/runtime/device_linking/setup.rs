@@ -90,6 +90,10 @@ pub(crate) enum SetupCommand {
     },
     Observe {
         scope: PurposeAttemptScope,
+// NATIVE5_TIMING_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        native5_rpc: Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Rpc>,
+// NATIVE5_TIMING_END
         respond: Reply<(
             crate::DeviceLinkingPhase,
             Option<crate::DeviceLinkingDecimals>,
@@ -262,7 +266,17 @@ pub(super) async fn handle(
                 cancel_abandoned_setup(client, &scope).await;
             }
         }
-        SetupCommand::Observe { scope, respond } => {
+        SetupCommand::Observe { scope, respond,
+// NATIVE5_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            native5_rpc,
+// NATIVE5_TIMING_END
+        } => {
+// NATIVE5_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &native5_rpc { token.stage(1); }
+// NATIVE5_TIMING_END
+
             #[cfg(all(test, feature = "test-policy-overrides"))]
             let observer = client.native_observation_original_for_test(&scope);
             #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -272,13 +286,23 @@ pub(super) async fn handle(
                 );
             }
             let result = client.linking_native_observation(&scope);
+// NATIVE5_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &native5_rpc { token.worker_returned(&result); }
+// NATIVE5_TIMING_END
+
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(observer) = &observer {
                 observer.record_observation_stage_for_test(
                     crate::client::device_linking::sibling_sharing::NativeObservationStage::WorkerReturned,
                 );
             }
-            let _ = respond.send(result);
+            let native5_sent = respond.send(result).is_ok();
+// NATIVE5_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &native5_rpc { token.sent(native5_sent); }
+// NATIVE5_TIMING_END
+            let _ = native5_sent;
         }
         SetupCommand::ReserveRequest { respond } => {
             let result = client.reserve_owned_linking_setup_request().await;
@@ -579,6 +603,10 @@ impl AccountManager {
         &self,
         account: &str,
         scope: &PurposeAttemptScope,
+// NATIVE5_TIMING_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        native5_rpc: Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Rpc>,
+// NATIVE5_TIMING_END
     ) -> Result<
         (
             crate::DeviceLinkingPhase,
@@ -590,6 +618,10 @@ impl AccountManager {
             VerifierCommand::Setup(SetupCommand::Observe {
                 scope: scope.clone(),
                 respond,
+// NATIVE5_TIMING_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                native5_rpc,
+// NATIVE5_TIMING_END
             })
         })
         .await
