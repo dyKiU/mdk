@@ -2516,7 +2516,10 @@ impl AppClient {
             &self.linking_owner.sibling_channels,
             receive,
             |message| {
-                if !self.adapter.activate_account_ingress_schedule_for_test(message) {
+                if !self
+                    .adapter
+                    .activate_account_ingress_schedule_for_test(message)
+                {
                     return None;
                 }
                 self.adapter.account_delivery_queue_len_for_test()

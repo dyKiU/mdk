@@ -36,19 +36,21 @@ use transport_nostr_adapter::{
 
 use transport_nostr_peeler::NostrTransportEvent;
 
-mod delivery_spill;
 #[cfg(all(
     any(test, feature = "test-support"),
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
 mod account_ingress_schedule_for_test;
+mod delivery_spill;
 #[cfg(all(
     any(test, feature = "test-support"),
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-pub use account_ingress_schedule_for_test::{AccountIngressScheduleForTest, AccountIngressScheduleSnapshot};
+pub use account_ingress_schedule_for_test::{
+    AccountIngressScheduleForTest, AccountIngressScheduleSnapshot,
+};
 mod directory;
 mod directory_wire;
 #[cfg(all(
@@ -2015,7 +2017,10 @@ impl MarmotRelayPlane {
         account: MemberId,
     ) -> Option<AccountIngressScheduleForTest> {
         self.spawn_router();
-        self.inner.transport.test_account_ingress_schedule.prepare(account)
+        self.inner
+            .transport
+            .test_account_ingress_schedule
+            .prepare(account)
     }
 
     /// Place one delivery exactly as the router does, synchronously, so a
@@ -2971,10 +2976,12 @@ impl MarmotRelayPlane {
                     any(test, feature = "test-support"),
                     feature = "experimental-device-sync",
                     feature = "test-policy-overrides"
-                ))) ]
+                )))]
                 let received = adapter.receive_observed().await;
                 // COMMAND_INGRESS_SCHEDULE_TEST_END
-                let Ok(Some(delivery)) = received else { break; };
+                let Ok(Some(delivery)) = received else {
+                    break;
+                };
                 // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
                 #[cfg(all(
                     any(test, feature = "test-support"),
@@ -2985,14 +2992,18 @@ impl MarmotRelayPlane {
                     ingress.control(&transport.test_account_ingress_schedule, |delivery| {
                         route_account_delivery(&transport, delivery);
                     });
-                    ingress.delivery(delivery, |delivery| route_account_delivery(&transport, delivery))
+                    ingress.delivery(delivery, |delivery| {
+                        route_account_delivery(&transport, delivery)
+                    })
                 };
                 #[cfg(all(
                     any(test, feature = "test-support"),
                     feature = "experimental-device-sync",
                     feature = "test-policy-overrides"
                 ))]
-                let Some(delivery) = delivery else { continue; };
+                let Some(delivery) = delivery else {
+                    continue;
+                };
                 // COMMAND_INGRESS_SCHEDULE_TEST_END
                 route_account_delivery(&transport, delivery);
             }
@@ -5017,7 +5028,11 @@ impl MarmotRelayPlaneAccountAdapter {
     ))]
     #[doc(hidden)]
     pub fn activate_account_ingress_schedule_for_test(&self, target: &MessageId) -> bool {
-        self.relay_plane.inner.transport.test_account_ingress_schedule.activate(&self.account_id, target)
+        self.relay_plane
+            .inner
+            .transport
+            .test_account_ingress_schedule
+            .activate(&self.account_id, target)
     }
     // COMMAND_BACKLOG_QUEUE_TEST_END
     /// The next queued item, if one is ready now.

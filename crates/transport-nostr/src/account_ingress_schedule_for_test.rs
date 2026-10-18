@@ -2,7 +2,10 @@
 //! No synthetic deliveries, ACKs, receipts or queue consumers are introduced.
 use super::{MemberId, MessageId};
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, OnceLock, Weak, atomic::{AtomicBool, AtomicUsize, Ordering}};
+use std::sync::{
+    Arc, Mutex, OnceLock, Weak,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 use tokio::sync::Notify;
 use transport_nostr_adapter::ObservedTransportDelivery;
 
@@ -53,11 +56,17 @@ impl AccountIngressScheduleForTest {
         let flushed = tokio::time::timeout(std::time::Duration::from_secs(15), async {
             loop {
                 let changed = self.0.changed.notified();
-                if self.0.flushed.load(Ordering::Acquire) { break; }
+                if self.0.flushed.load(Ordering::Acquire) {
+                    break;
+                }
                 changed.await;
             }
-        }).await.is_ok();
-        if !flushed { self.0.valid.store(false, Ordering::Release); }
+        })
+        .await
+        .is_ok();
+        if !flushed {
+            self.0.valid.store(false, Ordering::Release);
+        }
         flushed
     }
     pub fn snapshot(&self) -> AccountIngressScheduleSnapshot {
@@ -75,7 +84,9 @@ impl AccountIngressScheduleForTest {
     }
 }
 impl Drop for AccountIngressScheduleForTest {
-    fn drop(&mut self) { self.0.release(); }
+    fn drop(&mut self) {
+        self.0.release();
+    }
 }
 
 #[derive(Default)]
@@ -84,23 +95,39 @@ pub(super) struct Control {
     pub(super) changed: Notify,
 }
 impl Control {
-    pub(super) fn prepare(self: &Arc<Self>, account: MemberId) -> Option<AccountIngressScheduleForTest> {
+    pub(super) fn prepare(
+        self: &Arc<Self>,
+        account: MemberId,
+    ) -> Option<AccountIngressScheduleForTest> {
         let mut slot = self.slot.lock().ok()?;
-        if slot.is_some() { return None; }
+        if slot.is_some() {
+            return None;
+        }
         let state = Arc::new(State {
-            account, target: OnceLock::new(), requested: AtomicBool::new(false),
-            armed: AtomicBool::new(false), valid: AtomicBool::new(true),
-            released: AtomicBool::new(false), flushed: AtomicBool::new(false),
-            target_passes: AtomicUsize::new(0), held: AtomicUsize::new(0),
-            replayed: AtomicUsize::new(0), overflow: AtomicBool::new(false),
-            changed: Notify::new(), control: Arc::downgrade(self),
+            account,
+            target: OnceLock::new(),
+            requested: AtomicBool::new(false),
+            armed: AtomicBool::new(false),
+            valid: AtomicBool::new(true),
+            released: AtomicBool::new(false),
+            flushed: AtomicBool::new(false),
+            target_passes: AtomicUsize::new(0),
+            held: AtomicUsize::new(0),
+            replayed: AtomicUsize::new(0),
+            overflow: AtomicBool::new(false),
+            changed: Notify::new(),
+            control: Arc::downgrade(self),
         });
         *slot = Some(state.clone());
         Some(AccountIngressScheduleForTest(state))
     }
     pub(super) fn activate(&self, account: &MemberId, target: &MessageId) -> bool {
-        let Ok(slot) = self.slot.lock() else { return false; };
-        let Some(state) = slot.as_ref() else { return false; };
+        let Ok(slot) = self.slot.lock() else {
+            return false;
+        };
+        let Some(state) = slot.as_ref() else {
+            return false;
+        };
         if &state.account != account || state.released.load(Ordering::Acquire) {
             return false;
         }
@@ -130,11 +157,21 @@ pub(super) struct Router {
     held: VecDeque<ObservedTransportDelivery>,
 }
 impl Router {
-    pub(super) fn control(&mut self, control: &Control, mut route: impl FnMut(ObservedTransportDelivery)) {
+    pub(super) fn control(
+        &mut self,
+        control: &Control,
+        mut route: impl FnMut(ObservedTransportDelivery),
+    ) {
         if self.state.is_none() {
-            self.state = control.slot.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            self.state = control
+                .slot
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone();
         }
-        let Some(state) = self.state.as_ref() else { return; };
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
         if state.released.load(Ordering::Acquire) {
             self.flush(control, &mut route);
         } else if state.requested.load(Ordering::Acquire) && state.target.get().is_some() {
@@ -143,8 +180,14 @@ impl Router {
             }
         }
     }
-    pub(super) fn delivery(&mut self, delivery: ObservedTransportDelivery, mut route: impl FnMut(ObservedTransportDelivery)) -> Option<ObservedTransportDelivery> {
-        let Some(state) = self.state.as_ref() else { return Some(delivery); };
+    pub(super) fn delivery(
+        &mut self,
+        delivery: ObservedTransportDelivery,
+        mut route: impl FnMut(ObservedTransportDelivery),
+    ) -> Option<ObservedTransportDelivery> {
+        let Some(state) = self.state.as_ref() else {
+            return Some(delivery);
+        };
         if state.released.load(Ordering::Acquire) {
             if let Some(control) = state.control.upgrade() {
                 self.flush(&control, &mut route);
@@ -155,7 +198,8 @@ impl Router {
             return Some(delivery);
         }
         if state.target.get() == Some(&delivery.message.id)
-            && state.target_passes.load(Ordering::Acquire) == 0 {
+            && state.target_passes.load(Ordering::Acquire) == 0
+        {
             state.target_passes.store(1, Ordering::Release);
             return Some(delivery);
         }
@@ -176,13 +220,18 @@ impl Router {
         None
     }
     fn flush(&mut self, control: &Control, route: &mut impl FnMut(ObservedTransportDelivery)) {
-        let Some(state) = self.state.take() else { return; };
+        let Some(state) = self.state.take() else {
+            return;
+        };
         while let Some(delivery) = self.held.pop_front() {
             route(delivery);
             state.replayed.fetch_add(1, Ordering::AcqRel);
         }
         let mut slot = control.slot.lock().unwrap_or_else(|p| p.into_inner());
-        if slot.as_ref().is_some_and(|registered| Arc::ptr_eq(registered, &state)) {
+        if slot
+            .as_ref()
+            .is_some_and(|registered| Arc::ptr_eq(registered, &state))
+        {
             *slot = None;
         } else {
             state.valid.store(false, Ordering::Release);
@@ -191,7 +240,11 @@ impl Router {
         state.flushed.store(true, Ordering::Release);
         state.changed.notify_one();
     }
-    pub(super) fn finish(&mut self, control: &Control, route: impl FnMut(ObservedTransportDelivery)) {
+    pub(super) fn finish(
+        &mut self,
+        control: &Control,
+        route: impl FnMut(ObservedTransportDelivery),
+    ) {
         if let Some(state) = &self.state {
             // Router closure cannot qualify the controlled experiment, even
             // if normal routing of the buffered genuine inputs still succeeds.

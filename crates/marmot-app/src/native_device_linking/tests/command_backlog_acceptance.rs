@@ -238,7 +238,9 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
             .expect("exact real recipient proof gate and source original");
         // Dormant: the actual fully-ready B preselect hook activates this
         // single-router arrival schedule. Nothing is withheld before that.
-        ingress_schedule = apps[1].relay_plane.prepare_account_ingress_schedule_for_test(account.clone());
+        ingress_schedule = apps[1]
+            .relay_plane
+            .prepare_account_ingress_schedule_for_test(account.clone());
         assert!(ingress_schedule.is_some(), "one_owned_ingress_schedule");
         drop(consent_release);
         let proof_nonce = tokio::time::timeout(Duration::from_secs(15), proof_gate.observed())
@@ -324,8 +326,12 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
         let schedule = ingress_schedule.as_ref().expect("owned ingress schedule");
         schedule.release_and_flush().await;
         let snapshot = schedule.snapshot();
-        facts[12] &= snapshot.armed && snapshot.valid && snapshot.released && snapshot.flushed
-            && snapshot.target_passes == 1 && snapshot.held == snapshot.replayed;
+        facts[12] &= snapshot.armed
+            && snapshot.valid
+            && snapshot.released
+            && snapshot.flushed
+            && snapshot.target_passes == 1
+            && snapshot.held == snapshot.replayed;
         wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
         facts[9] = true;
         a.cancel().await.unwrap();
@@ -344,8 +350,12 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
     if let Some(schedule) = ingress_schedule {
         schedule.release_and_flush().await;
         let snapshot = schedule.snapshot();
-        facts[12] &= snapshot.armed && snapshot.valid && snapshot.released && snapshot.flushed
-            && snapshot.target_passes == 1 && snapshot.held == snapshot.replayed;
+        facts[12] &= snapshot.armed
+            && snapshot.valid
+            && snapshot.released
+            && snapshot.flushed
+            && snapshot.target_passes == 1
+            && snapshot.held == snapshot.replayed;
         queue_observations.ingress = Some(snapshot);
     } else {
         facts[12] = false;
@@ -394,10 +404,16 @@ fn queue_observation(
         .map(|row| (row.0, row.2, row.4.0, row.4.1, row.4.2.is_some(), row.4.3))
 }
 fn emit_queue(queue: QueueFacts) {
-    eprintln!("command-backlog-ingress schedule={:?}", queue.ingress.map(|value| (
-        [value.armed, value.valid, value.released, value.flushed],
-        value.target_passes, value.held, value.replayed, value.overflow,
-    )));
+    eprintln!(
+        "command-backlog-ingress schedule={:?}",
+        queue.ingress.map(|value| (
+            [value.armed, value.valid, value.released, value.flushed],
+            value.target_passes,
+            value.held,
+            value.replayed,
+            value.overflow,
+        ))
+    );
     eprintln!(
         "command-backlog-queue pause_rx_len={:?} target={:?} own_id_bound={:?} own={:?}",
         queue.pause_rx_len, queue.target, queue.own_id_bound, queue.own
