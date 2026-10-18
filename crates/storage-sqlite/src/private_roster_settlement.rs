@@ -454,10 +454,11 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
         })
     }
     fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {
-        self.connection.with_deferred_read(|conn| match read(conn)? {
-            Some(state) => facts(conn, &state),
-            None => Ok(vec![]),
-        })
+        self.connection
+            .with_deferred_read(|conn| match read(conn)? {
+                Some(state) => facts(conn, &state),
+                None => Ok(vec![]),
+            })
     }
 }
 #[cfg(test)]
