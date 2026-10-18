@@ -90,7 +90,9 @@ impl AppClient {
                 LinkingWelcomeDenied::ContextMismatch,
             ));
         };
-        let approval_id = original.context.digest()
+        let approval_id = original
+            .context
+            .digest()
             .inspect_err(|_| {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 original.record_persist_failure_for_test(
