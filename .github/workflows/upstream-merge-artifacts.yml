@@ -291,6 +291,22 @@ jobs:
            pattern=r'^\s*(PASS|FAIL)\s+\[\s*[0-9]+(?:\.[0-9]+)?s\]\s+(?:\([0-9]+/[0-9]+\)\s+)?marmot-app::relay_runtime '+re.escape(NAME)+r'\s*$'
            statuses=re.findall(pattern,text,re.M)
            return bool(statuses) and all(status==('PASS' if code==0 else 'FAIL') for status in statuses) and code in [0,100]
+          def exact_version_record(text,code):
+           if type(code) is not int or code!=0 or type(text) is not str or len(text.encode())>4096:return False
+           lines=text.splitlines()
+           version=r'cargo-nextest 0\.9\.132(?: \([A-Za-z0-9][A-Za-z0-9 ._+-]{0,99}\))?'
+           matches=[i for i,line in enumerate(lines) if re.fullmatch(version,line)]
+           if len(matches)!=1:return False
+           index=matches[0]
+           prelude=r'info: (?:syncing channel updates for|latest update on|downloading component|installing component|using existing install for|default toolchain set to) [\x20-\x7e]{1,256}'
+           return all(line=='' or re.fullmatch(prelude,line) for line in lines[:index]) and all(line=='' for line in lines[index+1:])
+          def version_controls():
+           plain='cargo-nextest 0.9.132\n';built='cargo-nextest 0.9.132 (6e4a9d6f2 2026-03-20)\n'
+           prelude="info: syncing channel updates for '1.97.1-x86_64-unknown-linux-gnu'\ninfo: downloading component 'clippy'\ninfo: installing component 'clippy'\n"
+           for text in [plain,built,prelude+built,'\n'+prelude+'\n'+built+'\n']:ensure(exact_version_record(text,0),'closed-version-positive')
+           negative=[(plain.replace('0.9.132','0.9.131'),0),(plain+plain,0),(plain.replace('0.9.132','0.9.131')+plain,0),('foreign\n'+plain,0),(plain+'foreign\n',0),(plain+prelude,0),(plain,1),(plain,True),(plain.replace('0.9.132','0.9.132-extra'),0),(built.replace(')',']'),0),('info: foreign\n'+plain,0),(built.replace('6e4a9d6f2','private☃'),0),(plain.replace('\n',' trailing\n'),0)]
+           for text,code in negative:ensure(not exact_version_record(text,code),'closed-version-negative')
+           return {'positive':4,'negative':len(negative),'runtime_bodies':0,'raw_version_output_retained':False}
           def controls():
            ensure(summary('1 test run: 1 passed, 0 skipped',0)['known'],'completed-positive')
            ensure(summary('1 test run: 0 passed, 1 failed, 0 skipped',100)['known'],'failed-positive')
@@ -302,10 +318,11 @@ jobs:
           binary=None
           try:
            ensure(os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk' and os.environ['GITHUB_WORKFLOW_REF']=='dyKiU/mdk/.github/workflows/upstream-merge-artifacts.yml@refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['PRODUCER_RUN']==str(RUN),'exact-manual-proof-scope')
-           ensure(pristine(),'exact-source-pristine');report['source_tree']=git('rev-parse','HEAD^{tree}');report['parser_controls']=controls();save()
+           ensure(pristine(),'exact-source-pristine');report['source_tree']=git('rev-parse','HEAD^{tree}');report['parser_controls']=dict(controls(),version=version_controls());save()
            version_code,version,_=bounded.capture(['cargo','nextest','--version'],30,limit=4096)
            report['nextest_version_check']={'exit_code':version_code,'captured_bytes':len(version.encode()),'starts_with_exact_version':re.match(r'^cargo-nextest 0\.9\.132(?: |\n|$)',version) is not None,'exact_version_line_count':len(re.findall(r'(?m)^cargo-nextest 0\.9\.132(?: |$)',version)),'toolchain_bootstrap_notice_present':re.search(r'(?m)^info: (?:syncing channel updates|downloading component|installing component)',version) is not None};save()
-           ensure(version_code==0 and re.match(r'^cargo-nextest 0\.9\.132(?: |\n|$)',version),'actual-pinned-nextest-version');report['nextest_version']='0.9.132';save()
+           report['nextest_version_check']['closed_full_version_record_valid']=exact_version_record(version,version_code);save()
+           ensure(report['nextest_version_check']['closed_full_version_record_valid'],'actual-pinned-nextest-version');report['nextest_version']='0.9.132';save()
            run=api('actions/runs/'+str(RUN)+'/attempts/'+str(ATTEMPT))
            ensure(run['id']==RUN and run['run_attempt']==ATTEMPT and run['head_sha']==SOURCE and run['event']=='pull_request' and run['name']=='CI' and run['repository']['id']==1413433183,'exact-producer-run')
            job=api('actions/jobs/'+str(JOB))
