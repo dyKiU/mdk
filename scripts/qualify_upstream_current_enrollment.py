@@ -183,6 +183,59 @@ def closed_phase_timeout(raw,name):
             expected_phase=match[2],observed_pair_available=match[3]!='None',last_completed_serial_pair=None if match[3]=='None' else [match[4],match[5]])
     return result
 
+# These existing timeout records are post-wait, independently sampled and
+# cumulative per sharing choice. Background refresh shares the RPC counters.
+# No common wait clock, helper-call attribution or deadline snapshot is claimed.
+PROGRESS_REASONS=('VerifierFallback','NoRound','GuardInvalid','NoSettledRoster','SharingPending','Complete')
+PROGRESS_UINT=r'(?:0|[1-9][0-9]{0,19})'
+def closed_timeout_progress(raw):
+    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    n=PROGRESS_UINT
+    opt=lambda value:r'(?:None|Some\('+value+r'\))'
+    arr=lambda width:r'\['+', '.join([n]*width)+r'\]'
+    aggregate=opt(r'\((true|false), (None|Some\('+n+r'\)), ('+n+'), ('+n+r')\)')
+    # Discard the other source-owned numeric arrays; never export their values.
+    aggregate_line=r'primary/expected/children/completed=('+aggregate+r') intake='+opt(arr(8))+r' rejections='+opt(arr(4))+r' context_rejections='+opt(arr(9))+r' projection='+opt(arr(4))
+    rpc_line=r'native_rpc_counts/elapsed_ms/branch=('+opt(r'\(('+arr(6)+'), ('+arr(6)+'), (None|Some\(('+'|'.join(PROGRESS_REASONS)+'), ('+n+r')\))\)')+')'
+    rows={side:{'completion':{'record_available':False,'value':None},'native_rpc':{'record_available':False,'value':None}} for side in ('left','right')}
+    for side in rows:
+        prefix='automatic-enrollment-control side='+side+' '
+        for category,tag,pattern in [('completion','primary/expected/children/completed=',aggregate_line),('native_rpc','native_rpc_counts/elapsed_ms/branch=',rpc_line)]:
+            candidates=[line[len(prefix):] for line in text.splitlines() if line.startswith(prefix+tag)]
+            row=rows[side][category];row['candidate_count']=len(candidates)
+            if len(candidates)!=1 or len(candidates[0])>4096:continue
+            match=re.fullmatch(pattern,candidates[0])
+            if match is None:continue
+            # Every numeric field, including discarded source arrays, must fit u64.
+            if any(int(value)>2**64-1 for value in re.findall(r'(?<![A-Za-z_])[0-9]+',candidates[0])):continue
+            row['record_available']=True
+            if match[1]=='None':continue
+            if category=='completion':
+                row['value']={'primary_committed':match[2]=='true','expected_children':None if match[3]=='None' else int(match[3][5:-1]),'children':int(match[4]),'completed_children':int(match[5])}
+            else:
+                row['value']={'counts':[int(value) for value in match[2][1:-1].split(', ')],'last_elapsed_ms':[int(value) for value in match[3][1:-1].split(', ')],'last_reason':None if match[4]=='None' else {'reason':match[5],'elapsed_ms':int(match[6])}}
+    return {'sides':rows,'rpc_stage_order':['DispatchStarted','WorkerStarted','WorkerReturned','FacadeReturned','AutomaticEntered','AutomaticExited'],
+        'cumulative_per_original':True,'post_timeout_independent_samples':True,'common_wait_clock':False,'helper_call_attribution':False,'fresh_deadline_snapshot':False,'blocking_side_identified':False}
+
+def timeout_progress_controls():
+    prefix='automatic-enrollment-control side=left '
+    completion=prefix+'primary/expected/children/completed=Some((true, Some(3), 3, 2)) intake=Some([0, 1, 2, 3, 4, 5, 6, 7]) rejections=None context_rejections=None projection=None'
+    rpc=prefix+'native_rpc_counts/elapsed_ms/branch=Some(([1, 2, 3, 4, 5, 6], [0, 1, 2, 3, 4, 18446744073709551615], Some((SharingPending, 12))))'
+    rows=closed_timeout_progress(completion+'\n'+rpc)['sides']
+    ensure(rows['left']['completion']['value']=={'primary_committed':True,'expected_children':3,'children':3,'completed_children':2} and rows['left']['native_rpc']['value']['counts']==[1,2,3,4,5,6] and rows['right']['completion']['record_available'] is False,'closed-progress-real-widths')
+    none=closed_timeout_progress(prefix+'native_rpc_counts/elapsed_ms/branch=None')['sides']['left']['native_rpc']
+    ensure(none['record_available'] and none['value'] is None,'closed-progress-source-None')
+    # Additional existing_index=2/child rows cannot impose an inherited eight-row limit.
+    extra='\n'.join(['automatic-enrollment-control existing_index=2 child_channel=None']*9)
+    ensure(closed_timeout_progress(completion+'\n'+rpc+'\n'+extra)['sides']==rows,'fifth-extra-rows-not-a-limit')
+    for line in [completion.replace('Some(3)','Some(-3)'),completion.replace('3, 2','3, 18446744073709551616'),completion+' PRIVATE',completion+'\n'+completion]:
+        result=closed_timeout_progress(line)
+        ensure(not result['sides']['left']['completion']['record_available'] and 'PRIVATE' not in json.dumps(result),'closed-progress-invalid-completion')
+    for line in [rpc.replace('1, 2, 3, 4, 5, 6','1, 2, 3, 4, 5'),rpc.replace('SharingPending','PRIVATE'),rpc.replace('18446744073709551615','18446744073709551616'),rpc+'\n'+rpc,rpc.replace('Some((SharingPending, 12))','Some((SharingPending, -1))')]:
+        result=closed_timeout_progress(line)
+        ensure(not result['sides']['left']['native_rpc']['record_available'] and 'PRIVATE' not in json.dumps(result),'closed-progress-invalid-rpc')
+    return {'positive':3,'negative':9,'actual_runtime_bodies':0}
+
 def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
     save(report)
@@ -206,6 +259,7 @@ def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row['panic_locations']=closed_panic_sites(raw,name,set(inputs));save(report)
     if five:
         row['phase_timeout']=closed_phase_timeout(raw,name);save(report)
+        row['timeout_progress']=closed_timeout_progress(raw);save(report)
     ensure(row['source_after_body_pristine'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
     parsed=native.parse(raw,code) if five else ack.parse_case(label,raw,code)
     row['original_oracle']=closed_oracle(parsed)
@@ -249,7 +303,7 @@ def parser_controls(mode):
     for text in [phase_header+phase_payload+' PRIVATE',phase_header+phase_payload.replace('VerificationCompleteEnrollmentPending','PRIVATE'),phase_header.replace(':'+str(phase_column)+':',':999:')+phase_payload,(phase_header+phase_payload+'\n')*2,phase_payload+'\n',phase_header+phase_payload.replace('Some((', '('),phase_header.replace('(123)','(PRIVATE)')+phase_payload]:
         row=closed_phase_timeout(text,native.NAME)
         ensure(not row['closed_phase_record_available'] and 'PRIVATE' not in json.dumps(row),'no-foreign-or-malformed-phase-payload-export')
-    return {'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
+    return {'timeout_progress_controls':timeout_progress_controls(),'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
 
 def main(args):
     os.umask(0o077)
