@@ -1,3 +1,5 @@
+#[cfg(all(test, feature = "test-policy-overrides"))]
+use super::explicit_sync_frontier::Phase as SyncPhase;
 use crate::RuntimePerformanceOperation as RuntimeOp;
 use crate::app_telemetry::runtime::Outcome as TelemetryOutcome;
 use std::collections::{HashMap, HashSet};
@@ -1641,6 +1643,8 @@ impl AppClient {
         telemetry: Option<&AppPerformanceTelemetry>,
         mode: SyncMode,
     ) -> Result<SyncSummary, ClassifiedSyncFailure> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier_span = self.test_begin_explicit_sync(mode == SyncMode::Explicit);
         let routing_changed = self.refresh_sync_routes().map_err(|error| {
             ClassifiedSyncFailure::at_stage(
                 SyncSummary::default(),
@@ -1663,7 +1667,11 @@ impl AppClient {
         }
         // Network cooldown never withholds already queued input or engine
         // events. Receiving existing subscriptions is not a new acquisition.
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier_previous = self.test_sync_phase(SyncPhase::FirstDrain);
         let mut summary = self.sync_sdk_relay().await?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_restore_sync_phase(sync_frontier_previous);
         use crate::runtime::account_worker::recovery_credits;
         let state_persist = |summary: SyncSummary, error| {
             ClassifiedSyncFailure::at_stage(summary, error, SyncFailureStage::StatePersist)
@@ -1685,7 +1693,11 @@ impl AppClient {
         } else if explicit {
             self.pending_applied_sync_summary
                 .merge(std::mem::take(&mut summary));
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let sync_frontier_previous = self.test_sync_phase(SyncPhase::Credit);
             let credit = recovery_credits::acquire_recovery_credit(&self.recovery_credits).await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_restore_sync_phase(sync_frontier_previous);
             self.prepend_pending_applied_summary(&mut summary);
             Some(credit)
         } else {
@@ -1696,7 +1708,11 @@ impl AppClient {
             // before the inventory freezes, so the job does not fetch it again.
             self.pending_applied_sync_summary
                 .merge(std::mem::take(&mut summary));
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let sync_frontier_previous = self.test_sync_phase(SyncPhase::SecondDrain);
             let drained = self.sync_sdk_relay().await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_restore_sync_phase(sync_frontier_previous);
             self.prepend_pending_applied_summary(&mut summary);
             match drained {
                 Ok(drained) => summary.merge(drained),
@@ -1716,7 +1732,11 @@ impl AppClient {
         if let (Some(grant), Some(credit)) = (grant, credit) {
             self.pending_applied_sync_summary
                 .merge(std::mem::take(&mut summary));
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let sync_frontier_previous = self.test_sync_phase(SyncPhase::RecoveryJob);
             let recovered = self.run_recovery_job(grant, credit, None).await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_restore_sync_phase(sync_frontier_previous);
             self.prepend_pending_applied_summary(&mut summary);
             match recovered {
                 Ok(
@@ -1739,7 +1759,12 @@ impl AppClient {
                 summary = self.refresh_live_group_subscriptions(summary).await?;
             }
         }
-        self.finish_prepared_sync_summary(summary).await
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let _ = self.test_sync_phase(SyncPhase::Finalization);
+        let result = self.finish_prepared_sync_summary(summary).await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(span) = sync_frontier_span { span.finish(result.is_ok()); }
+        result
     }
 
     /// Bring the live group subscriptions up to the current routes. Nothing
@@ -1750,9 +1775,13 @@ impl AppClient {
     ) -> Result<SyncSummary, ClassifiedSyncFailure> {
         self.pending_runtime_group_subscription_refresh = true;
         self.pending_applied_sync_summary.merge(summary);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier_previous = self.test_sync_phase(SyncPhase::SubscriptionRefresh);
         let refresh = self
             .retry_pending_runtime_group_subscription_refresh()
             .await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_restore_sync_phase(sync_frontier_previous);
         let summary = self.take_pending_applied_sync_summary();
         match refresh {
             Ok(_) => Ok(summary),
@@ -1838,6 +1867,8 @@ impl AppClient {
         &mut self,
         telemetry: Option<&AppPerformanceTelemetry>,
     ) -> Result<(), ClassifiedSyncFailure> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier_previous = self.test_sync_phase(SyncPhase::SubscriptionRefresh);
         if self.app.cursor_persistence() == CursorPersistence::Frozen {
             self.adapter.require_fresh_activation().await;
         }
@@ -1855,6 +1886,8 @@ impl AppClient {
         })?;
         self.record_subscription_rebuild(since.map(|timestamp| timestamp.0))
             .await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_restore_sync_phase(sync_frontier_previous);
         Ok(())
     }
 
@@ -3169,6 +3202,10 @@ impl AppClient {
     /// and return as soon as the relays go quiet. A loss control record ends
     /// the drain once its loss is durable; recovery settles it by comparison.
     async fn sync_sdk_relay(&mut self) -> Result<SyncSummary, ClassifiedSyncFailure> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier = self.explicit_sync_frontier.clone();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(probe) = &sync_frontier { probe.drain(); }
         let mut counts = DrainCounts::default();
         let mut summary = std::mem::take(&mut self.pending_failed_sync_summary);
         summary.merge(self.take_pending_applied_sync_summary());
@@ -3214,10 +3251,14 @@ impl AppClient {
                     }
                 }
             };
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(probe) = &sync_frontier { probe.wait(); }
             let received = timeout(wait, receive).await;
             self.prepend_pending_applied_summary(&mut summary);
             let delivery = match received {
                 Ok(Ok(Some(transport_nostr::AccountDeliveryReceive::Delivery(delivery)))) => {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if let Some(probe) = &sync_frontier { probe.received(); }
                     delivery
                 }
                 Ok(Ok(Some(transport_nostr::AccountDeliveryReceive::Overflow(overflow)))) => {
@@ -3293,6 +3334,8 @@ impl AppClient {
                 self.record_durable_transport_reconciliation_delivery(&delivery);
                 self.adapter.release_account_delivery(&delivery.message.id);
                 counts.skipped = counts.skipped.saturating_add(1);
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if let Some(probe) = &sync_frontier { probe.counts(counts.deliveries, counts.skipped, counts.refused); }
                 continue;
             }
             if fail_before_delivery {
@@ -3360,6 +3403,8 @@ impl AppClient {
                 self.remember_seen_event(event_id);
             }
             counts.deliveries = counts.deliveries.saturating_add(1);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(probe) = &sync_frontier { probe.counts(counts.deliveries, counts.skipped, counts.refused); }
             summary.merge(delivery_summary);
             routes_dirty |= ingested.routes_dirty;
             // A cancelled drain cannot replay an already-applied commit's
@@ -3533,7 +3578,11 @@ impl AppClient {
         if routes_dirty || routes_changed {
             self.pending_applied_sync_summary
                 .merge(std::mem::take(summary));
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let sync_frontier_previous = self.test_sync_phase(SyncPhase::SubscriptionRefresh);
             let refresh = self.sync_runtime_groups().await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_restore_sync_phase(sync_frontier_previous);
             self.prepend_pending_applied_summary(summary);
             match refresh {
                 Ok(()) => self.pending_runtime_group_subscription_refresh = false,

@@ -107,6 +107,8 @@ mod retention;
 #[cfg(feature = "experimental-device-sync")]
 mod selected_chat_copy;
 mod sync;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod explicit_sync_frontier;
 #[cfg(test)]
 mod upload_cleanup_tests;
 pub(crate) mod welcome_peeler;
@@ -799,6 +801,8 @@ pub struct AppClient {
     /// successful checkpoint. A reopened client recovers the same outputs from
     /// the durable engine outbox instead.
     pub(crate) pending_failed_sync_summary: crate::SyncSummary,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) explicit_sync_frontier: Option<std::sync::Arc<explicit_sync_frontier::Probe>>,
     /// Whether the last settled job certified the retained window of every
     /// explicit-history scope it compared. Explicit history reaches below
     /// that window, so this never completes it; it names why it stays open.

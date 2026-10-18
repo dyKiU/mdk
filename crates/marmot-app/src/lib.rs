@@ -2205,6 +2205,8 @@ impl MarmotApp {
             pending_resumed_message_notifications: Default::default(),
             pending_push_leaf_reconciliations: Default::default(),
             pending_failed_sync_summary: SyncSummary::default(),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            explicit_sync_frontier: None,
             explicit_history_window_certified: false,
             recovery_job_network_cut: false,
             recovery_job_admission_expired: false,
