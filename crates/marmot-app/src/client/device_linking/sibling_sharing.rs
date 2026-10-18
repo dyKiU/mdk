@@ -58,12 +58,17 @@ pub(crate) enum NativePersistFailure {
     PolicyCommit,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
-pub(crate) type NativePersistFailureSnapshot =
-    ([usize; 6], bool, Option<(NativePersistFailure, Option<&'static str>)>);
+pub(crate) type NativePersistFailureSnapshot = (
+    [usize; 6],
+    bool,
+    Option<(NativePersistFailure, Option<&'static str>)>,
+);
 // Same exhaustive variant-only classification as error.rs::storage_error_kind;
 // that helper is private to its module. Never inspect or retain Display text.
 #[cfg(all(test, feature = "test-policy-overrides"))]
-pub(super) fn native_persist_storage_kind(error: &cgka_traits::storage::StorageError) -> &'static str {
+pub(super) fn native_persist_storage_kind(
+    error: &cgka_traits::storage::StorageError,
+) -> &'static str {
     use cgka_traits::storage::StorageError;
     match error {
         StorageError::NotFound => "storage_not_found",
@@ -494,7 +499,10 @@ impl OriginalEnrollmentSharingChoice {
         stage: NativePersistFailure,
         kind: Option<&'static str>,
     ) {
-        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
         let index = stage as usize;
         if let Some(count) = probe.persist_counts[index].checked_add(1) {
             probe.persist_counts[index] = count;
@@ -505,8 +513,15 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn persist_failures_for_test(&self) -> NativePersistFailureSnapshot {
-        let probe = self.native_observation_probe.lock().expect("native observation probe");
-        (probe.persist_counts, probe.persist_overflow, probe.persist_last)
+        let probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        (
+            probe.persist_counts,
+            probe.persist_overflow,
+            probe.persist_last,
+        )
     }
 
     // COMPLETION_TEST_BEGIN
