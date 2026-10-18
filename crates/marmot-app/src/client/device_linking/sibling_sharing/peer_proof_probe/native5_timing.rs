@@ -245,7 +245,11 @@ pub(in super::super::super) fn incoming(
         } else if let Some(row) = row.as_mut() {
             increment(&mut row.later_routes, &probe);
         }
-        if first && category==0 { if let Some(time)=time { probe.worker.endpoint(index,1,time); } }
+        if first && category == 0 {
+            if let Some(time) = time {
+                probe.worker.endpoint(index, 1, time);
+            }
+        }
         let ordinal = row.as_ref().map_or(0, |row| row.later_routes);
         selected = Some(IncomingToken {
             probe: Arc::downgrade(&probe),
@@ -568,160 +572,458 @@ const EXPECTED_WORKERS: usize = 5;
 static WORKER_SPAWNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[derive(Clone)]
 pub(crate) struct WorkerTag(Arc<WorkerTagState>);
-struct WorkerTagState { ordinal: usize, active: AtomicU32, mask: AtomicU32 }
-pub(crate) struct WorkerSection { tag: WorkerTag, previous: u32 }
-impl Drop for WorkerSection { fn drop(&mut self) { self.tag.0.active.store(self.previous,Ordering::Release); } }
+struct WorkerTagState {
+    ordinal: usize,
+    active: AtomicU32,
+    mask: AtomicU32,
+}
+pub(crate) struct WorkerSection {
+    tag: WorkerTag,
+    previous: u32,
+}
+impl Drop for WorkerSection {
+    fn drop(&mut self) {
+        self.tag.0.active.store(self.previous, Ordering::Release);
+    }
+}
 impl WorkerTag {
     pub(crate) fn new() -> Self {
-        let ordinal=WORKER_SPAWNS.fetch_update(Ordering::AcqRel,Ordering::Acquire,|old|old.checked_add(1)).unwrap_or(usize::MAX);
-        Self(Arc::new(WorkerTagState { ordinal,active:AtomicU32::new(0),mask:AtomicU32::new(0) }))
+        let ordinal = WORKER_SPAWNS
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                old.checked_add(1)
+            })
+            .unwrap_or(usize::MAX);
+        Self(Arc::new(WorkerTagState {
+            ordinal,
+            active: AtomicU32::new(0),
+            mask: AtomicU32::new(0),
+        }))
     }
-    pub(crate) fn section(&self,category:u32)->WorkerSection {
-        let previous=self.0.active.swap(category,Ordering::AcqRel);
-        self.0.mask.fetch_or(1u32.checked_shl(category).unwrap_or(0),Ordering::AcqRel);
-        WorkerSection { tag:self.clone(),previous }
+    pub(crate) fn section(&self, category: u32) -> WorkerSection {
+        let previous = self.0.active.swap(category, Ordering::AcqRel);
+        self.0
+            .mask
+            .fetch_or(1u32.checked_shl(category).unwrap_or(0), Ordering::AcqRel);
+        WorkerSection {
+            tag: self.clone(),
+            previous,
+        }
     }
-    pub(crate) fn ordinal(&self)->usize { self.0.ordinal }
+    pub(crate) fn ordinal(&self) -> usize {
+        self.0.ordinal
+    }
 }
-pub(crate) struct WorkerFuture<F> { inner:std::pin::Pin<Box<F>>,tag:WorkerTag }
-impl<F> WorkerFuture<F> { pub(crate) fn new(inner:std::pin::Pin<Box<F>>,tag:WorkerTag)->Self { Self { inner,tag } } }
-impl<F:std::future::Future> std::future::Future for WorkerFuture<F> {
-    type Output=F::Output;
-    fn poll(self:std::pin::Pin<&mut Self>,cx:&mut std::task::Context<'_>)->std::task::Poll<Self::Output> {
-        let this=self.get_mut();
-        let token=WorkerPoll::begin(&this.tag);
-        let result=this.inner.as_mut().poll(cx);
-        if let Some(token)=token { token.finish(&this.tag,result.is_ready()); }
+pub(crate) struct WorkerFuture<F> {
+    inner: std::pin::Pin<Box<F>>,
+    tag: WorkerTag,
+}
+impl<F> WorkerFuture<F> {
+    pub(crate) fn new(inner: std::pin::Pin<Box<F>>, tag: WorkerTag) -> Self {
+        Self { inner, tag }
+    }
+}
+impl<F: std::future::Future> std::future::Future for WorkerFuture<F> {
+    type Output = F::Output;
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.get_mut();
+        let token = WorkerPoll::begin(&this.tag);
+        let result = this.inner.as_mut().poll(cx);
+        if let Some(token) = token {
+            token.finish(&this.tag, result.is_ready());
+        }
         result
     }
 }
 // ordinal,enter,returned,thread ordinal,entry category,exit category,selected mask,Ready.
-type WorkerSample=(u64,u64,u64,u8,u8,u8,u32,bool);
-type WorkerInFlight=(u64,u64,u8,u8);
-#[derive(Clone,Copy,Default)]
-struct WorkerRow { counts:[u64;7],threads:u16,inflight:Option<WorkerInFlight>,longest:[Option<WorkerSample>;4],focus:[[Option<WorkerSample>;4];3] }
-struct WorkerData { deliveries:[Option<DeliveryRow>;3] }
-impl Default for WorkerData { fn default()->Self { Self { deliveries:[None;3] } } }
-struct WorkerThreads { ids:[Option<std::thread::ThreadId>;8],count:usize }
+type WorkerSample = (u64, u64, u64, u8, u8, u8, u32, bool);
+type WorkerInFlight = (u64, u64, u8, u8);
+#[derive(Clone, Copy, Default)]
+struct WorkerRow {
+    counts: [u64; 7],
+    threads: u16,
+    inflight: Option<WorkerInFlight>,
+    longest: [Option<WorkerSample>; 4],
+    focus: [[Option<WorkerSample>; 4]; 3],
+}
+struct WorkerData {
+    deliveries: [Option<DeliveryRow>; 3],
+}
+impl Default for WorkerData {
+    fn default() -> Self {
+        Self {
+            deliveries: [None; 3],
+        }
+    }
+}
+struct WorkerThreads {
+    ids: [Option<std::thread::ThreadId>; 8],
+    count: usize,
+}
 struct WorkerRecorder {
-    origin:Instant,status:AtomicU32,rows:[Mutex<WorkerRow>;5],threads:Mutex<WorkerThreads>,endpoints:[std::sync::atomic::AtomicU64;6],
+    origin: Instant,
+    status: AtomicU32,
+    rows: [Mutex<WorkerRow>; 5],
+    threads: Mutex<WorkerThreads>,
+    endpoints: [std::sync::atomic::AtomicU64; 6],
 }
 impl WorkerRecorder {
-    fn new(origin:Instant)->Self { Self { origin,status:AtomicU32::new(0),rows:std::array::from_fn(|_|Mutex::new(WorkerRow::default())),threads:Mutex::new(WorkerThreads { ids:[None;8],count:0 }),endpoints:std::array::from_fn(|_|std::sync::atomic::AtomicU64::new(0)) } }
-    fn loss(&self,reason:u32) { let _=self.status.fetch_update(Ordering::AcqRel,Ordering::Acquire,|old|(old&FROZEN==0).then_some(old|reason)); }
-    fn elapsed(&self)->Option<u64> { let value=self.origin.elapsed().as_micros();if value>u128::from(MAX_US) { self.loss(OVERFLOW);None } else { Some(value as u64) } }
-    fn endpoint(&self,channel:usize,edge:usize,time:u64) {
-        if self.status.load(Ordering::Acquire)&FROZEN!=0 { return; }
-        if let Some(slot)=self.endpoints.get(channel*2+edge) { if slot.compare_exchange(0,time+1,Ordering::AcqRel,Ordering::Acquire).is_err() { self.loss(DUPLICATE); } } else { self.loss(CAPACITY); }
+    fn new(origin: Instant) -> Self {
+        Self {
+            origin,
+            status: AtomicU32::new(0),
+            rows: std::array::from_fn(|_| Mutex::new(WorkerRow::default())),
+            threads: Mutex::new(WorkerThreads {
+                ids: [None; 8],
+                count: 0,
+            }),
+            endpoints: std::array::from_fn(|_| std::sync::atomic::AtomicU64::new(0)),
+        }
     }
-    fn thread(&self)->Option<u8> {
-        if self.status.load(Ordering::Acquire)&FROZEN!=0 { return None; }
+    fn loss(&self, reason: u32) {
+        let _ = self
+            .status
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                (old & FROZEN == 0).then_some(old | reason)
+            });
+    }
+    fn elapsed(&self) -> Option<u64> {
+        let value = self.origin.elapsed().as_micros();
+        if value > u128::from(MAX_US) {
+            self.loss(OVERFLOW);
+            None
+        } else {
+            Some(value as u64)
+        }
+    }
+    fn endpoint(&self, channel: usize, edge: usize, time: u64) {
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 {
+            return;
+        }
+        if let Some(slot) = self.endpoints.get(channel * 2 + edge) {
+            if slot
+                .compare_exchange(0, time + 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                self.loss(DUPLICATE);
+            }
+        } else {
+            self.loss(CAPACITY);
+        }
+    }
+    fn thread(&self) -> Option<u8> {
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 {
+            return None;
+        }
         match self.threads.try_lock() {
-            Ok(mut threads)=>{
-                if self.status.load(Ordering::Acquire)&FROZEN!=0 { return None; }
-                let id=std::thread::current().id();if let Some(index)=threads.ids.iter().position(|old|old.as_ref()==Some(&id)) { return Some(index as u8); }
-                let index=threads.count;if index>=8 { self.loss(CAPACITY);return None; }threads.ids[index]=Some(id);threads.count+=1;Some(index as u8)
-            },Err(TryLockError::WouldBlock)=>{self.loss(LOCK_BUSY);None},Err(TryLockError::Poisoned(_))=>{self.loss(LOCK_POISONED);None}
+            Ok(mut threads) => {
+                if self.status.load(Ordering::Acquire) & FROZEN != 0 {
+                    return None;
+                }
+                let id = std::thread::current().id();
+                if let Some(index) = threads.ids.iter().position(|old| old.as_ref() == Some(&id)) {
+                    return Some(index as u8);
+                }
+                let index = threads.count;
+                if index >= 8 {
+                    self.loss(CAPACITY);
+                    return None;
+                }
+                threads.ids[index] = Some(id);
+                threads.count += 1;
+                Some(index as u8)
+            }
+            Err(TryLockError::WouldBlock) => {
+                self.loss(LOCK_BUSY);
+                None
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                self.loss(LOCK_POISONED);
+                None
+            }
         }
     }
-    fn with_row(&self,index:usize,apply:impl FnOnce(&mut WorkerRow,u64)) {
-        if self.status.load(Ordering::Acquire)&FROZEN!=0 { return; }
-        let Some(row)=self.rows.get(index) else { self.loss(CAPACITY);return; };
+    fn with_row(&self, index: usize, apply: impl FnOnce(&mut WorkerRow, u64)) {
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 {
+            return;
+        }
+        let Some(row) = self.rows.get(index) else {
+            self.loss(CAPACITY);
+            return;
+        };
         match row.try_lock() {
-            Ok(mut row)=>{if self.status.load(Ordering::Acquire)&FROZEN==0 { if let Some(time)=self.elapsed() { apply(&mut row,time); } }},
-            Err(TryLockError::WouldBlock)=>self.loss(LOCK_BUSY),Err(TryLockError::Poisoned(_))=>self.loss(LOCK_POISONED)
+            Ok(mut row) => {
+                if self.status.load(Ordering::Acquire) & FROZEN == 0 {
+                    if let Some(time) = self.elapsed() {
+                        apply(&mut row, time);
+                    }
+                }
+            }
+            Err(TryLockError::WouldBlock) => self.loss(LOCK_BUSY),
+            Err(TryLockError::Poisoned(_)) => self.loss(LOCK_POISONED),
         }
     }
-    fn report(&self)->String {
+    fn report(&self) -> String {
         use std::fmt::Write as _;
-        let mut loss=self.status.fetch_or(FROZEN,Ordering::AcqRel)&!FROZEN;
-        let spawned=WORKER_SPAWNS.load(Ordering::Acquire);if spawned!=EXPECTED_WORKERS { loss|=CAPACITY; }
-        let mut rows:[Option<WorkerRow>;5]=[None;5];for (index,slot) in self.rows.iter().enumerate() {
-            match slot.try_lock() { Ok(row)=>rows[index]=Some(*row),Err(TryLockError::WouldBlock)=>loss|=LOCK_BUSY,Err(TryLockError::Poisoned(_))=>loss|=LOCK_POISONED }
+        let mut loss = self.status.fetch_or(FROZEN, Ordering::AcqRel) & !FROZEN;
+        let spawned = WORKER_SPAWNS.load(Ordering::Acquire);
+        if spawned != EXPECTED_WORKERS {
+            loss |= CAPACITY;
         }
-        let threads=match self.threads.try_lock() { Ok(threads)=>Some(threads.count),Err(TryLockError::WouldBlock)=>{loss|=LOCK_BUSY;None},Err(TryLockError::Poisoned(_))=>{loss|=LOCK_POISONED;None} };
-        let endpoints=self.endpoints.each_ref().map(|value|value.load(Ordering::Acquire).checked_sub(1));
+        let mut rows: [Option<WorkerRow>; 5] = [None; 5];
+        for (index, slot) in self.rows.iter().enumerate() {
+            match slot.try_lock() {
+                Ok(row) => rows[index] = Some(*row),
+                Err(TryLockError::WouldBlock) => loss |= LOCK_BUSY,
+                Err(TryLockError::Poisoned(_)) => loss |= LOCK_POISONED,
+            }
+        }
+        let threads = match self.threads.try_lock() {
+            Ok(threads) => Some(threads.count),
+            Err(TryLockError::WouldBlock) => {
+                loss |= LOCK_BUSY;
+                None
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                loss |= LOCK_POISONED;
+                None
+            }
+        };
+        let endpoints = self
+            .endpoints
+            .each_ref()
+            .map(|value| value.load(Ordering::Acquire).checked_sub(1));
         // Endpoint and worker copies are independent snapshots. Retain only online
         // candidates intersecting the endpoint values visible at this freeze.
         for row in rows.iter_mut().flatten() {
             for channel in 0..3 {
-                let ack=endpoints[channel*2];let route=endpoints[channel*2+1];
-                let old=row.focus[channel];row.focus[channel]=[None;4];
+                let ack = endpoints[channel * 2];
+                let route = endpoints[channel * 2 + 1];
+                let old = row.focus[channel];
+                row.focus[channel] = [None; 4];
                 for sample in old.into_iter().flatten() {
-                    if ack.is_some_and(|ack|sample.2>=ack && route.is_none_or(|route|ack<=route && sample.1<=route)) { longest_insert(&mut row.focus[channel],sample); }
+                    if ack.is_some_and(|ack| {
+                        sample.2 >= ack
+                            && route.is_none_or(|route| ack <= route && sample.1 <= route)
+                    }) {
+                        longest_insert(&mut row.focus[channel], sample);
+                    }
                 }
             }
         }
-        let mut report=String::new();let _=writeln!(&mut report,"native5-worker-meta known={} loss_mask={loss} spawned={spawned} threads={threads:?} endpoints={endpoints:?}",loss==0);
-        for (index,row) in rows.into_iter().enumerate() {
-            let closed=row.map(|row|(row.counts,row.threads,row.inflight,row.longest));let _=writeln!(&mut report,"native5-worker-poll index={index} observation={closed:?}");
-            for channel in 0..3 { let focus=row.map(|row|row.focus[channel]);let _=writeln!(&mut report,"native5-worker-focus worker={index} channel={channel} observation={focus:?}"); }
+        let mut report = String::new();
+        let _ = writeln!(
+            &mut report,
+            "native5-worker-meta known={} loss_mask={loss} spawned={spawned} threads={threads:?} endpoints={endpoints:?}",
+            loss == 0
+        );
+        for (index, row) in rows.into_iter().enumerate() {
+            let closed = row.map(|row| (row.counts, row.threads, row.inflight, row.longest));
+            let _ = writeln!(
+                &mut report,
+                "native5-worker-poll index={index} observation={closed:?}"
+            );
+            for channel in 0..3 {
+                let focus = row.map(|row| row.focus[channel]);
+                let _ = writeln!(
+                    &mut report,
+                    "native5-worker-focus worker={index} channel={channel} observation={focus:?}"
+                );
+            }
         }
         report
     }
 }
-#[derive(Clone,Copy)]
-struct DeliveryRow { worker:usize,before:Option<u64>,after:Option<u64>,ok:Option<bool>,later:u32 }
-fn longest_insert(rows:&mut [Option<WorkerSample>;4],sample:WorkerSample) {
-    let duration=sample.2-sample.1;
-    if let Some(index)=rows.iter().position(|old|old.is_none_or(|old|duration>old.2-old.1 || duration==old.2-old.1 && sample.0<old.0)) {
-        for next in (index+1..4).rev() { rows[next]=rows[next-1]; } rows[index]=Some(sample);
+#[derive(Clone, Copy)]
+struct DeliveryRow {
+    worker: usize,
+    before: Option<u64>,
+    after: Option<u64>,
+    ok: Option<bool>,
+    later: u32,
+}
+fn longest_insert(rows: &mut [Option<WorkerSample>; 4], sample: WorkerSample) {
+    let duration = sample.2 - sample.1;
+    if let Some(index) = rows.iter().position(|old| {
+        old.is_none_or(|old| {
+            duration > old.2 - old.1 || duration == old.2 - old.1 && sample.0 < old.0
+        })
+    }) {
+        for next in (index + 1..4).rev() {
+            rows[next] = rows[next - 1];
+        }
+        rows[index] = Some(sample);
     }
 }
-pub(crate) struct WorkerPoll { probe:Weak<WorkerRecorder>,worker:usize,ordinal:u64 }
+pub(crate) struct WorkerPoll {
+    probe: Weak<WorkerRecorder>,
+    worker: usize,
+    ordinal: u64,
+}
 impl WorkerPoll {
-    fn begin(tag:&WorkerTag)->Option<Self> {
-        let active=tag.0.active.load(Ordering::Acquire);tag.0.mask.store(1u32.checked_shl(active).unwrap_or(0),Ordering::Release);
-        let probe=active_probe()?.worker.clone();
-        if tag.ordinal()>=EXPECTED_WORKERS || WORKER_SPAWNS.load(Ordering::Acquire)!=EXPECTED_WORKERS { probe.loss(CAPACITY);return None; }
-        let thread=probe.thread()?;let mut selected=None;
-        probe.with_row(tag.ordinal(),|row,time| {
-            if row.inflight.is_some() || active>6 { probe.loss(IDENTITY);return; }
-            let Some(next)=row.counts[0].checked_add(1).filter(|n|*n<=1_000_000) else { probe.loss(OVERFLOW);return; };
-            row.counts[0]=next;row.counts[4]=1;row.threads|=1u16<<thread;row.inflight=Some((next,time,thread,active as u8));
-            selected=Some(Self { probe:Arc::downgrade(&probe),worker:tag.ordinal(),ordinal:next });
-        });selected
+    fn begin(tag: &WorkerTag) -> Option<Self> {
+        let active = tag.0.active.load(Ordering::Acquire);
+        tag.0
+            .mask
+            .store(1u32.checked_shl(active).unwrap_or(0), Ordering::Release);
+        let probe = active_probe()?.worker.clone();
+        if tag.ordinal() >= EXPECTED_WORKERS
+            || WORKER_SPAWNS.load(Ordering::Acquire) != EXPECTED_WORKERS
+        {
+            probe.loss(CAPACITY);
+            return None;
+        }
+        let thread = probe.thread()?;
+        let mut selected = None;
+        probe.with_row(tag.ordinal(), |row, time| {
+            if row.inflight.is_some() || active > 6 {
+                probe.loss(IDENTITY);
+                return;
+            }
+            let Some(next) = row.counts[0].checked_add(1).filter(|n| *n <= 1_000_000) else {
+                probe.loss(OVERFLOW);
+                return;
+            };
+            row.counts[0] = next;
+            row.counts[4] = 1;
+            row.threads |= 1u16 << thread;
+            row.inflight = Some((next, time, thread, active as u8));
+            selected = Some(Self {
+                probe: Arc::downgrade(&probe),
+                worker: tag.ordinal(),
+                ordinal: next,
+            });
+        });
+        selected
     }
-    fn finish(self,tag:&WorkerTag,ready:bool) {
-        let Some(probe)=self.probe.upgrade() else { return; };
-        let exit=tag.0.active.load(Ordering::Acquire);let mask=tag.0.mask.load(Ordering::Acquire);
-        probe.with_row(self.worker,|row,end| {
-            let Some((ordinal,start,thread,entry))=row.inflight.take() else { probe.loss(IDENTITY);return; };
-            if ordinal!=self.ordinal || end<start || exit>6 || mask>127 { probe.loss(IDENTITY);return; }
-            let duration=end-start;let Some(total)=row.counts[5].checked_add(duration) else { probe.loss(OVERFLOW);return; };
-            row.counts[4]=0;row.counts[1]+=1;row.counts[2+usize::from(ready)]+=1;row.counts[5]=total;row.counts[6]=row.counts[6].max(duration);
-            let sample=(ordinal,start,end,thread,entry,exit as u8,mask,ready);longest_insert(&mut row.longest,sample);
+    fn finish(self, tag: &WorkerTag, ready: bool) {
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
+        let exit = tag.0.active.load(Ordering::Acquire);
+        let mask = tag.0.mask.load(Ordering::Acquire);
+        probe.with_row(self.worker, |row, end| {
+            let Some((ordinal, start, thread, entry)) = row.inflight.take() else {
+                probe.loss(IDENTITY);
+                return;
+            };
+            if ordinal != self.ordinal || end < start || exit > 6 || mask > 127 {
+                probe.loss(IDENTITY);
+                return;
+            }
+            let duration = end - start;
+            let Some(total) = row.counts[5].checked_add(duration) else {
+                probe.loss(OVERFLOW);
+                return;
+            };
+            row.counts[4] = 0;
+            row.counts[1] += 1;
+            row.counts[2 + usize::from(ready)] += 1;
+            row.counts[5] = total;
+            row.counts[6] = row.counts[6].max(duration);
+            let sample = (ordinal, start, end, thread, entry, exit as u8, mask, ready);
+            longest_insert(&mut row.longest, sample);
             for index in 0..3 {
-                let ack=probe.endpoints[index*2].load(Ordering::Acquire).checked_sub(1);let route=probe.endpoints[index*2+1].load(Ordering::Acquire).checked_sub(1);
-                if let Some(ack)=ack && end>=ack && route.is_none_or(|route|ack<=route && start<=route) { longest_insert(&mut row.focus[index],sample); }
+                let ack = probe.endpoints[index * 2]
+                    .load(Ordering::Acquire)
+                    .checked_sub(1);
+                let route = probe.endpoints[index * 2 + 1]
+                    .load(Ordering::Acquire)
+                    .checked_sub(1);
+                if let Some(ack) = ack
+                    && end >= ack
+                    && route.is_none_or(|route| ack <= route && start <= route)
+                {
+                    longest_insert(&mut row.focus[index], sample);
+                }
             }
         });
     }
 }
-pub(crate) struct DeliveryToken { probe:Weak<Probe>,index:usize,first:bool }
-pub(in super::super::super) fn first_peer_delivery(entry:&SiblingChannel,message:&cgka_traits::MessageId,worker:usize)->Option<DeliveryToken> {
-    let probe=active_probe()?;let mut selected=None;
-    probe.observe(|data,time| {
-        if !owned(data,entry) { return; }
-        let Some(index)=data.slots.iter().position(|slot|slot.as_ref().is_some_and(|slot|same_entry(slot,entry)&&slot.peer.as_ref().and_then(|peer|peer.proof.as_ref()).and_then(|proof|proof.key.as_ref()).is_some_and(|key|&key.message==message))) else { return; };
-        if worker>=5 { probe.worker.loss(CAPACITY);return; }
-        let first=data.worker.deliveries[index].is_none();
-        if first { data.worker.deliveries[index]=Some(DeliveryRow { worker,before:time,after:None,ok:None,later:0 }); }
-        else if let Some(row)=data.worker.deliveries[index].as_mut() { if row.worker!=worker { probe.loss(IDENTITY);return; }increment(&mut row.later,&probe); }
-        selected=Some(DeliveryToken { probe:Arc::downgrade(&probe),index,first });
-    });selected
+pub(crate) struct DeliveryToken {
+    probe: Weak<Probe>,
+    index: usize,
+    first: bool,
+}
+pub(in super::super::super) fn first_peer_delivery(
+    entry: &SiblingChannel,
+    message: &cgka_traits::MessageId,
+    worker: usize,
+) -> Option<DeliveryToken> {
+    let probe = active_probe()?;
+    let mut selected = None;
+    probe.observe(|data, time| {
+        if !owned(data, entry) {
+            return;
+        }
+        let Some(index) = data.slots.iter().position(|slot| {
+            slot.as_ref().is_some_and(|slot| {
+                same_entry(slot, entry)
+                    && slot
+                        .peer
+                        .as_ref()
+                        .and_then(|peer| peer.proof.as_ref())
+                        .and_then(|proof| proof.key.as_ref())
+                        .is_some_and(|key| &key.message == message)
+            })
+        }) else {
+            return;
+        };
+        if worker >= 5 {
+            probe.worker.loss(CAPACITY);
+            return;
+        }
+        let first = data.worker.deliveries[index].is_none();
+        if first {
+            data.worker.deliveries[index] = Some(DeliveryRow {
+                worker,
+                before: time,
+                after: None,
+                ok: None,
+                later: 0,
+            });
+        } else if let Some(row) = data.worker.deliveries[index].as_mut() {
+            if row.worker != worker {
+                probe.loss(IDENTITY);
+                return;
+            }
+            increment(&mut row.later, &probe);
+        }
+        selected = Some(DeliveryToken {
+            probe: Arc::downgrade(&probe),
+            index,
+            first,
+        });
+    });
+    selected
 }
 impl DeliveryToken {
-    pub(crate) fn finish(self,ok:bool) {
-        if !self.first { return; }let Some(probe)=self.probe.upgrade() else { return; };
-        probe.observe(|data,time| { let Some(row)=data.worker.deliveries[self.index].as_mut() else { probe.loss(IDENTITY);return; };
-            if row.after.is_some() { probe.loss(DUPLICATE);return; }row.after=time;row.ok=Some(ok);
+    pub(crate) fn finish(self, ok: bool) {
+        if !self.first {
+            return;
+        }
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
+        probe.observe(|data, time| {
+            let Some(row) = data.worker.deliveries[self.index].as_mut() else {
+                probe.loss(IDENTITY);
+                return;
+            };
+            if row.after.is_some() {
+                probe.loss(DUPLICATE);
+                return;
+            }
+            row.after = time;
+            row.ok = Some(ok);
         });
     }
 }
 
 struct Data {
-    worker:WorkerData,
+    worker: WorkerData,
     owner: Option<Weak<OriginalEnrollmentSharingChoice>>,
     slots: [Option<Slot>; 3],
     rpc: [Option<RpcRow>; 128],
@@ -739,7 +1041,7 @@ struct Data {
 impl Default for Data {
     fn default() -> Self {
         Self {
-            worker:WorkerData::default(),
+            worker: WorkerData::default(),
             owner: None,
             slots: std::array::from_fn(|_| None),
             rpc: [None; 128],
@@ -755,7 +1057,7 @@ impl Default for Data {
     }
 }
 struct Probe {
-    worker:Arc<WorkerRecorder>,
+    worker: Arc<WorkerRecorder>,
     sdk: transport_nostr_adapter::sdk_publication_timing::Guard,
     origin: Instant,
     status: AtomicU32,
@@ -937,7 +1239,7 @@ pub(crate) struct Guard(Arc<Probe>);
 pub(crate) fn arm() -> (Guard, Pending) {
     let origin = Instant::now();
     let probe = Arc::new(Probe {
-        worker:Arc::new(WorkerRecorder::new(origin)),
+        worker: Arc::new(WorkerRecorder::new(origin)),
         sdk: transport_nostr_adapter::sdk_publication_timing::Guard::arm(origin),
         status: AtomicU32::new(0),
         origin,
@@ -1106,7 +1408,11 @@ impl Token {
                 return;
             }
             times[index] = time;
-            if self.peer && index==5 { if let Some(time)=time { probe.worker.endpoint(self.index,0,time); } }
+            if self.peer && index == 5 {
+                if let Some(time) = time {
+                    probe.worker.endpoint(self.index, 0, time);
+                }
+            }
             if let Some((field, value)) = outcome {
                 if let Some(destination) = outcomes.get_mut(field) {
                     *destination = Some(value);
@@ -1508,7 +1814,7 @@ impl Guard {
     // values. Only the recognized test fixture emits this returned text.
     pub(crate) fn freeze(self) -> String {
         use std::fmt::Write as _;
-        let worker_report=self.0.worker.report();
+        let worker_report = self.0.worker.report();
         let sdk_report = self.0.sdk.freeze();
         let mut output = String::with_capacity(65536);
         let old = self.0.status.fetch_or(FROZEN, Ordering::AcqRel);
@@ -1594,7 +1900,9 @@ impl Guard {
                             )
                         })
                 }),
-                data.worker.deliveries.map(|row|row.map(|row|(row.worker,row.before,row.after,row.ok,row.later))),
+                data.worker.deliveries.map(|row| {
+                    row.map(|row| (row.worker, row.before, row.after, row.ok, row.later))
+                }),
             )),
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => None,
@@ -1677,7 +1985,12 @@ impl Guard {
                     "native5-consent-incoming index={index} observation={row:?}"
                 );
             }
-            for (index,row) in deliveries.into_iter().enumerate() { let _=writeln!(&mut output,"native5-consent-first-outer-delivery index={index} observation={row:?}"); }
+            for (index, row) in deliveries.into_iter().enumerate() {
+                let _ = writeln!(
+                    &mut output,
+                    "native5-consent-first-outer-delivery index={index} observation={row:?}"
+                );
+            }
             let _ = writeln!(&mut output, "native5-consent-rpc-count count={rpc_count}");
             for (index, row) in rpc.into_iter().take(rpc_count).enumerate() {
                 if let Some(row) = row {

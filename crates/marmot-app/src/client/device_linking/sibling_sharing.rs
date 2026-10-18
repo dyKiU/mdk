@@ -2140,14 +2140,22 @@ impl AppClient {
         self.linking_owner.sibling_channels.push(entry);
         result
     }
-// NATIVE5_WORKER_TIMING_BEGIN
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-pub(crate) fn native5_first_peer_delivery_for_test(&self,message:&cgka_traits::MessageId,worker:usize)->Option<peer_proof_probe::native5_timing::DeliveryToken> {
-    let current=self.linking_owner.sharing_approval.as_ref()?;
-    self.linking_owner.sibling_channels.iter().filter(|entry|matches!(entry.original.as_ref(),SiblingOriginal::Recipient { choice,.. } if Arc::ptr_eq(choice,current))).find_map(|entry|peer_proof_probe::native5_timing::first_peer_delivery(entry,message,worker))
-}
+    // NATIVE5_WORKER_TIMING_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn native5_first_peer_delivery_for_test(
+        &self,
+        message: &cgka_traits::MessageId,
+        worker: usize,
+    ) -> Option<peer_proof_probe::native5_timing::DeliveryToken> {
+        let current = self.linking_owner.sharing_approval.as_ref()?;
+        self.linking_owner.sibling_channels.iter().filter(|entry|matches!(entry.original.as_ref(),SiblingOriginal::Recipient { choice,.. } if Arc::ptr_eq(choice,current))).find_map(|entry|peer_proof_probe::native5_timing::first_peer_delivery(entry,message,worker))
+    }
 
-// NATIVE5_WORKER_TIMING_END
+    // NATIVE5_WORKER_TIMING_END
     fn validate_c_sibling_original(
         &self,
         choice: &OriginalEnrollmentSharingChoice,
