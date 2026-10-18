@@ -260,7 +260,7 @@ struct AutomaticBodyPublicationGate {
     feature = "test-policy-overrides"
 ))]
 #[derive(Default)]
-struct NotificationDispositionObserver(std::sync::Mutex<HashMap<String, [u64; 8]>>);
+struct NotificationDispositionObserver(std::sync::Mutex<HashMap<String, ([u64; 8], [Option<std::time::Instant>; 8])>>);
 
 #[cfg(all(
     any(test, feature = "test-support"),
@@ -271,7 +271,11 @@ impl NotificationDispositionObserver {
     fn record(&self, id: &str, slot: usize) {
         let mut counts = self.0.lock().unwrap();
         if counts.len() < 512 || counts.contains_key(id) {
-            counts.entry(id.to_owned()).or_default()[slot] += 1;
+            let entry = counts.entry(id.to_owned()).or_default();
+            entry.0[slot] += 1;
+            if entry.1[slot].is_none() {
+                entry.1[slot] = Some(std::time::Instant::now());
+            }
         }
     }
 }
@@ -1930,7 +1934,19 @@ impl MarmotRelayPlane {
             .unwrap();
         let observer = observers.get(account)?;
         let counts = observer.0.lock().unwrap();
-        counts.get(id).copied()
+        counts.get(id).map(|entry| entry.0)
+    }
+
+    /// Copy the same observer entry, including actual earliest stage instants.
+    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[doc(hidden)]
+    pub fn account_notification_timing_for_test(
+        &self, account: &MemberId, id: &str,
+    ) -> Option<([u64; 8], [Option<std::time::Instant>; 8])> {
+        let observers = self.inner.transport.test_notification_dispositions.lock().unwrap();
+        let observer = observers.get(account)?;
+        let entries = observer.0.lock().unwrap();
+        entries.get(id).copied()
     }
 
     /// Observe the actual registered SDK context without traffic or new ownership.

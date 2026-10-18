@@ -322,16 +322,19 @@ def timing_windows(raw,name):
                 parsed=timing('\n'.join(data),name)
                 frames.append({'actual_join_ordinal':ordinal,'timing':parsed,
                     'notification_dispositions':safe_notification_dispositions('\n'.join(data),ordinal,parsed.get('peer_proofs'),parsed.get('known') is True),
+                    'intake_dispositions':safe_intake_dispositions('\n'.join(data),ordinal,parsed.get('known') is True,parsed.get('peer_proofs')),
                     'independent_origin_and_snapshot':True})
                 active=None;data=[]
         elif active is not None:data.append(line)
-        elif line.startswith('native5-consent-') or line.startswith('native5-sdk-') or line.startswith('native5-notification-'):raise ValueError('orphan-unframed-native-sdk-observation')
+        elif line.startswith('native5-consent-') or line.startswith('native5-sdk-') or line.startswith('native5-notification-') or line.startswith('native5-intake-'):raise ValueError('orphan-unframed-native-sdk-observation')
     require(active is None,'closed-window-before-end-of-output')
     return {'observed':bool(frames),'exact_prefix_normalizations':prefix,'windows':frames,
         'fourth':{'reached_diagnostic_arm':bool(frames),'timing':frames[0]['timing'] if frames else None,
-            'notification_dispositions':frames[0]['notification_dispositions'] if frames else None},
+            'notification_dispositions':frames[0]['notification_dispositions'] if frames else None,
+            'intake_dispositions':frames[0]['intake_dispositions'] if frames else None},
         'fifth':{'reached_diagnostic_arm':len(frames)==2,'timing':frames[1]['timing'] if len(frames)==2 else None,
-            'notification_dispositions':frames[1]['notification_dispositions'] if len(frames)==2 else None,'missing_reason':None if len(frames)==2 else 'NotReachedDiagnosticArm'},
+            'notification_dispositions':frames[1]['notification_dispositions'] if len(frames)==2 else None,
+            'intake_dispositions':frames[1]['intake_dispositions'] if len(frames)==2 else None,'missing_reason':None if len(frames)==2 else 'NotReachedDiagnosticArm'},
         'no_cross_window_clock_or_state_merge':True,'no_joint_snapshot_claim':True}
 
 def window_parser_controls():
@@ -483,11 +486,11 @@ def worker_output_capacity_control():
     for index in range(5):
         worker.append('native5-worker-poll index='+str(index)+' observation=Some(('+array('600000000',7)+', 255, Some((1000000, 600000000, 7, 6)), '+samples+'))')
         worker.extend('native5-worker-focus worker='+str(index)+' channel='+str(channel)+' observation=Some('+samples+')' for channel in range(3))
-    notification=notification_maximum_width_appendix()
-    report='\n'.join(native+sdk+worker+notification)+'\n'
-    require(len(native)==159 and len(sdk)==10 and len(worker)==21 and len(notification)==16 and all(len(line)<4096 for line in native+sdk+worker+notification),'maximum-closed-report-shape')
+    notification=notification_maximum_width_appendix();intake=intake_maximum_width_appendix()
+    report='\n'.join(native+sdk+worker+notification+intake)+'\n'
+    require(len(native)==159 and len(sdk)==10 and len(worker)==21 and len(notification)==16 and len(intake)==27 and all(len(line)<4096 for line in native+sdk+worker+notification+intake),'maximum-closed-report-shape')
     require(len(report.encode())<=65536,'existing-64KiB-output-capacity')
-    return {'maximum_width_serialized_bytes':len(report.encode()),'existing_cap_bytes':65536,'maximum_RPC_rows':128,'maximum_notification_rows':15,'maximum_notification_appendix_bytes':len(('\n'.join(notification)+'\n').encode()),'maximum_longest_poll_samples':20,'maximum_focus_candidates':60,'runtime_bodies':0,'capacity_fixture_is_not_runtime_evidence':True}
+    return {'maximum_width_serialized_bytes':len(report.encode()),'existing_cap_bytes':65536,'maximum_RPC_rows':128,'maximum_notification_rows':15,'maximum_intake_rows':26,'maximum_intake_appendix_bytes':len(('\n'.join(intake)+'\n').encode()),'maximum_notification_appendix_bytes':len(('\n'.join(notification)+'\n').encode()),'maximum_longest_poll_samples':20,'maximum_focus_candidates':60,'runtime_bodies':0,'capacity_fixture_is_not_runtime_evidence':True}
 
 
 def safe_worker_timing(raw):
@@ -526,7 +529,7 @@ def delivery_wait_scope_controls(sample,name):
 
 
 # Notification disposition appendix: separate from the inherited timing schema.
-# These are registry counters, not timestamps and not delivery/authority proofs.
+# Counts and first dispatcher-observer clocks are not delivery/authority proofs.
 NOTIFICATION_COUNTERS = [
     'event_handler_entered', 'raw_message_event', 'adapter_ok_zero',
     'adapter_ok_nonzero', 'adapter_error', 'plane_router_inlet',
@@ -535,6 +538,8 @@ NOTIFICATION_COUNTERS = [
 U64 = r'(?:0|[1-9][0-9]{0,19})'
 U64_MAX = 18446744073709551615
 NOTIFICATION_OPTION = r'(?:None|Some\(\[' + U64 + r'(?:, ' + U64 + r'){7}\]\))'
+NOTIFICATION_TIMES = r'(?:None|Some\(\[' + ON + r'(?:, ' + ON + r'){7}\]\))'
+NOTIFICATION_MASK = r'(?:None|Some\((?:0|[1-9][0-9]{0,2})\))'
 
 
 def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_known=True):
@@ -567,7 +572,7 @@ def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_
     rows = []
     for index, line in enumerate(lines[1:]):
         match = re.fullmatch(r'native5-notification-disposition plane=([0-4]) channel=([0-2]) counts=('
-            + NOTIFICATION_OPTION + ')', line)
+            + NOTIFICATION_OPTION + r') first_us=(' + NOTIFICATION_TIMES + r') clock_invalid_mask=(' + NOTIFICATION_MASK + ')', line)
         require(match is not None and (int(match[1]),int(match[2])) == (index//3,index%3),
             'notification-ordered-five-by-three-rows')
         plane,channel = int(match[1]),int(match[2])
@@ -575,9 +580,24 @@ def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_
         if match[3] != 'None':
             values = [int(value) for value in match[3][6:-2].split(', ')]
             require(len(values) == 8 and all(0 <= value <= U64_MAX for value in values), 'notification-u64-counters')
+        first = None if match[4] == 'None' else [opt(value) for value in match[4][6:-2].split(', ')]
+        mask = None if match[5] == 'None' else int(match[5][5:-1])
+        if values is None:
+            require(first is None and mask is None, 'notification-missing-entry-times-unknown')
+        else:
+            require(isinstance(first,list) and len(first) == 8 and type(mask) is int and 0 <= mask <= 255,
+                'notification-same-entry-counts-times-mask')
+            for stage,(count,stamp) in enumerate(zip(values,first)):
+                invalid = bool(mask & (1 << stage))
+                require((count == 0 and stamp is None and not invalid) or
+                        (count > 0 and ((invalid and stamp is None) or (not invalid and stamp is not None))),
+                    'notification-first-clock-count-coherence')
         require((available and bindings[channel] is True) or values is None, 'notification-unbound-or-unavailable-row-unknown')
         rows.append({'plane':plane,'channel':channel,'recipient_plane_for_this_join':plane == ordinal-1,
-            'registry_entry_observed':values is not None,'counters':None if values is None else dict(zip(NOTIFICATION_COUNTERS,values))})
+            'registry_entry_observed':values is not None,'counters':None if values is None else dict(zip(NOTIFICATION_COUNTERS,values)),
+            'first_dispatcher_stage_us':None if first is None else dict(zip(NOTIFICATION_COUNTERS,first)),
+            'clock_invalid_mask':mask,'stage_clocks_are_socket_arrival_times':False,
+            'counts_and_first_instants_from_same_entry_mutex':True})
     return {'observed':True,'schema_complete':True,'source_ids_snapshot_available':available,
         'source_id_bound':bindings,'native_ledger_known':native_known,'native_first_proof_crossbinding_verified':available and native_known,
         'source_binding_flags_crosschecked':available and native_known,
@@ -599,12 +619,16 @@ def safe_notification_dispositions(raw,ordinal,peer_proofs,native_known):
 
 
 def notification_parser_controls():
-    def appendix(available=True, bindings=None, observations=None):
+    def appendix(available=True, bindings=None, observations=None, stamps=None):
         bindings = ['Some(true)','Some(false)','Some(false)'] if bindings is None else bindings
         observations = {} if observations is None else observations
+        stamps = {} if stamps is None else stamps
         rows = ['native5-notification-meta source_ids_snapshot_available='+str(available).lower()+' source_id_bound=['+', '.join(bindings)+']']
-        rows.extend('native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+observations.get((plane,channel),'None')
-            for plane in range(5) for channel in range(3))
+        for plane in range(5):
+            for channel in range(3):
+                counts = observations.get((plane,channel),'None')
+                first,mask = stamps.get((plane,channel),('None','None') if counts == 'None' else ('Some(['+', '.join(['None']*8)+'])','Some(0)'))
+                rows.append('native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counts+' first_us='+first+' clock_invalid_mask='+mask)
         return '\n'.join(rows)
     proofs = [{'first_attempt_actual_message_bound':True},None,None]
     baseline = appendix()
@@ -617,7 +641,8 @@ def notification_parser_controls():
     require(notification_dispositions(unknown,5,None,True)['source_ids_snapshot_available'] is False, 'notification-unavailable-snapshot-unknown')
     false_proof = [proofs[0],{'first_attempt_actual_message_bound':False},None]
     require(notification_dispositions(baseline,4,false_proof,True)['source_id_bound'][1] is False, 'notification-unbound-native-observation-allowed')
-    maximum = appendix(observations={(4,0):'Some(['+', '.join([str(U64_MAX)]*8)+'])'})
+    maximum = appendix(observations={(4,0):'Some(['+', '.join([str(U64_MAX)]*8)+'])'},
+        stamps={(4,0):('Some(['+', '.join(['Some(600000000)']*8)+'])','Some(0)')})
     require(notification_dispositions(maximum,5,proofs,True)['rows'][12]['counters']['event_handler_entered'] == U64_MAX,
         'notification-exact-u64-maximum')
     require(notification_dispositions('',4,proofs)['observed'] is False, 'notification-optional-only-for-inherited-fixtures')
@@ -662,14 +687,205 @@ def notification_parser_controls():
     independent = notification_dispositions(zero,4,None,True,native_known=False)
     require(independent['rows'][9]['registry_entry_observed'] and not independent['native_first_proof_crossbinding_verified'],
         'notification-positive-counters-do-not-promote-unknown-native-identity')
-    return {'positive':7,'negative':len(bad)+5,'safe_unknown_controls':2,'actual_runtime_bodies':0,
+    observed = appendix(observations={(3,0):'Some([1, 0, 0, 0, 0, 0, 0, 0])'},
+        stamps={(3,0):('Some([Some(0), None, None, None, None, None, None, None])','Some(0)')})
+    require(notification_dispositions(observed,4,proofs,True)['rows'][9]['first_dispatcher_stage_us']['event_handler_entered'] == 0,
+        'notification-real-converted-zero-not-unknown-fallback')
+    invalid_clock = observed.replace('Some([Some(0), None','Some([None, None').replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(1)')
+    require(notification_dispositions(invalid_clock,4,proofs,True)['rows'][9]['clock_invalid_mask'] == 1,
+        'notification-preorigin-or-invalid-clock-explicit-None')
+    clock_bad = [observed.replace('first_us=Some([Some(0), None','first_us=None IGNORESome([Some(0), None'),
+        observed.replace('Some([Some(0), None','Some([Some(600000001), None'),
+        observed.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(256)'),
+        observed.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=None'),
+        observed.replace('Some([Some(0), None','Some([None, None'),
+        observed.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(1)'),
+        zero.replace('first_us=Some([None','first_us=Some([Some(1)',1),
+        zero.replace('clock_invalid_mask=Some(0)','clock_invalid_mask=Some(1)'),
+        baseline.replace('first_us=None','first_us=Some(['+', '.join(['None']*8)+'])',1)]
+    for value in clock_bad:
+        try:notification_dispositions(value,4,proofs,True)
+        except ValueError:continue
+        raise ValueError('notification-clock-adversary-accepted')
+    return {'positive':9,'negative':len(bad)+len(clock_bad)+5,'safe_unknown_controls':2,'actual_runtime_bodies':0,
         'None_never_means_no_arrival':True,'authored_fixture_not_runtime_evidence':True}
 
 
 def notification_maximum_width_appendix():
     header = 'native5-notification-meta source_ids_snapshot_available=true source_id_bound=[Some(true), Some(true), Some(true)]'
     counters = 'Some(['+', '.join([str(U64_MAX)]*8)+'])'
-    rows = [header]+['native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counters
+    rows = [header]+['native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counters+' first_us=Some(['+', '.join(['Some(600000000)']*8)+']) clock_invalid_mask=Some(0)'
         for plane in range(5) for channel in range(3)]
     require(len(rows) == 16 and all(len(line.encode()) <= 1024 for line in rows), 'notification-maximum-closed-shape')
     return rows
+
+
+# Additional optional ledger: never merges its loss into native/SDK/worker state.
+INTAKE_SELECTION_REASONS = ['MatchedCurrentOwnerAndChild','CurrentChoiceMissing',
+    'CurrentChoiceUnmatchedOrOwnerUnbound','CurrentChildMissingOrChanged']
+INTAKE_GATE_SAMPLE = r'(?:None|Some\(\(' + N + r', (?:true|false)\)\))'
+INTAKE_SELECTION = r'(?:None|Some\(\(' + N + r', [0-3], ' + N + r'\)\))'
+INTAKE_GATE = r'(?:None|Some\(\(\[' + INTAKE_GATE_SAMPLE + r'(?:, ' + INTAKE_GATE_SAMPLE + r'){15}\], ' + N + r', ' + N + r'\)\))'
+INTAKE_RECEIPT = r'(?:None|Some\(\(' + N + r', (?:true|false), ' + N + r', ' + N + r'\)\))'
+
+
+def intake_dispositions(raw,ordinal,native_known,peer_proofs,required=False):
+    require(type(ordinal) is int and ordinal in {4,5} and type(native_known) is bool, 'intake-frame-context')
+    require(len(raw.encode()) <= 8*1024*1024, 'intake-bounded-input')
+    lines = [line for line in raw.splitlines() if line.startswith('native5-intake-')]
+    if not lines:
+        require(not required,'intake-required-appendix-missing')
+        return {'observed':False,'schema_complete':False,'known':False,'loss_mask':None,
+            'snapshot_available':None,'owner_bound':None,'source_id_bound':None,'selections':None,
+            'receive_gates':None,'receipt_decisions':None,'missing_reason':'MissingAppendix'}
+    require(len(lines) == 27 and all(len(line.encode()) <= 4096 for line in lines), 'intake-fixed-header-fifteen-five-six')
+    header = re.fullmatch(r'native5-intake-meta known=(true|false) loss_mask=(' + N + r') snapshot_available=(true|false) owner_bound=(true|false) source_id_bound=\[('
+        + OB + '), (' + OB + '), (' + OB + r')\]',lines[0])
+    require(header is not None,'intake-closed-header')
+    known,loss,available,owner = header[1] == 'true',number(header[2],31),header[3] == 'true',header[4] == 'true'
+    bindings = [boolean(header[index]) for index in range(5,8)]
+    require(known == (loss == 0 and available),'intake-exact-known-lossless-snapshot')
+    if available:
+        require(all(type(value) is bool for value in bindings),'intake-available-bindings-known')
+    else:
+        require(not known and not owner and bindings == [None,None,None],'intake-unavailable-all-binding-flags-unknown')
+    crosschecked = available and known and native_known
+    if crosschecked:
+        require(isinstance(peer_proofs,list) and len(peer_proofs) == 3,'intake-native-proofs-for-crosscheck')
+        for index,proof in enumerate(peer_proofs):
+            require(proof is None or (isinstance(proof,dict) and type(proof.get('first_attempt_actual_message_bound')) is bool),
+                'intake-closed-native-proof-binding')
+            require(bindings[index] is (False if proof is None else proof['first_attempt_actual_message_bound']),
+                'intake-exact-first-proof-binding')
+    selections=[]
+    for index,line in enumerate(lines[1:16]):
+        match=re.fullmatch(r'native5-intake-selection worker=([0-4]) channel=([0-2]) observation=('+INTAKE_SELECTION+r')',line)
+        require(match is not None and (int(match[1]),int(match[2])) == (index//3,index%3),'intake-worker-major-selection-order')
+        observation=None
+        if match[3] != 'None':
+            event=re.fullmatch(r'Some\(\(('+N+r'), ([0-3]), ('+N+r')\)\)',match[3])
+            stamp,reason,later=number(event[1]),int(event[2]),number(event[3],4294967295)
+            require(available and bindings[index%3] is True,'intake-selection-needs-exact-key-binding')
+            require(reason != 0 or owner,'intake-matched-owner-reason-needs-owner-bound')
+            observation={'selected_before_owner_filter_us':stamp,'reason':INTAKE_SELECTION_REASONS[reason],
+                'later_matching_selections_not_merged':later,'actual_first_peer_key_matched':True,
+                'current_owner_and_child_match_observed':reason == 0}
+        selections.append({'worker_ordinal':index//3,'channel':index%3,'observation':observation})
+    gates=[]
+    for index,line in enumerate(lines[16:21]):
+        match=re.fullmatch(r'native5-intake-gate worker=([0-4]) observation=('+INTAKE_GATE+r')',line)
+        require(match is not None and int(match[1]) == index,'intake-gate-worker-order')
+        observation=None
+        if match[2] != 'None':
+            require(available and owner,'intake-positive-owner-gate-binding')
+            value=re.fullmatch(r'Some\(\(\[(.*)\], ('+N+r'), ('+N+r')\)\)',match[2])
+            tokens=re.findall(INTAKE_GATE_SAMPLE,value[1]);require(', '.join(tokens) == value[1] and len(tokens) == 16,'intake-exact-sixteen-gate-slots')
+            samples=[];ended=False
+            for token in tokens:
+                if token == 'None':ended=True;continue
+                require(not ended,'intake-packed-gate-samples')
+                sample=re.fullmatch(r'Some\(\(('+N+r'), (true|false)\)\)',token)
+                stamp,enabled=number(sample[1]),sample[2] == 'true'
+                require(not samples or (samples[-1]['observed_us'] <= stamp and samples[-1]['receive_enabled'] is not enabled),
+                    'intake-monotonic-state-change-gate-samples')
+                samples.append({'observed_us':stamp,'receive_enabled':enabled})
+            require(bool(samples),'intake-present-gate-needs-actual-sample')
+            transitions,repeated=number(value[2],4294967295),number(value[3],4294967295)
+            require(transitions >= len(samples)-1,'intake-transitions-cover-stored-state-changes')
+            require(transitions == len(samples)-1 or (len(samples) == 16 and loss & 4),'intake-truncated-state-changes-need-capacity-loss')
+            observation={'samples':samples,'transition_count':transitions,'repeated_same_value_count':repeated,
+                'positive_original_owner_bound':True,'no_new_ready_poll_or_queue_query':True}
+        gates.append({'worker_ordinal':index,'observation':observation})
+    receipts=[]
+    for index,line in enumerate(lines[21:]):
+        match=re.fullmatch(r'native5-intake-receipt path=([01]) channel=([0-2]) observation=('+INTAKE_RECEIPT+r')',line)
+        require(match is not None and (int(match[1]),int(match[2])) == (index//3,index%3),'intake-path-major-receipt-order')
+        observation=None
+        if match[3] != 'None':
+            require(available and owner and bindings[index%3] is True,'intake-receipt-positive-owner-exact-key')
+            value=re.fullmatch(r'Some\(\(('+N+r'), (true|false), ('+N+r'), ('+N+r')\)\)',match[3])
+            observation={'existing_contains_decision_us':number(value[1]),'first_already_held':value[2] == 'true',
+                'later_held_decisions':number(value[3],4294967295),'later_fresh_decisions':number(value[4],4294967295),
+                'decision_is_not_Core_or_native_acceptance':True}
+        receipts.append({'path':'Live' if index//3 == 0 else 'Comparison','channel':index%3,'observation':observation})
+    return {'observed':True,'schema_complete':True,'known':known,'loss_mask':loss,'snapshot_available':available,
+        'owner_bound':owner,'source_id_bound':bindings,'native_first_proof_binding_crosschecked':crosschecked,
+        'selections':selections,'receive_gates':gates,'receipt_decisions':receipts,
+        'recipient_plane':ordinal-1,'plane_to_worker_mapping_assumed':False,
+        'None_is_unknown_not_no_selection_or_no_receipt':True,'loss_is_independent_of_native_SDK_worker':True,
+        'sequential_postwait_not_joint_deadline_snapshot':True,'IDs_or_payloads_exported':False}
+
+
+def safe_intake_dispositions(raw,ordinal,native_known,peer_proofs):
+    try:return intake_dispositions(raw,ordinal,native_known,peer_proofs)
+    except ValueError:return {'observed':any(line.startswith('native5-intake-') for line in raw.splitlines()),
+        'schema_complete':False,'known':False,'loss_mask':None,'snapshot_available':None,'owner_bound':None,
+        'source_id_bound':None,'selections':None,'receive_gates':None,'receipt_decisions':None,
+        'failure_category':'ClosedOptionalIntakeSchemaRejected','inherited_native_SDK_worker_ledger_retained':True}
+
+
+def intake_fixture(known=True,loss=0,available=True,owner=True,bindings=None,selections=None,gates=None,receipts=None):
+    bindings=bindings if bindings is not None else (['Some(true)','Some(false)','Some(true)'] if available else ['None']*3)
+    rows=['native5-intake-meta known='+str(known).lower()+' loss_mask='+str(loss)+' snapshot_available='+str(available).lower()+' owner_bound='+str(owner).lower()+' source_id_bound=['+', '.join(bindings)+']']
+    rows.extend('native5-intake-selection worker='+str(w)+' channel='+str(c)+' observation='+(selections or {}).get((w,c),'None') for w in range(5) for c in range(3))
+    rows.extend('native5-intake-gate worker='+str(w)+' observation='+(gates or {}).get(w,'None') for w in range(5))
+    rows.extend('native5-intake-receipt path='+str(p)+' channel='+str(c)+' observation='+(receipts or {}).get((p,c),'None') for p in range(2) for c in range(3))
+    return '\n'.join(rows)
+
+
+def intake_parser_controls():
+    proofs=[{'first_attempt_actual_message_bound':True},None,{'first_attempt_actual_message_bound':True}]
+    slots='[Some((0, false)), Some((1, true)), '+', '.join(['None']*14)+']'
+    baseline=intake_fixture(selections={(3,0):'Some((1, 0, 0))'},gates={3:'Some(('+slots+', 1, 2))'},receipts={(0,0):'Some((2, false, 0, 1))'})
+    good=[baseline,intake_fixture(),intake_fixture(False,1),intake_fixture(False,0,False,False),intake_fixture(owner=False),intake_fixture(selections={(0,0):'Some((600000000, 3, 4294967295))'})]
+    for raw in good:require(intake_dispositions(raw,4,True,proofs)['schema_complete'],'intake-positive-schema')
+    independent=intake_dispositions(baseline,5,False,None)
+    require(not independent['native_first_proof_binding_crosschecked'] and independent['known'],'intake-positive-independent-native-loss')
+    packed='['+', '.join('Some(('+str(i)+', '+str(bool(i%2)).lower()+'))' for i in range(16))+']'
+    capacity=intake_fixture(False,4,gates={0:'Some(('+packed+', 20, 0))'})
+    require(len(intake_dispositions(capacity,4,True,proofs)['receive_gates'][0]['observation']['samples'])==16,'intake-explicit-capacity-partial-positive')
+    bad=[
+        '\n'.join(baseline.splitlines()[:-1]),baseline+'\n'+baseline.splitlines()[1],
+        baseline.replace('worker=0 channel=0','worker=1 channel=0',1),
+        baseline.replace('path=0 channel=0','path=1 channel=0',1),
+        baseline.replace('loss_mask=0','loss_mask=32',1),baseline.replace('loss_mask=0','loss_mask=1',1),
+        baseline.replace('known=true','known=false',1),baseline.replace('snapshot_available=true','snapshot_available=false',1),
+        baseline.replace('source_id_bound=[Some(true)','source_id_bound=[None',1),
+        baseline.replace('Some((1, 0, 0))','Some((600000001, 0, 0))'),
+        baseline.replace('Some((1, 0, 0))','Some((1, 4, 0))'),
+        baseline.replace('Some((1, 0, 0))','Some((1, 0, 4294967296))'),
+        baseline.replace('owner_bound=true','owner_bound=false',1),
+        baseline.replace('Some((0, false)), Some((1, true))','None, Some((1, true))'),
+        baseline.replace('Some((0, false)), Some((1, true))','Some((2, false)), Some((1, true))'),
+        baseline.replace('Some((1, true))','Some((1, false))'),
+        baseline.replace('], 1, 2))','], 0, 2))'),baseline.replace('], 1, 2))','], 2, 2))'),
+        baseline.replace('Some((2, false, 0, 1))','Some((2, false, 0, 4294967296))'),
+        baseline.replace('native5-intake-gate worker=4 observation=None','native5-intake-gate worker=4 observation=PRIVATE_PAYLOAD'),
+        intake_fixture(selections={(0,1):'Some((1, 1, 0))'}),
+        intake_fixture(receipts={(1,1):'Some((1, false, 0, 0))'}),
+        intake_fixture(gates={0:'Some((['+', '.join(['None']*16)+'], 0, 0))'}),
+        capacity.replace('loss_mask=4','loss_mask=1'),
+    ]
+    for raw in bad:
+        try:intake_dispositions(raw,4,True,proofs)
+        except ValueError:continue
+        raise ValueError('intake-adversary-accepted')
+    require(not intake_dispositions('',4,True,proofs)['observed'],'intake-inherited-fixtures-optional')
+    try:intake_dispositions('',4,True,proofs,required=True)
+    except ValueError:pass
+    else:raise ValueError('intake-current-runtime-missing-accepted')
+    for mismatch in [None,[None,None,None]]:
+        try:intake_dispositions(baseline,4,True,mismatch)
+        except ValueError:continue
+        raise ValueError('intake-native-binding-mismatch-accepted')
+    safe=safe_intake_dispositions(bad[-5],4,True,proofs)
+    require(not safe['schema_complete'] and 'PRIVATE_PAYLOAD' not in str(safe),'intake-rejected-safe-ledger-preserved')
+    return {'positive':len(good)+3,'negative':len(bad)+3,'safe_unknown_controls':1,'runtime_bodies':0,'fixtures_authored_for_remote_execution':True}
+
+
+def intake_maximum_width_appendix():
+    samples='['+', '.join('Some((600000000, '+str(bool(i%2)).lower()+'))' for i in range(16))+']'
+    return intake_fixture(False,31,bindings=['Some(true)']*3,
+        selections={(w,c):'Some((600000000, 3, 4294967295))' for w in range(5) for c in range(3)},
+        gates={w:'Some(('+samples+', 4294967295, 4294967295))' for w in range(5)},
+        receipts={(p,c):'Some((600000000, false, 4294967295, 4294967295))' for p in range(2) for c in range(3)}).splitlines()

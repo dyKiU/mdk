@@ -1056,8 +1056,177 @@ impl Default for Data {
         }
     }
 }
+// Optional intake observations never lock the native timing Data. Weak keys are
+// copied at existing bind/publication sites only, after those locks are released.
+#[derive(Clone, Default)]
+struct IntakeData {
+    owner: Option<Weak<OriginalEnrollmentSharingChoice>>,
+    recipient: [Option<Key>; 3],
+    peer: [Option<Key>; 3],
+    selection: [[Option<(u64, u8, u32)>; 3]; 5],
+    gates: [Option<GateRow>; 5],
+    receipts: [[Option<(u64, bool, u32, u32)>; 3]; 2],
+}
+#[derive(Clone, Copy)]
+struct GateRow {
+    samples: [Option<(u64, bool)>; 16],
+    transitions: u32,
+    repeated: u32,
+    last: bool,
+}
+struct IntakeRecorder {
+    origin: Instant,
+    status: AtomicU32,
+    data: Mutex<IntakeData>,
+}
+impl IntakeRecorder {
+    fn new(origin: Instant) -> Self {
+        Self { origin, status: AtomicU32::new(0), data: Mutex::new(IntakeData::default()) }
+    }
+    fn loss(&self, reason: u32) {
+        let _ = self.status.fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+            (old & FROZEN == 0).then_some(old | reason)
+        });
+    }
+    fn observe(&self, operation: impl FnOnce(&mut IntakeData, u64)) {
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 { return; }
+        let mut data = match self.data.try_lock() {
+            Ok(data) => data,
+            Err(TryLockError::WouldBlock) => { self.loss(LOCK_BUSY); return; }
+            Err(TryLockError::Poisoned(_)) => { self.loss(LOCK_POISONED); return; }
+        };
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 { return; }
+        let time = Instant::now().checked_duration_since(self.origin)
+            .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+            .filter(|time| *time <= MAX_US);
+        let Some(time) = time else { self.loss(OVERFLOW); return; };
+        operation(&mut data, time);
+    }
+    fn increment(&self, counter: &mut u32) {
+        if let Some(next) = counter.checked_add(1) { *counter = next; }
+        else { self.loss(OVERFLOW); }
+    }
+    fn bind_owner(&self, owner: Weak<OriginalEnrollmentSharingChoice>) {
+        self.observe(|data, _| {
+            if let Some(old) = &data.owner {
+                if !old.ptr_eq(&owner) { self.loss(IDENTITY); }
+            } else { data.owner = Some(owner); }
+        });
+    }
+    fn bind_key(&self, index: usize, key: &Key, peer: bool) {
+        self.observe(|data, _| {
+            let keys = if peer { &mut data.peer } else { &mut data.recipient };
+            let Some(slot) = keys.get_mut(index) else { self.loss(CAPACITY); return; };
+            if let Some(old) = slot {
+                if !old.state.ptr_eq(&key.state) || old.nonce != key.nonce || old.message != key.message {
+                    self.loss(IDENTITY);
+                }
+            } else { *slot = Some(key.clone()); }
+        });
+    }
+    fn report(&self, native_ids: &[Option<cgka_traits::MessageId>; 3], native_snapshot: bool) -> String {
+        use std::fmt::Write as _;
+        let (snapshot, loss) = match self.data.try_lock() {
+            Ok(data) => {
+                // Freeze while holding the only optional-ledger mutex. Loss
+                // updates after this boundary are ignored, never half-exported.
+                let mut loss = self.status.fetch_or(FROZEN, Ordering::AcqRel) & !FROZEN;
+                if native_snapshot && data.peer.iter().zip(native_ids).any(|(key, id)| {
+                    key.as_ref().map(|key| &key.message) != id.as_ref()
+                }) { loss |= IDENTITY; }
+                (Some(data.clone()), loss)
+            }
+            Err(error) => {
+                let reason = match error { TryLockError::WouldBlock => LOCK_BUSY, TryLockError::Poisoned(_) => LOCK_POISONED };
+                (None, (self.status.fetch_or(FROZEN | reason, Ordering::AcqRel) | reason) & !FROZEN)
+            }
+        };
+        let available = snapshot.is_some();
+        let owner_bound = snapshot.as_ref().is_some_and(|data| data.owner.is_some());
+        let bound: [Option<bool>; 3] = std::array::from_fn(|index| snapshot.as_ref().map(|data| data.peer[index].is_some()));
+        let mut output = String::new();
+        let _ = writeln!(&mut output, "native5-intake-meta known={} loss_mask={loss} snapshot_available={available} owner_bound={owner_bound} source_id_bound={bound:?}", available && loss == 0);
+        for worker in 0..5 {
+            for channel in 0..3 {
+                let row = snapshot.as_ref().and_then(|data| data.selection[worker][channel]);
+                let _ = writeln!(&mut output, "native5-intake-selection worker={worker} channel={channel} observation={row:?}");
+            }
+        }
+        for worker in 0..5 {
+            let row = snapshot.as_ref().and_then(|data| data.gates[worker].map(|row| (row.samples, row.transitions, row.repeated)));
+            let _ = writeln!(&mut output, "native5-intake-gate worker={worker} observation={row:?}");
+        }
+        for path in 0..2 {
+            for channel in 0..3 {
+                let row = snapshot.as_ref().and_then(|data| data.receipts[path][channel]);
+                let _ = writeln!(&mut output, "native5-intake-receipt path={path} channel={channel} observation={row:?}");
+            }
+        }
+        output
+    }
+}
+fn intake_owner_matches(owner: &Weak<OriginalEnrollmentSharingChoice>, current: Option<&Arc<OriginalEnrollmentSharingChoice>>) -> bool {
+    current.is_some_and(|current| owner.ptr_eq(&Arc::downgrade(current)))
+}
+pub(in super::super::super) fn intake_selected(
+    current: Option<&Arc<OriginalEnrollmentSharingChoice>>, entries: &[SiblingChannel],
+    message: &cgka_traits::MessageId, worker: usize,
+) {
+    let Some(probe) = active_probe() else { return; };
+    probe.intake.observe(|data, time| {
+        let Some(index) = data.peer.iter().position(|key| key.as_ref().is_some_and(|key| &key.message == message)) else { return; };
+        if worker >= 5 { probe.intake.loss(CAPACITY); return; }
+        let reason = match (&data.owner, current) {
+            (_, None) => 1,
+            (Some(owner), Some(current)) if intake_owner_matches(owner, Some(current)) => {
+                if data.recipient[index].as_ref().is_some_and(|key| entries.iter().any(|entry| {
+                    key.state.ptr_eq(&Arc::downgrade(&entry.state)) && key.nonce == entry.channel.scope().nonce
+                    && matches!(entry.original.as_ref(), SiblingOriginal::Recipient { choice, .. } if Arc::ptr_eq(choice, current))
+                })) { 0 } else { 3 }
+            }
+            _ => 2,
+        };
+        if let Some(row) = &mut data.selection[worker][index] { probe.intake.increment(&mut row.2); }
+        else { data.selection[worker][index] = Some((time, reason, 0)); }
+    });
+}
+pub(in super::super::super) fn intake_gate(
+    current: Option<&Arc<OriginalEnrollmentSharingChoice>>, worker: usize, enabled: bool,
+) {
+    let Some(probe) = active_probe() else { return; };
+    probe.intake.observe(|data, time| {
+        if !data.owner.as_ref().is_some_and(|owner| intake_owner_matches(owner, current)) { return; }
+        let Some(slot) = data.gates.get_mut(worker) else { probe.intake.loss(CAPACITY); return; };
+        let row = slot.get_or_insert(GateRow { samples: [None; 16], transitions: 0, repeated: 0, last: enabled });
+        let length = row.samples.iter().take_while(|sample| sample.is_some()).count();
+        if length == 0 { row.samples[0] = Some((time, enabled)); }
+        else if row.last == enabled { probe.intake.increment(&mut row.repeated); }
+        else {
+            probe.intake.increment(&mut row.transitions);
+            if length < 16 { row.samples[length] = Some((time, enabled)); }
+            else { probe.intake.loss(CAPACITY); }
+        }
+        row.last = enabled;
+    });
+}
+pub(in super::super::super) fn intake_receipt(
+    current: Option<&Arc<OriginalEnrollmentSharingChoice>>, message: &cgka_traits::MessageId,
+    path: usize, already_held: bool,
+) {
+    let Some(probe) = active_probe() else { return; };
+    probe.intake.observe(|data, time| {
+        if !data.owner.as_ref().is_some_and(|owner| intake_owner_matches(owner, current)) { return; }
+        let Some(index) = data.peer.iter().position(|key| key.as_ref().is_some_and(|key| &key.message == message)) else { return; };
+        let Some(rows) = data.receipts.get_mut(path) else { probe.intake.loss(CAPACITY); return; };
+        if let Some(row) = &mut rows[index] {
+            probe.intake.increment(if already_held { &mut row.2 } else { &mut row.3 });
+        } else { rows[index] = Some((time, already_held, 0, 0)); }
+    });
+}
+
 struct Probe {
     worker: Arc<WorkerRecorder>,
+    intake: IntakeRecorder,
     sdk: transport_nostr_adapter::sdk_publication_timing::Guard,
     origin: Instant,
     status: AtomicU32,
@@ -1240,6 +1409,7 @@ pub(crate) fn arm() -> (Guard, Pending) {
     let origin = Instant::now();
     let probe = Arc::new(Probe {
         worker: Arc::new(WorkerRecorder::new(origin)),
+        intake: IntakeRecorder::new(origin),
         sdk: transport_nostr_adapter::sdk_publication_timing::Guard::arm(origin),
         status: AtomicU32::new(0),
         origin,
@@ -1266,9 +1436,10 @@ impl Pending {
                     probe.loss(IDENTITY);
                 }
             } else {
-                data.owner = Some(owner);
+                data.owner = Some(owner.clone());
             }
         });
+        probe.intake.bind_owner(owner);
     }
     pub(crate) fn registration_failed(&self, poisoned: bool) {
         if let Some(probe) = self.0.upgrade() {
@@ -1343,6 +1514,10 @@ impl Token {
                 },
                 self.key.message.as_slice(),
             );
+            // No native Data lock is held at this existing token boundary.
+            if self.peer || !self.proof {
+                probe.intake.bind_key(self.index, &self.key, self.peer);
+            }
         }
     }
     pub(in super::super::super) fn spawn_boundary(&self, index: usize) {
@@ -1815,8 +1990,8 @@ impl Guard {
     pub(crate) fn freeze(
         self,
         observe_notifications: impl FnOnce(
-            [Option<cgka_traits::MessageId>; 3],
-        ) -> [[Option<[u64; 8]>; 3]; 5],
+            Instant, [Option<cgka_traits::MessageId>; 3],
+        ) -> [[(Option<[u64; 8]>, Option<[Option<u64>; 8]>, Option<u8>); 3]; 5],
     ) -> String {
         use std::fmt::Write as _;
         let worker_report = self.0.worker.report();
@@ -2032,16 +2207,17 @@ impl Guard {
         output.push_str(&worker_report);
         // The native lock is released before these existing plane-counter
         // lookups. Planes are read sequentially after the wait, not at deadline.
-        let notification_counts = observe_notifications(peer_outer_ids);
+        output.push_str(&self.0.intake.report(&peer_outer_ids, source_ids_snapshot_available));
+        let notification_counts = observe_notifications(self.0.origin, peer_outer_ids);
         let _ = writeln!(
             &mut output,
             "native5-notification-meta source_ids_snapshot_available={source_ids_snapshot_available} source_id_bound={source_id_bound:?}"
         );
         for (plane, rows) in notification_counts.into_iter().enumerate() {
-            for (channel, counts) in rows.into_iter().enumerate() {
+            for (channel, (counts, first_us, clock_invalid_mask)) in rows.into_iter().enumerate() {
                 let _ = writeln!(
                     &mut output,
-                    "native5-notification-disposition plane={plane} channel={channel} counts={counts:?}"
+                    "native5-notification-disposition plane={plane} channel={channel} counts={counts:?} first_us={first_us:?} clock_invalid_mask={clock_invalid_mask:?}"
                 );
             }
         }

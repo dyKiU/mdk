@@ -2689,7 +2689,14 @@ async fn run_app_runtime_account_worker(
                                         enrollment_capacity_retry.take().expect("one exact capacity envelope"),
                                     ))
                                 } else { client.receive_next_delivery().await }
-                            }, if !client.has_pending_effect_projections() => {
+                            }, if {
+                                let receive_enabled = !client.has_pending_effect_projections();
+                                // NATIVE5_INTAKE_TIMING_BEGIN
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                client.native5_intake_gate_for_test(native5_worker_tag.ordinal(), receive_enabled);
+                                // NATIVE5_INTAKE_TIMING_END
+                                receive_enabled
+                            } => {
                                 #[cfg(test)]
                                 if let Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) = &received
                                     && let (Ok(event_id), Some(subscription_id)) = (
@@ -2725,6 +2732,10 @@ async fn run_app_runtime_account_worker(
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         let _native5_section=native5_worker_tag.section(4);
         // NATIVE5_WORKER_TIMING_END
+        // NATIVE5_INTAKE_TIMING_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        client.native5_intake_selected_for_test(&delivery.message.id, native5_worker_tag.ordinal());
+        // NATIVE5_INTAKE_TIMING_END
         // NATIVE5_WORKER_TIMING_BEGIN
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         let native5_delivery=client.native5_first_peer_delivery_for_test(&delivery.message.id,native5_worker_tag.ordinal());

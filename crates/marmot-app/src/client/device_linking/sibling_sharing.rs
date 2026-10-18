@@ -2156,6 +2156,20 @@ impl AppClient {
     }
 
     // NATIVE5_WORKER_TIMING_END
+    // NATIVE5_INTAKE_TIMING_BEGIN
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn native5_intake_selected_for_test(&self, message: &cgka_traits::MessageId, worker: usize) {
+        peer_proof_probe::native5_timing::intake_selected(self.linking_owner.sharing_approval.as_ref(), &self.linking_owner.sibling_channels, message, worker);
+    }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn native5_intake_gate_for_test(&self, worker: usize, enabled: bool) {
+        peer_proof_probe::native5_timing::intake_gate(self.linking_owner.sharing_approval.as_ref(), worker, enabled);
+    }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn native5_intake_receipt_for_test(&self, message: &cgka_traits::MessageId, path: usize, already_held: bool) {
+        peer_proof_probe::native5_timing::intake_receipt(self.linking_owner.sharing_approval.as_ref(), message, path, already_held);
+    }
+    // NATIVE5_INTAKE_TIMING_END
     fn validate_c_sibling_original(
         &self,
         choice: &OriginalEnrollmentSharingChoice,

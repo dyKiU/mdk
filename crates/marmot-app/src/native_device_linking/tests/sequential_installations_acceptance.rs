@@ -260,15 +260,24 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
 // NATIVE5_TIMING_BEGIN
             #[cfg(feature = "test-policy-overrides")]
             if let Some((ordinal, guard)) = native5_timing.take() {
-                native5_timing_reports.push((ordinal, guard.freeze(|peer_outer_ids| {
+                native5_timing_reports.push((ordinal, guard.freeze(|origin, peer_outer_ids| {
                     std::array::from_fn(|plane| {
                         std::array::from_fn(|channel| {
                             peer_outer_ids[channel].as_ref().and_then(|message| {
-                                apps[plane].relay_plane.account_notification_disposition_for_test(
-                                    &account,
-                                    &hex::encode(message.as_slice()),
+                                apps[plane].relay_plane.account_notification_timing_for_test(
+                                    &account, &hex::encode(message.as_slice()),
                                 )
-                            })
+                            }).map(|(counts, instants)| {
+                                let mut invalid = 0u8;
+                                let times = std::array::from_fn(|stage| instants[stage].and_then(|instant| {
+                                    let time = instant.checked_duration_since(origin)
+                                        .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+                                        .filter(|time| *time <= 600_000_000);
+                                    if time.is_none() { invalid |= 1 << stage; }
+                                    time
+                                }));
+                                (Some(counts), Some(times), Some(invalid))
+                            }).unwrap_or((None, None, None))
                         })
                     })
                 })));
@@ -298,17 +307,24 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     if let Some((ordinal, guard)) = native5_timing.take() {
         native5_timing_reports.push((
             ordinal,
-            guard.freeze(|peer_outer_ids| {
+            guard.freeze(|origin, peer_outer_ids| {
                 std::array::from_fn(|plane| {
                     std::array::from_fn(|channel| {
                         peer_outer_ids[channel].as_ref().and_then(|message| {
-                            apps[plane]
-                                .relay_plane
-                                .account_notification_disposition_for_test(
-                                    &account,
-                                    &hex::encode(message.as_slice()),
-                                )
-                        })
+                            apps[plane].relay_plane.account_notification_timing_for_test(
+                                &account, &hex::encode(message.as_slice()),
+                            )
+                        }).map(|(counts, instants)| {
+                            let mut invalid = 0u8;
+                            let times = std::array::from_fn(|stage| instants[stage].and_then(|instant| {
+                                let time = instant.checked_duration_since(origin)
+                                    .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+                                    .filter(|time| *time <= 600_000_000);
+                                if time.is_none() { invalid |= 1 << stage; }
+                                time
+                            }));
+                            (Some(counts), Some(times), Some(invalid))
+                        }).unwrap_or((None, None, None))
                     })
                 })
             }),

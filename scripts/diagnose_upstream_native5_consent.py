@@ -11,8 +11,8 @@ from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='df214431c8aad2fd22dfeb3b756206e98a8e2ec8' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='fe57796605de353e88fc5f64b91d80c4ea459c576a7dc8439a6bd8bcd8680913' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='7e0b7fbb81b1191f0bf953c57a3c817446962b44a0addb02aa49d04dd1a0a463' # Root MUST pin exact reviewed closed parser.
+MANIFEST_SHA='7453fecc1197bebff750c40ced1f4d483df7346d348acd36173532a99df159c2' # Root MUST pin exact reviewed/reformatted reversal manifest.
+PARSER_SHA='a19df4757825eae363c378d8c9945cb6d8bbb65c2acfad88cdaee0dc52eeb125' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -191,7 +191,7 @@ def main():
     frozen=None;binary=None;binary_sha=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['notification_parser_controls']=timing_parser.notification_parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['window_parser_controls']=timing_parser.window_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['native5_rich_parser_controls']=native5_rich_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['notification_parser_controls']=timing_parser.notification_parser_controls();report['intake_parser_controls']=timing_parser.intake_parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['window_parser_controls']=timing_parser.window_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['native5_rich_parser_controls']=native5_rich_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
         if args.preflight:
             code,raw,wall=bounded.capture(['cargo','fmt','--all'],180,limit=8*1024*1024)
             report['format']={'exit_code':code,'wall_seconds':wall};patch=subprocess.check_output(['git','diff','--binary'])
@@ -233,13 +233,17 @@ def main():
         report['notification_dispositions_complete']=bool(windows) and all(
             window['notification_dispositions'].get('observed') is True and
             window['notification_dispositions'].get('schema_complete') is True for window in windows)
-        report['diagnostic_completed']=report['native_timing_windows_completed'] and report['notification_dispositions_complete']
+        report['intake_dispositions_complete']=bool(windows) and all(
+            window['intake_dispositions'].get('observed') is True and
+            window['intake_dispositions'].get('schema_complete') is True for window in windows)
+        report['diagnostic_completed']=report['native_timing_windows_completed'] and report['notification_dispositions_complete'] and report['intake_dispositions_complete']
         report['native_and_SDK_known_are_independent']=True
         report['missing_fifth_window_is_not_zero_or_pass']=True;save()
         # A valid observed FAIL remains an actual FAIL. Missing later milestones
         # do not reject useful observations or become invented false/zero facts.
         ensure(row['actual_counts_complete'] is True and row.get('executed_nonignored')==1 and row.get('ignored')==0 and row.get('compiler_error_count')==0,'one-actual-body-no-ignore-or-compiler-error')
         ensure(report['notification_dispositions_complete'],'closed-notification-appendix-required-per-reached-window')
+        ensure(report['intake_dispositions_complete'],'closed-intake-appendix-required-per-reached-window')
         ensure(report['diagnostic_completed'],'known-lossless-passive-observations-required')
     except Exception as error:
         report['exception_type']=type(error).__name__
