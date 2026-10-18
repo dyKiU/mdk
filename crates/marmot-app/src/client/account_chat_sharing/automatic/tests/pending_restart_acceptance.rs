@@ -11,6 +11,7 @@ impl AppClient {
         url: &str,
         ordinary_group: &crate::GroupId,
         source_event: &str,
+        require_higher_source: bool,
     ) {
         let mut apps = roots.map(|root| crate::MarmotApp::with_relay(root, url));
         let mut clients: [Option<AppClient>; 2] = std::array::from_fn(|_| None);
@@ -38,6 +39,12 @@ impl AppClient {
             let pair = pair.expect("actual current bilateral Core-qualified policy required before request creation");
             let lower = usize::from(pair[0].local_device > pair[1].local_device);
             let higher = 1 - lower;
+            // Fix the additional regression's sender role using the actual
+            // authenticated order, without constructing a device identity.
+            let source = if require_higher_source { higher } else { 0 };
+            let recipient_index = 1 - source;
+            assert!(!require_higher_source || pair[source].local_device > pair[recipient_index].local_device);
+            eprintln!("pending_restart_required_higher_source={require_higher_source} source_is_lower={}", source == lower);
             let ids = pair.each_ref().map(|policy| Self::automatic_policy_id(policy).unwrap());
             clients[lower].as_mut().unwrap().begin_automatic_channel(pair[lower].clone(), None).unwrap();
             let original_x = clients[lower].as_ref().unwrap().account_sharing_owner.automatic[&ids[lower]].channel.scope().nonce;
@@ -82,10 +89,10 @@ impl AppClient {
             assert!(!low.recipient && !low.ready && low.original.live());
             clients[lower].as_ref().unwrap().runtime.session().validate_account_sharing_channel(&low.channel).unwrap();
             eprintln!("pending_restart_authenticated_y_retained_exact_live_x=true");
-            assert!(apps[0].account_storage("test").unwrap()
+            assert!(apps[source].account_storage("test").unwrap()
                 .timeline_message(&hex::encode(ordinary_group.as_slice()), source_event).unwrap()
                 .is_some_and(|row| !row.deleted && row.invalidation_status.is_none()));
-            let sent = clients[0].as_mut().unwrap().send(ordinary_group, b"ordinary witness after pending-owner restart").await.unwrap();
+            let sent = clients[source].as_mut().unwrap().send(ordinary_group, b"ordinary witness after pending-owner restart").await.unwrap();
             assert_eq!(sent.published, 1);
             assert_eq!(sent.message_ids.len(), 1);
             let witness = &sent.message_ids[0];
@@ -95,7 +102,7 @@ impl AppClient {
             let mut tick_millis = [0_u128; 2];
             let mut waiting_at = (0, "before_delivery");
             let mut waiting_since = std::time::Instant::now();
-            let probe_scope = clients[1].as_ref().and_then(|client| client.presentation_scope(&pair[1]).ok());
+            let probe_scope = clients[recipient_index].as_ref().and_then(|client| client.presentation_scope(&pair[recipient_index]).ok());
             let mut first_catalog_millis = None;
             let mut first_record_millis = None;
             let mut probe_count = 0_u32;
@@ -104,7 +111,10 @@ impl AppClient {
             let delivery = {
             let original_delivery = tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
-                    for (i, client) in clients.iter_mut().enumerate() {
+                    // Preserve the original source-first serial drive order
+                    // even when the fixed higher source occupies slot one.
+                    for i in [source, recipient_index] {
+                        let client = &mut clients[i];
                         waiting_at = (i, "sync");
                         waiting_since = std::time::Instant::now();
                         client.as_mut().unwrap().sync().await.unwrap();
@@ -116,26 +126,26 @@ impl AppClient {
                         completed_ticks[i] += 1;
                         tick_millis[i] += waiting_since.elapsed().as_millis();
                     }
-                    waiting_at = (1, "projection");
+                    waiting_at = (recipient_index, "projection");
                     waiting_since = std::time::Instant::now();
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-                    let recipient = clients[1].as_ref().unwrap();
-                    recipient.automatic_policy_current(&pair[1]).unwrap();
-                    let scope = recipient.presentation_scope(&pair[1]).unwrap();
-                    let storage = apps[1].account_storage("test").unwrap();
+                    let recipient = clients[recipient_index].as_ref().unwrap();
+                    recipient.automatic_policy_current(&pair[recipient_index]).unwrap();
+                    let scope = recipient.presentation_scope(&pair[recipient_index]).unwrap();
+                    let storage = apps[recipient_index].account_storage("test").unwrap();
                     let catalog = storage.mirrored_chat_catalog_storage().unwrap()
                         .mirrored_chat_catalog_page(&scope, None, 128).unwrap().iter()
                         .any(|row| row.group_id == *ordinary_group && row.state == MirroredChatState::Active);
                     let record = catalog && storage.mirrored_chat_message_storage().unwrap()
                         .mirrored_chat_message_page(&scope, ordinary_group, None, 128, now).unwrap()
                         .iter().any(|row| hex::encode(row.event_id) == *witness && !row.deleted && !row.payload.is_empty());
-                    recipient.automatic_policy_current(&pair[1]).unwrap();
-                    assert!(recipient.presentation_scope(&pair[1]).unwrap() == scope);
+                    recipient.automatic_policy_current(&pair[recipient_index]).unwrap();
+                    assert!(recipient.presentation_scope(&pair[recipient_index]).unwrap() == scope);
                     if catalog && record {
                         eprintln!("pending_restart_source_scoped_catalog_and_exact_record=true local_ordinary_present={}", storage.timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
                         break;
                     }
-                    waiting_at = (1, "inter_turn_sleep");
+                    waiting_at = (recipient_index, "inter_turn_sleep");
                     waiting_since = std::time::Instant::now();
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
@@ -150,7 +160,7 @@ impl AppClient {
                         && (first_catalog_millis.is_none() || first_record_millis.is_none()) => {
                         let started = std::time::Instant::now();
                         let sample = probe_scope.as_ref().and_then(|scope|
-                            probe_mirrored_witness(&apps[1], scope, ordinary_group, witness));
+                            probe_mirrored_witness(&apps[recipient_index], scope, ordinary_group, witness));
                         probe_count += 1;
                         probe_millis += started.elapsed().as_millis();
                         // A completed read before the unchanged deadline is an
@@ -174,9 +184,9 @@ impl AppClient {
                 ).map(|(low,high)| low.channel.scope().nonce == high.channel.scope().nonce);
                 eprintln!("pending_restart_ready_role_original_nonce_live_core_valid={observations:?} same_nonce={same_nonce:?}");
             };
-            eprintln!("pending_restart_delivery_observation recovered={} source_is_lower={} elapsed_millis={} completed_syncs={completed_syncs:?} sync_millis={sync_millis:?} completed_ticks={completed_ticks:?} tick_millis={tick_millis:?} waiting_at={waiting_at:?} waiting_millis={}", delivery.is_ok(), lower == 0, delivery_started.elapsed().as_millis(), waiting_since.elapsed().as_millis());
-            let probe_scope_unchanged = probe_scope.as_ref().zip(clients[1].as_ref()
-                .and_then(|client| client.presentation_scope(&pair[1]).ok()).as_ref())
+            eprintln!("pending_restart_delivery_observation recovered={} source_is_lower={} elapsed_millis={} completed_syncs={completed_syncs:?} sync_millis={sync_millis:?} completed_ticks={completed_ticks:?} tick_millis={tick_millis:?} waiting_at={waiting_at:?} waiting_millis={}", delivery.is_ok(), source == lower, delivery_started.elapsed().as_millis(), waiting_since.elapsed().as_millis());
+            let probe_scope_unchanged = probe_scope.as_ref().zip(clients[recipient_index].as_ref()
+                .and_then(|client| client.presentation_scope(&pair[recipient_index]).ok()).as_ref())
                 .map(|(before, after)| before == after);
             eprintln!("pending_restart_predeadline_sql_observation catalog_first_millis={first_catalog_millis:?} record_first_millis={first_record_millis:?} scope_unchanged={probe_scope_unchanged:?} sample_count={probe_count} read_millis={probe_millis}");
             observation();
@@ -184,9 +194,9 @@ impl AppClient {
                 // Post-timeout observations only. Failed reads stay unknown and
                 // never replace the original recovery-deadline failure.
                 let projection = (|| {
-                    let storage = apps[1].account_storage("test").ok()?;
-                    let recipient = clients[1].as_ref()?;
-                    let scope = recipient.presentation_scope(&pair[1]).ok()?;
+                    let storage = apps[recipient_index].account_storage("test").ok()?;
+                    let recipient = clients[recipient_index].as_ref()?;
+                    let scope = recipient.presentation_scope(&pair[recipient_index]).ok()?;
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
                     let catalog = storage.mirrored_chat_catalog_storage()?
                         .mirrored_chat_catalog_page(&scope, None, 128).ok()
