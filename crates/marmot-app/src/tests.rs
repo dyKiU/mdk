@@ -7130,8 +7130,18 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
         .key_package_lifecycle()
         .unwrap()
         .unwrap();
-    let pending = lifecycle.pending_replacement.unwrap();
-    let signed_bytes = pending.signed_event.unwrap().bytes;
+    // The priority publication is already acknowledged before bootstrap metadata blocks.
+    let current_bytes = lifecycle.current_key_package.unwrap().bytes;
+    assert!(!current_bytes.is_empty());
+    assert_eq!(result.key_package_bytes, Some(current_bytes.len()));
+    assert!(lifecycle.publication_targets.iter().any(|target| matches!(
+        target.state,
+        cgka_traits::TransportFanoutAttemptState::Accepted
+    )));
+    let signed_bytes = lifecycle.authored_signed_event.unwrap().bytes;
+    let published: NostrTransportEvent = serde_json::from_slice(&signed_bytes).unwrap();
+    assert_eq!(published.kind, KIND_MARMOT_KEY_PACKAGE);
+    assert!(relay.published_events.lock().unwrap().contains(&published));
 
     let repeated = runtime
         .create_identity_local_ready(AccountSetupRequest {
@@ -7147,17 +7157,19 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     );
     assert_eq!(repeated.key_package_bytes, result.key_package_bytes);
     assert_eq!(repeated.readiness, AccountSetupReadiness::Publishing);
+    let repeated_lifecycle = app
+        .account_storage(&repeated.account.label)
+        .unwrap()
+        .key_package_lifecycle()
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        app.account_storage(&repeated.account.label)
-            .unwrap()
-            .key_package_lifecycle()
-            .unwrap()
-            .unwrap()
-            .pending_replacement
-            .unwrap()
-            .signed_event
-            .unwrap()
-            .bytes,
+        repeated_lifecycle.current_key_package.unwrap().bytes,
+        current_bytes,
+        "repeated create must retain the acknowledged initial KeyPackage"
+    );
+    assert_eq!(
+        repeated_lifecycle.authored_signed_event.unwrap().bytes,
         signed_bytes,
         "repeated create must retain the exact signed KeyPackage publication"
     );
