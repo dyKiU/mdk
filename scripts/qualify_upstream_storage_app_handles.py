@@ -10,7 +10,7 @@ import subprocess
 import qualify_upstream_storage_boundary as old
 from upstream_extraction_cohort import frozen_inputs
 
-BASE = '810188704a12dc17f34cc3ad17975fd4fe3b581f'
+BASE = '3f06a0a8d1cff74142dd6c1570f733f09f990ca0'
 SELF = 'scripts/qualify_upstream_storage_app_handles.py'
 WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
 REF = 'refs/heads/ci/upstream-storage-app-handles-20261018'
