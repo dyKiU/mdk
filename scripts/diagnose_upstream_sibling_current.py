@@ -31,7 +31,7 @@ REF = 'refs/heads/ci/upstream-sibling-current-diagnostic-20261018'
 OUT = Path('sibling-current-evidence')
 BEGIN = '  # SIBLING_CURRENT_JOBS_BEGIN\n'
 END = '  # SIBLING_CURRENT_JOBS_END\n'
-OPTIONS = 'options: [sibling-current-preflight, sibling-current-diagnostic, '
+OPTIONS = 'options: [sibling-current-preflight, sibling-current-diagnostic, sibling-current-held-only, '
 PREFIX = 'native_device_linking::automatic_pairing_acceptance::'
 STAGES = {
     1: 'SelectedEnter', 2: 'SelectedExit', 3: 'RevocationEnter', 4: 'RevocationExit',
@@ -70,7 +70,9 @@ STAGES = {
     91: 'ExistingAccountStorageEnter', 92: 'ExistingAccountStorageResult',
 }
 HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '7da356dfaa48bf9ca3dc1e75a8e8f0cd85d8a3538aabd5678c8c252b10670dac', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': 'd0a7a8d3fd9c69433e604cce36aaf8f63659c9a3517839d7b676d1d92bd32c5c', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623', 'crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs': '9744d3283b134b302524f44eec206d10fd668abb4175d7acdb2b8c912ef3f6c5'}
-MODULE_SHA256 = 'dc9515086b8dc28c653fbb7797333e1888ae23d89cead30f75fdd84de6157fc8'
+MODULE_SHA256 = '6c72f45eb1bf040035db68dacc2aa7839ccfdfa5cda84411662ef468eec1d051'
+LOSS_REASONS = {1: 'TimestampOverflow', 2: 'EventCapacity', 4: 'KeyCapacity', 8: 'RecordWouldBlock', 16: 'RecordPoisoned', 32: 'ChildWouldBlock', 64: 'ChildPoisoned', 128: 'RepeatedWindowBegin', 256: 'WindowBeginWouldBlock', 512: 'WindowBeginPoisoned'}
+TERMINAL_REASONS = {0: 'None', 1: 'NoActiveWindow', 2: 'SnapshotWouldBlock', 3: 'SnapshotPoisoned', 4: 'TerminalTimestampOverflow', 5: 'TerminalEventCapacity'}
 STRIP = re.compile(rb'(?m)^[ \t]*// BROAD_TRACE_BEGIN\n.*?^[ \t]*// BROAD_TRACE_END\n', re.S)
 
 
@@ -134,16 +136,21 @@ def timeline(raw, name):
         if not line.startswith('broad-trace '):
             continue
         ensure(len(line) <= 160, 'bounded-timeline-line')
-        if line == 'broad-trace unavailable':
+        if line.startswith('broad-trace unavailable'):
             ensure(summary is None and not keys and not events, 'one-unavailable-snapshot')
             unavailable = True
-            summary = {'known': False, 'keys': None, 'events': None}
+            loss = re.fullmatch(r'broad-trace unavailable loss_mask=([0-9]{1,4}) terminal=([1-3])', line)
+            ensure(loss is not None and int(loss[1]) <= 1023, 'closed-unavailable-loss-reasons')
+            summary = {'known': False, 'keys': None, 'events': None, 'loss_mask': int(loss[1]), 'terminal': int(loss[2])}
             continue
         ensure(not unavailable, 'no-data-after-unavailable-snapshot')
         if line.startswith('broad-trace summary '):
-            match = re.fullmatch(r'broad-trace summary known=(true|false) keys=([0-9]{1,2}) events=([0-9]{1,4})', line)
+            match = re.fullmatch(r'broad-trace summary known=(true|false) keys=([0-9]{1,2}) events=([0-9]{1,4}) loss_mask=([0-9]{1,4}) terminal=([045])', line)
             ensure(match is not None and summary is None and not keys and not events, 'one-closed-summary-before-rows')
-            summary = {'known': match[1] == 'true', 'keys': int(match[2]), 'events': int(match[3])}
+            summary = {'known': match[1] == 'true', 'keys': int(match[2]), 'events': int(match[3]), 'loss_mask': int(match[4]), 'terminal': int(match[5])}
+            ensure(summary['loss_mask'] <= 1023, 'closed-reason-mask-bits')
+            ensure(not summary['known'] or (summary['loss_mask'] == 0 and summary['terminal'] == 0), 'known-window-cannot-have-loss')
+            ensure(summary['known'] or summary['loss_mask'] != 0 or summary['terminal'] != 0, 'unknown-window-must-have-typed-reason')
             ensure(summary['keys'] <= 64 and summary['events'] <= 8192, 'closed-timeline-capacity')
         elif line.startswith('broad-trace key='):
             match = re.fullmatch(r'broad-trace key=([1-9][0-9]?) kind=([12])', line)
@@ -202,16 +209,20 @@ def timeline(raw, name):
             'prewindow_coverage': 'unknown-not-captured', 'timestamps_relative_to_window_start': True, 'key_kinds': None if unavailable else keys,
             'events_microseconds_key_stage_value': None if unavailable else events,
             'exported_key_count': summary['keys'], 'exported_event_count': summary['events'],
-            'stage_names': STAGES, 'unattributed_key_zero_is_not_an_account': True,
+            'stage_names': STAGES,
+            'loss_reason_mask': summary['loss_mask'],
+            'observed_loss_reasons': [value for bit, value in LOSS_REASONS.items() if summary['loss_mask'] & bit],
+            'terminal_reason_code': summary['terminal'], 'terminal_reason': TERMINAL_REASONS[summary['terminal']],
+            'loss_flags_are_presence_not_exact_dropped_event_counts': True, 'unattributed_key_zero_is_not_an_account': True,
             'partial_when_unknown_never_zero_evidence': not summary['known']}
 
 
 def parser_controls():
     name = PREFIX + ORIGINALS[0]
-    valid = 'broad-trace summary known=true keys=2 events=4\nbroad-trace key=1 kind=1\nbroad-trace key=2 kind=2\nbroad-trace event=[0, 0, 40, 0]\nbroad-trace event=[1, 1, 31, 2]\nbroad-trace event=[2, 2, 30, 1]\nbroad-trace event=[3, 0, 41, 0]'
+    valid = 'broad-trace summary known=true keys=2 events=4 loss_mask=0 terminal=0\nbroad-trace key=1 kind=1\nbroad-trace key=2 kind=2\nbroad-trace event=[0, 0, 40, 0]\nbroad-trace event=[1, 1, 31, 2]\nbroad-trace event=[2, 2, 30, 1]\nbroad-trace event=[3, 0, 41, 0]'
     ensure(timeline(valid, name)['known'], 'closed-timeline-positive')
     ensure(timeline('test ' + name + ' ... ' + valid, name)['known'], 'libtest-prefix-positive')
-    unknown = 'broad-trace unavailable'
+    unknown = 'broad-trace unavailable loss_mask=0 terminal=2'
     ensure(timeline(unknown, name)['known'] is False, 'contention-is-explicit-unknown')
     ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 53, 3]'), name)['known'], 'closed-publication-kind-positive')
     ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 63, 1]'), name)['known'], 'closed-publication-ack-positive')
@@ -219,7 +230,15 @@ def parser_controls():
     ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 83, 2]'), name)['known'], 'actual-retained-round-completed-phase-positive')
     ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 85, 1]'), name)['known'], 'actual-existing-guard-rejection-positive')
     ensure(timeline(valid.replace('[1, 1, 31, 2]', '[1, 1, 66, 0]'), name)['known'], 'closed-recipient-intake-positive')
-    negatives = [valid + '\nbroad-trace private=secret', valid + '\n' + valid,
+    lossy = valid.replace('known=true', 'known=false').replace('loss_mask=0', 'loss_mask=8')
+    observed_loss = timeline(lossy, name)
+    ensure(observed_loss['known'] is False and observed_loss['observed_loss_reasons'] == ['RecordWouldBlock'], 'explicit-loss-is-never-known')
+    ensure(timeline(valid.replace('known=true', 'known=false').replace('terminal=0', 'terminal=5'), name)['known'] is False, 'terminal-loss-is-explicit')
+    ensure(timeline(unknown, name)['exported_event_count'] is None, 'unavailable-cardinality-not-zero')
+    negatives = [valid.replace('loss_mask=0', 'loss_mask=8'), valid.replace('known=true', 'known=false'),
+                 valid.replace('loss_mask=0', 'loss_mask=1024'), valid.replace('terminal=0', 'terminal=2'),
+                 valid.replace('terminal=0', 'terminal=9'), unknown.replace('terminal=2', 'terminal=0'),
+                 unknown.replace('loss_mask=0', 'loss_mask=1024'), valid + '\nbroad-trace loss=private',valid + '\nbroad-trace private=secret', valid + '\n' + valid,
                  valid.replace('keys=2', 'keys=65'), valid.replace('events=4', 'events=3'),
                  valid.replace('key=2 kind=2', 'key=1 kind=2'), valid.replace('[1, 1, 31, 2]', '[1, 2, 31, 1]'),
                  valid.replace('[2, 2, 30, 1]', '[2, 1, 30, 1]'), valid.replace('[2, 2, 30, 1]', '[2, 2, 30, 0]'),
@@ -252,7 +271,7 @@ def parser_controls():
         except ValueError:
             continue
         raise ValueError('unsafe-or-incomplete-timeline-accepted')
-    return {'positive': 9, 'negative': len(negatives), 'executed_remotely': True}
+    return {'positive': 12, 'negative': len(negatives), 'executed_remotely': True}
 
 
 def main(options):
@@ -263,6 +282,7 @@ def main(options):
               'diagnostic_extension': 'current-source-prerequisite-attribution-and-owned-pipeline',
               'publication_kind_legend': {'0': 'SourceRequest', '1': 'RecipientConsent',
                                           '2': 'SourceProof', '3': 'RecipientProof'},
+              'selected_case_mode': 'held-only' if options.held_only else 'both-originals',
               'setup_prefix_intentionally_omitted': True, 'event_capacity_unchanged': 8192, 'cases': {}}
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -274,14 +294,16 @@ def main(options):
         report['environment'] = environment()
         before, metadata = freeze(), layout()
         report['source_before_sha256'] = identity(before)
-        selected = [ORIGINALS[0], ORIGINALS[1]]
+        selected = [ORIGINALS[1]] if options.held_only else [ORIGINALS[0], ORIGINALS[1]]
+        report['required_case_count'] = len(selected)
         compilation, cases = compile_cases(selected)
         report['compilation'] = compilation; save()
         ensure(compilation.get('compile_exit_code') == compilation.get('compiler_error_count') == 0
                and compilation.get('compiled_fingerprints', {}).get('verified') is True
                and len(compilation['compiled_fingerprints']['nodes']) == 6 and set(cases) == set(selected), 'real-compile-and-exact-two-case-inventory')
         report['feature_identity'] = feature_identity(compilation)
-        for index, suffix in enumerate(selected):
+        for suffix in selected:
+            index = ORIGINALS.index(suffix)
             case = cases[suffix]; name = PREFIX + suffix
             ensure(case['name'] == name and freeze() == before and layout() == metadata, 'before-case-exact-source-and-test')
             ensure(digest(Path(case['binary']).read_bytes()) == case['binary_sha256'], 'actual-compiled-binary')
@@ -332,14 +354,15 @@ def main(options):
             else:
                 ensure(code == 0 and row['passed'] == 1 and row['all_panic_header_count'] == 0, 'actual-runtime-pass')
             ensure(freeze() == before and layout() == metadata and digest(Path(case['binary']).read_bytes()) == case['binary_sha256'], 'after-case-pristine-source-modes-binary')
-            ensure(row['timeline']['known'] is True, 'unknown-or-incomplete-timeline-not-completed-diagnosis')
-            row['diagnostic_completed'] = True; save()
+            row['diagnostic_completed'] = row['timeline']['known'] is True; save()
         report['actual_counts_complete'] = True
         report['actual_executed_nonignored'] = sum(row['executed_nonignored'] for row in report['cases'].values())
         report['actual_passed'] = sum(row['passed'] for row in report['cases'].values())
         report['actual_failed'] = sum(row['failed'] for row in report['cases'].values())
         report['actual_ignored'] = sum(row['ignored'] for row in report['cases'].values())
-        report['diagnostic_completed'] = True
+        report['diagnostic_completed'] = all(row.get('diagnostic_completed') is True for row in report['cases'].values())
+        save()
+        ensure(report['diagnostic_completed'], 'any-unknown-selected-timeline-fails-overall-diagnostic')
     except Exception as error:
         report['exception_type'] = type(error).__name__
         raise
@@ -355,4 +378,5 @@ def main(options):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--preflight', action='store_true')
+    parser.add_argument('--held-only', action='store_true')
     main(parser.parse_args())

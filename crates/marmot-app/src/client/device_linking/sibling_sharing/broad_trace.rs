@@ -1,20 +1,30 @@
 //! Passive CI-only timeline. Weak keys are ordinalized; no identity is exported.
 use super::{AppClient, OriginalEnrollmentSharingChoice, State};
 use std::sync::{
-    Arc, LazyLock, Mutex, Weak,
-    atomic::{AtomicBool, AtomicU8, Ordering},
+    Arc, LazyLock, Mutex, TryLockError, Weak,
+    atomic::{AtomicBool, AtomicU32, Ordering},
 };
 use std::time::Instant;
 
 static ENABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("MDK_UPSTREAM_BROAD_TRACE").as_deref() == Ok("1"));
-// Bits: loss=1, frozen=2, active=4. The setup prefix is intentionally omitted.
-static STATUS: AtomicU8 = AtomicU8::new(0);
-fn unknown() {
+// Low bits: loss=1, frozen=2, active=4. Upper bits are CLOSED loss
+// reasons, atomically captured with the frozen flag; never exact lost counts.
+static STATUS: AtomicU32 = AtomicU32::new(0);
+#[derive(Clone, Copy)]
+#[repr(u32)]
+enum Loss {
+    Timestamp = 1, EventCapacity = 2, KeyCapacity = 4,
+    RecordWouldBlock = 8, RecordPoisoned = 16,
+    ChildWouldBlock = 32, ChildPoisoned = 64,
+    RepeatedBegin = 128, BeginWouldBlock = 256, BeginPoisoned = 512,
+}
+fn unknown(reason: Loss) {
     let _ = STATUS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-        if old & 2 == 0 { Some(old | 1) } else { None }
+        if old & 2 == 0 { Some(old | 1 | ((reason as u32) << 3)) } else { None }
     });
 }
+enum EventLoss { Timestamp, Capacity }
 static TRACE: LazyLock<Mutex<Trace>> = LazyLock::new(|| {
     Mutex::new(Trace {
         origin: Instant::now(),
@@ -53,25 +63,27 @@ impl Trace {
         self.keys.push(key);
         Some(self.keys.len() as u64)
     }
-    fn event(&mut self, key: u64, stage: u64, value: u64) {
+    fn event(&mut self, key: u64, stage: u64, value: u64) -> Result<(), EventLoss> {
         let Ok(elapsed) = u64::try_from(self.origin.elapsed().as_micros()) else {
-            unknown();
-            return;
+            unknown(Loss::Timestamp);
+            return Err(EventLoss::Timestamp);
         };
         if self.events.len() == MAX_EVENTS {
-            unknown();
-            return;
+            unknown(Loss::EventCapacity);
+            return Err(EventLoss::Capacity);
         }
         self.events.push([elapsed, key, stage, value]);
+        Ok(())
     }
 }
 fn record(key: Option<Key>, stage: u64, value: u64) {
     if !*ENABLED || STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
     }
-    let Ok(mut trace) = TRACE.try_lock() else {
-        unknown();
-        return;
+    let mut trace = match TRACE.try_lock() {
+        Ok(trace) => trace,
+        Err(TryLockError::WouldBlock) => { unknown(Loss::RecordWouldBlock); return; }
+        Err(TryLockError::Poisoned(_)) => { unknown(Loss::RecordPoisoned); return; }
     };
     if STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
@@ -80,13 +92,13 @@ fn record(key: Option<Key>, stage: u64, value: u64) {
         Some(key) => match trace.key(key) {
             Some(key) => key,
             None => {
-                unknown();
+                unknown(Loss::KeyCapacity);
                 return;
             }
         },
         None => 0,
     };
-    trace.event(key, stage, value);
+    let _ = trace.event(key, stage, value);
 }
 pub(crate) fn choice(choice: &OriginalEnrollmentSharingChoice, stage: u64, value: u64) {
     record(
@@ -102,9 +114,10 @@ pub(crate) fn child(choice: &OriginalEnrollmentSharingChoice, state: &Arc<State>
     if !*ENABLED || STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
     }
-    let Ok(mut trace) = TRACE.try_lock() else {
-        unknown();
-        return;
+    let mut trace = match TRACE.try_lock() {
+        Ok(trace) => trace,
+        Err(TryLockError::WouldBlock) => { unknown(Loss::ChildWouldBlock); return; }
+        Err(TryLockError::Poisoned(_)) => { unknown(Loss::ChildPoisoned); return; }
     };
     if STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
@@ -112,8 +125,8 @@ pub(crate) fn child(choice: &OriginalEnrollmentSharingChoice, state: &Arc<State>
     let parent = trace.key(Key::Choice(Arc::downgrade(&choice.lifetime)));
     let child = trace.key(Key::Channel(Arc::downgrade(state)));
     match (parent, child) {
-        (Some(parent), Some(child)) => trace.event(parent, 31, child),
-        _ => unknown(),
+        (Some(parent), Some(child)) => { let _ = trace.event(parent, 31, child); }
+        _ => unknown(Loss::KeyCapacity),
     }
 }
 pub(crate) fn global(stage: u64) {
@@ -157,14 +170,15 @@ pub(crate) fn window_begin() {
         return;
     }
     if STATUS.load(Ordering::Acquire) != 0 {
-        unknown();
+        unknown(Loss::RepeatedBegin);
         return;
     }
-    let Ok(mut trace) = TRACE.try_lock() else {
-        unknown();
-        return;
+    let mut trace = match TRACE.try_lock() {
+        Ok(trace) => trace,
+        Err(TryLockError::WouldBlock) => { unknown(Loss::BeginWouldBlock); return; }
+        Err(TryLockError::Poisoned(_)) => { unknown(Loss::BeginPoisoned); return; }
     };
-    trace.event(0, 40, 0);
+    let _ = trace.event(0, 40, 0);
     drop(trace);
     // Publish only after unlocking, so racing first actor events do not report
     // artificial lock contention against the initialization itself.
@@ -184,17 +198,28 @@ impl Drop for Dump {
         // Freeze before the nonblocking snapshot. Later actor observations are
         // outside this diagnostic lifetime and cannot change its known flag.
         let status = STATUS.fetch_or(2, Ordering::AcqRel);
+        let loss_mask = status >> 3;
         if status & 4 == 0 {
-            eprintln!("broad-trace unavailable");
+            eprintln!("broad-trace unavailable loss_mask={loss_mask} terminal=1");
             return;
         }
-        let Ok(mut trace) = TRACE.try_lock() else {
-            eprintln!("broad-trace unavailable");
-            return;
+        let mut trace = match TRACE.try_lock() {
+            Ok(trace) => trace,
+            Err(TryLockError::WouldBlock) => {
+                eprintln!("broad-trace unavailable loss_mask={loss_mask} terminal=2"); return;
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                eprintln!("broad-trace unavailable loss_mask={loss_mask} terminal=3"); return;
+            }
         };
-        let mut known = status & 1 == 0 && trace.events.len() < MAX_EVENTS;
-        trace.event(0, 41, 0);
-        known &= trace.events.last().is_some_and(|event| event[2] == 41);
+        // Terminal append happens after freeze; return its typed failure locally
+        // instead of racing an update to the already-frozen atomic reason mask.
+        let terminal = match trace.event(0, 41, 0) {
+            Ok(()) => 0,
+            Err(EventLoss::Timestamp) => 4,
+            Err(EventLoss::Capacity) => 5,
+        };
+        let known = status & 1 == 0 && loss_mask == 0 && terminal == 0;
         let kinds: Vec<u8> = trace
             .keys
             .iter()
@@ -206,7 +231,7 @@ impl Drop for Dump {
         let events = std::mem::take(&mut trace.events);
         drop(trace);
         eprintln!(
-            "broad-trace summary known={known} keys={} events={}",
+            "broad-trace summary known={known} keys={} events={} loss_mask={loss_mask} terminal={terminal}",
             kinds.len(),
             events.len()
         );
