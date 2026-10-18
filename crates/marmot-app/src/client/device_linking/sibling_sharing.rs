@@ -2032,10 +2032,10 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
-// NATIVE5_PROOF_TIMING_BEGIN
+                    // NATIVE5_PROOF_TIMING_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     peer_proof_probe::native5_timing::progress(&entry, 3);
-// NATIVE5_PROOF_TIMING_END
+                    // NATIVE5_PROOF_TIMING_END
                     // PEER_NEGATIVE_TEST_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     peer_proof_probe::negative::accepted(&entry);
@@ -2394,17 +2394,16 @@ impl AppClient {
         if !entry.policy_committed {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             entry.observe_progress_for_test(5);
-// NATIVE5_PROOF_TIMING_BEGIN
+            // NATIVE5_PROOF_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             peer_proof_probe::native5_timing::progress(entry, 0);
-// NATIVE5_PROOF_TIMING_END
+            // NATIVE5_PROOF_TIMING_END
             self.persist_sibling_policy(entry)?;
             entry.policy_committed = true;
-// NATIVE5_PROOF_TIMING_BEGIN
+            // NATIVE5_PROOF_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             peer_proof_probe::native5_timing::progress(entry, 1);
-// NATIVE5_PROOF_TIMING_END
-
+            // NATIVE5_PROOF_TIMING_END
         }
         if !entry.proof_published
             || (mode == SiblingAdvanceMode::Periodic
@@ -2415,10 +2414,10 @@ impl AppClient {
         {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             entry.observe_progress_for_test(6);
-// NATIVE5_PROOF_TIMING_BEGIN
+            // NATIVE5_PROOF_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             peer_proof_probe::native5_timing::progress(entry, 2);
-// NATIVE5_PROOF_TIMING_END
+            // NATIVE5_PROOF_TIMING_END
             let scope = entry.channel.scope();
             let device = if entry.recipient {
                 &scope.recipient
@@ -2461,10 +2460,10 @@ impl AppClient {
             if !progress.complete {
                 progress.complete = true;
                 progress.revision += 1;
-// NATIVE5_PROOF_TIMING_BEGIN
+                // NATIVE5_PROOF_TIMING_BEGIN
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 peer_proof_probe::native5_timing::progress(entry, 4);
-// NATIVE5_PROOF_TIMING_END
+                // NATIVE5_PROOF_TIMING_END
             }
         }
     }
@@ -2541,10 +2540,11 @@ impl AppClient {
             return Err(denied());
         }
         self.validate_sibling_parent(&entry.original)?;
-// NATIVE5_PROOF_TIMING_BEGIN
+        // NATIVE5_PROOF_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let native5_proof_attempt = body.and_then(|_| peer_proof_probe::native5_timing::begin_proof(entry));
-// NATIVE5_PROOF_TIMING_END
+        let native5_proof_attempt =
+            body.and_then(|_| peer_proof_probe::native5_timing::begin_proof(entry));
+        // NATIVE5_PROOF_TIMING_END
         let kind = if let Some(body) = body {
             self.runtime
                 .session()
@@ -2555,10 +2555,12 @@ impl AppClient {
                     body,
                 )
                 .map_err(ClientLinkingError::Engine)?;
-// NATIVE5_PROOF_TIMING_BEGIN
+            // NATIVE5_PROOF_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(attempt) = &native5_proof_attempt { attempt.boundary(1); }
-// NATIVE5_PROOF_TIMING_END
+            if let Some(attempt) = &native5_proof_attempt {
+                attempt.boundary(1);
+            }
+            // NATIVE5_PROOF_TIMING_END
             AccountSharingControl::Body(0)
         } else if entry.recipient {
             AccountSharingControl::Consent
@@ -2598,20 +2600,24 @@ impl AppClient {
                 .expect("sibling diagnostics")
                 .publication_stage = Some(Stage::BeforeCoreWrap);
         }
-// NATIVE5_PROOF_TIMING_BEGIN
+        // NATIVE5_PROOF_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(attempt) = &native5_proof_attempt { attempt.boundary(2); }
-// NATIVE5_PROOF_TIMING_END
+        if let Some(attempt) = &native5_proof_attempt {
+            attempt.boundary(2);
+        }
+        // NATIVE5_PROOF_TIMING_END
         let message = tokio::select! { biased;
             () = &mut stopping => return Err(denied()),
             () = &mut revoked_wrap => return Err(denied()),
             () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
             message = self.runtime.session_mut().wrap_account_sharing_control(&mut entry.channel, kind) => message.map_err(ClientLinkingError::Engine)?,
         };
-// NATIVE5_PROOF_TIMING_BEGIN
+        // NATIVE5_PROOF_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(attempt) = &native5_proof_attempt { attempt.boundary(3); }
-// NATIVE5_PROOF_TIMING_END
+        if let Some(attempt) = &native5_proof_attempt {
+            attempt.boundary(3);
+        }
+        // NATIVE5_PROOF_TIMING_END
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
             use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
@@ -2693,7 +2699,12 @@ impl AppClient {
         }
         // NATIVE5_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let native5_timing = peer_proof_probe::native5_timing::prepared(entry, &request, kind, native5_proof_attempt.as_ref());
+        let native5_timing = peer_proof_probe::native5_timing::prepared(
+            entry,
+            &request,
+            kind,
+            native5_proof_attempt.as_ref(),
+        );
         // NATIVE5_TIMING_END
         self.runtime
             .session()
