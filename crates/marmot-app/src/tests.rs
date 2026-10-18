@@ -1311,7 +1311,10 @@ impl NostrRelayClient for ScriptedPushRelayClient {
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
         {
             let released = registered_release(&self.publish_release);
-            self.blocked_publish_kind.lock().unwrap().get_or_insert(event.kind);
+            self.blocked_publish_kind
+                .lock()
+                .unwrap()
+                .get_or_insert(event.kind);
             self.blocked_publish_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.publish_started.notify_one();
@@ -7094,8 +7097,10 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     };
     eprintln!(
         "generated_identity_blocked_publication held_kind_known={} held_kind={} returned_readiness={} live_readiness={}",
-        held_kind.is_some(), held_kind.unwrap_or(0),
-        readiness_code(result.readiness), readiness_code(live_readiness),
+        held_kind.is_some(),
+        held_kind.unwrap_or(0),
+        readiness_code(result.readiness),
+        readiness_code(live_readiness),
     );
     assert_eq!(live_readiness, AccountSetupReadiness::Publishing);
     let lifecycle = app
