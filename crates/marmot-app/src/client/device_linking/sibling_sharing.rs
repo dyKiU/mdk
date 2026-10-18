@@ -1964,6 +1964,14 @@ impl AppClient {
             return Ok(false);
         };
         let mut entry = self.linking_owner.sibling_channels.remove(index);
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+let native5_incoming = peer_proof_probe::native5_timing::incoming(&entry, received, wire);
+// NATIVE5_RECIPROCAL_TIMING_END
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+if received.control == AccountSharingControl::Consent && !entry.recipient { peer_proof_probe::native5_timing::peer_progress(&entry, 0); }
+// NATIVE5_RECIPROCAL_TIMING_END
         // PEER_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         peer_proof_probe::negative::routed(&entry, received, wire);
@@ -1979,11 +1987,27 @@ impl AppClient {
             match received.control {
                 AccountSharingControl::Consent if !entry.recipient => {
                     let first_consent = !entry.ready;
-                    self.runtime
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+peer_proof_probe::native5_timing::peer_progress(&entry, 1);
+// NATIVE5_RECIPROCAL_TIMING_END
+                    let consent_binding = self.runtime
                         .session()
                         .bind_account_sharing_consent(&mut entry.channel, wire)
-                        .map_err(|_| Error::NotReady)?;
+                        .map_err(|_| Error::NotReady);
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+{
+    peer_proof_probe::native5_timing::peer_bind_result(&entry, consent_binding.is_ok());
+    if consent_binding.is_ok() { peer_proof_probe::native5_timing::peer_progress(&entry, 2); }
+}
+// NATIVE5_RECIPROCAL_TIMING_END
+                    consent_binding?;
                     entry.ready = true;
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+peer_proof_probe::native5_timing::peer_progress(&entry, 3);
+// NATIVE5_RECIPROCAL_TIMING_END
                     if first_consent {
                         // Keep the initial Request ACK; only its superseded retry is obsolete.
                         if entry.handshake_published
@@ -2007,11 +2031,19 @@ impl AppClient {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     peer_proof_probe::negative::opened(&entry);
                     // PEER_NEGATIVE_TEST_END
-                    let (kind, _, body) = self
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+if let Some(token) = &native5_incoming { token.stage(1, None); }
+// NATIVE5_RECIPROCAL_TIMING_END
+                    let opened_body = self
                         .runtime
                         .session()
-                        .open_account_shared_body(&entry.channel, wire)
-                        .map_err(|_| Error::NotReady)?;
+                        .open_account_shared_body(&entry.channel, wire);
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+if let Some(token) = &native5_incoming { token.stage(2, Some(opened_body.is_ok())); }
+// NATIVE5_RECIPROCAL_TIMING_END
+                    let (kind, _, body) = opened_body.map_err(|_| Error::NotReady)?;
                     if kind != AccountSharedBodyKind::PairPolicyCommitted || body.len() > 1024 {
                         return Err(Error::NotReady);
                     }
@@ -2032,6 +2064,10 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+if let Some(token) = &native5_incoming { token.stage(3, None); }
+// NATIVE5_RECIPROCAL_TIMING_END
                     // NATIVE5_PROOF_TIMING_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     peer_proof_probe::native5_timing::progress(&entry, 3);
@@ -2074,7 +2110,15 @@ impl AppClient {
             entry
                 .pending_controls
                 .push((received.control, received.signer.clone(), wire.to_vec()));
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+if let Some(token) = &native5_incoming { token.stage(4, None); }
+// NATIVE5_RECIPROCAL_TIMING_END
         }
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+if let Some(token) = &native5_incoming { token.finish(&result); }
+// NATIVE5_RECIPROCAL_TIMING_END
         self.linking_owner.sibling_channels.push(entry);
         result
     }
@@ -2553,7 +2597,12 @@ impl AppClient {
         if !entry.original.live() || !entry.state.live() {
             return Err(denied());
         }
-        self.validate_sibling_parent(&entry.original)?;
+        let parent_validation = self.validate_sibling_parent(&entry.original);
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+peer_proof_probe::native5_timing::peer_validation(entry, &parent_validation);
+// NATIVE5_RECIPROCAL_TIMING_END
+        parent_validation?;
         // NATIVE5_PROOF_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let native5_proof_attempt =
@@ -2568,6 +2617,12 @@ impl AppClient {
                     0,
                     body,
                 )
+                .inspect(|_wire| {
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+if let Some(attempt) = &native5_proof_attempt { attempt.sealed(_wire); }
+// NATIVE5_RECIPROCAL_TIMING_END
+                })
                 .map_err(ClientLinkingError::Engine)?;
             // NATIVE5_PROOF_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2700,7 +2755,12 @@ impl AppClient {
         if !entry.original.live() || !entry.state.live() || entry.publication.is_some() {
             return Err(denied());
         }
-        self.validate_sibling_parent(&entry.original)?;
+        let parent_validation = self.validate_sibling_parent(&entry.original);
+// NATIVE5_RECIPROCAL_TIMING_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+peer_proof_probe::native5_timing::peer_validation(entry, &parent_validation);
+// NATIVE5_RECIPROCAL_TIMING_END
+        parent_validation?;
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
             use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;

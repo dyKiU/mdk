@@ -22,7 +22,7 @@ struct Row {
 struct Probe {
     origin: Instant,
     status: AtomicU32,
-    rows: Mutex<[Option<Row>; 6]>,
+    rows: Mutex<[Option<Row>; 9]>,
 }
 struct Registry {
     slots: [OnceLock<Weak<Probe>>; 2],
@@ -71,7 +71,7 @@ impl Probe {
                 (v & FROZEN == 0).then_some(v | bit)
             });
     }
-    fn observe(&self, f: impl FnOnce(&mut [Option<Row>; 6], u64)) {
+    fn observe(&self, f: impl FnOnce(&mut [Option<Row>; 9], u64)) {
         if self.status.load(Ordering::Acquire) & FROZEN != 0 {
             return;
         }

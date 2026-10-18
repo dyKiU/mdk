@@ -11,8 +11,8 @@ from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='77caba679ab5986df88fd7296b5446004fba8bb7' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='cbaeb3403d28b3aadaaec5919f04c818790aba487b2a98ada64a3b22ff9012cf' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='efd8ac43e47dd18b88f294b2d9a80309c7f8725adb43434ddfd5766c24a357d8' # Root MUST pin exact reviewed closed parser.
+MANIFEST_SHA='f79c0284ff584dd81da7c0938a675aeaaaa2fb5dfd3517bb277dc237d89782cd' # Root MUST pin exact reviewed/reformatted reversal manifest.
+PARSER_SHA='be86c34b6140d70e282fa35267b3ab2b4b4c8359e1f8edfdcce0dc3567b61bc7' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -67,7 +67,7 @@ def source_guard():
             before,rest=text.split(BEGIN);_,after=rest.split(END);data=(before+after).replace(OPTIONS,'options: [',1).encode()
         if blob is not None:ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-baseline-byte-equality:'+path)
     ensure(not subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).strip(),'no-untracked-overlays')
-    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'passive_target_join_ordinals':[4,5],'first_Body0_proof_and_authenticated_peer_completion_trace':True,'later_proof_attempts_not_merged':True,'full_five_installation_scenario_retained':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
+    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'passive_target_join_ordinals':[4,5],'first_Body0_proof_and_authenticated_peer_completion_trace':True,'reciprocal_peer_body0_trace':True,'receiver_outer_event_identity_known':False,'later_proof_attempts_not_merged':True,'full_five_installation_scenario_retained':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
 
 def parse(raw,code):
     # Exact-name/count parser is unchanged shared infrastructure. Preserve original libtest prefix.

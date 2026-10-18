@@ -256,7 +256,7 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             ).await;
             // Reuse the integration helper:15s for every phase;
             // no deadline override, packets or extra host finalization calls.
-            wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;
+            wait_for_automatic_phase_with_approvals(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete, &approvals).await;
 // NATIVE5_TIMING_BEGIN
             #[cfg(feature = "test-policy-overrides")]
             if let Some((ordinal, guard)) = native5_timing.take() {

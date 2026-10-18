@@ -28,7 +28,173 @@ impl Key {
         self.same_channel(other) && self.message == other.message
     }
 }
+// Pure wire-common identity only. Local generations and cross-device pointers
+// are deliberately excluded; these observations never grant channel authority.
+struct CommonScope {
+    account: Vec<u8>, group: Vec<u8>, epoch: u64,
+    authenticator: [u8; 32], roster: [u8; 32],
+    source: Vec<u8>, recipient: Vec<u8>, nonce: [u8; 32],
+    policy: [u8; 32], approval: [u8; 32],
+}
+impl CommonScope {
+    fn new(scope: &AccountSharingScope) -> Self {
+        Self { account: scope.protected.account.as_slice().to_vec(), group: scope.protected.group_id.as_slice().to_vec(), epoch: scope.protected.epoch.0,
+            authenticator: scope.protected.epoch_authenticator_digest, roster: scope.protected.roster_commitment,
+            source: scope.source.clone(), recipient: scope.recipient.clone(), nonce: scope.nonce,
+            policy: scope.approved_policy_identity, approval: scope.approval_id }
+    }
+    fn matches(&self, scope: &AccountSharingScope) -> bool {
+        self.account == scope.protected.account.as_slice() && self.group == scope.protected.group_id.as_slice()
+            && self.epoch == scope.protected.epoch.0 && self.authenticator == scope.protected.epoch_authenticator_digest
+            && self.roster == scope.protected.roster_commitment && self.source == scope.source && self.recipient == scope.recipient
+            && self.nonce == scope.nonce && self.policy == scope.approved_policy_identity && self.approval == scope.approval_id
+    }
+}
+struct Peer {
+    original: Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+    state: Weak<State>,
+    proof: Option<Proof>,
+    sealed_wire: Option<Vec<u8>>,
+    progress: [Option<u64>; 7], repeats: [u32; 7],
+    bind_results: [u32; 2], validation_results: [u32; 8],
+}
+struct Incoming {
+    times: [Option<u64>; 6],
+    opened_ok: Option<bool>, disposition: Option<u8>,
+    later_routes: u32,
+    first_successful_accept: Option<(u64,u32)>,
+}
+// The reciprocal side binds its OWN real local original and State. Never compare
+// either pointer to the recipient's unrelated State.
+fn peer_slot(data: &mut Data, entry: &SiblingChannel, probe: &Probe) -> Option<usize> {
+    if entry.recipient { return None; }
+    let SiblingOriginal::Existing { original, .. } = entry.original.as_ref() else { return None; };
+    let index = data.slots.iter().position(|row| row.as_ref().is_some_and(|slot| slot.common.matches(entry.channel.scope())))?;
+    let slot = data.slots[index].as_mut()?;
+    if let Some(peer) = &slot.peer {
+        if !peer.original.ptr_eq(&Arc::downgrade(original)) || !peer.state.ptr_eq(&Arc::downgrade(&entry.state)) { probe.loss(IDENTITY); return None; }
+    } else {
+        slot.peer = Some(Peer { original: Arc::downgrade(original), state: Arc::downgrade(&entry.state), proof: None, sealed_wire: None,
+            progress: [None; 7], repeats: [0; 7], bind_results: [0; 2], validation_results: [0; 8] });
+    }
+    Some(index)
+}
+pub(in super::super::super) fn peer_progress(entry: &SiblingChannel, stage: usize) {
+    let Some(probe) = active_probe() else { return; };
+    probe.observe(|data,time| {
+        let Some(index) = peer_slot(data,entry,&probe) else { return; };
+        let Some(peer) = data.slots[index].as_mut().and_then(|slot| slot.peer.as_mut()) else { return; };
+        let Some(field) = peer.progress.get_mut(stage) else { probe.loss(IDENTITY); return; };
+        if field.is_some() { increment(&mut peer.repeats[stage],&probe); } else { *field = time; }
+    });
+}
+pub(in super::super::super) fn peer_bind_result(entry: &SiblingChannel, ok: bool) {
+    let Some(probe) = active_probe() else { return; };
+    probe.observe(|data,_| {
+        let Some(index) = peer_slot(data,entry,&probe) else { return; };
+        if let Some(peer) = data.slots[index].as_mut().and_then(|slot| slot.peer.as_mut()) { increment(&mut peer.bind_results[usize::from(!ok)],&probe); }
+    });
+}
+pub(in super::super::super) fn peer_validation(entry: &SiblingChannel, result: &Result<(), ClientLinkingError>) {
+    let Some(probe) = active_probe() else { return; };
+    let category = match result { Ok(())=>0,Err(ClientLinkingError::Owner(_))=>1,Err(ClientLinkingError::Collection(_))=>2,
+        Err(ClientLinkingError::Runtime(_))=>3,Err(ClientLinkingError::Engine(_))=>4,Err(ClientLinkingError::Genesis(_))=>5,
+        Err(ClientLinkingError::Gate(_))=>6,Err(ClientLinkingError::PrivateInvite(_))=>7 };
+    probe.observe(|data,_| { let Some(index)=peer_slot(data,entry,&probe) else { return; };
+        if let Some(peer)=data.slots[index].as_mut().and_then(|slot|slot.peer.as_mut()) { increment(&mut peer.validation_results[category],&probe); }
+    });
+}
+pub(in super::super::super) struct IncomingToken { probe: Weak<Probe>, index: usize, category: usize, ordinal: u32, first: bool }
+pub(in super::super::super) fn incoming(entry: &SiblingChannel, received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl, wire: &[u8]) -> Option<IncomingToken> {
+    if received.control != AccountSharingControl::Body(0) { return None; }
+    let probe=active_probe()?;let mut selected=None;
+    probe.observe(|data,time| {
+        if !owned(data,entry) { return; }
+        let Some(index)=data.slots.iter().position(|row|row.as_ref().is_some_and(|slot|same_entry(slot,entry)&&slot.common.matches(entry.channel.scope()))) else { return; };
+        let Some(slot)=data.slots[index].as_mut() else { return; };
+        let category=match slot.peer.as_ref().and_then(|peer|peer.sealed_wire.as_deref()) { Some(first) if first==wire=>0,Some(_)=>1,None=>2 };
+        let row=&mut slot.incoming[category];let first=row.is_none();
+        if first { *row=Some(Incoming { times:[time,None,None,None,None,None],opened_ok:None,disposition:None,later_routes:0,first_successful_accept:None }); }
+        else if let Some(row)=row.as_mut() { increment(&mut row.later_routes,&probe); }
+        let ordinal=row.as_ref().map_or(0,|row|row.later_routes);
+        selected=Some(IncomingToken { probe:Arc::downgrade(&probe),index,category,ordinal,first });
+    });selected
+}
+impl IncomingToken {
+    pub(in super::super::super) fn stage(&self,stage:usize,opened_ok:Option<bool>) {
+        if !self.first && stage!=3 { return; }let Some(probe)=self.probe.upgrade() else { return; };
+        probe.observe(|data,time| { let Some(row)=data.slots.get_mut(self.index).and_then(Option::as_mut).and_then(|slot|slot.incoming.get_mut(self.category)).and_then(Option::as_mut) else { probe.loss(IDENTITY);return; };
+            if stage==3 && row.first_successful_accept.is_none() { if let Some(time)=time { row.first_successful_accept=Some((time,self.ordinal)); } }
+            if !self.first { return; }
+            let Some(field)=row.times.get_mut(stage) else { probe.loss(IDENTITY);return; };
+            if field.is_some() { probe.loss(DUPLICATE);return; } *field=time;
+            if let Some(ok)=opened_ok { row.opened_ok=Some(ok); }
+        });
+    }
+    pub(in super::super::super) fn finish(&self,result:&Result<bool,crate::AccountSharingError>) {
+        if !self.first { return; }
+        let category=match result { Ok(true)=>0,Ok(false)=>1,Err(crate::AccountSharingError::Unsupported)=>2,
+            Err(crate::AccountSharingError::NotReady)=>3,Err(crate::AccountSharingError::Closed)=>4,
+            Err(crate::AccountSharingError::StaleRevision)=>5,Err(crate::AccountSharingError::RuntimeUnavailable)=>6 };
+        let Some(probe)=self.probe.upgrade() else { return; };
+        probe.observe(|data,time| { let Some(row)=data.slots.get_mut(self.index).and_then(Option::as_mut).and_then(|slot|slot.incoming.get_mut(self.category)).and_then(Option::as_mut) else { probe.loss(IDENTITY);return; };
+            if row.times[5].is_some() { probe.loss(DUPLICATE);return; }row.times[5]=time;row.disposition=Some(category);
+        });
+    }
+}
+
+pub(in super::super::super) enum PublicationAttempt { Own(ProofAttempt), Peer(PeerAttempt) }
+impl PublicationAttempt {
+    pub(in super::super::super) fn boundary(&self,index:usize) { match self { Self::Own(a)=>a.boundary(index),Self::Peer(a)=>a.boundary(index) } }
+    pub(in super::super::super) fn sealed(&self,wire:&[u8]) { if let Self::Peer(peer)=self { peer.sealed(wire); } }
+    fn prepared(&self,entry:&SiblingChannel,request:&cgka_traits::TransportPublishRequest)->Option<Token> { match self { Self::Own(a)=>a.prepared(entry,request),Self::Peer(a)=>a.prepared(entry,request) } }
+}
+pub(in super::super::super) struct PeerAttempt { probe:Weak<Probe>,index:usize }
+impl PeerAttempt {
+    fn sealed(&self,wire:&[u8]) {
+        let Some(probe)=self.probe.upgrade() else { return; };
+        if wire.is_empty() || wire.len()>16*1024 { probe.loss(CAPACITY);return; }
+        probe.observe(|data,_| { let Some(peer)=data.slots.get_mut(self.index).and_then(Option::as_mut).and_then(|slot|slot.peer.as_mut()) else { probe.loss(IDENTITY);return; };
+            if peer.sealed_wire.is_some() { probe.loss(DUPLICATE); } else { peer.sealed_wire=Some(wire.to_vec()); }
+        });
+    }
+    fn boundary(&self,index:usize) {
+        let Some(probe)=self.probe.upgrade() else { return; };
+        probe.observe(|data,time| {
+            let Some(proof)=data.slots.get_mut(self.index).and_then(Option::as_mut).and_then(|slot|slot.peer.as_mut()).and_then(|peer|peer.proof.as_mut()) else { probe.loss(IDENTITY);return; };
+            let Some(field)=proof.preparation.get_mut(index) else { probe.loss(IDENTITY);return; };
+            if field.is_some() { probe.loss(DUPLICATE); } else { *field=time; }
+        });
+    }
+    fn prepared(&self,entry:&SiblingChannel,request:&cgka_traits::TransportPublishRequest)->Option<Token> {
+        let probe=self.probe.upgrade()?;let mut selected=None;
+        probe.observe(|data,time| {
+            if peer_slot(data,entry,&probe)!=Some(self.index) { probe.loss(IDENTITY);return; }
+            let Some(peer)=data.slots[self.index].as_mut().and_then(|slot|slot.peer.as_mut()) else { return; };
+            let Some(proof)=peer.proof.as_mut() else { probe.loss(IDENTITY);return; };
+            if proof.key.is_some() { probe.loss(DUPLICATE);return; }
+            let key=Key { state:Arc::downgrade(&entry.state),nonce:entry.channel.scope().nonce,message:request.message.id.clone() };
+            proof.key=Some(key.clone());proof.times[0]=time;
+            selected=Some(Token { probe:Arc::downgrade(&probe),index:self.index,key,proof:true,peer:true });
+        });selected.map(|token|{token.bind_sdk();token})
+    }
+}
+pub(in super::super::super) fn begin_proof(entry:&SiblingChannel)->Option<PublicationAttempt> {
+    if entry.recipient { return begin_owned_proof(entry).map(PublicationAttempt::Own); }
+    let probe=active_probe()?;let mut selected=None;
+    probe.observe(|data,time| {
+        let Some(index)=peer_slot(data,entry,&probe) else { return; };
+        let Some(peer)=data.slots[index].as_mut().and_then(|slot|slot.peer.as_mut()) else { return; };
+        if let Some(proof)=peer.proof.as_mut() { increment(&mut proof.subsequent_attempts,&probe);return; }
+        peer.proof=Some(Proof { key:None,times:[None;9],outcomes:[None;5],preparation:[time,None,None,None],spawn_boundaries:[None;6],subsequent_attempts:0 });
+        selected=Some(PublicationAttempt::Peer(PeerAttempt { probe:Arc::downgrade(&probe),index }));
+    });selected
+}
+
 struct Slot {
+    common: CommonScope,
+    peer: Option<Peer>,
+    incoming: [Option<Incoming>; 3],
     key: Key,
     times: [Option<u64>; 9],
     // Actual adapter Result Ok, report met ACKs, send accepted, receive Ok,
@@ -56,8 +222,12 @@ impl Slot {
     fn publication_mut(
         &mut self,
         proof: bool,
+        peer: bool,
     ) -> Option<(&Key, &mut [Option<u64>; 9], &mut [Option<bool>; 5])> {
-        if proof {
+        if peer {
+            let publication = self.peer.as_mut()?.proof.as_mut()?;
+            Some((publication.key.as_ref()?, &mut publication.times, &mut publication.outcomes))
+        } else if proof {
             let publication = self.proof.as_mut()?;
             Some((
                 publication.key.as_ref()?,
@@ -380,12 +550,13 @@ pub(crate) struct Token {
     index: usize,
     key: Key,
     proof: bool,
+    peer: bool,
 }
 impl Token {
     fn bind_sdk(&self) {
         if let Some(probe) = self.probe.upgrade() {
             probe.sdk.bind(
-                self.index * 2 + usize::from(self.proof),
+                if self.peer { 6 + self.index } else { self.index * 2 + usize::from(self.proof) },
                 self.key.message.as_slice(),
             );
         }
@@ -402,7 +573,8 @@ impl Token {
                 probe.loss(IDENTITY);
                 return;
             };
-            let Some(proof) = slot.proof.as_mut() else {
+            let candidate = if self.peer { slot.peer.as_mut().and_then(|peer|peer.proof.as_mut()) } else { slot.proof.as_mut() };
+            let Some(proof) = candidate else {
                 probe.loss(IDENTITY);
                 return;
             };
@@ -435,7 +607,7 @@ impl Token {
                 probe.loss(IDENTITY);
                 return;
             };
-            let Some((key, times, outcomes)) = slot.publication_mut(self.proof) else {
+            let Some((key, times, outcomes)) = slot.publication_mut(self.proof, self.peer) else {
                 probe.loss(IDENTITY);
                 return;
             };
@@ -466,7 +638,7 @@ impl Token {
                 probe.loss(IDENTITY);
                 return;
             };
-            let Some((key, times, outcomes)) = slot.publication_mut(self.proof) else {
+            let Some((key, times, outcomes)) = slot.publication_mut(self.proof, self.peer) else {
                 probe.loss(IDENTITY);
                 return;
             };
@@ -561,6 +733,7 @@ impl ProofAttempt {
                 index: self.index,
                 key,
                 proof: true,
+                peer: false,
             });
         });
         selected.map(|token| {
@@ -587,6 +760,7 @@ fn increment(value: &mut u32, probe: &Probe) {
     }
 }
 pub(in super::super::super) fn progress(entry: &SiblingChannel, index: usize) {
+    if !entry.recipient { if index < 3 { peer_progress(entry, index + 4); } return; }
     let Some(probe) = active_probe() else {
         return;
     };
@@ -614,7 +788,7 @@ pub(in super::super::super) fn progress(entry: &SiblingChannel, index: usize) {
         }
     });
 }
-pub(in super::super::super) fn begin_proof(entry: &SiblingChannel) -> Option<ProofAttempt> {
+fn begin_owned_proof(entry: &SiblingChannel) -> Option<ProofAttempt> {
     let probe = active_probe()?;
     let mut selected = None;
     probe.observe(|data, time| {
@@ -658,9 +832,9 @@ pub(in super::super::super) fn prepared(
     entry: &SiblingChannel,
     request: &cgka_traits::TransportPublishRequest,
     kind: AccountSharingControl,
-    proof_attempt: Option<&ProofAttempt>,
+    proof_attempt: Option<&PublicationAttempt>,
 ) -> Option<Token> {
-    if entry.recipient && kind == AccountSharingControl::Body(0) {
+    if kind == AccountSharingControl::Body(0) {
         return proof_attempt.and_then(|attempt| attempt.prepared(entry, request));
     }
     if !entry.recipient || kind != AccountSharingControl::Consent {
@@ -706,6 +880,9 @@ pub(in super::super::super) fn prepared(
         let mut times = [None; 9];
         times[0] = time;
         data.slots[index] = Some(Slot {
+            common: CommonScope::new(entry.channel.scope()),
+            peer: None,
+            incoming: std::array::from_fn(|_|None),
             key: key.clone(),
             times,
             outcomes: [None; 5],
@@ -719,6 +896,7 @@ pub(in super::super::super) fn prepared(
             index,
             key: key.clone(),
             proof: false,
+            peer: false,
         });
     });
     selected.map(|token| {
@@ -880,6 +1058,9 @@ impl Guard {
                     data.terminal_inflight,
                     data.terminal_bounds,
                 ),
+                std::array::from_fn::<_,3,_>(|index| data.slots[index].as_ref().and_then(|slot|slot.peer.as_ref()).and_then(|peer|peer.proof.as_ref()).map(|proof|(proof.key.is_some(),proof.times,proof.outcomes,proof.preparation,proof.subsequent_attempts,proof.spawn_boundaries))),
+                std::array::from_fn::<_,3,_>(|index| data.slots[index].as_ref().and_then(|slot|slot.peer.as_ref()).map(|peer|(peer.progress,peer.repeats,peer.bind_results,peer.validation_results))),
+                std::array::from_fn::<_,9,_>(|index| data.slots[index/3].as_ref().and_then(|slot|slot.incoming[index%3].as_ref()).map(|row|(row.times,row.opened_ok,row.disposition,row.later_routes,row.first_successful_accept))),
             )),
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => None,
@@ -914,6 +1095,9 @@ impl Guard {
             proofs,
             progress,
             terminal_cost,
+            peer_proofs,
+            peer_progress,
+            incoming,
         )) = snapshot
         {
             let lower = before.and_then(|value| value.checked_add(15_000_000));
@@ -940,6 +1124,9 @@ impl Guard {
                     "native5-consent-progress index={index} observation={row:?}"
                 );
             }
+            for (index,row) in peer_proofs.into_iter().enumerate() { let _=writeln!(&mut output,"native5-consent-peer-proof index={index} observation={row:?}"); }
+            for (index,row) in peer_progress.into_iter().enumerate() { let _=writeln!(&mut output,"native5-consent-peer-progress index={index} observation={row:?}"); }
+            for (index,row) in incoming.into_iter().enumerate() { let _=writeln!(&mut output,"native5-consent-incoming index={index} observation={row:?}"); }
             let _ = writeln!(&mut output, "native5-consent-rpc-count count={rpc_count}");
             for (index, row) in rpc.into_iter().take(rpc_count).enumerate() {
                 if let Some(row) = row {
