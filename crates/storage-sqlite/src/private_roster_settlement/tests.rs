@@ -605,3 +605,242 @@ fn private_settlement_all_128_occupied_slots_complete_without_account_deduplicat
     assert_eq!(storage.read_facts().unwrap().len(), 128);
     assert!(storage.read_round().unwrap().unwrap().phase == PrivateSettlementPhase::Completed);
 }
+
+// Synthetic SQL consistency only; no Engine/MLS or SDK authority is constructed.
+#[derive(Clone, Copy)]
+enum ForeignSettlementRead {
+    Round,
+    Facts,
+}
+
+enum ForeignSettlementView {
+    Round(Box<PrivateSettlementState>),
+    Facts(Vec<PrivateSettlementFact>),
+}
+
+struct ForeignSettlementTraceGate {
+    target_facts_statement: usize,
+    seen_facts_statements: usize,
+    reached: std::sync::mpsc::SyncSender<()>,
+    resume: std::sync::mpsc::Receiver<()>,
+    writer_committed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    callback_completed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+std::thread_local! {
+    static FOREIGN_SETTLEMENT_TRACE_GATE: std::cell::RefCell<Option<ForeignSettlementTraceGate>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn pause_foreign_settlement_facts(event: rusqlite::trace::TraceEvent<'_>) {
+    let rusqlite::trace::TraceEvent::Stmt(statement, _) = event else {
+        return;
+    };
+    if statement.sql()
+        != "SELECT leaf_index,record FROM private_roster_settlement_facts ORDER BY leaf_index LIMIT 129"
+    {
+        return;
+    }
+    FOREIGN_SETTLEMENT_TRACE_GATE.with(|slot| {
+        let Ok(mut slot) = slot.try_borrow_mut() else {
+            return;
+        };
+        let Some(gate) = slot.as_mut() else {
+            return;
+        };
+        gate.seen_facts_statements += 1;
+        if gate.seen_facts_statements != gate.target_facts_statement {
+            return;
+        }
+        // Only bounded channels here: never call SQLite or print SQL/values from its callback.
+        let signalled = gate.reached.send(()).is_ok();
+        let resumed = gate
+            .resume
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .is_ok();
+        gate.callback_completed.store(
+            signalled
+                && resumed
+                && gate
+                    .writer_committed
+                    .load(std::sync::atomic::Ordering::Acquire),
+            std::sync::atomic::Ordering::Release,
+        );
+    });
+}
+
+fn exercise_foreign_settlement_snapshot(mode: ForeignSettlementRead) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+    use std::time::Duration;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("foreign-settlement-snapshot.sqlite");
+    let key = crate::SqlCipherKey::new("63".repeat(32)).unwrap();
+    let writer = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let reader = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    // Compare the live SQLite connections without requiring the newer public
+    // storage-handle accessor. Neither connection is closed or moved here.
+    let reader_connection = {
+        let connection = reader.lock().unwrap();
+        std::ptr::from_ref(&*connection)
+    };
+    let writer_connection = {
+        let connection = writer.lock().unwrap();
+        std::ptr::from_ref(&*connection)
+    };
+    assert!(!std::ptr::eq(reader_connection, writer_connection));
+    let journal: String = reader
+        .lock()
+        .unwrap()
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    assert!(journal.eq_ignore_ascii_case("wal"));
+    let old_generation = complete(&writer);
+    let old_state = writer.read_round().unwrap().unwrap();
+    let old_facts = writer.read_facts().unwrap();
+    assert!(old_state.phase == PrivateSettlementPhase::Completed && old_facts.len() == 2);
+    let (reached_tx, reached_rx) = mpsc::sync_channel(1);
+    let (resume_tx, resume_rx) = mpsc::sync_channel(1);
+    let writer_committed = Arc::new(AtomicBool::new(false));
+    let callback_completed = Arc::new(AtomicBool::new(false));
+    let callback_copy = callback_completed.clone();
+    let writer_copy = writer_committed.clone();
+    let target = match mode {
+        ForeignSettlementRead::Round => 1,
+        ForeignSettlementRead::Facts => 2,
+    };
+    let reader_thread = std::thread::spawn(move || {
+        FOREIGN_SETTLEMENT_TRACE_GATE.with(|slot| {
+            *slot.borrow_mut() = Some(ForeignSettlementTraceGate {
+                target_facts_statement: target,
+                seen_facts_statements: 0,
+                reached: reached_tx,
+                resume: resume_rx,
+                writer_committed: writer_copy,
+                callback_completed: callback_copy,
+            });
+        });
+        reader.lock().unwrap().trace_v2(
+            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(pause_foreign_settlement_facts),
+        );
+        let result = match mode {
+            ForeignSettlementRead::Round => reader.read_round().and_then(|value| {
+                value
+                    .map(|state| ForeignSettlementView::Round(Box::new(state)))
+                    .ok_or(StorageError::NotFound)
+            }),
+            ForeignSettlementRead::Facts => reader.read_facts().map(ForeignSettlementView::Facts),
+        };
+        reader
+            .lock()
+            .unwrap()
+            .trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+        let seen = FOREIGN_SETTLEMENT_TRACE_GATE.with(|slot| {
+            slot.borrow_mut()
+                .take()
+                .map_or(0, |gate| gate.seen_facts_statements)
+        });
+        (result, seen, reader)
+    });
+    let boundary_seen = reached_rx.recv_timeout(Duration::from_secs(10)).is_ok();
+    let replacement = if boundary_seen {
+        writer.select_round(&anchor())
+    } else {
+        Err(StorageError::NotFound)
+    };
+    let committed = replacement.as_ref().is_ok_and(|state| {
+        state.generation == old_generation + 1 && state.phase == PrivateSettlementPhase::Pending
+    });
+    writer_committed.store(committed, Ordering::Release);
+    let release_sent = resume_tx.send(()).is_ok();
+    let (result, observed_statements, reader) = reader_thread.join().unwrap();
+    let callback_ok = callback_completed.load(Ordering::Acquire);
+    assert!(
+        boundary_seen && committed && release_sent && callback_ok && observed_statements == target,
+        "actual independent WAL commit must occur inside the selected public read boundary"
+    );
+    let mut typed_serialization = false;
+    let mut returned_facts = false;
+    let coherent = match result {
+        Ok(ForeignSettlementView::Round(state)) => *state == old_state,
+        Ok(ForeignSettlementView::Facts(facts)) => {
+            returned_facts = true;
+            facts == old_facts
+        }
+        Err(StorageError::Serialization(detail)) => {
+            typed_serialization = detail == "invalid private settlement facts";
+            false
+        }
+        Err(_) => false,
+    };
+    // A new independent observation must see the committed replacement, not the pinned old view.
+    let fresh = reader.read_round().unwrap().unwrap();
+    let fresh_facts = reader.read_facts().unwrap();
+    let fresh_new_view = fresh.generation == old_generation + 1
+        && fresh.phase == PrivateSettlementPhase::Pending
+        && fresh_facts.is_empty();
+    assert!(
+        fresh_new_view,
+        "fresh public reads must see the actual committed replacement"
+    );
+    let mode_name = match mode {
+        ForeignSettlementRead::Round => "round",
+        ForeignSettlementRead::Facts => "facts",
+    };
+    eprintln!(
+        "private_settlement_read_snapshot mode={mode_name} boundary_seen={boundary_seen} writer_committed={committed} callback_completed={callback_ok} independent_handles=true observed_statements={observed_statements} coherent_old_view={coherent} fresh_new_view={fresh_new_view} typed_serialization={typed_serialization} returned_facts={returned_facts}"
+    );
+    match mode {
+        ForeignSettlementRead::Round => assert!(
+            coherent,
+            "public settlement round snapshot must preserve coherent committed state and facts"
+        ),
+        ForeignSettlementRead::Facts => assert!(
+            coherent,
+            "public settlement facts snapshot must preserve coherent committed state and facts"
+        ),
+    }
+    reader.close().unwrap();
+    writer.close().unwrap();
+}
+
+#[test]
+fn private_settlement_read_round_pins_foreign_wal_replacement() {
+    exercise_foreign_settlement_snapshot(ForeignSettlementRead::Round);
+}
+
+#[test]
+fn private_settlement_read_facts_pins_foreign_wal_replacement() {
+    exercise_foreign_settlement_snapshot(ForeignSettlementRead::Facts);
+}
+
+#[test]
+fn private_settlement_snapshot_reads_reject_persisted_foreign_generation_fact() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let generation = complete(&storage);
+    let mut corrupt = fact(generation, false);
+    corrupt.generation += 1;
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE private_roster_settlement_facts SET record=?1 WHERE leaf_index=?2",
+            rusqlite::params![
+                serde_json::to_vec(&corrupt).unwrap(),
+                i64::from(corrupt.leaf_index)
+            ],
+        )
+        .unwrap();
+    let round_rejected = matches!(storage.read_round(),
+        Err(StorageError::Serialization(detail)) if detail == "invalid private settlement facts");
+    let facts_rejected = matches!(storage.read_facts(),
+        Err(StorageError::Serialization(detail)) if detail == "invalid private settlement facts");
+    assert!(
+        round_rejected && facts_rejected,
+        "consistent snapshots must not accept persisted foreign-generation facts"
+    );
+}
