@@ -85,6 +85,8 @@ pub(crate) mod device_linking;
 #[cfg(feature = "experimental-device-sync")]
 mod device_revocation;
 pub(crate) mod epoch_stall;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod explicit_sync_frontier;
 pub(crate) mod history_notices;
 #[cfg(feature = "experimental-device-sync")]
 mod history_transfer;
@@ -107,8 +109,6 @@ mod retention;
 #[cfg(feature = "experimental-device-sync")]
 mod selected_chat_copy;
 mod sync;
-#[cfg(all(test, feature = "test-policy-overrides"))]
-pub(crate) mod explicit_sync_frontier;
 #[cfg(test)]
 mod upload_cleanup_tests;
 pub(crate) mod welcome_peeler;

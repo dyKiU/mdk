@@ -1763,7 +1763,9 @@ impl AppClient {
         let _ = self.test_sync_phase(SyncPhase::Finalization);
         let result = self.finish_prepared_sync_summary(summary).await;
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(span) = sync_frontier_span { span.finish(result.is_ok()); }
+        if let Some(span) = sync_frontier_span {
+            span.finish(result.is_ok());
+        }
         result
     }
 
@@ -3205,7 +3207,9 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let sync_frontier = self.explicit_sync_frontier.clone();
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(probe) = &sync_frontier { probe.drain(); }
+        if let Some(probe) = &sync_frontier {
+            probe.drain();
+        }
         let mut counts = DrainCounts::default();
         let mut summary = std::mem::take(&mut self.pending_failed_sync_summary);
         summary.merge(self.take_pending_applied_sync_summary());
@@ -3252,13 +3256,17 @@ impl AppClient {
                 }
             };
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(probe) = &sync_frontier { probe.wait(); }
+            if let Some(probe) = &sync_frontier {
+                probe.wait();
+            }
             let received = timeout(wait, receive).await;
             self.prepend_pending_applied_summary(&mut summary);
             let delivery = match received {
                 Ok(Ok(Some(transport_nostr::AccountDeliveryReceive::Delivery(delivery)))) => {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
-                    if let Some(probe) = &sync_frontier { probe.received(); }
+                    if let Some(probe) = &sync_frontier {
+                        probe.received();
+                    }
                     delivery
                 }
                 Ok(Ok(Some(transport_nostr::AccountDeliveryReceive::Overflow(overflow)))) => {
@@ -3335,7 +3343,9 @@ impl AppClient {
                 self.adapter.release_account_delivery(&delivery.message.id);
                 counts.skipped = counts.skipped.saturating_add(1);
                 #[cfg(all(test, feature = "test-policy-overrides"))]
-                if let Some(probe) = &sync_frontier { probe.counts(counts.deliveries, counts.skipped, counts.refused); }
+                if let Some(probe) = &sync_frontier {
+                    probe.counts(counts.deliveries, counts.skipped, counts.refused);
+                }
                 continue;
             }
             if fail_before_delivery {
@@ -3404,7 +3414,9 @@ impl AppClient {
             }
             counts.deliveries = counts.deliveries.saturating_add(1);
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(probe) = &sync_frontier { probe.counts(counts.deliveries, counts.skipped, counts.refused); }
+            if let Some(probe) = &sync_frontier {
+                probe.counts(counts.deliveries, counts.skipped, counts.refused);
+            }
             summary.merge(delivery_summary);
             routes_dirty |= ingested.routes_dirty;
             // A cancelled drain cannot replay an already-applied commit's
