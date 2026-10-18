@@ -10,6 +10,7 @@ struct Probe {
     message: OnceLock<cgka_traits::MessageId>,
     own_message: OnceLock<cgka_traits::MessageId>,
     pause_rx_len: OnceLock<usize>,
+    ingress_armed: AtomicBool,
     fired: AtomicBool,
     known: AtomicBool,
     active_ingest: AtomicUsize,
@@ -56,6 +57,9 @@ impl Guard {
     }
     pub(crate) fn own_message(&self) -> Option<cgka_traits::MessageId> {
         self.0.own_message.get().cloned()
+    }
+    pub(crate) fn ingress_armed(&self) -> bool {
+        self.0.ingress_armed.load(Ordering::Acquire)
     }
     pub(crate) fn pause_rx_len(&self) -> Option<usize> {
         self.0.pause_rx_len.get().copied()
@@ -112,6 +116,7 @@ impl super::Guard {
             message: OnceLock::new(),
             own_message: OnceLock::new(),
             pause_rx_len: OnceLock::new(),
+            ingress_armed: AtomicBool::new(false),
             fired: AtomicBool::new(false),
             known: AtomicBool::new(true),
             active_ingest: AtomicUsize::new(0),
@@ -167,7 +172,7 @@ impl Pause {
 pub(in super::super) fn pause(
     entries: &[SiblingChannel],
     receive: [bool; 5],
-    queue_len: impl FnOnce() -> Option<usize>,
+    queue_len: impl FnOnce(&cgka_traits::MessageId) -> Option<usize>,
 ) -> Option<Pause> {
     let probe = probe()?;
     let entry = entries.iter().find(|entry| target(&probe, entry))?;
@@ -184,7 +189,11 @@ pub(in super::super) fn pause(
     if !receive.into_iter().all(|value| value) {
         return None;
     }
-    let queue_len = queue_len()?;
+    // Activate only after the original live/readiness/retry guards above.
+    // A nonempty existing queue still drains through the normal worker.
+    let message = probe.message.get()?;
+    let queue_len = queue_len(message)?;
+    probe.ingress_armed.store(true, Ordering::Release);
     if queue_len != 0 {
         return None;
     }

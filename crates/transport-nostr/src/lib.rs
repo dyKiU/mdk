@@ -37,6 +37,18 @@ use transport_nostr_adapter::{
 use transport_nostr_peeler::NostrTransportEvent;
 
 mod delivery_spill;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod account_ingress_schedule_for_test;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub use account_ingress_schedule_for_test::{AccountIngressScheduleForTest, AccountIngressScheduleSnapshot};
 mod directory;
 mod directory_wire;
 #[cfg(all(
@@ -369,6 +381,12 @@ struct RelayPlaneTransport {
     ))]
     test_notification_dispositions:
         std::sync::Mutex<HashMap<MemberId, Arc<NotificationDispositionObserver>>>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    test_account_ingress_schedule: Arc<account_ingress_schedule_for_test::Control>,
     directory_client: Option<NostrSdkClient>,
     directory_events: broadcast::Sender<DirectoryRelayPlaneEvent>,
     account_deliveries: RwLock<HashMap<MemberId, AccountDeliveryRoute>>,
@@ -1767,6 +1785,12 @@ impl MarmotRelayPlane {
                 feature = "test-policy-overrides"
             ))]
             test_notification_dispositions: std::sync::Mutex::new(HashMap::new()),
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            test_account_ingress_schedule: Arc::default(),
             directory_client,
             directory_events: broadcast::channel(DIRECTORY_EVENT_BUFFER).0,
             account_deliveries: RwLock::new(HashMap::new()),
@@ -1978,6 +2002,20 @@ impl MarmotRelayPlane {
             #[cfg(feature = "experimental-device-sync")]
             private_observation_group: Arc::new(std::sync::RwLock::new(None)),
         }
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn prepare_account_ingress_schedule_for_test(
+        &self,
+        account: MemberId,
+    ) -> Option<AccountIngressScheduleForTest> {
+        self.spawn_router();
+        self.inner.transport.test_account_ingress_schedule.prepare(account)
     }
 
     /// Place one delivery exactly as the router does, synchronously, so a
@@ -2901,9 +2939,73 @@ impl MarmotRelayPlane {
         let transport = self.inner.transport.clone();
         let adapter = transport.adapter.clone();
         let handle = handle.spawn(async move {
-            while let Ok(Some(delivery)) = adapter.receive_observed().await {
+            // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            let mut ingress = account_ingress_schedule_for_test::Router::default();
+            // COMMAND_INGRESS_SCHEDULE_TEST_END
+            loop {
+                // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                ingress.control(&transport.test_account_ingress_schedule, |delivery| {
+                    route_account_delivery(&transport, delivery);
+                });
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                let received = tokio::select! {
+                    biased;
+                    _ = transport.test_account_ingress_schedule.changed.notified() => continue,
+                    received = adapter.receive_observed() => received,
+                };
+                #[cfg(not(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))) ]
+                let received = adapter.receive_observed().await;
+                // COMMAND_INGRESS_SCHEDULE_TEST_END
+                let Ok(Some(delivery)) = received else { break; };
+                // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                let delivery = {
+                    ingress.control(&transport.test_account_ingress_schedule, |delivery| {
+                        route_account_delivery(&transport, delivery);
+                    });
+                    ingress.delivery(delivery, |delivery| route_account_delivery(&transport, delivery))
+                };
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                let Some(delivery) = delivery else { continue; };
+                // COMMAND_INGRESS_SCHEDULE_TEST_END
                 route_account_delivery(&transport, delivery);
             }
+            // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            ingress.finish(&transport.test_account_ingress_schedule, |delivery| {
+                route_account_delivery(&transport, delivery);
+            });
+            // COMMAND_INGRESS_SCHEDULE_TEST_END
         });
         *router = Some(handle);
     }
@@ -4907,6 +5009,15 @@ impl MarmotRelayPlaneAccountAdapter {
             .try_lock()
             .ok()
             .map(|receiver| receiver.len())
+    }
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn activate_account_ingress_schedule_for_test(&self, target: &MessageId) -> bool {
+        self.relay_plane.inner.transport.test_account_ingress_schedule.activate(&self.account_id, target)
     }
     // COMMAND_BACKLOG_QUEUE_TEST_END
     /// The next queued item, if one is ready now.

@@ -98,8 +98,11 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
     });
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     let mut facts = [false; 13];
+    facts[12] = true;
     let mut completed_before = None;
     let mut queue_observations = QueueFacts::default();
+    let mut ingress_schedule = None;
+    let account = cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec());
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes {
             runtime.reconcile_accounts().await.unwrap();
@@ -233,6 +236,10 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
         let backlog = proof_gate
             .arm_command_backlog_for_test(owner.clone(), nonce)
             .expect("exact real recipient proof gate and source original");
+        // Dormant: the actual fully-ready B preselect hook activates this
+        // single-router arrival schedule. Nothing is withheld before that.
+        ingress_schedule = apps[1].relay_plane.prepare_account_ingress_schedule_for_test(account.clone());
+        assert!(ingress_schedule.is_some(), "one_owned_ingress_schedule");
         drop(consent_release);
         let proof_nonce = tokio::time::timeout(Duration::from_secs(15), proof_gate.observed())
             .await
@@ -243,12 +250,11 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
             .await
             .unwrap()
             .unwrap();
-        facts[3] = paused.into_iter().all(|value| value);
+        facts[3] = paused.into_iter().all(|value| value) && backlog.ingress_armed();
         let message = backlog
             .message()
             .expect("first actual peer Body0 transport ID");
         facts[4] = message.as_slice().len() == 32;
-        let account = cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec());
         let id = hex::encode(message.as_slice());
         queue_observations.pause_rx_len = backlog.pause_rx_len();
         let own_message = backlog.own_message();
@@ -313,19 +319,37 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
             facts[7] = accepted == (8, true);
             queue_observations.target = queue_observation(&apps[1], &account, &id);
         }
+        // Replay all genuine competitors, in held FIFO order through the same
+        // production router, before normal enrollment can finish.
+        let schedule = ingress_schedule.as_ref().expect("owned ingress schedule");
+        schedule.release_and_flush().await;
+        let snapshot = schedule.snapshot();
+        facts[12] &= snapshot.armed && snapshot.valid && snapshot.released && snapshot.flushed
+            && snapshot.target_passes == 1 && snapshot.held == snapshot.replayed;
         wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
         facts[9] = true;
         a.cancel().await.unwrap();
         c.cancel().await.unwrap();
         approval.cancel().await.unwrap();
         facts[10] = true;
-        facts[12] = backlog.known();
+        facts[12] &= backlog.known();
         drop(backlog);
         drop(approval);
         drop(original);
     })
     .catch_unwind()
     .await;
+    // This runs even after a setup/body panic. Drop merely requests release;
+    // only the positive router acknowledgement proves held delivery replay.
+    if let Some(schedule) = ingress_schedule {
+        schedule.release_and_flush().await;
+        let snapshot = schedule.snapshot();
+        facts[12] &= snapshot.armed && snapshot.valid && snapshot.released && snapshot.flushed
+            && snapshot.target_passes == 1 && snapshot.held == snapshot.replayed;
+        queue_observations.ingress = Some(snapshot);
+    } else {
+        facts[12] = false;
+    }
     let mut runtime_closes = 0;
     for runtime in runtimes {
         if runtime.shutdown_and_close().await.is_ok() {
@@ -358,6 +382,7 @@ struct QueueFacts {
     target: Option<QueueObservation>,
     own_id_bound: Option<bool>,
     own: Option<QueueObservation>,
+    ingress: Option<transport_nostr::AccountIngressScheduleSnapshot>,
 }
 fn queue_observation(
     app: &MarmotApp,
@@ -369,6 +394,10 @@ fn queue_observation(
         .map(|row| (row.0, row.2, row.4.0, row.4.1, row.4.2.is_some(), row.4.3))
 }
 fn emit_queue(queue: QueueFacts) {
+    eprintln!("command-backlog-ingress schedule={:?}", queue.ingress.map(|value| (
+        [value.armed, value.valid, value.released, value.flushed],
+        value.target_passes, value.held, value.replayed, value.overflow,
+    )));
     eprintln!(
         "command-backlog-queue pause_rx_len={:?} target={:?} own_id_bound={:?} own={:?}",
         queue.pause_rx_len, queue.target, queue.own_id_bound, queue.own

@@ -2515,7 +2515,12 @@ impl AppClient {
         peer_proof_probe::command_backlog::pause(
             &self.linking_owner.sibling_channels,
             receive,
-            || self.adapter.account_delivery_queue_len_for_test(),
+            |message| {
+                if !self.adapter.activate_account_ingress_schedule_for_test(message) {
+                    return None;
+                }
+                self.adapter.account_delivery_queue_len_for_test()
+            },
         )
     }
     #[cfg(all(
