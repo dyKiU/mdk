@@ -31,7 +31,8 @@ impl LinkingOwner {
         device: [u8; 32],
     ) -> OwnerResult<Self> {
         storage
-            .app_storage().abandon_device_linking_on_startup()
+            .app_storage()
+            .abandon_device_linking_on_startup()
             .map_err(|_| OwnerError::Storage)?;
         Ok(Self::attach_after_restart_fence(storage, account, device))
     }
@@ -78,7 +79,8 @@ impl LinkingOwner {
         let deadline = Instant::now() + ATTEMPT_LIFETIME;
         let generation = self
             .storage
-            .app_storage().reserve_device_linking_attempt(&self.account, &self.device)
+            .app_storage()
+            .reserve_device_linking_attempt(&self.account, &self.device)
             .map_err(|_| OwnerError::Storage)?;
         self.generation = Some(generation);
         self.reservation_deadline = Some(deadline);
@@ -106,9 +108,13 @@ impl LinkingOwner {
             .ok_or(OwnerError::Verifier(LinkError::NotReady))?;
         let checked =
             if let Some(flow) = self.linker.attempt.as_ref().and_then(|a| a.flow.as_deref()) {
-                self.storage.app_storage().check_device_linking_flow(binding, flow)
+                self.storage
+                    .app_storage()
+                    .check_device_linking_flow(binding, flow)
             } else {
-                self.storage.app_storage().bind_device_linking_context(binding)
+                self.storage
+                    .app_storage()
+                    .bind_device_linking_context(binding)
             };
         if checked.is_err() {
             self.linker.cancel();
@@ -122,7 +128,8 @@ impl LinkingOwner {
             let binding = self.binding.as_ref().ok_or(OwnerError::Storage)?;
             if self
                 .storage
-                .app_storage().bind_device_linking_flow(binding, flow)
+                .app_storage()
+                .bind_device_linking_flow(binding, flow)
                 .is_err()
             {
                 self.linker.cancel();
@@ -136,7 +143,8 @@ impl LinkingOwner {
         let outcome = *self.pending_terminal.get_or_insert(outcome);
         if let Some(generation) = self.generation {
             self.storage
-                .app_storage().finish_device_linking_attempt(generation, outcome)
+                .app_storage()
+                .finish_device_linking_attempt(generation, outcome)
                 .map_err(|_| OwnerError::Storage)?;
         }
         self.generation = None;
@@ -195,7 +203,8 @@ impl LinkingOwner {
             context_digest: context.digest().map_err(OwnerError::Verifier)?,
         };
         self.storage
-            .app_storage().bind_device_linking_context(&binding)
+            .app_storage()
+            .bind_device_linking_context(&binding)
             .map_err(|_| OwnerError::Storage)?;
         self.binding = Some(binding);
         let result = self.linker.begin(context, role, generation, now).await;

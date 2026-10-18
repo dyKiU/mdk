@@ -90,7 +90,8 @@ impl AppClient {
             // Known lineage never becomes ambiguous again. In particular an
             // actual pending/denied Welcome cannot be promoted by this action.
             if storage
-                .app_storage().current_account_chat_source(&account, &local_device, &group)?
+                .app_storage()
+                .current_account_chat_source(&account, &local_device, &group)?
                 .is_some()
             {
                 continue;
@@ -177,7 +178,9 @@ impl AppClient {
         )? {
             None => Ok(()),
             Some(AccountChatSourceVerdict::Accepted)
-                if storage.app_storage().account_chat_source_is_current(change)? =>
+                if storage
+                    .app_storage()
+                    .account_chat_source_is_current(change)? =>
             {
                 Ok(())
             }
@@ -229,10 +232,12 @@ impl AppClient {
                 .ok_or_else(denied)?
                 .put_approved_account_sharing_policy(policy, validate_original)?;
             for chunk in changes.chunks(128) {
-                storage.app_storage().record_explicit_legacy_chat_acceptance(&policy_id, chunk, &|change| {
-                    validate_original()?;
-                    self.validate_legacy_chat(capture, change)
-                })?;
+                storage
+                    .app_storage()
+                    .record_explicit_legacy_chat_acceptance(&policy_id, chunk, &|change| {
+                        validate_original()?;
+                        self.validate_legacy_chat(capture, change)
+                    })?;
             }
             validate_original()
         })

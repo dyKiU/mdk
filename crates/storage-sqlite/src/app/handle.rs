@@ -1,9 +1,9 @@
 //! `SqliteAppStorage`: the app side's handle on the account database.
 
 use crate::base::connection::{ConnectionGuard, SharedConnection};
-use cgka_traits::storage::StorageResult;
 #[cfg(feature = "experimental-device-sync")]
 use cgka_traits::storage::StorageError;
+use cgka_traits::storage::StorageResult;
 
 /// The app side's handle on an account database. It shares the account's
 /// connection, so it opens nothing of its own, closes with the account

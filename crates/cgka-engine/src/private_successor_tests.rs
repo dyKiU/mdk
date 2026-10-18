@@ -41,7 +41,8 @@ pub(crate) async fn joined_pair(
         )
         .unwrap();
     let generation = storage
-        .app_storage().reserve_device_linking_attempt(&account, &local_device)
+        .app_storage()
+        .reserve_device_linking_attempt(&account, &local_device)
         .unwrap();
     let scope = PurposeAttemptScope {
         account,
@@ -54,7 +55,10 @@ pub(crate) async fn joined_pair(
         nonce: [6; 32],
         context_digest: [7; 32],
     };
-    storage.app_storage().bind_device_linking_context(&binding).unwrap();
+    storage
+        .app_storage()
+        .bind_device_linking_context(&binding)
+        .unwrap();
     storage
         .device_linking_key_package_storage()
         .unwrap()
@@ -67,10 +71,12 @@ pub(crate) async fn joined_pair(
         )
         .unwrap();
     storage
-        .app_storage().bind_device_linking_flow(&binding, "isolated-successor-receive-policy")
+        .app_storage()
+        .bind_device_linking_flow(&binding, "isolated-successor-receive-policy")
         .unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
+        .app_storage()
+        .finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
         .unwrap();
     let purpose = storage
         .device_linking_key_package_storage()

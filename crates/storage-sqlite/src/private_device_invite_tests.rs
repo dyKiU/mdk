@@ -36,19 +36,25 @@ fn store() -> SqliteAccountStorage {
 }
 fn verified_attempt(storage: &SqliteAccountStorage) -> u64 {
     let generation = storage
-        .app_storage().reserve_device_linking_attempt(&[1; 32], &[2; 32])
+        .app_storage()
+        .reserve_device_linking_attempt(&[1; 32], &[2; 32])
         .unwrap();
     let binding = DeviceLinkingBinding {
         generation,
         nonce: [6; 32],
         context_digest: [7; 32],
     };
-    storage.app_storage().bind_device_linking_context(&binding).unwrap();
     storage
-        .app_storage().bind_device_linking_flow(&binding, "isolated-private-flow")
+        .app_storage()
+        .bind_device_linking_context(&binding)
         .unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
+        .app_storage()
+        .bind_device_linking_flow(&binding, "isolated-private-flow")
+        .unwrap();
+    storage
+        .app_storage()
+        .finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
         .unwrap();
     generation
 }
@@ -256,7 +262,9 @@ fn private_device_invite_uncertain_publication_cannot_retire_or_replace() {
         Err(PrivateInviteStorageError::PublicationUncertain)
     ));
     assert!(matches!(
-        storage.app_storage().reserve_device_linking_attempt(&[1; 32], &[2; 32]),
+        storage
+            .app_storage()
+            .reserve_device_linking_attempt(&[1; 32], &[2; 32]),
         Err(crate::DeviceLinkingError::Busy)
     ));
     assert!(cap.stage_private_invite(&raw(2)).is_err());
@@ -399,7 +407,9 @@ fn private_device_invite_group_deletion_preserves_publication_uncertainty() {
             Err(PrivateInviteStorageError::PublicationUncertain)
         ));
         assert!(matches!(
-            storage.app_storage().reserve_device_linking_attempt(&[1; 32], &[2; 32]),
+            storage
+                .app_storage()
+                .reserve_device_linking_attempt(&[1; 32], &[2; 32]),
             Err(crate::DeviceLinkingError::Busy)
         ));
         assert!(cap.stage_private_invite(&raw(2)).is_err());
@@ -493,7 +503,9 @@ fn private_device_invite_unresolved_blocks_new_pairing_without_changing_scope() 
             .unwrap();
         assert!(
             matches!(
-                storage.app_storage().reserve_device_linking_attempt(&[1; 32], &[2; 32]),
+                storage
+                    .app_storage()
+                    .reserve_device_linking_attempt(&[1; 32], &[2; 32]),
                 Err(crate::DeviceLinkingError::Busy)
             ),
             "unresolved invite must block generation advance"
@@ -640,7 +652,9 @@ fn private_device_invite_encrypted_reopen_retains_exact_uncertainty_and_scope() 
             Err(PrivateInviteStorageError::PublicationUncertain)
         ));
         assert!(matches!(
-            reopened.app_storage().reserve_device_linking_attempt(&[1; 32], &[2; 32]),
+            reopened
+                .app_storage()
+                .reserve_device_linking_attempt(&[1; 32], &[2; 32]),
             Err(crate::DeviceLinkingError::Busy)
         ));
         let mut stale = pending.scope.clone();

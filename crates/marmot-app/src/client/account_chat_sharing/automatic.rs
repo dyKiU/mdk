@@ -1585,7 +1585,8 @@ impl AppClient {
             )
         } else {
             storage
-                .app_storage().current_account_chat_source_terminal_origin(
+                .app_storage()
+                .current_account_chat_source_terminal_origin(
                     &entry.policy.account,
                     &entry.policy.local_device,
                     &group_id,

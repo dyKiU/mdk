@@ -109,7 +109,8 @@ impl AppClient {
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::NotReady)?;
         let rows = storage
-            .app_storage().mirrored_catalog_observation_page(&scopes, after, limit)
+            .app_storage()
+            .mirrored_catalog_observation_page(&scopes, after, limit)
             .map_err(|_| AccountSharingError::NotReady)?;
         if self.current_presentation_scopes()? != scopes {
             return Err(AccountSharingError::Closed);
@@ -127,7 +128,8 @@ impl AppClient {
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::NotReady)?;
         let row = storage
-            .app_storage().mirrored_direct_conversation_observation(&scopes, peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&scopes, peer)
             .map_err(|_| AccountSharingError::NotReady)?;
         if self.current_presentation_scopes()? != scopes {
             return Err(AccountSharingError::Closed);
@@ -160,12 +162,15 @@ impl AppClient {
                 Err(cgka_traits::StorageError::NotFound) => false,
                 Err(error) => return Err(error),
             };
-            let header = store.app_storage().mirrored_catalog_observation(&scopes, group)?;
+            let header = store
+                .app_storage()
+                .mirrored_catalog_observation(&scopes, group)?;
             if !local && header.is_none() {
                 return Err(cgka_traits::StorageError::NotFound);
             }
             let rows = store
-                .app_storage().account_conversation_observation_window(&scopes, group, before, limit, now)?;
+                .app_storage()
+                .account_conversation_observation_window(&scopes, group, before, limit, now)?;
             Ok((local, header, rows))
         })
         .map_err(|_| AccountSharingError::NotReady)?;
@@ -188,7 +193,8 @@ impl AppClient {
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::NotReady)?;
         let rows = storage
-            .app_storage().mirrored_message_observation_page(&scopes, group, after, limit, now)
+            .app_storage()
+            .mirrored_message_observation_page(&scopes, group, after, limit, now)
             .map_err(|_| AccountSharingError::NotReady)?;
         if self.current_presentation_scopes()? != scopes {
             return Err(AccountSharingError::Closed);

@@ -4,7 +4,9 @@ use crate::account_chat_source::{
 };
 use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
-    approved_account_sharing_policy::{approved_account_sharing_identity, ApprovedAccountSharingPolicyStorage},
+    approved_account_sharing_policy::{
+        ApprovedAccountSharingPolicyStorage, approved_account_sharing_identity,
+    },
     storage::{StorageError, StorageResult},
 };
 use rusqlite::{OptionalExtension, params};

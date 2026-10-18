@@ -299,9 +299,11 @@ impl AppClient {
                 operation_id: None,
             }));
         }
-        if let Some(progress) =
-            storage.app_storage().account_chat_departure_progress(&first.account, &first.local_device, group)?
-        {
+        if let Some(progress) = storage.app_storage().account_chat_departure_progress(
+            &first.account,
+            &first.local_device,
+            group,
+        )? {
             if progress.global_complete && progress.local_complete && missing && has_current_sources
             {
                 return Ok(Some(View {
@@ -373,14 +375,19 @@ impl AppClient {
         intent.action_id = intent.identity();
         let peers: Vec<_> = policies.iter().map(|policy| policy.peer_device).collect();
         let storage = self.app.account_storage(&self.state.label)?;
-        storage.app_storage().apply_account_chat_departure(&first.local_device, &intent, &peers, &|| {
-            self.departure_policy_tail(&policies)?;
-            // Cuts filter the live view within this transaction. Re-reading that
-            // filtered view at the tail would reject our own newly admitted cut.
-            // Revalidate immutable target observations and the actual original.
-            self.validate_departure_target_observations(&intent, &policies)?;
-            Ok(())
-        })?;
+        storage.app_storage().apply_account_chat_departure(
+            &first.local_device,
+            &intent,
+            &peers,
+            &|| {
+                self.departure_policy_tail(&policies)?;
+                // Cuts filter the live view within this transaction. Re-reading that
+                // filtered view at the tail would reject our own newly admitted cut.
+                // Revalidate immutable target observations and the actual original.
+                self.validate_departure_target_observations(&intent, &policies)?;
+                Ok(())
+            },
+        )?;
         self.invalidate_after_account_departure();
         self.notify_mirrored_presentation_changed();
         Ok(Some(View {
@@ -404,17 +411,20 @@ impl AppClient {
         })?;
         for target in &intent.targets {
             let observed = if target.source_device == first.local_device {
-                storage.app_storage().account_chat_source_origin_was_accepted(
-                    &first.account,
-                    &first.local_device,
-                    &intent.group,
-                    target.accepted_origin,
-                )?
+                storage
+                    .app_storage()
+                    .account_chat_source_origin_was_accepted(
+                        &first.account,
+                        &first.local_device,
+                        &intent.group,
+                        target.accepted_origin,
+                    )?
             } else {
                 // Retained authenticated lineage observation survives negative
                 // live-view filtering; it supplies no original or MLS authority.
                 storage
-                    .app_storage().current_mirrored_chat_origin_observation(
+                    .app_storage()
+                    .current_mirrored_chat_origin_observation(
                         &first.account,
                         &first.local_device,
                         &target.source_device,
@@ -552,7 +562,8 @@ impl AppClient {
                     return Err(failure());
                 }
                 let inserted = storage
-                    .app_storage().apply_account_chat_departure(
+                    .app_storage()
+                    .apply_account_chat_departure(
                         &entry.policy.local_device,
                         &intent,
                         &[entry.policy.peer_device],
@@ -620,7 +631,9 @@ impl AppClient {
                     return Err(failure());
                 }
                 match receipt.phase {
-                    ReceiptPhase::PeerStatus => storage.app_storage().acknowledge_account_chat_departure(
+                    ReceiptPhase::PeerStatus => storage
+                        .app_storage()
+                        .acknowledge_account_chat_departure(
                         &entry.policy.account,
                         &entry.policy.local_device,
                         &receipt.action_id,
@@ -760,7 +773,8 @@ impl AppClient {
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         let rows = storage
-            .app_storage().account_chat_departure_outbox(
+            .app_storage()
+            .account_chat_departure_outbox(
                 &entry.policy.account,
                 &entry.policy.local_device,
                 &entry.policy.peer_device,
@@ -938,7 +952,8 @@ impl AppClient {
                 self.app
                     .account_storage(&self.state.label)
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?
-                    .app_storage().account_chat_departure_reply_published(
+                    .app_storage()
+                    .account_chat_departure_reply_published(
                         &entry.policy.account,
                         &entry.policy.local_device,
                         &publication.action_id,
@@ -965,7 +980,8 @@ impl AppClient {
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         let rows = storage
-            .app_storage().pending_local_account_chat_departures(
+            .app_storage()
+            .pending_local_account_chat_departures(
                 &first.account,
                 &first.local_device,
                 self.account_sharing_owner.departure_cursor.as_ref(),
@@ -997,7 +1013,8 @@ impl AppClient {
             match storage.get_group(&intent.group) {
                 Err(StorageError::NotFound) if own_target.is_none() => {
                     storage
-                        .app_storage().mark_account_chat_departure_local_state(
+                        .app_storage()
+                        .mark_account_chat_departure_local_state(
                             &first.account,
                             &first.local_device,
                             &intent.action_id,
@@ -1018,7 +1035,8 @@ impl AppClient {
                 .map_err(|_| failure())?;
             if !canonical.local_leaf_active {
                 storage
-                    .app_storage().mark_account_chat_departure_local_state(
+                    .app_storage()
+                    .mark_account_chat_departure_local_state(
                         &first.account,
                         &first.local_device,
                         &intent.action_id,
@@ -1029,7 +1047,8 @@ impl AppClient {
                 continue;
             }
             let origin = storage
-                .app_storage().current_account_chat_source_origin(
+                .app_storage()
+                .current_account_chat_source_origin(
                     &first.account,
                     &first.local_device,
                     &intent.group,
@@ -1037,7 +1056,8 @@ impl AppClient {
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
             let Some(target) = own_target else {
                 storage
-                    .app_storage().mark_account_chat_departure_awaiting_sources(
+                    .app_storage()
+                    .mark_account_chat_departure_awaiting_sources(
                         &first.account,
                         &first.local_device,
                         &intent.action_id,
@@ -1051,7 +1071,8 @@ impl AppClient {
                 origin != target.accepted_origin && origin.order > target.accepted_origin.order
             }) {
                 storage
-                    .app_storage().mark_account_chat_departure_local_state(
+                    .app_storage()
+                    .mark_account_chat_departure_local_state(
                         &first.account,
                         &first.local_device,
                         &intent.action_id,
@@ -1062,7 +1083,8 @@ impl AppClient {
                 continue;
             }
             if !storage
-                .app_storage().account_chat_source_origin_was_accepted(
+                .app_storage()
+                .account_chat_source_origin_was_accepted(
                     &first.account,
                     &first.local_device,
                     &intent.group,
@@ -1082,7 +1104,8 @@ impl AppClient {
                 .map_err(|_| failure())?;
             if authority.facts.is_admin {
                 storage
-                    .app_storage().mark_account_chat_departure_needs_administrator(
+                    .app_storage()
+                    .mark_account_chat_departure_needs_administrator(
                         &first.account,
                         &first.local_device,
                         &intent.action_id,
@@ -1100,7 +1123,8 @@ impl AppClient {
                     EngineError::LeaveAlreadyRequested { .. },
                 ))) => {
                     storage
-                        .app_storage().mark_account_chat_departure_local_state(
+                        .app_storage()
+                        .mark_account_chat_departure_local_state(
                             &first.account,
                             &first.local_device,
                             &intent.action_id,
@@ -1113,7 +1137,8 @@ impl AppClient {
             }
         }
         storage
-            .app_storage().finalize_account_chat_departure_coordinator(
+            .app_storage()
+            .finalize_account_chat_departure_coordinator(
                 &first.account,
                 &first.local_device,
                 &|| self.departure_policy_tail(policies),
