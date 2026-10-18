@@ -1,0 +1,44 @@
+name: Options composition PFP
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CARGO_INCREMENTAL: "1"
+  CARGO_BUILD_JOBS: "2"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_MIN_STACK: "4194304"
+  OPTIONS_COMPOSITION_BASELINE: 580c1730836e4236d552bd85b6a25cdfce5c9e31
+jobs:
+  focused-options:
+    if: github.ref == 'refs/heads/ci/upstream-integration-refresh-20261018'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rust toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: options-composition-${{ matrix.cohort }}
+      - name: Three actual focused Rust bodies with exact omission restoration
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: python3 scripts/qualify_options_composition.py --cohort '${{ matrix.cohort }}'
+      - name: Upload closed evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: options-composition-${{ matrix.cohort }}
+          path: options-composition-evidence/result.json
+          if-no-files-found: warn
+          retention-days: 7
