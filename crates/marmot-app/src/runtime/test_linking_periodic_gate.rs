@@ -77,8 +77,8 @@ impl RuntimeSharedServices {
         }
     }
 }
-
 // SOURCE_READINESS_TEST_BEGIN
+
 // Separate map: existing hold_periodic_linking_for_test still gates BOTH lanes.
 impl MarmotAppRuntime {
     pub(crate) fn hold_sibling_only_periodic_for_test(&self, account: &str) -> PeriodicGateGuard {
