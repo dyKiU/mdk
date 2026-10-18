@@ -137,7 +137,7 @@ def request_parser_controls():
     some='native5-request index=0 observation=Some((['+', '.join('Some('+str(i)+')' for i in range(12))+'], ['+', '.join(['Some(true)']*7)+'], 1, 2, true, Some(0)))'
     context['slots'][0]={'milestone_us':{'prepared':12}}
     valid=[some,*empty[1:]];request_gap_rows(valid,context)
-    unlinked=some.replace('true, Some(0)))','false, None)))').replace('Some(11)]','None]')
+    unlinked=some.replace('true, Some(0)))','false, None))').replace('Some(11)]','None]')
     request_gap_rows([unlinked,*empty[1:]],context)
     request_gap_rows([],{'snapshot_available':False,'known':False})
     name='closed::actual_native5'
