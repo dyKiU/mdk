@@ -99,6 +99,23 @@ def audit_inventory(raw,ignored):
     return (all(line in allowed for line in lines) and lines.count(summary)<=1
         and sorted(matches)==([] if ignored else sorted(AUDIT_NAMES)) and len(matches)==count)
 
+def old_print_expectation():
+    audit=Path(AUDIT).read_bytes()
+    ensure(digest(audit)==AUDIT_SHA,'unchanged-audit-macro-semantics')
+    declarations=re.findall(r'const DIRECT_OUTPUT_MACROS: &\[&str\] = &\[([^\]\n]+)\];',audit.decode())
+    ensure(len(declarations)==1,'one-source-owned-direct-output-macro-list')
+    macros=re.findall(r'"([^"\n]+)"',declarations[0])
+    ensure(macros==['println!(', 'eprintln!(', 'dbg!('],'exact-three-original-output-macros')
+    original=git('show',OLD+':'+PROBE);ensure(digest(original)==OLD_SHA,'exact-old-probe-for-audit-expectation')
+    lines=original.decode().splitlines()
+    source_lines=[index+1 for index,line in enumerate(lines) if 'eprintln!(' in line]
+    # Mirror the unchanged audit's for-each-macro line.contains semantics:
+    # eprintln!( also contains println!(, so two source prints yield four rows.
+    wanted=[str(Path(PROBE).resolve())+':'+str(index+1)+' production library source writes direct output with `'+macro+'`'
+        for index,line in enumerate(lines) for macro in macros if macro in line]
+    ensure(len(source_lines)==2 and len(wanted)==4,'two-source-eprintln-lines-four-macro-violations')
+    return wanted,source_lines
+
 def audit_record(raw,code,expected):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     summaries=re.findall(r'^test result: (ok|FAILED)\. ([0-9]+) passed; ([0-9]+) failed; ([0-9]+) ignored; ([0-9]+) measured; ([0-9]+) filtered out; finished in [0-9.]+s$',text,re.M)
@@ -112,12 +129,12 @@ def audit_record(raw,code,expected):
     if expected=='green':result['expected_outcome_verified']=type(code)is int and code==0 and status=='ok' and p==4 and not failed
     else:
         target='production_library_sources_do_not_write_direct_output'
-        # The audit reads actual restored old source. Require the exact two
-        # source-owned eprintln violations, never an unrelated failing audit.
+        # Attribute only the exact unchanged scanner's four macro diagnostics
+        # for the two source-owned old eprintln lines; no unrelated audit failure.
         violations=[line for line in text.splitlines() if ' production library source writes direct output with ' in line]
-        old=git('show',OLD+':'+PROBE).decode().splitlines()
-        wanted=[str(Path(PROBE).resolve())+':'+str(index+1)+' production library source writes direct output with `eprintln!(`' for index,line in enumerate(old) if 'eprintln!(' in line]
-        result['exact_old_print_violations']=len(wanted)==2 and sorted(violations)==sorted(wanted)
+        wanted,source_lines=old_print_expectation()
+        result.update(old_eprintln_source_line_count=len(source_lines),expected_macro_violation_count=len(wanted),observed_macro_violation_count=len(violations))
+        result['exact_old_print_violations']=sorted(violations)==sorted(wanted)
         result['expected_outcome_verified']=(type(code)is int and code==101 and status=='FAILED' and p==3 and failed==[target]
             and text.count('direct output audit failed:')==1 and result['exact_old_print_violations'])
     return result
@@ -234,19 +251,24 @@ def controls():
         except ValueError:accepted=False
         ensure(not accepted,'audit-zero-ignored-duplicate-not-green')
     target='production_library_sources_do_not_write_direct_output'
-    old=git('show',OLD+':'+PROBE).decode().splitlines()
-    violations='\n'.join(str(Path(PROBE).resolve())+':'+str(i+1)+' production library source writes direct output with `eprintln!(`' for i,line in enumerate(old) if 'eprintln!(' in line)
+    wanted,source_lines=old_print_expectation()
+    violations='\n'.join(wanted)
     red=green.replace('test '+target+' ... ok','test '+target+' ... FAILED').replace('test result: ok. 4 passed; 0 failed','test result: FAILED. 3 passed; 1 failed')+'direct output audit failed:\n'+violations+'\n'
-    ensure(audit_record(red,101,'red')['expected_outcome_verified'],'actual-old-two-print-audit-RED-shape')
+    ensure(audit_record(red,101,'red')['expected_outcome_verified'],'actual-two-source-prints-four-macro-RED-shape')
     for bad in [red.replace('direct output audit failed:','foreign'),red.replace(violations,''),red.replace('3 passed; 1 failed','2 passed; 2 failed')]:
         try:accepted=audit_record(bad,101,'red')['expected_outcome_verified']
         except ValueError:accepted=False
         ensure(not accepted,'unrelated-or-incomplete-RED-rejected')
+    eprintln_only='\n'.join(line for line in wanted if line.endswith('`eprintln!(`'))
+    changed_line=red.replace(str(Path(PROBE).resolve())+':'+str(source_lines[0])+' ',str(Path(PROBE).resolve())+':'+str(source_lines[0]+1)+' ')
+    extra_macro=red+wanted[0].replace('`println!(`','`dbg!(`')+'\n'
+    for bad in [red.replace(violations,eprintln_only),changed_line,extra_macro]:
+        ensure(not audit_record(bad,101,'red')['expected_outcome_verified'],'two-only-changed-line-or-extra-macro-not-intended-RED')
     partial={'runtime_attempted':True,'actual_passed':4,'actual_failed':0,'actual_ignored':0,'actual_executed_nonignored':4}
     ensure(observed_audit_counts([partial])['actual_passed']==4,'baseline-failure-known-count-retained')
     ensure(observed_audit_counts([])['actual_executed_nonignored']==0,'no-audit-attempt-zero-count')
     ensure(observed_audit_counts([partial,{'runtime_attempted':True}])['actual_passed']is None,'attempted-unknown-not-zero')
-    return {'positive':6,'negative':15,'runtime_bodies':0}
+    return {'positive':6,'negative':18,'runtime_bodies':0}
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--preflight',action='store_true');args=args.parse_args()
