@@ -176,8 +176,15 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
     assert!(!held_message.payload.is_empty());
     use sha2::Digest as _;
     let held_payload_digest: [u8; 32] = sha2::Sha256::digest(&held_message.payload).into();
+    let mut diagnostic = Default::default();
+    let matches_held = probe.matches_held_catalog(&held_group, held_payload_digest, &mut diagnostic);
+    eprintln!(
+        "body-prerequisite known={} evaluated={} matched={} capture_ordinal={:?} observation_ordinal={:?}",
+        diagnostic.known, diagnostic.evaluated, diagnostic.matched,
+        diagnostic.capture_ordinal, diagnostic.observation_ordinal
+    );
     assert!(
-        probe.matches_held_catalog(&held_group, held_payload_digest),
+        matches_held,
         "captured owned slot must match the actual held Catalog Body group and prepared payload"
     );
     eprintln!("body-negative-control stage=actual-owned-body-held");

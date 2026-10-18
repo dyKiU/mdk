@@ -1,0 +1,43 @@
+{
+  "baseline": "77caba679ab5986df88fd7296b5446004fba8bb7",
+  "paths": {
+    "crates/marmot-app/src/client/account_chat_sharing/automatic/body_negative_probe.rs": {
+      "mode": "100644",
+      "before_sha256": "652ab7123f12a6091daed1249fa1c16529ada7bc5fda367d0ac4cada3982047b",
+      "after_sha256": "b597990a1cb01868f4c859f7586b9123b8f6b096b11971d03ceb169225cf67be",
+      "exact_substitutions": [
+        {
+          "before": "struct Captured {",
+          "after": "#[derive(Default)]\npub(crate) struct HeldCatalogDiagnostic {\n    pub(crate) evaluated: u16,\n    pub(crate) matched: u16,\n    pub(crate) capture_ordinal: Option<u64>,\n    pub(crate) observation_ordinal: Option<u64>,\n    pub(crate) known: bool,\n}\nstruct Captured {"
+        },
+        {
+          "before": "    captured: Option<Captured>,\n    ordinal: u64,",
+          "after": "    captured: Option<Captured>,\n    diagnostic_ordinal: u64,\n    diagnostic_capture_ordinal: Option<u64>,\n    diagnostic_known: bool,\n    ordinal: u64,"
+        },
+        {
+          "before": "    pub(crate) fn matches_held_catalog(\n        &self,\n        group: &crate::GroupId,\n        payload_digest: [u8; 32],\n    ) -> bool {\n        let progress = self.progress.lock().expect(\"negative probe\");\n        progress\n            .captured\n            .as_ref()\n            .zip(progress.intent_gate.as_ref())\n            .is_some_and(|(captured, gate)| {\n                &captured.catalog_group == group\n                    && captured.payload_digest == payload_digest\n                    && captured.nonce == gate.binding.nonce\n                    && captured.account == gate.binding.account\n                    && captured.protected_group == gate.binding.protected_group\n                    && captured.local_device == gate.binding.peer_device\n                    && captured.peer_device == gate.binding.local_device\n                    && gate.entered.load(std::sync::atomic::Ordering::Acquire)\n                    && gate.release.receiver_count() > 0\n            })\n    }\n",
+          "after": "    pub(crate) fn matches_held_catalog(\n        &self,\n        group: &crate::GroupId,\n        payload_digest: [u8; 32],\n        diagnostic: &mut HeldCatalogDiagnostic,\n    ) -> bool {\n        fn note(diagnostic: &mut HeldCatalogDiagnostic, index: u32, value: bool) -> bool {\n            diagnostic.evaluated |= 1u16 << index;\n            if value { diagnostic.matched |= 1u16 << index; }\n            value\n        }\n        let mut progress = self.progress.lock().expect(\"negative probe\");\n        // This is the existing lock. No new read/lock/wait is added to the fixture.\n        *diagnostic = HeldCatalogDiagnostic::default();\n        diagnostic.known = progress.diagnostic_known;\n        diagnostic.capture_ordinal = progress.diagnostic_capture_ordinal;\n        match progress.diagnostic_ordinal.checked_add(1) {\n            Some(next) => {\n                progress.diagnostic_ordinal = next;\n                diagnostic.observation_ordinal = Some(next);\n            }\n            None => { progress.diagnostic_known = false; diagnostic.known = false; }\n        }\n        // zip originally evaluates BOTH Option::as_ref values. Preserve that behavior.\n        note(diagnostic, 0, progress.captured.is_some());\n        note(diagnostic, 1, progress.intent_gate.is_some());\n        progress.captured.as_ref().zip(progress.intent_gate.as_ref())\n            .is_some_and(|(captured, gate)| {\n                note(diagnostic, 2, &captured.catalog_group == group)\n                    && note(diagnostic, 3, captured.payload_digest == payload_digest)\n                    && note(diagnostic, 4, captured.nonce == gate.binding.nonce)\n                    && note(diagnostic, 5, captured.account == gate.binding.account)\n                    && note(diagnostic, 6, captured.protected_group == gate.binding.protected_group)\n                    && note(diagnostic, 7, captured.local_device == gate.binding.peer_device)\n                    && note(diagnostic, 8, captured.peer_device == gate.binding.local_device)\n                    && note(diagnostic, 9, gate.entered.load(std::sync::atomic::Ordering::Acquire))\n                    && note(diagnostic, 10, gate.release.receiver_count() > 0)\n            })\n    }\n"
+        },
+        {
+          "before": "                captured: None,\n                ordinal: 0,",
+          "after": "                captured: None,\n                diagnostic_ordinal: 0,\n                diagnostic_capture_ordinal: None,\n                diagnostic_known: true,\n                ordinal: 0,"
+        },
+        {
+          "before": "    progress.captured = Some(Captured {",
+          "after": "    match progress.diagnostic_ordinal.checked_add(1) {\n        Some(next) => {\n            progress.diagnostic_ordinal = next;\n            progress.diagnostic_capture_ordinal = Some(next);\n        }\n        None => progress.diagnostic_known = false,\n    }\n    progress.captured = Some(Captured {"
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/tests/automatic_body_negative_acceptance.rs": {
+      "mode": "100644",
+      "before_sha256": "1035aba6fd74951953ecfd342312a0cd38f3cedc6c6a746e23bae368ddc430a1",
+      "after_sha256": "c2b05a8aa4922c3002f99d47c704223a0f1f446e01b26686edda77af02509307",
+      "exact_substitutions": [
+        {
+          "before": "    assert!(\n        probe.matches_held_catalog(&held_group, held_payload_digest),\n        \"captured owned slot must match the actual held Catalog Body group and prepared payload\"\n    );",
+          "after": "    let mut diagnostic = Default::default();\n    let matches_held = probe.matches_held_catalog(&held_group, held_payload_digest, &mut diagnostic);\n    eprintln!(\n        \"body-prerequisite known={} evaluated={} matched={} capture_ordinal={:?} observation_ordinal={:?}\",\n        diagnostic.known, diagnostic.evaluated, diagnostic.matched,\n        diagnostic.capture_ordinal, diagnostic.observation_ordinal\n    );\n    assert!(\n        matches_held,\n        \"captured owned slot must match the actual held Catalog Body group and prepared payload\"\n    );"
+        }
+      ]
+    }
+  }
+}

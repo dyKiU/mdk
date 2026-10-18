@@ -20,6 +20,14 @@ pub(crate) struct Observation {
     pub(crate) harvested_cancelled: bool,
     pub(crate) retired_task_finished: bool,
 }
+#[derive(Default)]
+pub(crate) struct HeldCatalogDiagnostic {
+    pub(crate) evaluated: u16,
+    pub(crate) matched: u16,
+    pub(crate) capture_ordinal: Option<u64>,
+    pub(crate) observation_ordinal: Option<u64>,
+    pub(crate) known: bool,
+}
 struct Captured {
     original: Weak<State>,
     nonce: [u8; 32],
@@ -64,6 +72,9 @@ impl IntentGate {
 }
 struct Progress {
     captured: Option<Captured>,
+    diagnostic_ordinal: u64,
+    diagnostic_capture_ordinal: Option<u64>,
+    diagnostic_known: bool,
     ordinal: u64,
     observed: Observation,
     prepared_intent: Option<PreparedIntent>,
@@ -107,22 +118,39 @@ impl Probe {
         &self,
         group: &crate::GroupId,
         payload_digest: [u8; 32],
+        diagnostic: &mut HeldCatalogDiagnostic,
     ) -> bool {
-        let progress = self.progress.lock().expect("negative probe");
-        progress
-            .captured
-            .as_ref()
-            .zip(progress.intent_gate.as_ref())
+        fn note(diagnostic: &mut HeldCatalogDiagnostic, index: u32, value: bool) -> bool {
+            diagnostic.evaluated |= 1u16 << index;
+            if value { diagnostic.matched |= 1u16 << index; }
+            value
+        }
+        let mut progress = self.progress.lock().expect("negative probe");
+        // This is the existing lock. No new read/lock/wait is added to the fixture.
+        *diagnostic = HeldCatalogDiagnostic::default();
+        diagnostic.known = progress.diagnostic_known;
+        diagnostic.capture_ordinal = progress.diagnostic_capture_ordinal;
+        match progress.diagnostic_ordinal.checked_add(1) {
+            Some(next) => {
+                progress.diagnostic_ordinal = next;
+                diagnostic.observation_ordinal = Some(next);
+            }
+            None => { progress.diagnostic_known = false; diagnostic.known = false; }
+        }
+        // zip originally evaluates BOTH Option::as_ref values. Preserve that behavior.
+        note(diagnostic, 0, progress.captured.is_some());
+        note(diagnostic, 1, progress.intent_gate.is_some());
+        progress.captured.as_ref().zip(progress.intent_gate.as_ref())
             .is_some_and(|(captured, gate)| {
-                &captured.catalog_group == group
-                    && captured.payload_digest == payload_digest
-                    && captured.nonce == gate.binding.nonce
-                    && captured.account == gate.binding.account
-                    && captured.protected_group == gate.binding.protected_group
-                    && captured.local_device == gate.binding.peer_device
-                    && captured.peer_device == gate.binding.local_device
-                    && gate.entered.load(std::sync::atomic::Ordering::Acquire)
-                    && gate.release.receiver_count() > 0
+                note(diagnostic, 2, &captured.catalog_group == group)
+                    && note(diagnostic, 3, captured.payload_digest == payload_digest)
+                    && note(diagnostic, 4, captured.nonce == gate.binding.nonce)
+                    && note(diagnostic, 5, captured.account == gate.binding.account)
+                    && note(diagnostic, 6, captured.protected_group == gate.binding.protected_group)
+                    && note(diagnostic, 7, captured.local_device == gate.binding.peer_device)
+                    && note(diagnostic, 8, captured.peer_device == gate.binding.local_device)
+                    && note(diagnostic, 9, gate.entered.load(std::sync::atomic::Ordering::Acquire))
+                    && note(diagnostic, 10, gate.release.receiver_count() > 0)
             })
     }
     fn same(captured: &Captured, entry: &AutomaticChannel) -> bool {
@@ -162,6 +190,9 @@ impl AppClient {
             old_chat: old_chat.clone(),
             progress: Mutex::new(Progress {
                 captured: None,
+                diagnostic_ordinal: 0,
+                diagnostic_capture_ordinal: None,
+                diagnostic_known: true,
                 ordinal: 0,
                 observed: Observation {
                     retained: true,
@@ -280,6 +311,13 @@ pub(super) fn capture(root: &Path, entry: &AutomaticChannel) {
     else {
         return;
     };
+    match progress.diagnostic_ordinal.checked_add(1) {
+        Some(next) => {
+            progress.diagnostic_ordinal = next;
+            progress.diagnostic_capture_ordinal = Some(next);
+        }
+        None => progress.diagnostic_known = false,
+    }
     progress.captured = Some(Captured {
         original: Arc::downgrade(&entry.original),
         nonce: entry.channel.scope().nonce,
