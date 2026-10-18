@@ -119,7 +119,14 @@ def crossing_inventory(raw, code, context, line):
             section, match = matches[0]
             ensure(section not in declared and int(match[1]) <= 64, 'one-bounded-crossing-section')
             declared[section] = int(match[1]); continue
-        ensure(section is not None and known_crossing(value, context, section), 'unknown-crossing-row-rejected')
+        ensure(section is not None, 'unknown-crossing-row-rejected')
+        if not known_crossing(value, context, section):
+            # A rejected row is NOT an empty/complete crossing inventory. Export
+            # only the historical closed static-source diagnostic, never raw SQL.
+            return {'status': 'rejected', 'reason': 'unknown-crossing-row-rejected',
+                    'new': [], 'stale': [], 'counts': None,
+                    'automatically_allowed': False, 'inventory_complete': False,
+                    'unqualified_rejection_detail': old.source_grounded_rejection(value, section, context)}
         ensure(value not in seen, 'unique-crossing-row'); seen.add(value)
         kind, origin, target = value.split(' ')
         result[section].append({'kind': kind, 'origin': origin, 'target': target})
@@ -135,7 +142,22 @@ def crossing_inventory(raw, code, context, line):
     for k, pattern in patterns.items():
         ensure(len(re.findall('^' + pattern + '$', clean, re.M)) == int(k in declared), 'no-duplicate-section')
     return {'status': 'complete', **result, 'counts': {k: len(v) for k, v in result.items()},
-            'automatically_allowed': False, 'diagnostic_static_source_validation_only': True}
+            'automatically_allowed': False, 'inventory_complete': True,
+            'diagnostic_static_source_validation_only': True}
+
+
+def aggregate_counts(bodies):
+    """Only actual numeric receipts for all five names establish full counts."""
+    complete = (set(bodies) == set(TESTS) and all(
+        row.get('actual_counts_complete') is True
+        and all(type(row.get(k)) is int for k in ['passed', 'failed', 'ignored', 'executed_nonignored'])
+        and row['passed'] >= 0 and row['failed'] >= 0 and row['ignored'] == 0
+        and row['executed_nonignored'] == row['passed'] + row['failed'] == 1
+        for row in bodies.values()))
+    result = {'actual_counts_complete': complete}
+    for key in ['passed', 'failed', 'ignored', 'executed_nonignored']:
+        result['actual_' + key] = sum(v[key] for v in bodies.values()) if complete else None
+    return result
 
 
 def parser_controls():
@@ -160,12 +182,41 @@ def parser_controls():
     for value in [raw + raw, raw.replace('1 crossing(s)', '2 crossing(s)'), raw.replace('GroupStorage\n\n', 'PRIVATE_ACCOUNT\n\n'),
                   raw.replace(':91:5:', ':92:5:'), raw.replace('0 ignored', '1 ignored'), raw + 'PRIVATE_ACCOUNT\n']:
         try:
-            crossing_inventory(value, 101, context, 91)
+            rejected = crossing_inventory(value, 101, context, 91)
         except ValueError:
             continue
-        raise old.GateFailure('unsafe-inventory-accepted')
+        ensure(rejected.get('status') == 'rejected' and rejected.get('inventory_complete') is False
+               and rejected.get('counts') is None, 'unsafe-inventory-accepted')
+    safe_context = {**context, 'sources': {**context['sources'],
+                    'app/test.rs': 'use crate::protocol::StoredRecord; SELECT app_table;',
+                    'protocol/storage.rs': 'pub struct StoredRecord;'}}
+    # A new source-grounded but unrecognized path yields closed atoms only; it
+    # is still rejected, never automatically accepted or an empty inventory.
+    safe_raw = raw.replace('trait app/test.rs GroupStorage', 'path app/test.rs crate::protocol::StoredRecord')
+    safe = crossing_inventory(safe_raw, 101, safe_context, 91)
+    ensure(safe['status'] == 'rejected' and safe['counts'] is None
+           and safe['unqualified_rejection_detail']['target_atoms_proven_static'] is True
+           and safe['unqualified_rejection_detail']['target_atoms'] == ['crate', 'protocol', 'StoredRecord']
+           and safe['automatically_allowed'] is False, 'safe-static-rejection-not-complete')
+    private = crossing_inventory(raw.replace('trait app/test.rs GroupStorage',
+        'path app/test.rs crate::PRIVATE_ACCOUNT'), 101, context, 91)
+    ensure(private['status'] == 'rejected' and private['counts'] is None
+           and private['unqualified_rejection_detail']['target_atoms'] == []
+           and 'PRIVATE_ACCOUNT' not in json.dumps(private), 'unproven-private-atoms-not-exported')
+    complete_rows = {name: {'actual_counts_complete': True, 'passed': 1, 'failed': 0,
+                          'ignored': 0, 'executed_nonignored': 1} for name in TESTS}
+    ensure(aggregate_counts(complete_rows)['actual_passed'] == 5, 'five-real-receipts-counted')
+    for rows in [{}, {name: row for name, row in complete_rows.items() if name != BOUNDARY},
+                 {**complete_rows, BOUNDARY: {**complete_rows[BOUNDARY], 'passed': None}},
+                 {**complete_rows, BOUNDARY: {**complete_rows[BOUNDARY], 'passed': True}},
+                 {**complete_rows, BOUNDARY: {**complete_rows[BOUNDARY], 'actual_counts_complete': False}}]:
+        unknown = aggregate_counts(rows)
+        ensure(unknown['actual_counts_complete'] is False and all(unknown[k] is None for k in
+               ['actual_passed', 'actual_failed', 'actual_ignored', 'actual_executed_nonignored']),
+               'incomplete-counts-stay-unknown')
     return {'historical_body_parser': inherited, 'trait_positive': 3, 'trait_negative': len(negatives),
-            'inventory_positive': 1, 'inventory_negative': 6, 'runtime_bodies': 0}
+            'inventory_positive': 1, 'inventory_negative': 6, 'safe_rejection_controls': 2,
+            'aggregate_positive': 1, 'aggregate_negative': 5, 'runtime_bodies': 0}
 
 
 def main(args):
@@ -221,9 +272,7 @@ def main(args):
             if name == BOUNDARY:
                 row['crossing_inventory'] = crossing_inventory(raw, code, context, panic_line); save()
             ensure(frozen_inputs() == frozen and digest(binary.read_bytes()) == binary_hash, 'after-body-source-binary-pristine')
-        rows = list(report['bodies'].values()); report['actual_counts_complete'] = len(rows) == 5 and all(v['actual_counts_complete'] for v in rows)
-        for key in ['passed', 'failed', 'ignored', 'executed_nonignored']:
-            report['actual_' + key] = sum(v[key] for v in rows) if report['actual_counts_complete'] else None
+        report.update(aggregate_counts(report['bodies']))
         report['initial_policy_RED_verified'] = (report['actual_counts_complete'] and all(report['bodies'][n]['passed_gate'] for n in CONTROLS)
             and report['bodies'][BOUNDARY]['failed'] == 1 and report['bodies'][BOUNDARY]['crossing_inventory']['status'] == 'complete')
         ensure(report['initial_policy_RED_verified'], 'required-real-boundary-policy-RED-and-four-positive-controls')
