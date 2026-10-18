@@ -1682,6 +1682,10 @@ fn observe_enrollment_hold_timeout(
             "native-result-counts stage={stage:?} side={side} counts_overflow={:?}",
             original.native_observation_results_for_test(),
         );
+        eprintln!(
+            "native-persist-errors stage={stage:?} side={side} snapshot={:?}",
+            original.native_persist_failures_for_test(),
+        );
     }
 }
 
@@ -1752,6 +1756,10 @@ async fn wait_for_automatic_phase_with_approvals(
             eprintln!(
                 "native-result-counts stage=PhaseWait side={side} counts_overflow={:?}",
                 original.native_observation_results_for_test(),
+            );
+            eprintln!(
+                "native-persist-errors stage=PhaseWait side={side} snapshot={:?}",
+                original.native_persist_failures_for_test(),
             );
         }
         #[cfg(feature = "test-policy-overrides")]

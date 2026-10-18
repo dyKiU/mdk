@@ -65,6 +65,13 @@ impl AppClient {
             .runtime
             .session()
             .validated_settled_device_roster(&group)
+            .inspect_err(|_error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                original.record_persist_failure_for_test(
+                    super::sibling_sharing::NativePersistFailure::InitialCoreRoster,
+                    Some(_error.privacy_safe_kind()),
+                );
+            })
             .map_err(ClientLinkingError::Engine)?
         else {
             return Ok(());
@@ -74,13 +81,26 @@ impl AppClient {
         } else if original.scope.local_device == original.context.recipient {
             original.context.approver
         } else {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            original.record_persist_failure_for_test(
+                super::sibling_sharing::NativePersistFailure::LocalRole,
+                None,
+            );
             return Err(ClientLinkingError::Gate(
                 LinkingWelcomeDenied::ContextMismatch,
             ));
         };
-        let approval_id = original.context.digest().map_err(|error| {
-            ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(error))
-        })?;
+        let approval_id = original.context.digest()
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                original.record_persist_failure_for_test(
+                    super::sibling_sharing::NativePersistFailure::ContextDigest,
+                    None,
+                );
+            })
+            .map_err(|error| {
+                ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(error))
+            })?;
         let policy = ApprovedAccountSharingPolicy {
             account: original.scope.account,
             local_device: original.scope.local_device,
@@ -97,6 +117,13 @@ impl AppClient {
         let storage = self
             .app
             .account_storage(&self.state.label)
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                original.record_persist_failure_for_test(
+                    super::sibling_sharing::NativePersistFailure::AccountStorage,
+                    None,
+                );
+            })
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
         let validator = || -> cgka_traits::storage::StorageResult<()> {
             let denied = || {
@@ -136,8 +163,22 @@ impl AppClient {
             .clone()
             .ok_or(ClientLinkingError::Gate(
                 LinkingWelcomeDenied::UnsupportedStorage,
-            ))?;
+            ))
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                original.record_persist_failure_for_test(
+                    super::sibling_sharing::NativePersistFailure::LegacyCapture,
+                    None,
+                );
+            })?;
         self.commit_policy_with_legacy_chats(&policy, &capture, &validator)
+            .inspect_err(|_error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                original.record_persist_failure_for_test(
+                    super::sibling_sharing::NativePersistFailure::PolicyCommit,
+                    Some(super::sibling_sharing::native_persist_storage_kind(_error)),
+                );
+            })
             .map_err(|error| ClientLinkingError::Engine(error.into()))?;
         self.mark_primary_sharing_committed();
         Ok(())
