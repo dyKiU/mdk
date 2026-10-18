@@ -7,6 +7,46 @@ use futures::FutureExt;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+// Read only the same actual recipient plane/account using the immutable first
+// proof IDs supplied by native freeze. No worker ordinal or account-label guess.
+#[cfg(feature = "test-policy-overrides")]
+fn native5_prefix_report(
+    plane: &transport_nostr::MarmotRelayPlane,
+    account: &MemberId,
+    origin: std::time::Instant,
+    ids: &[Option<cgka_traits::MessageId>; 3],
+) -> String {
+    use std::fmt::Write as _;
+    let keys = ids.each_ref().map(|id| id.as_ref().map(|id| hex::encode(id.as_slice())));
+    let snapshot = plane.account_notification_prefix_for_test(account, keys.each_ref().map(|key| key.as_deref()));
+    let mut output = String::new();
+    if let Some(snapshot) = snapshot {
+        let _ = writeln!(&mut output, "native5-prefix observed=true entries=Some({}) at_capacity=Some({})", snapshot.entries, snapshot.at_capacity);
+        for (index, row) in snapshot.rows.into_iter().enumerate() {
+            let row = row.map(|row| {
+                let mut invalid = row.invalid;
+                let mut relative = |instant: std::time::Instant| {
+                    let value = instant.checked_duration_since(origin)
+                        .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+                        .filter(|value| *value <= 600_000_000);
+                    if value.is_none() { invalid = true; }
+                    value
+                };
+                let anchor = relative(row.target_first_accepted);
+                let first = row.earliest_qualifying_first_dequeue.and_then(&mut relative);
+                let last = row.latest_qualifying_first_dequeue.and_then(&mut relative);
+                (anchor, row.qualifying_distinct, row.qualifying_callbacks,
+                    row.older_without_dequeue, row.older_first_dequeued_before_anchor,
+                    first, last, invalid)
+            });
+            let _ = writeln!(&mut output, "native5-prefix-row index={index} observation={row:?}");
+        }
+    } else {
+        let _ = writeln!(&mut output, "native5-prefix observed=false entries=None at_capacity=None");
+    }
+    output
+}
+
 fn installation_signer(app: &MarmotApp, account: &MemberId) -> Vec<u8> {
     app.account_storage("test")
         .unwrap()
@@ -260,7 +300,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
 // NATIVE5_TIMING_BEGIN
             #[cfg(feature = "test-policy-overrides")]
             if let Some((ordinal, guard)) = native5_timing.take() {
-                native5_timing_reports.push((ordinal, guard.freeze(|origin, peer_outer_ids| {
+                let mut prefix_report = String::new();
+                let mut report = guard.freeze(|origin, peer_outer_ids| {
+                    prefix_report = native5_prefix_report(&apps[ordinal - 1].relay_plane, &account, origin, &peer_outer_ids);
                     std::array::from_fn(|plane| {
                         std::array::from_fn(|channel| {
                             peer_outer_ids[channel].as_ref().and_then(|message| {
@@ -298,7 +340,10 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                             }).unwrap_or((None, None, None, None, None, None, None))
                         })
                     })
-                })));
+                });
+                // Keep every old ledger; an oversized optional appendix stays missing/unknown.
+                if report.len() + prefix_report.len() <= 65536 { report.push_str(&prefix_report); }
+                native5_timing_reports.push((ordinal, report));
             }
 // NATIVE5_TIMING_END
             tokio::time::timeout(Duration::from_secs(20), async {
@@ -323,9 +368,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     if let Some((ordinal, guard)) = native5_timing.take() {
-        native5_timing_reports.push((
-            ordinal,
-            guard.freeze(|origin, peer_outer_ids| {
+        let mut prefix_report = String::new();
+        let mut report = guard.freeze(|origin, peer_outer_ids| {
+                prefix_report = native5_prefix_report(&apps[ordinal - 1].relay_plane, &account, origin, &peer_outer_ids);
                 std::array::from_fn(|plane| {
                     std::array::from_fn(|channel| {
                         peer_outer_ids[channel]
@@ -406,8 +451,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                             .unwrap_or((None, None, None, None, None, None, None))
                     })
                 })
-            }),
-        ));
+            });
+        if report.len() + prefix_report.len() <= 65536 { report.push_str(&prefix_report); }
+        native5_timing_reports.push((ordinal, report));
     }
     // NATIVE5_TIMING_END
     let mut runtime_closes = 0usize;
