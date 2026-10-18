@@ -99,8 +99,14 @@ impl AppClient {
             .app
             .account_storage(&self.state.label)
             // BROAD_TRACE_BEGIN
-            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 92, 0); })
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 92, 1); })
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 92, 0);
+            })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 92, 1);
+            })
             // BROAD_TRACE_END
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
         // BROAD_TRACE_BEGIN
@@ -136,8 +142,14 @@ impl AppClient {
             .guard
             .validate(&round.anchor)
             // BROAD_TRACE_BEGIN
-            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 85, 0); })
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 85, 1); })
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 85, 0);
+            })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 85, 1);
+            })
             // BROAD_TRACE_END
             .map_err(ClientLinkingError::Engine)?;
         // BROAD_TRACE_BEGIN
@@ -149,8 +161,15 @@ impl AppClient {
             .session()
             .validated_settled_device_roster(&action.group)
             // BROAD_TRACE_BEGIN
-            .inspect(|roster| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 87, u64::from(roster.is_some())); let _ = roster; })
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 87, 2); })
+            .inspect(|roster| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 87, u64::from(roster.is_some()));
+                let _ = roster;
+            })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 87, 2);
+            })
             // BROAD_TRACE_END
             .map_err(ClientLinkingError::Engine)?
             .is_none()
@@ -167,8 +186,15 @@ impl AppClient {
             .iter()
             .find(|request| request.binding_digest().ok() == Some(action.binding))
             // BROAD_TRACE_BEGIN
-            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 89, 1); })
-            .or_else(|| { #[cfg(all(test, feature = "test-policy-overrides"))] broad_trace::channel(&original.state, 89, 0); None })
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 89, 1);
+            })
+            .or_else(|| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&original.state, 89, 0);
+                None
+            })
             // BROAD_TRACE_END
             .ok_or_else(rejected)?;
         let source = round.anchor.local_device;
