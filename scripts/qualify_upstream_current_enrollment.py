@@ -196,7 +196,7 @@ def closed_timeout_progress(raw):
     aggregate=opt(r'\((true|false), (None|Some\('+n+r'\)), ('+n+'), ('+n+r')\)')
     # Discard the other source-owned numeric arrays; never export their values.
     aggregate_line=r'primary/expected/children/completed=('+aggregate+r') intake='+opt(arr(8))+r' rejections='+opt(arr(4))+r' context_rejections='+opt(arr(9))+r' projection='+opt(arr(4))
-    rpc_line=r'native_rpc_counts/elapsed_ms/branch=('+opt(r'\(('+arr(6)+'), ('+arr(6)+'), (None|Some\(('+'|'.join(PROGRESS_REASONS)+'), ('+n+r')\))\)')+')'
+    rpc_line=r'native_rpc_counts/elapsed_ms/branch=('+opt(r'\(('+arr(6)+'), ('+arr(6)+'), (None|Some\(\(('+'|'.join(PROGRESS_REASONS)+'), ('+n+r')\)\))\)')+')'
     rows={side:{'completion':{'record_available':False,'value':None},'native_rpc':{'record_available':False,'value':None}} for side in ('left','right')}
     for side in rows:
         prefix='automatic-enrollment-control side='+side+' '
@@ -225,16 +225,18 @@ def timeout_progress_controls():
     ensure(rows['left']['completion']['value']=={'primary_committed':True,'expected_children':3,'children':3,'completed_children':2} and rows['left']['native_rpc']['value']['counts']==[1,2,3,4,5,6] and rows['right']['completion']['record_available'] is False,'closed-progress-real-widths')
     none=closed_timeout_progress(prefix+'native_rpc_counts/elapsed_ms/branch=None')['sides']['left']['native_rpc']
     ensure(none['record_available'] and none['value'] is None,'closed-progress-source-None')
+    reason_none=closed_timeout_progress(rpc.replace('Some((SharingPending, 12))','None'))['sides']['left']['native_rpc']
+    ensure(reason_none['record_available'] and reason_none['value']['last_reason'] is None and reason_none['value']['counts']==[1,2,3,4,5,6],'closed-progress-reason-None')
     # Additional existing_index=2/child rows cannot impose an inherited eight-row limit.
     extra='\n'.join(['automatic-enrollment-control existing_index=2 child_channel=None']*9)
     ensure(closed_timeout_progress(completion+'\n'+rpc+'\n'+extra)['sides']==rows,'fifth-extra-rows-not-a-limit')
     for line in [completion.replace('Some(3)','Some(-3)'),completion.replace('3, 2','3, 18446744073709551616'),completion+' PRIVATE',completion+'\n'+completion]:
         result=closed_timeout_progress(line)
         ensure(not result['sides']['left']['completion']['record_available'] and 'PRIVATE' not in json.dumps(result),'closed-progress-invalid-completion')
-    for line in [rpc.replace('1, 2, 3, 4, 5, 6','1, 2, 3, 4, 5'),rpc.replace('SharingPending','PRIVATE'),rpc.replace('18446744073709551615','18446744073709551616'),rpc+'\n'+rpc,rpc.replace('Some((SharingPending, 12))','Some((SharingPending, -1))')]:
+    for line in [rpc.replace('1, 2, 3, 4, 5, 6','1, 2, 3, 4, 5'),rpc.replace('SharingPending','PRIVATE'),rpc.replace('18446744073709551615','18446744073709551616'),rpc+'\n'+rpc,rpc.replace('Some((SharingPending, 12))','Some((SharingPending, -1))'),rpc.replace('Some((SharingPending, 12))','Some(SharingPending, 12)')]:
         result=closed_timeout_progress(line)
         ensure(not result['sides']['left']['native_rpc']['record_available'] and 'PRIVATE' not in json.dumps(result),'closed-progress-invalid-rpc')
-    return {'positive':3,'negative':9,'actual_runtime_bodies':0}
+    return {'positive':4,'negative':10,'actual_runtime_bodies':0}
 
 def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
