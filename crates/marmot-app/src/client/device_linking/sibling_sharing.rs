@@ -44,6 +44,7 @@ struct NativeObservationProbe {
     counts: [usize; 6],
     elapsed_ms: [u64; 6],
     reason: Option<(NativeObservationReason, u64)>,
+    exact_predecessor_observed: bool,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Default for NativeObservationProbe {
@@ -53,6 +54,7 @@ impl Default for NativeObservationProbe {
             counts: [0; 6],
             elapsed_ms: [0; 6],
             reason: None,
+            exact_predecessor_observed: false,
         }
     }
 }
@@ -693,6 +695,21 @@ impl OriginalEnrollmentSharingChoice {
     }
     pub(super) fn live(&self) -> bool {
         self.lifetime.load(Ordering::Acquire) && Instant::now() < self.deadline
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn record_exact_predecessor_for_test(&self, exact: bool) {
+        self.native_observation_probe
+            .lock()
+            .expect("native observation probe")
+            .exact_predecessor_observed |= exact;
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn predecessor_readiness_for_test(&self) -> (bool, bool, bool) {
+        let observed = self.native_observation_probe
+            .lock()
+            .expect("native observation probe")
+            .exact_predecessor_observed;
+        (observed, self.live(), self.primary_committed())
     }
     pub(super) fn primary_committed(&self) -> bool {
         self.progress

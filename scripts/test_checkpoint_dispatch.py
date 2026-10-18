@@ -16,6 +16,8 @@ CASE = "runtime::conversation_window::tests::hot_checkpoints_do_not_postpone_not
 FEATURES = "wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
 DEPARTURE_SCOPE = "experimental-departure-diagnostic"
 DEPARTURE_CASE = "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race"
+PREDECESSOR_SCOPE = "native-predecessor-readiness"
+PREDECESSOR_CASE = "client::device_linking::setup::tests::native_pair_sharing_waits_for_exact_predecessor_before_persistence"
 PUBLIC_SCOPE = "public-third-device-deployment"
 PUBLIC_CASE = "native_device_linking::automatic_pairing_acceptance::public_third_device_enrollment_with_existing_chat"
 EXPERIMENTAL_FEATURES = (
@@ -33,12 +35,15 @@ class CheckpointDispatchTests(unittest.TestCase):
         job = workflow.split("  core-regressions:\n", 1)[1].split("    name:", 1)[0]
         self.assertIn("github.event_name == 'workflow_dispatch'", job)
         routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
-        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE):
+        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, PREDECESSOR_SCOPE):
             self.assertIn(scope, options)
             self.assertIn(scope, routes)
 
     def test_departure_scope_preserves_the_full_experimental_feature_union(self):
         self.check_inventory(DEPARTURE_SCOPE, DEPARTURE_CASE, EXPERIMENTAL_FEATURES)
+
+    def test_predecessor_scope_requires_exact_nonignored_case(self):
+        self.check_inventory(PREDECESSOR_SCOPE, PREDECESSOR_CASE, EXPERIMENTAL_FEATURES)
 
     def test_exact_default_features_and_inventory_are_required(self):
         self.check_inventory(SCOPE, CASE, FEATURES)
@@ -96,7 +101,7 @@ class CheckpointDispatchTests(unittest.TestCase):
                 else:
                     self.assertNotIn('--exclude', args)
                 for option, value in (('--features', features), ('--retries', '0'),
-                                      ('--test-threads', '1' if ignored_only else '6'), ('--profile', 'm5-bounded')):
+                                      ('--test-threads', '1' if ignored_only or scope == PREDECESSOR_SCOPE else '6'), ('--profile', 'm5-bounded')):
                     self.assertEqual(args[args.index(option) + 1], value)
                 self.assertEqual(args[args.index('-E') + 1], f'package(marmot-app) & test(={required_case})')
                 self.assertIn('--locked', args)
