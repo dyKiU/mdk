@@ -4587,22 +4587,30 @@ async fn cold_selected_group_read_leaves_foreign_account_available_to_another_ru
     app.account_home().create_account("bob").expect("bob");
     let alice_group = {
         let mut client = app.client("alice").await.expect("alice setup client");
-        client.create_group("alice local group", &[]).await.expect("alice group")
+        client
+            .create_group("alice local group", &[])
+            .await
+            .expect("alice group")
     };
     let bob_group = {
         let mut client = app.client("bob").await.expect("bob setup client");
-        client.create_group("bob local group", &[]).await.expect("bob group")
+        client
+            .create_group("bob local group", &[])
+            .await
+            .expect("bob group")
     };
     let alice_runtime = app.runtime();
     let bob_runtime = app.runtime();
     let alice_read = timeout(
         ACCOUNT_OPEN_TEST_DEADLINE,
         alice_runtime.group_mls_state("alice", &alice_group),
-    ).await;
+    )
+    .await;
     let bob_read = timeout(
         ACCOUNT_OPEN_TEST_DEADLINE,
         bob_runtime.group_mls_state("bob", &bob_group),
-    ).await;
+    )
+    .await;
     // Capture the behavioral verdict, then release both actual owners before asserting it.
     let alice_ok = matches!(alice_read, Ok(Ok(_)));
     let bob_ok = matches!(&bob_read, Ok(Ok(_)));
@@ -4615,10 +4623,18 @@ async fn cold_selected_group_read_leaves_foreign_account_available_to_another_ru
     // The App is shared: close it only after both managers have stopped their workers.
     let terminal_close_ok = alice_runtime.shutdown_and_close().await.is_ok();
     let storage_closed = app.storage_is_closed();
-    eprintln!("[account-isolation] selected_read={alice_ok} foreign_read={bob_ok} foreign_session_busy={bob_session_busy} shutdown_returns={shutdown_returns} terminal_close_ok={terminal_close_ok} storage_closed={storage_closed}");
-    assert!(terminal_close_ok && storage_closed, "shared account storage must close after both runtime shutdowns");
+    eprintln!(
+        "[account-isolation] selected_read={alice_ok} foreign_read={bob_ok} foreign_session_busy={bob_session_busy} shutdown_returns={shutdown_returns} terminal_close_ok={terminal_close_ok} storage_closed={storage_closed}"
+    );
+    assert!(
+        terminal_close_ok && storage_closed,
+        "shared account storage must close after both runtime shutdowns"
+    );
     assert!(alice_ok, "selected account cold group read must succeed");
-    assert!(bob_ok, "selected account cold read must not claim foreign account session");
+    assert!(
+        bob_ok,
+        "selected account cold read must not claim foreign account session"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4630,19 +4646,28 @@ async fn explicit_batch_reconcile_still_owns_all_eligible_accounts() {
     app.account_home().create_account("bob").expect("bob");
     let bob_group = {
         let mut client = app.client("bob").await.expect("bob setup client");
-        client.create_group("bob local group", &[]).await.expect("bob group")
+        client
+            .create_group("bob local group", &[])
+            .await
+            .expect("bob group")
     };
     let batch_runtime = app.runtime();
     let independent_runtime = app.runtime();
-    let batch = timeout(ACCOUNT_OPEN_TEST_DEADLINE, batch_runtime.reconcile_accounts()).await;
+    let batch = timeout(
+        ACCOUNT_OPEN_TEST_DEADLINE,
+        batch_runtime.reconcile_accounts(),
+    )
+    .await;
     let own_read = timeout(
         ACCOUNT_OPEN_TEST_DEADLINE,
         batch_runtime.group_mls_state("bob", &bob_group),
-    ).await;
+    )
+    .await;
     let competing_read = timeout(
         ACCOUNT_OPEN_TEST_DEADLINE,
         independent_runtime.group_mls_state("bob", &bob_group),
-    ).await;
+    )
+    .await;
     let batch_ok = matches!(batch, Ok(Ok(())));
     let own_ok = matches!(own_read, Ok(Ok(_)));
     let protected = matches!(competing_read, Ok(Err(AppError::AccountSessionBusy)));
@@ -4650,8 +4675,17 @@ async fn explicit_batch_reconcile_still_owns_all_eligible_accounts() {
     batch_runtime.shutdown().await;
     let terminal_close_ok = batch_runtime.shutdown_and_close().await.is_ok();
     let storage_closed = app.storage_is_closed();
-    assert!(terminal_close_ok && storage_closed, "shared account storage must close after both runtime shutdowns");
-    assert!(batch_ok, "explicit batch reconcile must open eligible accounts");
+    assert!(
+        terminal_close_ok && storage_closed,
+        "shared account storage must close after both runtime shutdowns"
+    );
+    assert!(
+        batch_ok,
+        "explicit batch reconcile must open eligible accounts"
+    );
     assert!(own_ok, "batch owner must serve the real group read");
-    assert!(protected, "independent runtime must respect the live account owner");
+    assert!(
+        protected,
+        "independent runtime must respect the live account owner"
+    );
 }
