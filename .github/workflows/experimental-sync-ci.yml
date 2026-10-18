@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [fixture-layout-preflight, fixture-layout-pfp, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -71,6 +71,38 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  # FIXTURE_LAYOUT_JOBS_BEGIN
+  fixture-layout:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["fixture-layout-preflight","fixture-layout-pfp"]'), inputs.scope)
+    name: Std-only fixture layout source-policy controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      UPSTREAM_FIXTURE_LAYOUT_BASELINE: 2af025f5613a1d6c070ad12414d28825bc39f68d
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Exact whole-source and closed parser preflight
+        run: python3 scripts/qualify_upstream_fixture_layout.py --mode preflight
+      - name: Install exact minimal Rust compiler without Cargo dependencies
+        if: inputs.scope == 'fixture-layout-pfp'
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Four original audit controls then inverse layout RED then restored four controls
+        if: inputs.scope == 'fixture-layout-pfp'
+        run: python3 scripts/qualify_upstream_fixture_layout.py --mode pfp
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fixture-layout-source-policy
+          path: fixture-layout-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # FIXTURE_LAYOUT_JOBS_END
   workflow-union-preflight:
     if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","archive-recovery","profile-edit-regression"]'), inputs.scope)
     name: Recovery provenance and pairing dispatch metadata tests
