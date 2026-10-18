@@ -16,17 +16,17 @@ impl AppClient {
         owner: &Weak<OriginalSiblingSharingApproval>,
     ) -> Result<Option<Snapshot>, ClientLinkingError> {
         let Some(held) = owner.upgrade() else {
-            return Ok(None);
+            return Ok(observe_prerequisites(None, 256));
         };
         let Some(action) = self.linking_owner.received_endorsement.as_ref() else {
-            return Ok(None);
+            return Ok(observe_prerequisites(None, 257));
         };
         let Some(original) = action
             .sharing
             .as_ref()
             .filter(|original| Arc::ptr_eq(original, &held))
         else {
-            return Ok(None);
+            return Ok(observe_prerequisites(None, 258));
         };
         let mut snapshot = Snapshot {
             facts: [false; 8],
@@ -35,7 +35,7 @@ impl AppClient {
         snapshot.facts[0] = true;
         snapshot.facts[1] = original.state.live() && !action.cancelled && !original.complete();
         if !snapshot.facts[1] {
-            return Ok(Some(snapshot));
+            return Ok(observe_prerequisites(Some(snapshot), 0));
         }
         let Some(attempt) = self
             .linking_owner
@@ -45,7 +45,7 @@ impl AppClient {
                 attempt.guard.binding() == &action.binding && attempt.guard.is_live()
             })
         else {
-            return Ok(Some(snapshot));
+            return Ok(observe_prerequisites(Some(snapshot), 0));
         };
         snapshot.facts[2] = true;
         let storage = self
@@ -58,15 +58,15 @@ impl AppClient {
             .read_round()
             .map_err(|error| ClientLinkingError::Engine(error.into()))?;
         let Some(round) = round else {
-            return Ok(Some(snapshot));
+            return Ok(observe_prerequisites(Some(snapshot), 0));
         };
         snapshot.facts[3] = round.phase == PrivateSettlementPhase::Completed;
         if !snapshot.facts[3] {
-            return Ok(Some(snapshot));
+            return Ok(observe_prerequisites(Some(snapshot), 0));
         }
         snapshot.facts[4] = attempt.guard.validate(&round.anchor).is_ok();
         if !snapshot.facts[4] {
-            return Ok(Some(snapshot));
+            return Ok(observe_prerequisites(Some(snapshot), 0));
         }
         snapshot.facts[5] = self
             .runtime
@@ -84,6 +84,23 @@ impl AppClient {
             && !original.complete()
             && attempt.guard.is_live()
             && std::time::Instant::now() < snapshot.deadline;
-        Ok(Some(snapshot))
+        Ok(observe_prerequisites(Some(snapshot), 0))
     }
 }
+
+// READINESS_PREREQUISITE_DIAGNOSTIC_BEGIN
+// This entire module is already test/policy gated. No new reads or scheduling.
+fn observe_prerequisites(snapshot: Option<Snapshot>, none_code: u16) -> Option<Snapshot> {
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static LAST: AtomicU16 = AtomicU16::new(u16::MAX);
+    let code = snapshot.as_ref().map_or(none_code, |row| {
+        row.facts.iter().enumerate().fold(0u16, |bits, (index, fact)| {
+            bits | (u16::from(*fact) << index)
+        })
+    });
+    if LAST.swap(code, Ordering::Relaxed) != code {
+        eprintln!("source-readiness-prerequisite code={code}");
+    }
+    snapshot
+}
+// READINESS_PREREQUISITE_DIAGNOSTIC_END
