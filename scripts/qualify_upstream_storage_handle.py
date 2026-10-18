@@ -87,7 +87,7 @@ def known_crossing(line, context, section):
         return False
     source = context['sources'][origin]
     if target == 'cgka_traits::*':
-        return bool(re.search(r'\buse\s+cgka_traits\b[^;]*\*\s*;', source))
+        return bool(re.search(r'\buse\s+cgka_traits\b[^;]*\*[^;]*;', source))
     protocol = '\n'.join(body for path, body in context['sources'].items() if path.startswith('protocol/'))
     return (re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', target) is not None
             and re.search(r'\b' + re.escape(target) + r'\b', source) is not None
@@ -236,6 +236,21 @@ def parser_controls():
                'tables': set(), 'triggers': set(), 'references': set(), 'listed': {'trait app/test.rs OldTrait'}}
     ensure(known_crossing('trait app/test.rs GroupStorage', context, 'new'), 'real-source-trait-row')
     ensure(known_crossing('trait app/test.rs cgka_traits::*', context, 'new'), 'real-source-trait-glob')
+    for use in ['use cgka_traits::storage::*;',
+                'use cgka_traits::{GroupId, account_chat_record_stream::*, storage::{StorageError, StorageResult}};',
+                'use cgka_traits::{storage::{GroupStorage, *}, GroupId};']:
+        grouped = {**context, 'sources': {**context['sources'], 'app/test.rs': use}}
+        ensure(known_crossing('trait app/test.rs cgka_traits::*', grouped, 'new'),
+               'closed-source-grouped-glob-acceptance')
+    for use in ['use other_crate::{storage::*, GroupId};',
+                'use cgka_traits_extra::{storage::*, GroupId};',
+                'use alias::cgka_traits::{storage::*, GroupId};',
+                'use cgka_traits::{GroupId}; let x = a * b;',
+                'use cgka_traits::{GroupId}; use other_crate::storage::*;',
+                'use cgka_traits::{GroupId, storage::GroupStorage};']:
+        grouped = {**context, 'sources': {**context['sources'], 'app/test.rs': use}}
+        ensure(not known_crossing('trait app/test.rs cgka_traits::*', grouped, 'new'),
+               'namespace-or-after-semicolon-star-not-cgka-glob')
     ensure(known_crossing('trait app/test.rs OldTrait', context, 'stale'), 'stale-exact-allowlist-provenance')
     negatives = ['trait app/test.rs PRIVATE_ACCOUNT', 'trait ../private.rs GroupStorage',
                  'trait app/test.rs GroupStorage private', 'trait app/test.rs nsec1PRIVATE',
@@ -248,6 +263,18 @@ def parser_controls():
            + 'trait app/test.rs GroupStorage\n\nFAILED\nfailures:\n    ' + BOUNDARY
            + '\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.1s\n')
     ensure(crossing_inventory(raw, 101, context, 91)['counts']['new'] == 1, 'closed-typed-inventory-positive')
+    grouped_context = {**context, 'sources': {**context['sources'],
+        'app/test.rs': 'use cgka_traits::{GroupId, account_chat_record_stream::*, storage::{StorageError, StorageResult}};'}}
+    grouped_raw = raw.replace('trait app/test.rs GroupStorage', 'trait app/test.rs cgka_traits::*')
+    grouped_inventory = crossing_inventory(grouped_raw, 101, grouped_context, 91)
+    ensure(grouped_inventory['status'] == 'complete' and grouped_inventory['counts']['new'] == 1
+           and grouped_inventory['new'] == [{'kind': 'trait', 'origin': 'app/test.rs', 'target': 'cgka_traits::*'}]
+           and grouped_inventory['automatically_allowed'] is False, 'complete-grouped-glob-diagnostic-not-allowance')
+    after_semicolon = {**grouped_context, 'sources': {**grouped_context['sources'],
+        'app/test.rs': 'use cgka_traits::{GroupId}; use other_crate::storage::*;'}}
+    rejected_group = crossing_inventory(grouped_raw, 101, after_semicolon, 91)
+    ensure(rejected_group['status'] == 'rejected' and rejected_group['counts'] is None,
+           'after-semicolon-does-not-qualify-complete-inventory')
     for value in [raw + raw, raw.replace('1 crossing(s)', '2 crossing(s)'), raw.replace('GroupStorage\n\n', 'PRIVATE_ACCOUNT\n\n'),
                   raw.replace(':91:5:', ':92:5:'), raw.replace('0 ignored', '1 ignored'), raw + 'PRIVATE_ACCOUNT\n']:
         try:
@@ -328,6 +355,8 @@ def parser_controls():
             'inventory_positive': 1, 'inventory_negative': 6, 'safe_rejection_controls': 2,
             'trait_metadata_positive': 2, 'trait_metadata_negative': 5,
             'grouped_glob_metadata_positive': 3, 'grouped_glob_metadata_negative': 3,
+            'grouped_glob_acceptance_positive': 3, 'grouped_glob_acceptance_negative': 6,
+            'grouped_glob_inventory_positive': 1, 'grouped_glob_inventory_negative': 1,
             'aggregate_positive': 1, 'aggregate_negative': 5, 'runtime_bodies': 0}
 
 
