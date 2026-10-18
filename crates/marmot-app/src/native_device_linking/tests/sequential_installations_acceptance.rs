@@ -225,7 +225,11 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     let mut completed_steps = 0usize;
     let mut public_cancels = 0usize;
     let mut final_roster_and_policies = false;
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     let mut receive_frontiers = Vec::with_capacity(2);
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
@@ -259,9 +263,17 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             for approval in approvals { approval.cancel().await.unwrap(); public_cancels += 1; }
         }
     }).catch_unwind().await;
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     for (ordinal, trace) in &receive_frontiers {
-        eprintln!("native5-receive-frontier join={} observation={:?}", ordinal, trace.as_ref().map(|trace| trace.freeze()));
+        eprintln!(
+            "native5-receive-frontier join={} observation={:?}",
+            ordinal,
+            trace.as_ref().map(|trace| trace.freeze())
+        );
     }
     let mut runtime_closes = 0usize;
     for runtime in &runtimes {
