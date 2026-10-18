@@ -391,6 +391,12 @@ impl AppClient {
         binding: &[u8; 32],
         packet: &[u8],
     ) -> Result<(), ClientLinkingError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let primary_trace = self.broad_publication_trace_for_test();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(93, 0);
+        // BROAD_TRACE_END
         if packet.is_empty() || packet.len() > MAX_PART_BYTES {
             return Err(rejected());
         }
@@ -404,15 +410,31 @@ impl AppClient {
                     && std::time::Instant::now() < attempt.deadline
             })
             .ok_or_else(rejected)?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(93, 1);
+        // BROAD_TRACE_END
         let guard = self
             .runtime
             .session()
             .arm_original_existing_enrollment_transition(&action.owned, packet)
+            // BROAD_TRACE_BEGIN
+            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(93, 2); })
+            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(93, 3); })
+            // BROAD_TRACE_END
             .map_err(ClientLinkingError::Engine)?;
         if self.linking_owner.existing_settlement_attempt.is_none() {
             self.linking_owner.existing_settlement_attempt =
                 Some(super::private_settlement::OwnedExistingSettlementAttempt::new(guard));
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            primary_trace.event(93, 4);
+            // BROAD_TRACE_END
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(93, 5);
+        // BROAD_TRACE_END
         Ok(())
     }
 

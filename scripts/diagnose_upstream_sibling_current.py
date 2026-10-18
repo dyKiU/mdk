@@ -17,10 +17,11 @@ BASE = '8bab50793e9bf046369cdc5df9c2bae4d074453f'
 ROOT = 'crates/marmot-app/src/'
 HOOKS = {
     ROOT + 'client/device_linking/sibling_sharing.rs': 28,
-    ROOT + 'client/device_linking.rs': 14,
+    ROOT + 'client/device_linking.rs': 30,
     ROOT + 'client/account_chat_sharing/automatic.rs': 8,
     ROOT + 'native_device_linking/enabled.rs': 2,
-    ROOT + 'client/private_enrollment_proposal.rs': 2,
+    ROOT + 'client/private_enrollment_proposal.rs': 7,
+    ROOT + 'client/private_settlement.rs': 17,
     ROOT + 'client/private_enrollment_proposal/sibling_sharing.rs': 19,
     ROOT + 'native_device_linking/tests/automatic_pairing_acceptance.rs': 13,
 }
@@ -31,7 +32,7 @@ REF = 'refs/heads/ci/upstream-sibling-current-diagnostic-20261018'
 OUT = Path('sibling-current-evidence')
 BEGIN = '  # SIBLING_CURRENT_JOBS_BEGIN\n'
 END = '  # SIBLING_CURRENT_JOBS_END\n'
-OPTIONS = 'options: [sibling-current-preflight, sibling-current-diagnostic, sibling-current-held-only, '
+OPTIONS = 'options: [sibling-current-preflight, sibling-current-diagnostic, sibling-current-held-only, sibling-current-ordinary-only, '
 PREFIX = 'native_device_linking::automatic_pairing_acceptance::'
 STAGES = {
     1: 'SelectedEnter', 2: 'SelectedExit', 3: 'RevocationEnter', 4: 'RevocationExit',
@@ -68,9 +69,19 @@ STAGES = {
     87: 'ValidatedSettledRosterResult', 88: 'RetainedRequestLookupEnter',
     89: 'RetainedRequestLookupResult', 90: 'BeginSourceChannelCall',
     91: 'ExistingAccountStorageEnter', 92: 'ExistingAccountStorageResult',
+    93: 'ExistingGuardArmEvent', 94: 'ExistingConfirmationSelectionEvent',
+    95: 'ExistingConfirmationDispatchEvent', 96: 'ActualPrimarySDKPublicationEvent',
+    97: 'CoordinatorPrivateDispatchEvent',
 }
-HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '7da356dfaa48bf9ca3dc1e75a8e8f0cd85d8a3538aabd5678c8c252b10670dac', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': 'd0a7a8d3fd9c69433e604cce36aaf8f63659c9a3517839d7b676d1d92bd32c5c', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623', 'crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs': '9744d3283b134b302524f44eec206d10fd668abb4175d7acdb2b8c912ef3f6c5'}
-MODULE_SHA256 = '45b9f2b98fb042e44bedc8adbdb7306a8e58b8b1f9fc7f5fd527a796f2517dc1'
+HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '12b1fb4361ef6cf801f8b33bd7ef30e1f2e327cc715538df7dcfbadf28bd6f67', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': 'b1fffe195d546fca78901c13c4b715cc9b9b56e116ea1666e4be4e00c44fed8c', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623', 'crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs': '9744d3283b134b302524f44eec206d10fd668abb4175d7acdb2b8c912ef3f6c5', 'crates/marmot-app/src/client/private_settlement.rs': '4c7de827123afe4d8afcd68dea370949d1fd57789130660ceba5529297d0fb2f'}
+MODULE_SHA256 = 'c0e55a5fb53e36cdb79bfa1739294673eb42719a3f6d16fa511417f170724286'
+PRIMARY_EVENTS = {
+    93: {0: 'GuardArmEnter', 1: 'ActualActionMatched', 2: 'EngineGuardArmReturnedOk', 3: 'EngineGuardArmReturnedError', 4: 'NewExistingAttemptStored', 5: 'GuardArmFinished'},
+    94: {0: 'ConfirmationSelectionEnter', 1: 'NoAttempt', 2: 'ActualGuardNotLive', 3: 'EngineSelectionCalled', 4: 'EngineSelectionReturnedOk', 5: 'EngineSelectionReturnedError', 6: 'AlreadyPublished', 7: 'ActualPublicationNotReady', 8: 'ActualPublicationReady', 9: 'ActualReadinessReturnedError'},
+    95: {0: 'ExistingConfirmationDispatchEnter', 1: 'OwnedGuardResolved', 2: 'GroupDispatchReturnedOk', 3: 'ExistingAttemptMarkedPublished'},
+    96: {0: 'ConfirmationSDKEnter', 1: 'ConfirmationSDKMetACK', 2: 'ConfirmationSDKInsufficientACK', 3: 'ConfirmationSDKError', 4: 'CommitSDKEnter', 5: 'CommitSDKMetACK', 6: 'CommitSDKInsufficientACK', 7: 'CommitSDKError', 8: 'WelcomeSDKEnter', 9: 'WelcomeSDKMetACK', 10: 'WelcomeSDKInsufficientACK', 11: 'WelcomeSDKError'},
+    97: {0: 'CoordinatorCommitDispatchEnter', 1: 'CoordinatorCommitDispatchReturnedOkNotCanonicalApply', 2: 'CoordinatorCommitDispatchReturnedError', 4: 'CoordinatorWelcomeDispatchEnter', 5: 'CoordinatorWelcomeDispatchReturnedOk', 6: 'CoordinatorWelcomeDispatchReturnedError'},
+}
 LOSS_REASONS = {1: 'TimestampOverflow', 2: 'EventCapacity', 4: 'KeyCapacity', 8: 'RecordWouldBlock', 16: 'RecordPoisoned', 32: 'ChildWouldBlock', 64: 'ChildPoisoned', 128: 'RepeatedWindowBegin', 256: 'WindowBeginWouldBlock', 512: 'WindowBeginPoisoned'}
 TERMINAL_REASONS = {0: 'None', 1: 'NoActiveWindow', 2: 'SnapshotWouldBlock', 3: 'SnapshotPoisoned', 4: 'TerminalTimestampOverflow', 5: 'TerminalEventCapacity'}
 STRIP = re.compile(rb'(?m)^[ \t]*// BROAD_TRACE_BEGIN\n.*?^[ \t]*// BROAD_TRACE_END\n', re.S)
@@ -176,6 +187,9 @@ def timeline(raw, name):
                 ensure(key > 0 and keys[key - 1] == 1 and value <= 5, 'closed-observation-reason')
             elif stage in {53, 65}:
                 ensure(key > 0 and keys[key - 1] == 2 and value <= 3, 'closed-owned-publication-kind')
+            elif stage in {93, 94, 95, 96, 97}:
+                allowed = {93: set(range(6)), 94: set(range(10)), 95: set(range(4)), 96: set(range(12)), 97: {0, 1, 2, 4, 5, 6}}[stage]
+                ensure(value in allowed, 'closed-primary-readiness-event')
             elif stage in {83, 85, 87, 89, 92}:
                 maximum = {83: 4, 85: 1, 87: 2, 89: 1, 92: 1}[stage]
                 ensure(key > 0 and keys[key - 1] == 2 and value <= maximum, 'closed-source-prerequisite-result')
@@ -209,7 +223,7 @@ def timeline(raw, name):
             'prewindow_coverage': 'unknown-not-captured', 'timestamps_relative_to_window_start': True, 'key_kinds': None if unavailable else keys,
             'events_microseconds_key_stage_value': None if unavailable else events,
             'exported_key_count': summary['keys'], 'exported_event_count': summary['events'],
-            'stage_names': STAGES,
+            'stage_names': STAGES, 'primary_event_values': PRIMARY_EVENTS,
             'loss_reason_mask': summary['loss_mask'],
             'observed_loss_reasons': [value for bit, value in LOSS_REASONS.items() if summary['loss_mask'] & bit],
             'terminal_reason_code': summary['terminal'], 'terminal_reason': TERMINAL_REASONS[summary['terminal']],
@@ -235,7 +249,14 @@ def parser_controls():
     ensure(observed_loss['known'] is False and observed_loss['observed_loss_reasons'] == ['RecordWouldBlock'], 'explicit-loss-is-never-known')
     ensure(timeline(valid.replace('known=true', 'known=false').replace('terminal=0', 'terminal=5'), name)['known'] is False, 'terminal-loss-is-explicit')
     ensure(timeline(unknown, name)['exported_event_count'] is None, 'unavailable-cardinality-not-zero')
-    negatives = [valid.replace('loss_mask=0', 'loss_mask=8'), valid.replace('known=true', 'known=false'),
+    ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 93, 2]'), name)['known'], 'actual-guard-arm-result-positive')
+    ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 1, 96, 5]'), name)['known'], 'actual-coordinator-commit-SDK-ACK-positive')
+    negatives = [valid.replace('[2, 2, 30, 1]', '[2, 2, 93, 6]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 94, 10]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 95, 4]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 96, 12]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 97, 3]'),
+                 valid.replace('loss_mask=0', 'loss_mask=8'), valid.replace('known=true', 'known=false'),
                  valid.replace('loss_mask=0', 'loss_mask=1024'), valid.replace('terminal=0', 'terminal=2'),
                  valid.replace('terminal=0', 'terminal=9'), unknown.replace('terminal=2', 'terminal=0'),
                  unknown.replace('loss_mask=0', 'loss_mask=1024'), valid + '\nbroad-trace loss=private',valid + '\nbroad-trace private=secret', valid + '\n' + valid,
@@ -271,7 +292,7 @@ def parser_controls():
         except ValueError:
             continue
         raise ValueError('unsafe-or-incomplete-timeline-accepted')
-    return {'positive': 12, 'negative': len(negatives), 'executed_remotely': True}
+    return {'positive': 14, 'negative': len(negatives), 'executed_remotely': True}
 
 
 def main(options):
@@ -282,7 +303,8 @@ def main(options):
               'diagnostic_extension': 'current-source-prerequisite-attribution-and-owned-pipeline',
               'publication_kind_legend': {'0': 'SourceRequest', '1': 'RecipientConsent',
                                           '2': 'SourceProof', '3': 'RecipientProof'},
-              'selected_case_mode': 'held-only' if options.held_only else 'both-originals',
+              'selected_case_mode': 'held-only' if options.held_only else 'ordinary-only' if options.ordinary_only else 'both-originals',
+              'canonical_pending_apply_observation': 'UNKNOWN-no-Core-observer-added',
               'setup_prefix_intentionally_omitted': True, 'event_capacity_unchanged': 8192, 'cases': {}}
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -294,7 +316,7 @@ def main(options):
         report['environment'] = environment()
         before, metadata = freeze(), layout()
         report['source_before_sha256'] = identity(before)
-        selected = [ORIGINALS[1]] if options.held_only else [ORIGINALS[0], ORIGINALS[1]]
+        selected = [ORIGINALS[1]] if options.held_only else [ORIGINALS[0]] if options.ordinary_only else [ORIGINALS[0], ORIGINALS[1]]
         report['required_case_count'] = len(selected)
         compilation, cases = compile_cases(selected)
         report['compilation'] = compilation; save()
@@ -378,5 +400,7 @@ def main(options):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--preflight', action='store_true')
-    parser.add_argument('--held-only', action='store_true')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--held-only', action='store_true')
+    group.add_argument('--ordinary-only', action='store_true')
     main(parser.parse_args())

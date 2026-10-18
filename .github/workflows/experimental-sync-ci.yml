@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [sibling-current-preflight, sibling-current-diagnostic, sibling-current-held-only, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [sibling-current-preflight, sibling-current-diagnostic, sibling-current-held-only, sibling-current-ordinary-only, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -62,7 +62,7 @@ env:
 jobs:
   # SIBLING_CURRENT_JOBS_BEGIN
   sibling-current-preflight:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["sibling-current-preflight","sibling-current-diagnostic","sibling-current-held-only"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["sibling-current-preflight","sibling-current-diagnostic","sibling-current-held-only","sibling-current-ordinary-only"]'), inputs.scope)
     runs-on: ubuntu-latest
     env:
       CARGO_INCREMENTAL: '1'
@@ -95,7 +95,7 @@ jobs:
           retention-days: 7
   sibling-current-diagnostic:
     needs: sibling-current-preflight
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["sibling-current-diagnostic","sibling-current-held-only"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["sibling-current-diagnostic","sibling-current-held-only","sibling-current-ordinary-only"]'), inputs.scope)
     runs-on: ubuntu-latest
     env:
       CARGO_INCREMENTAL: '1'
@@ -123,6 +123,8 @@ jobs:
           python3 scripts/qualification_build_preflight.py --label 'Passive current sibling pipeline diagnostic' --output "$RUNNER_TEMP/sibling-current-capacity.json"
           if [ "$DIAGNOSTIC_SCOPE" = sibling-current-held-only ]; then
             python3 scripts/diagnose_upstream_sibling_current.py --held-only
+          elif [ "$DIAGNOSTIC_SCOPE" = sibling-current-ordinary-only ]; then
+            python3 scripts/diagnose_upstream_sibling_current.py --ordinary-only
           else
             python3 scripts/diagnose_upstream_sibling_current.py
           fi

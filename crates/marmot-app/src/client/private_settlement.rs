@@ -136,29 +136,59 @@ impl AppClient {
     pub(crate) fn pending_existing_private_settlement(
         &mut self,
     ) -> Result<Option<[u8; 32]>, ClientLinkingError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let primary_trace = self.broad_publication_trace_for_test();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(94, 0);
+        // BROAD_TRACE_END
         let Some(attempt) = self.linking_owner.existing_settlement_attempt.as_mut() else {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            primary_trace.event(94, 1);
+            // BROAD_TRACE_END
             return Ok(None);
         };
         if !attempt.guard.is_live() {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            primary_trace.event(94, 2);
+            // BROAD_TRACE_END
             return Ok(None);
         }
         if !attempt.selected {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            primary_trace.event(94, 3);
+            // BROAD_TRACE_END
             self.runtime
                 .session()
                 .select_owned_private_roster_settlement(
                     attempt.guard.group(),
                     attempt.guard.clone(),
                 )
+                // BROAD_TRACE_BEGIN
+                .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, 4); })
+                .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, 5); })
+                // BROAD_TRACE_END
                 .map_err(ClientLinkingError::Engine)?;
             attempt.selected = true;
         }
         if attempt.published {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            primary_trace.event(94, 6);
+            // BROAD_TRACE_END
             return Ok(None);
         }
         Ok(self
             .runtime
             .session()
             .private_roster_settlement_publication_ready(attempt.guard.group())
+            // BROAD_TRACE_BEGIN
+            .inspect(|ready| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, if *ready { 8 } else { 7 }); let _ = ready; })
+            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, 9); })
+            // BROAD_TRACE_END
             .map_err(ClientLinkingError::Engine)?
             .then(|| *attempt.guard.binding()))
     }
@@ -180,9 +210,23 @@ impl AppClient {
         &mut self,
         binding: &[u8; 32],
     ) -> Result<(), ClientLinkingError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let primary_trace = self.broad_publication_trace_for_test();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(95, 0);
+        // BROAD_TRACE_END
         let guard = self.existing_settlement_control(binding)?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(95, 1);
+        // BROAD_TRACE_END
         let group = guard.group().clone();
         self.dispatch_private_settlement_group(&group).await?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(95, 2);
+        // BROAD_TRACE_END
         if !guard.is_live() {
             return Err(denied());
         }
@@ -193,6 +237,10 @@ impl AppClient {
             .filter(|attempt| attempt.guard.binding() == binding)
             .ok_or_else(denied)?;
         attempt.published = true;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(95, 3);
+        // BROAD_TRACE_END
         Ok(())
     }
     pub(super) fn select_owned_private_settlement(&mut self) -> Result<(), ClientLinkingError> {
@@ -296,6 +344,10 @@ impl AppClient {
         let route = cgka_traits::app_components::decode_nostr_routing_v1(&component)
             .map_err(|_| denied())?;
         let publisher = SettlementPublisher {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            trace: self.broad_publication_trace_for_test(),
+            // BROAD_TRACE_END
             adapter: self.adapter.clone(),
             account: self.runtime.session().self_id(),
             target: cgka_traits::TransportPublishTarget::Group {
@@ -320,6 +372,10 @@ fn denied() -> ClientLinkingError {
     ClientLinkingError::Gate(LinkingWelcomeDenied::NoLiveVerifier)
 }
 struct SettlementPublisher {
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    trace: super::device_linking::sibling_sharing::broad_trace::PublicationTrace,
+    // BROAD_TRACE_END
     adapter: transport_nostr::MarmotRelayPlaneAccountAdapter,
     account: cgka_traits::MemberId,
     target: cgka_traits::TransportPublishTarget,
@@ -332,6 +388,10 @@ impl cgka_engine::private_roster_settlement::TrustedPrivateSettlementPublisher
         &self,
         message: &cgka_traits::TransportMessage,
     ) -> Result<(), cgka_traits::EngineError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.trace.event(96, 0);
+        // BROAD_TRACE_END
         let report = self
             .adapter
             .publish_private_confirmation(cgka_traits::transport_adapter::TransportPublishRequest {
@@ -341,14 +401,25 @@ impl cgka_engine::private_roster_settlement::TrustedPrivateSettlementPublisher
                 required_acks: 1,
             })
             .await
+            // BROAD_TRACE_BEGIN
+            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] self.trace.event(96, 3); })
+            // BROAD_TRACE_END
             .map_err(|_| {
                 cgka_traits::EngineError::Other("private confirmation publication uncertain".into())
             })?;
         if !report.met_required_acks() {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.trace.event(96, 2);
+            // BROAD_TRACE_END
             return Err(cgka_traits::EngineError::Other(
                 "private confirmation publication uncertain".into(),
             ));
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.trace.event(96, 1);
+        // BROAD_TRACE_END
         Ok(())
     }
 }

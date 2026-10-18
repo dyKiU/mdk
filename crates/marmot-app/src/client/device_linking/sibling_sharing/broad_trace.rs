@@ -47,6 +47,7 @@ static TRACE: LazyLock<Mutex<Trace>> = LazyLock::new(|| {
 });
 const MAX_KEYS: usize = 64;
 const MAX_EVENTS: usize = 8192;
+#[derive(Clone)]
 enum Key {
     Choice(Weak<AtomicBool>),
     Channel(Weak<State>),
@@ -188,6 +189,27 @@ impl AppClient {
         if !attributed {
             global(stage);
         }
+    }
+}
+/// Diagnostic correlation only; these Weak references cannot grant authority.
+/// Captured from the actual App owner before its borrowed publisher crosses an await.
+pub(crate) struct PublicationTrace(Vec<Key>);
+impl PublicationTrace {
+    pub(crate) fn event(&self, stage: u64, value: u64) {
+        if self.0.is_empty() { record(None, stage, value); }
+        for key in &self.0 { record(Some(key.clone()), stage, value); }
+    }
+}
+impl AppClient {
+    pub(crate) fn broad_publication_trace_for_test(&self) -> PublicationTrace {
+        let mut keys = Vec::new();
+        if let Some(original) = &self.linking_owner.sharing_approval {
+            keys.push(Key::Choice(Arc::downgrade(&original.lifetime)));
+        }
+        if let Some(state) = self.broad_existing_sharing_state_for_test() {
+            keys.push(Key::Channel(Arc::downgrade(state)));
+        }
+        PublicationTrace(keys)
     }
 }
 /// Start only before the unchanged fourth-device continuation. No setup

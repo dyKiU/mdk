@@ -1049,6 +1049,12 @@ impl AppClient {
         &mut self,
         scope: &PurposeAttemptScope,
     ) -> Result<(), ClientLinkingError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let primary_trace = self.broad_publication_trace_for_test();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(97, 0);
+        // BROAD_TRACE_END
         self.check_private_invite_attempt_scope(scope)?;
         self.refresh_private_transport_route()
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
@@ -1089,6 +1095,10 @@ impl AppClient {
                 .collect(),
         };
         let publisher = PrivateCommitPublisher {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            trace: self.broad_publication_trace_for_test(),
+            // BROAD_TRACE_END
             adapter: self.adapter.clone(),
             target,
             account: self.runtime.session().self_id(),
@@ -1103,6 +1113,10 @@ impl AppClient {
             .session_mut()
             .dispatch_prepared_private_device_invite(prepared, &publisher)
             .await
+            // BROAD_TRACE_BEGIN
+            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 1); })
+            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 2); })
+            // BROAD_TRACE_END
             .map_err(ClientLinkingError::PrivateInvite);
         // Success means only an attempted network publication, never membership
         // confirmation or delivery permission. Storage errors keep the exact owner.
@@ -1152,6 +1166,12 @@ impl AppClient {
         &mut self,
         scope: &PurposeAttemptScope,
     ) -> Result<(), ClientLinkingError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let primary_trace = self.broad_publication_trace_for_test();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        primary_trace.event(97, 4);
+        // BROAD_TRACE_END
         self.check_private_invite_attempt_scope(scope)?;
         let account = self.runtime.session().self_id();
         // The recipient has not joined the protected group yet. Its Welcome
@@ -1160,6 +1180,10 @@ impl AppClient {
         // still checks the original live approval and confirmed Add below.
         let endpoints = self.routing.read().local_inbox_endpoints.clone();
         let publisher = PrivateWelcomePublisher {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            trace: self.broad_publication_trace_for_test(),
+            // BROAD_TRACE_END
             adapter: self.adapter.clone(),
             account: account.clone(),
             target: cgka_traits::TransportPublishTarget::Inbox {
@@ -1180,6 +1204,10 @@ impl AppClient {
             .session_mut()
             .dispatch_confirmed_private_welcomes(prepared, &publisher)
             .await
+            // BROAD_TRACE_BEGIN
+            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 5); })
+            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 6); })
+            // BROAD_TRACE_END
             .map_err(ClientLinkingError::PrivateInvite);
         if result.is_ok() {
             self.native_welcomes_published(scope);
@@ -1486,6 +1514,10 @@ impl AppClient {
 
 /// Actual account adapter publication of the one Engine-selected cached commit.
 struct PrivateCommitPublisher {
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    trace: sibling_sharing::broad_trace::PublicationTrace,
+    // BROAD_TRACE_END
     adapter: transport_nostr::MarmotRelayPlaneAccountAdapter,
     target: cgka_traits::TransportPublishTarget,
     account: MemberId,
@@ -1497,6 +1529,10 @@ impl cgka_engine::private_device_invite::TrustedPrivateInvitePublisher for Priva
         commit: &cgka_traits::TransportMessage,
     ) -> Result<(), cgka_traits::EngineError> {
         use cgka_traits::transport_adapter::TransportPublishRequest;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.trace.event(96, 4);
+        // BROAD_TRACE_END
         let target = self.target.clone();
         let required_acks = 1;
         let report = self
@@ -1508,14 +1544,25 @@ impl cgka_engine::private_device_invite::TrustedPrivateInvitePublisher for Priva
                 required_acks,
             })
             .await
+            // BROAD_TRACE_BEGIN
+            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] self.trace.event(96, 7); })
+            // BROAD_TRACE_END
             .map_err(|_| {
                 cgka_traits::EngineError::Other("private commit publication uncertain".into())
             })?;
         if !report.met_required_acks() {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.trace.event(96, 6);
+            // BROAD_TRACE_END
             return Err(cgka_traits::EngineError::Other(
                 "private commit publication uncertain".into(),
             ));
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.trace.event(96, 5);
+        // BROAD_TRACE_END
         Ok(())
     }
 }
@@ -1717,6 +1764,10 @@ impl AppClient {
 }
 
 struct PrivateWelcomePublisher {
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    trace: sibling_sharing::broad_trace::PublicationTrace,
+    // BROAD_TRACE_END
     adapter: transport_nostr::MarmotRelayPlaneAccountAdapter,
     target: cgka_traits::TransportPublishTarget,
     account: MemberId,
@@ -1729,6 +1780,10 @@ impl cgka_engine::private_device_invite::TrustedPrivateWelcomePublisher
         &self,
         welcome: &cgka_traits::TransportMessage,
     ) -> Result<(), cgka_traits::EngineError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.trace.event(96, 8);
+        // BROAD_TRACE_END
         let report = self
             .adapter
             .publish_private_welcome(cgka_traits::transport_adapter::TransportPublishRequest {
@@ -1738,14 +1793,25 @@ impl cgka_engine::private_device_invite::TrustedPrivateWelcomePublisher
                 required_acks: 1,
             })
             .await
+            // BROAD_TRACE_BEGIN
+            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] self.trace.event(96, 11); })
+            // BROAD_TRACE_END
             .map_err(|_| {
                 cgka_traits::EngineError::Other("private Welcome publication uncertain".into())
             })?;
         if !report.met_required_acks() {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.trace.event(96, 10);
+            // BROAD_TRACE_END
             return Err(cgka_traits::EngineError::Other(
                 "private Welcome publication uncertain".into(),
             ));
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.trace.event(96, 9);
+        // BROAD_TRACE_END
         Ok(())
     }
 }
