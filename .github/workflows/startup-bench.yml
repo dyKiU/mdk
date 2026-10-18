@@ -49,11 +49,11 @@ jobs:
         run: |
           set -euo pipefail
           # Do not enable shell tracing: credentials are passed only by askpass.
-          old=639abe576b3b1fd57e336ccdd82b1b06ebd1906d
-          new=f413e52c489d3500e18be60075524d3254c49b4a
+          old=f413e52c489d3500e18be60075524d3254c49b4a
+          new=9e99f8c1dc53f2681e562ec24e206595a4514f71
           fork_url=https://github.com/dyKiU/mdk.git
           upstream_url=https://github.com/marmot-protocol/mdk.git
-          mirror_ref=refs/heads/ci/upstream-master-mirror-f413e52c-20261017
+          mirror_ref=refs/heads/ci/upstream-master-mirror-9e99f8c1-20261018
           [[ "$GITHUB_REPOSITORY" == dyKiU/mdk ]]
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
           [[ "$GITHUB_REF" == refs/heads/ci/upstream-master-token-ff-20261017 ]]
