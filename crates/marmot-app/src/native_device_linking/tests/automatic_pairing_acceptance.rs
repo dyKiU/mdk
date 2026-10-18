@@ -189,7 +189,7 @@ async fn automatic_enrollment_reaches_a_separate_account_inbox_relay() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
     four_device_enrollment(HeldPublication::None, None, false).await;
 }
