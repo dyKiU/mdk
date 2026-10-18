@@ -3847,7 +3847,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      UPSTREAM_REQUEST_CONSENT_GAP_BASELINE: f444bc1b2747bda199ee334fc8d213cc0f9c5482
+      UPSTREAM_REQUEST_CONSENT_GAP_BASELINE: 5ae3269f225c2cf56cce35c010409b7e44acc4f7
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -3883,7 +3883,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      UPSTREAM_REQUEST_CONSENT_GAP_BASELINE: f444bc1b2747bda199ee334fc8d213cc0f9c5482
+      UPSTREAM_REQUEST_CONSENT_GAP_BASELINE: 5ae3269f225c2cf56cce35c010409b7e44acc4f7
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

@@ -6,7 +6,7 @@ import diagnose_upstream_post_watch_native5 as previous
 frozen=previous.frozen
 ensure=previous.ensure
 digest=previous.digest
-BASE='f444bc1b2747bda199ee334fc8d213cc0f9c5482' # Signed fixture-only existing-runtime snapshot; no source exceptions.
+BASE='5ae3269f225c2cf56cce35c010409b7e44acc4f7' # Signed fixture-only existing-runtime snapshot; no source exceptions.
 DIAGNOSTIC_PARENT='0b02a07916c17f8240c65f83ad2d916357c7f5fa'
 SELF='scripts/diagnose_upstream_request_consent_gap.py'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
