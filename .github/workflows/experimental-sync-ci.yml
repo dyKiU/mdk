@@ -71,8 +71,6 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
-# Prepend only native5-consent-preflight, native5-consent-diagnostic to scope options.
-# Root pins all 77caba679ab5986df88fd7296b5446004fba8bb7 baseline literals after reviewing formatted pure source.
   # NATIVE5_CONSENT_DIAGNOSTIC_JOBS_BEGIN
   native5-consent-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["native5-consent-preflight","native5-consent-diagnostic"]'), inputs.scope)
