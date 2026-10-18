@@ -1407,10 +1407,10 @@ struct SiblingPublication {
     result: tokio::sync::oneshot::Receiver<Result<(), ClientLinkingError>>,
     outcome: Option<Result<(), ClientLinkingError>>,
     task: tokio::task::JoinHandle<()>,
-// NATIVE5_TIMING_BEGIN
+    // NATIVE5_TIMING_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     native5_timing: Option<peer_proof_probe::native5_timing::Token>,
-// NATIVE5_TIMING_END
+    // NATIVE5_TIMING_END
 }
 impl Drop for SiblingPublication {
     fn drop(&mut self) {
@@ -2221,12 +2221,14 @@ impl AppClient {
             if pending.outcome.is_none() {
                 pending.outcome = Some(match pending.result.try_recv() {
                     Ok(result) => {
-// NATIVE5_TIMING_BEGIN
+                        // NATIVE5_TIMING_BEGIN
                         #[cfg(all(test, feature = "test-policy-overrides"))]
-                        if let Some(token) = &pending.native5_timing { token.stage(7, Some((3, result.is_ok()))); }
-// NATIVE5_TIMING_END
+                        if let Some(token) = &pending.native5_timing {
+                            token.stage(7, Some((3, result.is_ok())));
+                        }
+                        // NATIVE5_TIMING_END
                         result
-                    },
+                    }
                     Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return Ok(false),
                     Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(denied()),
                 });
@@ -2269,10 +2271,12 @@ impl AppClient {
                 entry.handshake_published = true;
                 entry.handshake_retry_at = retry_at;
             }
-// NATIVE5_TIMING_BEGIN
+            // NATIVE5_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(token) = &pending.native5_timing { token.stage(8, Some((4, true))); }
-// NATIVE5_TIMING_END
+            if let Some(token) = &pending.native5_timing {
+                token.stage(8, Some((4, true)));
+            }
+            // NATIVE5_TIMING_END
             return Ok(true);
         }
         Ok(false)
@@ -2650,18 +2654,20 @@ impl AppClient {
                 .expect("sibling diagnostics")
                 .publication_stage = Some(Stage::BeforeRelayPublication);
         }
-// NATIVE5_TIMING_BEGIN
+        // NATIVE5_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let native5_timing = peer_proof_probe::native5_timing::prepared(entry, &request, kind);
-// NATIVE5_TIMING_END
+        // NATIVE5_TIMING_END
         self.runtime
             .session()
             .validate_account_sharing_channel(&entry.channel)
             .map_err(ClientLinkingError::Engine)?;
-// NATIVE5_TIMING_BEGIN
+        // NATIVE5_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_timing { token.stage(1, None); }
-// NATIVE5_TIMING_END
+        if let Some(token) = &native5_timing {
+            token.stage(1, None);
+        }
+        // NATIVE5_TIMING_END
         let adapter = self.adapter.clone();
         // REQUEST_RETRY_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2701,15 +2707,17 @@ impl AppClient {
         // PEER_PROOF_TEST_END
         let completion = self.linking_owner.sibling_publication_completions.clone();
         let (result_tx, result) = tokio::sync::oneshot::channel();
-// NATIVE5_TIMING_BEGIN
+        // NATIVE5_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let native5_timing_task = native5_timing.clone();
-// NATIVE5_TIMING_END
+        // NATIVE5_TIMING_END
         let task = tokio::spawn(async move {
-// NATIVE5_TIMING_BEGIN
+            // NATIVE5_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(token) = &native5_timing_task { token.stage(2, None); }
-// NATIVE5_TIMING_END
+            if let Some(token) = &native5_timing_task {
+                token.stage(2, None);
+            }
+            // NATIVE5_TIMING_END
             let outcome = async {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2804,10 +2812,12 @@ impl AppClient {
             // Queue the actual result before signalling; a JoinHandle may not
             // yet be marked finished when the account worker receives a wake.
             let sent = result_tx.send(outcome).is_ok();
-// NATIVE5_TIMING_BEGIN
+            // NATIVE5_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(token) = &native5_timing_task { token.stage(6, Some((2, sent))); }
-// NATIVE5_TIMING_END
+            if let Some(token) = &native5_timing_task {
+                token.stage(6, Some((2, sent)));
+            }
+            // NATIVE5_TIMING_END
             if sent && success {
                 completion.send_replace(());
             }
@@ -2817,10 +2827,10 @@ impl AppClient {
             result,
             outcome: None,
             task,
-// NATIVE5_TIMING_BEGIN
+            // NATIVE5_TIMING_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             native5_timing,
-// NATIVE5_TIMING_END
+            // NATIVE5_TIMING_END
         });
         // PEER_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]

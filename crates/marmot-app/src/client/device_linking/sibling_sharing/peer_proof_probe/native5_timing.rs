@@ -55,9 +55,16 @@ struct Data {
 }
 impl Default for Data {
     fn default() -> Self {
-        Self { owner: None, slots: std::array::from_fn(|_| None),
-            rpc: [None; 128], rpc_count: 0,
-            before: None, after: None, wait_outcome: None, wait_observed: None }
+        Self {
+            owner: None,
+            slots: std::array::from_fn(|_| None),
+            rpc: [None; 128],
+            rpc_count: 0,
+            before: None,
+            after: None,
+            wait_outcome: None,
+            wait_observed: None,
+        }
     }
 }
 struct Probe {
@@ -123,41 +130,66 @@ pub(crate) fn arm() -> (Guard, Pending) {
 pub(crate) struct Pending(Weak<Probe>);
 impl Pending {
     pub(crate) fn bind(&self, owner: Weak<OriginalEnrollmentSharingChoice>) {
-        let Some(probe) = self.0.upgrade() else { return; };
+        let Some(probe) = self.0.upgrade() else {
+            return;
+        };
         probe.observe(|data, _| {
             if let Some(old) = &data.owner {
                 // The real continuation can present its SAME original again.
                 // Idempotent binding never retries or creates protocol work.
-                if !old.ptr_eq(&owner) { probe.loss(IDENTITY); }
-            } else { data.owner = Some(owner); }
+                if !old.ptr_eq(&owner) {
+                    probe.loss(IDENTITY);
+                }
+            } else {
+                data.owner = Some(owner);
+            }
         });
     }
     pub(crate) fn registration_failed(&self, poisoned: bool) {
-        if let Some(probe) = self.0.upgrade() { probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY }); }
+        if let Some(probe) = self.0.upgrade() {
+            probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY });
+        }
     }
     pub(crate) fn duplicate_registration(&self) {
-        if let Some(probe) = self.0.upgrade() { probe.loss(DUPLICATE); }
+        if let Some(probe) = self.0.upgrade() {
+            probe.loss(DUPLICATE);
+        }
     }
     pub(crate) fn identity_failed(&self) {
-        if let Some(probe) = self.0.upgrade() { probe.loss(IDENTITY); }
+        if let Some(probe) = self.0.upgrade() {
+            probe.loss(IDENTITY);
+        }
     }
     pub(crate) fn rpc(&self) -> Option<Rpc> {
         let probe = self.0.upgrade()?;
         let mut selected = None;
         probe.observe(|data, time| {
             let index = data.rpc_count;
-            if index >= data.rpc.len() { probe.loss(CAPACITY); return; }
-            data.rpc[index] = Some(RpcRow { times: [time, None, None, None, None], results: [None; 2], sent: None });
+            if index >= data.rpc.len() {
+                probe.loss(CAPACITY);
+                return;
+            }
+            data.rpc[index] = Some(RpcRow {
+                times: [time, None, None, None, None],
+                results: [None; 2],
+                sent: None,
+            });
             data.rpc_count += 1;
-            selected = Some(Rpc { probe: Arc::downgrade(&probe), index });
+            selected = Some(Rpc {
+                probe: Arc::downgrade(&probe),
+                index,
+            });
         });
         selected
     }
     pub(crate) fn wait_before(&self) -> Option<Wait> {
         let probe = self.0.upgrade()?;
         probe.observe(|data, time| {
-            if data.before.is_some() { probe.loss(DUPLICATE); }
-            else { data.before = time; }
+            if data.before.is_some() {
+                probe.loss(DUPLICATE);
+            } else {
+                data.before = time;
+            }
         });
         Some(Wait(Arc::downgrade(&probe)))
     }
@@ -241,7 +273,11 @@ pub(in super::super::super) fn prepared(
     };
     let mut selected = None;
     probe.observe(|data, time| {
-        if !data.owner.as_ref().is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice))) {
+        if !data
+            .owner
+            .as_ref()
+            .is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice)))
+        {
             return;
         }
         if let Some(slot) = data
@@ -311,37 +347,80 @@ impl Wait {
 // Same opaque token travels only on the already-existing exact Observe RPC.
 // It cannot construct a command, retain a SessionState, or grant any authority.
 #[derive(Clone)]
-pub(crate) struct Rpc { probe: Weak<Probe>, index: usize }
-type ObservationResult = Result<(crate::DeviceLinkingPhase, Option<crate::DeviceLinkingDecimals>), crate::client::device_linking::ClientLinkingError>;
+pub(crate) struct Rpc {
+    probe: Weak<Probe>,
+    index: usize,
+}
+type ObservationResult = Result<
+    (
+        crate::DeviceLinkingPhase,
+        Option<crate::DeviceLinkingDecimals>,
+    ),
+    crate::client::device_linking::ClientLinkingError,
+>;
 fn result_category(result: &ObservationResult) -> u8 {
     use crate::DeviceLinkingPhase as P;
     match result {
         Ok((phase, _)) => match phase {
-            P::AwaitingSetup => 0, P::AwaitingPeer => 1, P::ComparisonAvailable => 2,
-            P::AwaitingPeerVerification => 3, P::VerificationCompleteEnrollmentPending => 4,
-            P::Cancelled => 5, P::Expired => 6, P::Failed => 7, P::EnrollmentComplete => 8,
+            P::AwaitingSetup => 0,
+            P::AwaitingPeer => 1,
+            P::ComparisonAvailable => 2,
+            P::AwaitingPeerVerification => 3,
+            P::VerificationCompleteEnrollmentPending => 4,
+            P::Cancelled => 5,
+            P::Expired => 6,
+            P::Failed => 7,
+            P::EnrollmentComplete => 8,
         },
         Err(crate::client::device_linking::ClientLinkingError::Runtime(error))
-            if matches!(error.as_ref(), crate::AppError::AccountWorkerResponseTimedOut) => 9,
+            if matches!(
+                error.as_ref(),
+                crate::AppError::AccountWorkerResponseTimedOut
+            ) =>
+        {
+            9
+        }
         Err(_) => 10,
     }
 }
 impl Rpc {
     fn record(&self, stage: usize, result: Option<u8>, sent: Option<bool>) {
-        let Some(probe) = self.probe.upgrade() else { return; };
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
         probe.observe(|data, time| {
-            let Some(row) = data.rpc.get_mut(self.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
-            if stage >= row.times.len() || row.times[stage].is_some() { probe.loss(DUPLICATE); return; }
+            let Some(row) = data.rpc.get_mut(self.index).and_then(Option::as_mut) else {
+                probe.loss(IDENTITY);
+                return;
+            };
+            if stage >= row.times.len() || row.times[stage].is_some() {
+                probe.loss(DUPLICATE);
+                return;
+            }
             row.times[stage] = time;
-            if stage == 2 { row.results[0] = result; }
-            if stage == 3 { row.sent = sent; }
-            if stage == 4 { row.results[1] = result; }
+            if stage == 2 {
+                row.results[0] = result;
+            }
+            if stage == 3 {
+                row.sent = sent;
+            }
+            if stage == 4 {
+                row.results[1] = result;
+            }
         });
     }
-    pub(crate) fn stage(&self, stage: usize) { self.record(stage, None, None); }
-    pub(crate) fn worker_returned(&self, result: &ObservationResult) { self.record(2, Some(result_category(result)), None); }
-    pub(crate) fn sent(&self, accepted: bool) { self.record(3, None, Some(accepted)); }
-    pub(crate) fn facade(&self, result: &ObservationResult) { self.record(4, Some(result_category(result)), None); }
+    pub(crate) fn stage(&self, stage: usize) {
+        self.record(stage, None, None);
+    }
+    pub(crate) fn worker_returned(&self, result: &ObservationResult) {
+        self.record(2, Some(result_category(result)), None);
+    }
+    pub(crate) fn sent(&self, accepted: bool) {
+        self.record(3, None, Some(accepted));
+    }
+    pub(crate) fn facade(&self, result: &ObservationResult) {
+        self.record(4, Some(result_category(result)), None);
+    }
 }
 impl Guard {
     // Freeze and copy first, release the try-lock, then serialize bounded closed
@@ -370,7 +449,9 @@ impl Guard {
             Err(TryLockError::Poisoned(_)) => None,
         };
         let mut loss = old & !FROZEN;
-        if snapshot.as_ref().is_some_and(|row| !row.4) { loss |= ARM_UNAVAILABLE; }
+        if snapshot.as_ref().is_some_and(|row| !row.4) {
+            loss |= ARM_UNAVAILABLE;
+        }
         if snapshot.is_none() {
             // Snapshot failure is explicitly unknown; never a partial zero matrix.
             loss |= LOCK_BUSY;
@@ -378,7 +459,8 @@ impl Guard {
                 loss |= LOCK_POISONED;
             }
         }
-        let _ = writeln!(&mut output,
+        let _ = writeln!(
+            &mut output,
             "native5-consent-timing known={} loss_mask={} snapshot_available={}",
             loss == 0,
             loss,
@@ -387,19 +469,30 @@ impl Guard {
         if let Some((before, after, outcome, observed, _bound, slots, rpc, rpc_count)) = snapshot {
             let lower = before.and_then(|value| value.checked_add(15_000_000));
             let upper = after.and_then(|value| value.checked_add(15_000_000));
-            let _ = writeln!(&mut output,
+            let _ = writeln!(
+                &mut output,
                 "native5-consent-wait constructed_before_us={before:?} constructed_after_us={after:?} deadline_lower_us={lower:?} deadline_upper_us={upper:?} outcome_ok={outcome:?} observed_us={observed:?} exact_deadline_known=false"
             );
             for (index, slot) in slots.into_iter().enumerate() {
-                let _ = writeln!(&mut output,"native5-consent-slot index={index} observation={slot:?}");
+                let _ = writeln!(
+                    &mut output,
+                    "native5-consent-slot index={index} observation={slot:?}"
+                );
             }
-            let _ = writeln!(&mut output,"native5-consent-rpc-count count={rpc_count}");
+            let _ = writeln!(&mut output, "native5-consent-rpc-count count={rpc_count}");
             for (index, row) in rpc.into_iter().take(rpc_count).enumerate() {
-                if let Some(row) = row { let _ = writeln!(&mut output,"native5-consent-rpc index={index} times={:?} results={:?} sent={:?}", row.times, row.results, row.sent); }
+                if let Some(row) = row {
+                    let _ = writeln!(
+                        &mut output,
+                        "native5-consent-rpc index={index} times={:?} results={:?} sent={:?}",
+                        row.times, row.results, row.sent
+                    );
+                }
             }
         }
         if output.len() > 65536 {
-            return "native5-consent-timing known=false loss_mask=4 snapshot_available=false\n".to_owned();
+            return "native5-consent-timing known=false loss_mask=4 snapshot_available=false\n"
+                .to_owned();
         }
         output
     }

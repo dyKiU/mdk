@@ -117,10 +117,11 @@ async fn join_installation(
     account: &MemberId,
     sponsor: usize,
     newcomer: usize,
-// NATIVE5_TIMING_BEGIN
-    #[cfg(feature = "test-policy-overrides")]
-    timing: &mut Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Guard>,
-// NATIVE5_TIMING_END
+    // NATIVE5_TIMING_BEGIN
+    #[cfg(feature = "test-policy-overrides")] timing: &mut Option<
+        crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Guard,
+    >,
+    // NATIVE5_TIMING_END
 ) -> (
     DeviceLinkingSession,
     DeviceLinkingSession,
@@ -156,10 +157,12 @@ async fn join_installation(
         .unwrap();
     source.automatic_pairing_code().await.unwrap();
     compare_and_confirm_pair(&source, &recipient).await;
-// NATIVE5_TIMING_BEGIN
+    // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    if newcomer == 4 { *timing = Some(recipient.arm_native5_timing_for_test()); }
-// NATIVE5_TIMING_END
+    if newcomer == 4 {
+        *timing = Some(recipient.arm_native5_timing_for_test());
+    }
+    // NATIVE5_TIMING_END
     recipient
         .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)
         .await
@@ -233,10 +236,10 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     let mut completed_steps = 0usize;
     let mut public_cancels = 0usize;
     let mut final_roster_and_policies = false;
-// NATIVE5_TIMING_BEGIN
+    // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     let mut native5_timing = None;
-// NATIVE5_TIMING_END
+    // NATIVE5_TIMING_END
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
@@ -270,10 +273,10 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             for approval in approvals { approval.cancel().await.unwrap(); public_cancels += 1; }
         }
     }).catch_unwind().await;
-// NATIVE5_TIMING_BEGIN
+    // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     let native5_timing_report = native5_timing.take().map(|guard| guard.freeze());
-// NATIVE5_TIMING_END
+    // NATIVE5_TIMING_END
     let mut runtime_closes = 0usize;
     for runtime in &runtimes {
         if runtime.shutdown_and_close().await.is_ok() && runtime.storage_is_closed() {
@@ -289,10 +292,12 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let listener_closed = owned_listener_closed(address).await;
-// NATIVE5_TIMING_BEGIN
+    // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    if let Some(report) = native5_timing_report { eprint!("{report}"); }
-// NATIVE5_TIMING_END
+    if let Some(report) = native5_timing_report {
+        eprint!("{report}");
+    }
+    // NATIVE5_TIMING_END
     eprintln!(
         "sequential-installations completed_steps={} final_device_count={} final_roster_and_policies={} public_cancels={} runtime_closes={} storages_closed={} plane_shutdown_returns={} listener_closed={} attempt_completed={}",
         completed_steps,

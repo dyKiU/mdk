@@ -10,7 +10,7 @@ from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 BASE='77caba679ab5986df88fd7296b5446004fba8bb7' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='b0410f1e2d0c6897d388234e517d4e8621a18eebe58b485cc726b90101a56403' # Root MUST pin exact reviewed/reformatted reversal manifest.
+MANIFEST_SHA='78391687a0a6d689a48d80e9c09e536a4312857889ac4a0c67e97328f2d8ba54' # Root MUST pin exact reviewed/reformatted reversal manifest.
 PARSER_SHA='5394aeecd6e28aa80cc6128644d353aef0f1124330ac5698840a89f311fd5f05' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'

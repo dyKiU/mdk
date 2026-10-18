@@ -16,7 +16,8 @@ mod automatic;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 struct NativeConsentTimingRegistration {
     owner: std::sync::Weak<SessionState>,
-    probe: crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Pending,
+    probe:
+        crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Pending,
 }
 // NATIVE5_TIMING_END
 pub(super) struct SessionState {
@@ -133,29 +134,40 @@ impl SessionState {
                 crate::client::device_linking::sibling_sharing::NativeObservationStage::DispatchStarted,
             );
         }
-// NATIVE5_TIMING_BEGIN
+        // NATIVE5_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let native5_rpc = match self.native5_timing_registration.try_lock() {
             Ok(slot) => slot.as_ref().and_then(|registration| {
-                if std::ptr::eq(registration.owner.as_ptr(), self) { registration.probe.rpc() }
-                else { registration.probe.identity_failed(); None }
+                if std::ptr::eq(registration.owner.as_ptr(), self) {
+                    registration.probe.rpc()
+                } else {
+                    registration.probe.identity_failed();
+                    None
+                }
             }),
-            Err(error) => { crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_))); None }
+            Err(error) => {
+                crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_)));
+                None
+            }
         };
-// NATIVE5_TIMING_END
+        // NATIVE5_TIMING_END
         let observation = self
             .manager
-            .linking_native_observation(&self.account, &self.scope,
-// NATIVE5_TIMING_BEGIN
+            .linking_native_observation(
+                &self.account,
+                &self.scope,
+                // NATIVE5_TIMING_BEGIN
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 native5_rpc.clone(),
-// NATIVE5_TIMING_END
+                // NATIVE5_TIMING_END
             )
             .await;
-// NATIVE5_TIMING_BEGIN
+        // NATIVE5_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_rpc { token.facade(&observation); }
-// NATIVE5_TIMING_END
+        if let Some(token) = &native5_rpc {
+            token.facade(&observation);
+        }
+        // NATIVE5_TIMING_END
 
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(observer) = &observer {
@@ -428,46 +440,63 @@ impl DeviceLinkingSession {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn arm_native5_timing_for_test(
         &self,
-    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Guard {
+    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Guard
+    {
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing;
         let (guard, pending) = native5_timing::arm();
         match self.inner.native5_timing_registration.try_lock() {
             Ok(mut slot) => {
-                if slot.is_some() { pending.duplicate_registration(); }
-                else {
+                if slot.is_some() {
+                    pending.duplicate_registration();
+                } else {
                     *slot = Some(NativeConsentTimingRegistration {
-                        owner: Arc::downgrade(&self.inner), probe: pending.clone(),
+                        owner: Arc::downgrade(&self.inner),
+                        probe: pending.clone(),
                     });
                 }
             }
-            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),
+            Err(error) => {
+                pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_)))
+            }
         };
         // Registration is installed and its try-lock guard is released first.
         // Catch up once if the actual choice won the install race; never poll.
         match self.inner.sharing_choice.try_lock() {
             Ok(held) => {
-                if let Some(actual) = held.as_ref() { pending.bind(Arc::downgrade(actual)); }
+                if let Some(actual) = held.as_ref() {
+                    pending.bind(Arc::downgrade(actual));
+                }
             }
-            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),
+            Err(error) => {
+                pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_)))
+            }
         };
         guard
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn native5_timing_wait_for_test(
         &self,
-    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Wait> {
+    ) -> Option<
+        crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Wait,
+    > {
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing;
-        if !native5_timing::armed() { return None; }
+        if !native5_timing::armed() {
+            return None;
+        }
         match self.inner.native5_timing_registration.try_lock() {
             Ok(slot) => {
                 let registration = slot.as_ref()?;
                 if !registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {
-                    registration.probe.identity_failed(); return None;
+                    registration.probe.identity_failed();
+                    return None;
                 }
                 registration.probe.wait_before()
             }
             Err(error) => {
-                native5_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_)));
+                native5_timing::registration_unavailable(matches!(
+                    error,
+                    std::sync::TryLockError::Poisoned(_)
+                ));
                 None
             }
         }
@@ -944,10 +973,15 @@ impl DeviceLinkingSession {
                                     if let Some(actual) = held.as_ref() {
                                         registration.probe.bind(Arc::downgrade(actual));
                                     }
-                                } else { registration.probe.identity_failed(); }
+                                } else {
+                                    registration.probe.identity_failed();
+                                }
                             }
                         }
-                        Err(error) => native5_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_))),
+                        Err(error) => native5_timing::registration_unavailable(matches!(
+                            error,
+                            std::sync::TryLockError::Poisoned(_)
+                        )),
                     }
                 }
             }

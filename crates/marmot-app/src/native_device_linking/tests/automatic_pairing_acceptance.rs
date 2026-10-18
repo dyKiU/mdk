@@ -1656,7 +1656,7 @@ async fn wait_for_automatic_phase_with_approvals(
     approvals: &[DeviceLinkingApproval],
 ) {
     let mut observed = None;
-// NATIVE5_TIMING_BEGIN
+    // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     let native5_timing_wait = b.native5_timing_wait_for_test();
     let native5_timing_timeout =
@@ -1693,7 +1693,9 @@ async fn wait_for_automatic_phase_with_approvals(
 // NATIVE5_TIMING_BEGIN
     ;
     #[cfg(feature = "test-policy-overrides")]
-    if let Some(wait) = &native5_timing_wait { wait.constructed(); }
+    if let Some(wait) = &native5_timing_wait {
+        wait.constructed();
+    }
     native5_timing_timeout
 // NATIVE5_TIMING_END
     .await
