@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      UPSTREAM_NATIVE5_CONSENT_BASELINE: 739a04761c593ee2ecbf94df90c783c4f5c4da11
+      UPSTREAM_NATIVE5_CONSENT_BASELINE: df214431c8aad2fd22dfeb3b756206e98a8e2ec8
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -108,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      UPSTREAM_NATIVE5_CONSENT_BASELINE: 739a04761c593ee2ecbf94df90c783c4f5c4da11
+      UPSTREAM_NATIVE5_CONSENT_BASELINE: df214431c8aad2fd22dfeb3b756206e98a8e2ec8
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

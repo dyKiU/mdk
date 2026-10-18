@@ -1,7 +1,7 @@
 {
-  "reviewed_source": "739a04761c593ee2ecbf94df90c783c4f5c4da11",
-  "formatted_pure_baseline": "739a04761c593ee2ecbf94df90c783c4f5c4da11",
-  "construction": "Direct immutable pure739a (0aeb checkpoint plus incoming5247) to reviewed1b793 passive observer source text groups. Checkpoint and upstream incoming source remain in every reconstructed before image. No local parser/formatter/sourceguard/test execution; hosted preflight must establish full whole-tree/mode inverse.",
+  "reviewed_source": "df214431c8aad2fd22dfeb3b756206e98a8e2ec8",
+  "formatted_pure_baseline": "df214431c8aad2fd22dfeb3b756206e98a8e2ec8",
+  "construction": "Direct immutable puredf214 (checkpoint plus incoming5247 and exact hosted-generated C/UniFFI documentation) to reviewedf0bf74 passive observer source text groups. Checkpoint and upstream incoming source remain in every reconstructed before image. No local parser/formatter/sourceguard/test execution; hosted preflight must establish full whole-tree/mode inverse.",
   "paths": {
     "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
       "draft_file": "sibling_sharing.rs",
