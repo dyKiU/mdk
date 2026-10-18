@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [schema-reopen-five-preflight, schema-reopen-five-green, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
@@ -25,6 +25,88 @@ env:
   UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && '0c9065255fa16292e84e12b32fb920db0494b9aa' || inputs.extraction_cohort_baseline }}
 
 jobs:
+  # SCHEMA_REOPEN_FIVE_JOBS_BEGIN
+  schema-reopen-five-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["schema-reopen-five-preflight","schema-reopen-five-green"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SCHEMA_REOPEN_FIVE_BASELINE: 07da7dd155cd9c93b63afad5a8d8c4a63afbc209
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact whole-source and closed count/inventory controls
+        run: |
+          python3 -m py_compile scripts/qualify_upstream_schema_reopen_five.py
+          python3 scripts/qualify_upstream_schema_reopen_five.py --preflight
+      - name: Remote formatting gate and exact patch
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" cargo fmt --all
+          git diff --binary -- '*.rs' > "$RUNNER_TEMP/schema-reopen-five-format.patch"
+          git diff --exit-code -- '*.rs'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: schema-reopen-five-preflight
+          path: |
+            schema-reopen-five-evidence/result.json
+            ${{ runner.temp }}/schema-reopen-five-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  schema-reopen-five-green:
+    needs: schema-reopen-five-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'schema-reopen-five-green'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SCHEMA_REOPEN_FIVE_BASELINE: 07da7dd155cd9c93b63afad5a8d8c4a63afbc209
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Five exact encrypted reopen controls, one compile, no retries
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Five encrypted schema reopen controls' --output "$RUNNER_TEMP/schema-reopen-five-capacity.json"
+          python3 scripts/qualify_upstream_schema_reopen_five.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: schema-reopen-five-green
+          path: |
+            schema-reopen-five-evidence/result.json
+            ${{ runner.temp }}/schema-reopen-five-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # SCHEMA_REOPEN_FIVE_JOBS_END
+
   # ROTATING_SPONSOR_CANDIDATE_JOBS_BEGIN
   rotating-sponsor-candidate-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["rotating-sponsor-candidate-preflight","rotating-sponsor-candidate-green","rotating-sponsor-candidate-mutations"]'), inputs.case)
