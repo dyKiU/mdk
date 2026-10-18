@@ -9,9 +9,10 @@ from upstream_completion_ci import compile_cases,digest
 from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
+import qualify_upstream_composed_enrollment as rich
 BASE='77caba679ab5986df88fd7296b5446004fba8bb7' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='78391687a0a6d689a48d80e9c09e536a4312857889ac4a0c67e97328f2d8ba54' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='5394aeecd6e28aa80cc6128644d353aef0f1124330ac5698840a89f311fd5f05' # Root MUST pin exact reviewed closed parser.
+MANIFEST_SHA='4e83149ff56c8aaf32ddf3bb595b1d4b68fd981efa2c2b5175f5a3d16050ad95' # Root MUST pin exact reviewed/reformatted reversal manifest.
+PARSER_SHA='6207cf45a6915482c89a922baf3a323b5e6d5315490e2783195f2da88b305436' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -66,7 +67,7 @@ def source_guard():
             before,rest=text.split(BEGIN);_,after=rest.split(END);data=(before+after).replace(OPTIONS,'options: [',1).encode()
         if blob is not None:ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-baseline-byte-equality:'+path)
     ensure(not subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).strip(),'no-untracked-overlays')
-    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
+    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'passive_target_join_ordinal':4,'full_five_installation_scenario_retained':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
 
 def parse(raw,code):
     # Exact-name/count parser is unchanged shared infrastructure. Preserve original libtest prefix.
@@ -115,14 +116,44 @@ def parser_controls():
     return {'shared_count_inventory_controls':inherited,'positive':2,'negative':len(bad)+9,'actual_runtime_executions':0}
 
 
+def safe_panic_locations(raw,known_sources):
+    values=re.findall(r'panicked at ([A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+):',raw)
+    safe=[{'path':path,'line':int(line),'column':int(column)} for path,line,column in values
+        if path in known_sources and 0<int(line)<=2147483647 and 0<int(column)<=2147483647]
+    headers=raw.count('panicked at ')
+    return {'all_panic_header_count':headers,'safe_locations':safe[:16],
+        'unknown_location_count':len(values)-len(safe),'unparsed_header_count':max(0,headers-len(values)),
+        'locations_truncated':len(safe)>16,'raw_payloads_exported':False}
+
+def panic_location_parser_controls():
+    path='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
+    safe="thread 'exact' (123) panicked at "+path+':1720:9:\nprivate payload must not survive'
+    row=safe_panic_locations(safe,{path})
+    ensure(row['all_panic_header_count']==1 and row['safe_locations']==[{'path':path,'line':1720,'column':9}] and row['unknown_location_count']==0,'one-safe-tracked-panic')
+    for location in ['/private/untracked.rs:1:1','crates/../../untracked.rs:1:1',path+':0:1',path+':1:0',path+':2147483648:1']:
+        row=safe_panic_locations('panicked at '+location+':',{path});ensure(row['safe_locations']==[] and row['unknown_location_count']==1,'unknown-or-invalid-panic-location-not-exported')
+    row=safe_panic_locations(safe*17,{path});ensure(len(row['safe_locations'])==16 and row['locations_truncated'] is True and row['all_panic_header_count']==17,'bounded-panic-export-all-counts')
+    return {'positive':2,'negative':5,'actual_runtime_bodies':0}
+
+def closed_failure_observations(raw):
+    clean=re.sub(r'\x1b\[[0-9;]*m','',raw)
+    clean,normalized=re.subn(r'(?m)^test '+re.escape(NAME)+r' \.\.\. (?=automatic-enrollment-control )','',clean)
+    try:
+        return {'closed_schema_accepted':True,'exact_prefix_normalizations':normalized,
+            'observations':rich.diagnostics(clean),'at_deadline_state_known':False,
+            'observation_timing':'existing post-failure output only; not original deadline state'}
+    except ValueError:
+        return {'closed_schema_accepted':False,'exact_prefix_normalizations':normalized,
+            'observations':None,'failure_category':'ClosedSchemaRejected','at_deadline_state_known':False}
+
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--preflight',action='store_true');args=ap.parse_args()
     os.umask(0o077);OUT.mkdir(exist_ok=True)
-    report={'scope':'one-native5-passive-consent-and-same-operation-RPC-diagnostic','qualification_passed':False,'native_acceptance_claim':False,'promotion_eligible':False,'runtime_execution_attempted':False,'actual_counts_complete':False,'actual_passed':None,'actual_failed':None,'actual_ignored':None,'actual_executed_nonignored':None,'diagnostic_completed':False,'journey_passed':False}
+    report={'scope':'one-native5-scenario-fourth-join-passive-consent-and-same-operation-RPC-diagnostic','qualification_passed':False,'native_acceptance_claim':False,'promotion_eligible':False,'runtime_execution_attempted':False,'actual_counts_complete':False,'actual_passed':None,'actual_failed':None,'actual_ignored':None,'actual_executed_nonignored':None,'diagnostic_completed':False,'journey_passed':False}
     frozen=None;binary=None;binary_sha=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
         if args.preflight:
             code,raw,wall=bounded.capture(['cargo','fmt','--all'],180,limit=8*1024*1024)
             report['format']={'exit_code':code,'wall_seconds':wall};patch=subprocess.check_output(['git','diff','--binary'])
@@ -152,7 +183,9 @@ def main():
         row=counts.parse_body(raw,code,NAME);report['body']=row;report['body_seconds']=wall
         report['actual_counts_complete']=row['actual_counts_complete']
         for dest,key in [('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored'),('actual_executed_nonignored','executed_nonignored')]:report[dest]=row.get(key)
-        save();report['body']=parse(raw,code);report['journey_passed']=green(report['body']);save()
+        save();report['body']=parse(raw,code);report['journey_passed']=green(report['body']);report['panic_observations']=safe_panic_locations(raw,frozen);save()
+        if code!=0:
+            report['closed_failure_observations']=closed_failure_observations(raw);save()
         report['timing']=timing_parser.timing(raw,NAME)
         wait=report['timing'].get('wait')
         report['diagnostic_completed']=(report['timing']['known'] is True and isinstance(wait,dict) and all(type(wait.get(k)) is int for k in ['constructed_before_us','constructed_after_us','observed_us']) and type(wait.get('outcome_ok')) is bool);save()

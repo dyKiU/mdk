@@ -26,11 +26,16 @@ def timing(raw,name):
     raw,prefix=re.subn(r'(?m)^test '+re.escape(name)+r' \.\.\. (?=native5-consent-)','',raw)
     require(prefix<=1 and not re.search(r'(?m)^test [A-Za-z0-9_:]+ \.\.\. native5-consent-',raw),'exact-shared-prefix')
     lines=[s for s in raw.splitlines() if s.startswith('native5-consent-')]
-    require(1<=len(lines)<=134 and all(len(s)<4096 for s in lines),'bounded-lines')
+    if not lines:
+        return {'observed':False,'known':False,'loss_mask':None,'snapshot_available':False,
+            'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'rpc':None,
+            'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,
+            'missing_is_not_zero':True,'all_milestones_observed':False,'missing_reason':'NoOwnedProbeReport'}
+    require(len(lines)<=134 and all(len(s)<4096 for s in lines),'bounded-lines')
     h=re.fullmatch(r'native5-consent-timing known=(true|false) loss_mask=('+N+r') snapshot_available=(true|false)',lines[0]);require(h is not None,'closed-header')
     known=h[1]=='true';loss=number(h[2],127);available=h[3]=='true'
     require(known==(loss==0) and (available or not known),'loss-unknown-semantics')
-    result={'known':known,'loss_mask':loss,'snapshot_available':available,'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'rpc':None,'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,'missing_is_not_zero':True,'all_milestones_observed':False}
+    result={'observed':True,'known':known,'loss_mask':loss,'snapshot_available':available,'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'rpc':None,'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,'missing_is_not_zero':True,'all_milestones_observed':False}
     if not available:require(len(lines)==1,'no-invented-unavailable-rows');return result
     require(len(lines)>=6,'three-slots-and-rpc-count')
     w=re.fullmatch(r'native5-consent-wait constructed_before_us=('+ON+r') constructed_after_us=('+ON+r') deadline_lower_us=('+ON+r') deadline_upper_us=('+ON+r') outcome_ok=('+OB+r') observed_us=('+ON+r') exact_deadline_known=false',lines[1]);require(w is not None,'closed-wait')
@@ -73,8 +78,9 @@ def parser_controls():
     rpc='native5-consent-rpc index=0 times=[Some(0), Some(1), Some(2), Some(4), Some(3)] results=[Some(4), Some(4)] sent=Some(true)'
     sample='\n'.join([header,wait,slot,slot.replace('index=0','index=1'),slot.replace('index=0','index=2'),'native5-consent-rpc-count count=1',rpc])
     unavailable='native5-consent-timing known=false loss_mask=1 snapshot_available=false'
-    positives=[sample,unavailable,sample.replace('known=true loss_mask=0','known=false loss_mask=2'),sample.replace(slot,'native5-consent-slot index=0 observation=None'),'test '+name+' ... '+sample,sample.replace('results=[Some(4), Some(4)]','results=[Some(9), Some(10)]')]
+    positives=['', 'unrelated runtime output is discarded',sample,unavailable,sample.replace('known=true loss_mask=0','known=false loss_mask=2'),sample.replace(slot,'native5-consent-slot index=0 observation=None'),'test '+name+' ... '+sample,sample.replace('results=[Some(4), Some(4)]','results=[Some(9), Some(10)]')]
     for s in positives:timing(s,name)
+    require(timing('',name)['observed'] is False and timing('',name)['known'] is False and timing('',name)['loss_mask'] is None and timing('',name)['slots'] is None,'missing-report-remains-unobserved-unknown')
     require(not timing(sample,name)['all_milestones_observed'] and timing(unavailable,name)['rpc'] is None,'unknown-never-complete')
     bad=[sample+'\n'+header,sample.replace('index=2','index=1'),sample.replace('Some(15000003)','Some(15000004)'),sample.replace('exact_deadline_known=false','exact_deadline_known=true'),sample.replace('Some(0)','Some(-1)',1),sample.replace('Some(0)','Some(600000001)',1),sample.replace('loss_mask=0','loss_mask=128'),unavailable.replace('known=false','known=true'),sample.replace('Some(false)','Some(Failed)'),sample.replace('], 0))','], 4294967296))'),sample.replace('observation=Some((', 'observation=Some(',1),sample.replace('snapshot_available=true','snapshot_available=false'),sample.replace('count=1','count=0'),sample.replace('count=1','count=129'),sample+'\n'+rpc,sample.replace('results=[Some(4), Some(4)]','results=[Some(11), Some(4)]'),sample.replace('sent=Some(true)','sent=Some(secret)'),sample.replace('times=[Some(0)','times=[Some(-1)'),sample.replace('index=0 times=','index=1 times='),'test foreign::case ... '+sample,sample+'\nnative5-consent-private secret',sample.replace('index=2 observation','index=3 observation'),
         sample.replace('Some(0), Some(2), Some(4), Some(5)','Some(0), Some(4), Some(2), Some(5)'),

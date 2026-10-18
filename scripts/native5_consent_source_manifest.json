@@ -107,7 +107,7 @@
       "draft_file": "sequential_installations_acceptance.rs",
       "mode": "100644",
       "before_sha256": "a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca",
-      "after_sha256": "5fbf293d77d7412110123952322c511c2aad502a23de90811eded9cb6bcd0e5f",
+      "after_sha256": "dc774547d5f13c13f6a0628faf5c7e917064eef16d7956016ff23a109bff9737",
       "exact_substitutions": [
         {
           "before": "    account: &MemberId,\n    sponsor: usize,\n    newcomer: usize,\n) -> (\n    DeviceLinkingSession,\n    DeviceLinkingSession,\n",
@@ -115,7 +115,7 @@
         },
         {
           "before": "        .unwrap();\n    source.automatic_pairing_code().await.unwrap();\n    compare_and_confirm_pair(&source, &recipient).await;\n    recipient\n        .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)\n        .await\n",
-          "after": "        .unwrap();\n    source.automatic_pairing_code().await.unwrap();\n    compare_and_confirm_pair(&source, &recipient).await;\n    // NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    if newcomer == 4 {\n        *timing = Some(recipient.arm_native5_timing_for_test());\n    }\n    // NATIVE5_TIMING_END\n    recipient\n        .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)\n        .await\n"
+          "after": "        .unwrap();\n    source.automatic_pairing_code().await.unwrap();\n    compare_and_confirm_pair(&source, &recipient).await;\n    // NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    if newcomer == 3 {\n        *timing = Some(recipient.arm_native5_timing_for_test());\n    }\n    // NATIVE5_TIMING_END\n    recipient\n        .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)\n        .await\n"
         },
         {
           "before": "    let mut completed_steps = 0usize;\n    let mut public_cancels = 0usize;\n    let mut final_roster_and_policies = false;\n    let attempt = std::panic::AssertUnwindSafe(async {\n        for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }\n        let managers = runtimes.each_ref().map(|runtime| runtime.accounts());\n        // New installations B,C,D,E join through already-authorized A,B,C,B.\n        for (newcomer, sponsor) in [(1usize, 0usize), (2, 1), (3, 2), (4, 1)] {\n            let (source, recipient, approvals) = join_installation(&apps, &managers, &account, sponsor, newcomer).await;\n            // Reuse the integration helper:15s for every phase;\n            // no deadline override, packets or extra host finalization calls.\n            wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;\n",

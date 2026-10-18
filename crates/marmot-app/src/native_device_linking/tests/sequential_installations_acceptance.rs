@@ -159,7 +159,7 @@ async fn join_installation(
     compare_and_confirm_pair(&source, &recipient).await;
     // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    if newcomer == 4 {
+    if newcomer == 3 {
         *timing = Some(recipient.arm_native5_timing_for_test());
     }
     // NATIVE5_TIMING_END
