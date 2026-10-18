@@ -24,6 +24,7 @@ EXPECTED = {
         "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record"
     },
     "automatic-body-regression": {
+        "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
         PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
         PREFIX + "held_automatic_catalog_body_keeps_fresh_account_commands_responsive",
         PREFIX + "body_late_ack_acceptance::authenticated_receipt_retires_final_catalog_body_before_late_backend_ack",

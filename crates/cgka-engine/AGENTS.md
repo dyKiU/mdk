@@ -39,7 +39,7 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 | Module | Owns |
 | --- | --- |
 | `engine.rs` | `Engine<S>`, `EngineBuilder`, `CgkaEngine` impl, `drain_events` / `drain_auto_publish` / `drain_auto_proposals` queues |
-| `account_chat_catalog.rs` | Experimental read-only initial paged discovery from fresh Completed protected roster and actual local ordinary membership; observations only, no automatic sharing policy, transport or remote membership |
+| `account_chat_catalog.rs` | Experimental read-only paged discovery and exact-group observation from fresh Completed protected roster and actual local ordinary membership; observations only, no automatic sharing policy, transport or remote membership |
 | `account_chat_sharing.rs` | Experimental original fixed-lease two-device signed policy transcript and recipient-only HPKE bodies; actual Completed roster/generation/Engine custody, bounded exact retries and actual protected MLS carrier/source-leaf intake; no automatic actor or ordinary membership grant |
 | `history_transfer.rs` | Default-off original fixed-lease recipient-only HPKE channel; exact signed request/consent/context and Engine ownership; one immutable archive/ACK body, no MLS transport or history import permission |
 | `identity.rs` | Local signer + credential bundle; `member_id_of_processed_message` / `member_id_of_sender` chokepoints |

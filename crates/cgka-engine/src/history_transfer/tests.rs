@@ -121,9 +121,50 @@ async fn account_chat_catalog_discovers_actual_nonadmin_membership_without_grant
     assert!(!nonadmin.local_is_admin);
     assert!(recipient.entries[0].local_is_admin);
     assert_ne!(own.local_leaf_index, recipient.entries[0].local_leaf_index);
+    for (engine, entries) in [(&a, &source.entries), (&b, &recipient.entries)] {
+        for expected in entries {
+            let exact = engine
+                .account_chat_catalog_entry(&protected, &expected.group_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(exact.group_id, expected.group_id);
+            assert_eq!(exact.epoch, expected.epoch);
+            assert_eq!(exact.profile, expected.profile);
+            assert_eq!(exact.local_leaf_index, expected.local_leaf_index);
+            assert_eq!(exact.local_is_admin, expected.local_is_admin);
+        }
+        assert!(
+            engine
+                .account_chat_catalog_entry(&protected, &protected)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            engine
+                .account_chat_catalog_entry(&protected, &GroupId::new(vec![7; 255]))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            engine
+                .account_chat_catalog_entry(&protected, &GroupId::new(vec![]))
+                .is_err()
+        );
+        assert!(
+            engine
+                .account_chat_catalog_entry(&protected, &GroupId::new(vec![7; 256]))
+                .is_err()
+        );
+    }
+    assert!(
+        b.account_chat_catalog_entry(&protected, &incoming)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(recipient.protected.account, b.self_id());
     assert_eq!(before, b.storage.list_group_records().unwrap());
     assert!(b.account_chat_catalog(&ordinary, None, 128).is_err());
+    assert!(b.account_chat_catalog_entry(&ordinary, &ordinary).is_err());
     assert!(b.account_chat_catalog(&protected, None, 0).is_err());
     assert!(b.account_chat_catalog(&protected, None, 129).is_err());
     assert!(
@@ -131,10 +172,16 @@ async fn account_chat_catalog_discovers_actual_nonadmin_membership_without_grant
             .is_err()
     );
     assert!(d.account_chat_catalog(&protected, None, 1).is_err());
+    assert!(d.account_chat_catalog_entry(&protected, &ordinary).is_err());
     let unpaired = crate::device_group_genesis::tests::current_test_engine(
         SqliteAccountStorage::in_memory().unwrap(),
     );
     assert!(unpaired.account_chat_catalog(&protected, None, 1).is_err());
+    assert!(
+        unpaired
+            .account_chat_catalog_entry(&protected, &ordinary)
+            .is_err()
+    );
 
     let removal = d
         .send(cgka_traits::SendIntent::RemoveMembers {
@@ -156,6 +203,11 @@ async fn account_chat_catalog_discovers_actual_nonadmin_membership_without_grant
     })
     .await
     .expect("actual received removal must become canonical");
+    assert!(
+        a.account_chat_catalog_entry(&protected, &incoming)
+            .unwrap()
+            .is_none()
+    );
     assert!(
         a.account_chat_catalog(&protected, None, 128)
             .unwrap()
@@ -182,6 +234,7 @@ async fn account_chat_catalog_discovers_actual_nonadmin_membership_without_grant
     // A retained identical tree does not replace a fresh Completed round.
     a.select_private_roster_settlement(&protected).unwrap();
     assert!(a.account_chat_catalog(&protected, None, 128).is_err());
+    assert!(a.account_chat_catalog_entry(&protected, &ordinary).is_err());
     assert!(
         a.account_chat_catalog_journal(&protected, None, 128)
             .is_err()
@@ -216,6 +269,15 @@ async fn account_chat_catalog_pages_same_title_chats_by_canonical_identity() {
     assert_eq!(next.entries.len(), 1);
     assert_ne!(page.entries[0].group_id, next.entries[0].group_id);
     assert!(page.entries[0].group_id.as_slice() < next.entries[0].group_id.as_slice());
+    for expected in [&page.entries[0], &next.entries[0]] {
+        let exact = b
+            .account_chat_catalog_entry(&protected, &expected.group_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(exact.group_id, expected.group_id);
+        assert_eq!(exact.epoch, expected.epoch);
+        assert_eq!(exact.local_leaf_index, expected.local_leaf_index);
+    }
     assert!(
         b.account_chat_catalog(&protected, Some(&next.entries[0].group_id), 1)
             .unwrap()
