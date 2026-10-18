@@ -26,7 +26,7 @@ OPTIONS='options: [rotating-sponsor-candidate-preflight, rotating-sponsor-candid
 PRODUCT_SHA='314c6f409d7048737da17f7ddaaa01186364cbcdbd716e50724261f1d04564af'
 # Root fills ONLY after exact remote evidence is independently verified. Unset is closed.
 REVIEWED_RED={'run_id':39112670082,'artifact_id':12131555243,'archive_sha256':'a3138940349af13828915ba1cfa438f0db176e572f3d552818c4fb929af7a975','head_sha':BASE}
-REVIEWED_GREEN={'run_id':None,'artifact_id':None,'archive_sha256':None,'head_sha':None}
+REVIEWED_GREEN={'run_id':39113517951,'artifact_id':12131751503,'archive_sha256':'e02ce3a98b14b27e4365521b08eafbdc960c58dbe4a8704aff1d81642bb9589d','head_sha':'25ec129257c14818f0eedc38b8115f9997028901'}
 OLD='''            } else if old.as_ref().is_some_and(|old| old.binding.group_id==current.raw.binding.group_id) {
                 return Err(Error::ScopeMismatch);
 '''
