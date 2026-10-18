@@ -120,7 +120,9 @@ impl SessionState {
                 .expect("native observation lock")
                 .clone());
         }
-        let observation = self.manager.linking_native_observation(&self.account, &self.scope);
+        let observation = self
+            .manager
+            .linking_native_observation(&self.account, &self.scope);
         // OWNER_FIVE_PRODUCER_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let (observation, producer) = terminal_diagnostic::observation(self, observation).await;

@@ -26,7 +26,7 @@ PINS = {
     owner.FIVE_FILE: '5b53c21843dfbe8712bdfb5298ba586505adc543c3ae55348adbdbafaa6a4c0a',
 }
 MANIFEST = 'scripts/owner_five_producer_manifest.json'
-MANIFEST_SHA256 = 'e8f71c0ce0c6aaeb186ef05c4df9382715ecbbd77414ec9ca00cfb9b7143dd93'
+MANIFEST_SHA256 = '163057e61abf42b70212177123b40ab4403535904c2714e53532998d0f560e9a'
 PROBE = 'crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs'
 PHASES = ['AwaitingSetup','AwaitingPeer','ComparisonAvailable','AwaitingPeerVerification',
           'VerificationCompleteEnrollmentPending','Cancelled','Expired','Failed','EnrollmentComplete']
@@ -66,7 +66,15 @@ def source_guard(five):
         if name==MANIFEST: continue # Hash-pinned above; no other added path permitted.
         if name in manifest['files']:
             record=manifest['files'][name]
-            owner.ensure(owner.digest(data)==record['draft_sha256'],'reviewed-passive-source:'+name)
+            owner.ensure(owner.digest(data)==record['formatted_sha256'],'exact-reviewed-remote-formatted-source:'+name)
+            lines=data.decode().splitlines(keepends=True)
+            for edit in reversed(record['remote_format_reverse_edits']):
+                a,b=edit['after_start'],edit['after_end']
+                owner.ensure(type(a) is int and type(b) is int and 0<=a<=b<=len(lines)
+                    and lines[a:b]==edit['after'],'exact-remote-format-reversal-span:'+name)
+                lines[a:b]=edit['before']
+            data=''.join(lines).encode()
+            owner.ensure(owner.digest(data)==record['draft_sha256'],'original-reviewed-unformatted-draft:'+name)
             lines=data.decode().splitlines(keepends=True)
             for edit in reversed(record['reverse_edits']):
                 a,b=edit['after_start'],edit['after_end']

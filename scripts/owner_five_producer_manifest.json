@@ -324,6 +324,295 @@
             "}\n"
           ]
         }
+      ],
+      "formatted_sha256": "257c629289f01383524725bd590f9c0418264d91b5c5cf6c2d01b6d8c3824728",
+      "remote_format_reverse_edits": [
+        {
+          "after_start": 49,
+          "after_end": 54,
+          "before": [
+            "            (Ok(error), Ok(transition)) => (!LOST.load(Ordering::Acquire), error.as_ref().map(|v| v.0), transition.as_ref().map(|v| v.0)),\n"
+          ],
+          "after": [
+            "            (Ok(error), Ok(transition)) => (\n",
+            "                !LOST.load(Ordering::Acquire),\n",
+            "                error.as_ref().map(|v| v.0),\n",
+            "                transition.as_ref().map(|v| v.0),\n",
+            "            ),\n"
+          ]
+        },
+        {
+          "after_start": 57,
+          "after_end": 65,
+          "before": [
+            "    pub(in super::super) fn producer_snapshot(&self) -> (bool, Option<[u64; 2]>, Option<[u64; 3]>, Option<u64>) {\n",
+            "        match (self.attempted_error.try_lock(), self.receive_before_reopen.try_lock(), self.accepted_terminal.try_lock()) {\n"
+          ],
+          "after": [
+            "    pub(in super::super) fn producer_snapshot(\n",
+            "        &self,\n",
+            "    ) -> (bool, Option<[u64; 2]>, Option<[u64; 3]>, Option<u64>) {\n",
+            "        match (\n",
+            "            self.attempted_error.try_lock(),\n",
+            "            self.receive_before_reopen.try_lock(),\n",
+            "            self.accepted_terminal.try_lock(),\n",
+            "        ) {\n"
+          ]
+        },
+        {
+          "after_start": 68,
+          "after_end": 71,
+          "before": [
+            "                receive.as_ref().map(|v| [u64::from(v.0[0]), u64::from(v.0[1]), v.1]),\n"
+          ],
+          "after": [
+            "                receive\n",
+            "                    .as_ref()\n",
+            "                    .map(|v| [u64::from(v.0[0]), u64::from(v.0[1]), v.1]),\n"
+          ]
+        },
+        {
+          "after_start": 77,
+          "after_end": 81,
+          "before": [
+            "        match self.ordinal.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1)) {\n"
+          ],
+          "after": [
+            "        match self\n",
+            "            .ordinal\n",
+            "            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))\n",
+            "        {\n"
+          ]
+        },
+        {
+          "after_start": 82,
+          "after_end": 86,
+          "before": [
+            "            Err(_) => { LOST.store(true, Ordering::Release); None }\n"
+          ],
+          "after": [
+            "            Err(_) => {\n",
+            "                LOST.store(true, Ordering::Release);\n",
+            "                None\n",
+            "            }\n"
+          ]
+        },
+        {
+          "after_start": 88,
+          "after_end": 88,
+          "before": [
+            "\n"
+          ],
+          "after": []
+        },
+        {
+          "after_start": 107,
+          "after_end": 115,
+          "before": [
+            "        if slot.is_none() && let Some(ordinal) = probe.next_ordinal() { *slot = Some((value, producer, ordinal)); }\n",
+            "    } else { LOST.store(true, Ordering::Release); }\n"
+          ],
+          "after": [
+            "        if slot.is_none()\n",
+            "            && let Some(ordinal) = probe.next_ordinal()\n",
+            "        {\n",
+            "            *slot = Some((value, producer, ordinal));\n",
+            "        }\n",
+            "    } else {\n",
+            "        LOST.store(true, Ordering::Release);\n",
+            "    }\n"
+          ]
+        },
+        {
+          "after_start": 181,
+          "after_end": 182,
+          "before": [
+            "    observe(owner, |probe| {\n",
+            "        first_error(probe, [2, category, 0], 0)\n",
+            "    });\n"
+          ],
+          "after": [
+            "    observe(owner, |probe| first_error(probe, [2, category, 0], 0));\n"
+          ]
+        },
+        {
+          "after_start": 210,
+          "after_end": 218,
+          "before": [
+            "                if slot.is_none() && let Some(ordinal) = probe.next_ordinal() { *slot = Some(([phase(before), phase(after)], ordinal)); }\n",
+            "            } else { LOST.store(true, Ordering::Release); }\n"
+          ],
+          "after": [
+            "                if slot.is_none()\n",
+            "                    && let Some(ordinal) = probe.next_ordinal()\n",
+            "                {\n",
+            "                    *slot = Some(([phase(before), phase(after)], ordinal));\n",
+            "                }\n",
+            "            } else {\n",
+            "                LOST.store(true, Ordering::Release);\n",
+            "            }\n"
+          ]
+        },
+        {
+          "after_start": 221,
+          "after_end": 221,
+          "before": [
+            "\n"
+          ],
+          "after": []
+        },
+        {
+          "after_start": 228,
+          "after_end": 232,
+          "before": [
+            "pub(super) async fn observation<T>(owner: &SessionState, future: impl std::future::Future<Output = T>) -> (T, u8) {\n"
+          ],
+          "after": [
+            "pub(super) async fn observation<T>(\n",
+            "    owner: &SessionState,\n",
+            "    future: impl std::future::Future<Output = T>,\n",
+            ") -> (T, u8) {\n"
+          ]
+        },
+        {
+          "after_start": 236,
+          "after_end": 239,
+          "before": [
+            "                if let Some(probe) = entry.upgrade() && std::ptr::eq(probe.owner.as_ptr(), owner) {\n"
+          ],
+          "after": [
+            "                if let Some(probe) = entry.upgrade()\n",
+            "                    && std::ptr::eq(probe.owner.as_ptr(), owner)\n",
+            "                {\n"
+          ]
+        },
+        {
+          "after_start": 243,
+          "after_end": 246,
+          "before": [
+            "        } else { LOST.store(true, Ordering::Release); }\n"
+          ],
+          "after": [
+            "        } else {\n",
+            "            LOST.store(true, Ordering::Release);\n",
+            "        }\n"
+          ]
+        },
+        {
+          "after_start": 247,
+          "after_end": 260,
+          "before": [
+            "    OBSERVATION.scope(ObservationContext { probe: selected, producer: std::cell::Cell::new(0) }, async move {\n",
+            "        let result = future.await;\n",
+            "        let producer = OBSERVATION.with(|context| context.producer.get());\n",
+            "        (result, producer)\n",
+            "    }).await\n"
+          ],
+          "after": [
+            "    OBSERVATION\n",
+            "        .scope(\n",
+            "            ObservationContext {\n",
+            "                probe: selected,\n",
+            "                producer: std::cell::Cell::new(0),\n",
+            "            },\n",
+            "            async move {\n",
+            "                let result = future.await;\n",
+            "                let producer = OBSERVATION.with(|context| context.producer.get());\n",
+            "                (result, producer)\n",
+            "            },\n",
+            "        )\n",
+            "        .await\n"
+          ]
+        },
+        {
+          "after_start": 267,
+          "after_end": 273,
+          "before": [
+            "            if old == 0 || old == code { context.producer.set(code); }\n",
+            "            else { context.producer.set(255); LOST.store(true, Ordering::Release); }\n"
+          ],
+          "after": [
+            "            if old == 0 || old == code {\n",
+            "                context.producer.set(code);\n",
+            "            } else {\n",
+            "                context.producer.set(255);\n",
+            "                LOST.store(true, Ordering::Release);\n",
+            "            }\n"
+          ]
+        },
+        {
+          "after_start": 278,
+          "after_end": 288,
+          "before": [
+            "    let Some(scope) = client.native_settlement_scope_for_terminal_diagnostic() else { return; };\n",
+            "    let Some(registry) = PROBES.get() else { return; };\n",
+            "    let Ok(entries) = registry.try_lock() else { LOST.store(true, Ordering::Release); return; };\n"
+          ],
+          "after": [
+            "    let Some(scope) = client.native_settlement_scope_for_terminal_diagnostic() else {\n",
+            "        return;\n",
+            "    };\n",
+            "    let Some(registry) = PROBES.get() else {\n",
+            "        return;\n",
+            "    };\n",
+            "    let Ok(entries) = registry.try_lock() else {\n",
+            "        LOST.store(true, Ordering::Release);\n",
+            "        return;\n",
+            "    };\n"
+          ]
+        },
+        {
+          "after_start": 289,
+          "after_end": 295,
+          "before": [
+            "        if let Some(probe) = entry.upgrade() && &probe.original_scope == scope\n",
+            "            && probe.owner.upgrade().is_some_and(|owner| !owner.closed.load(Ordering::Acquire))\n"
+          ],
+          "after": [
+            "        if let Some(probe) = entry.upgrade()\n",
+            "            && &probe.original_scope == scope\n",
+            "            && probe\n",
+            "                .owner\n",
+            "                .upgrade()\n",
+            "                .is_some_and(|owner| !owner.closed.load(Ordering::Acquire))\n"
+          ]
+        },
+        {
+          "after_start": 297,
+          "after_end": 300,
+          "before": [
+            "                if slot.is_none() && let Some(ordinal) = probe.next_ordinal() {\n"
+          ],
+          "after": [
+            "                if slot.is_none()\n",
+            "                    && let Some(ordinal) = probe.next_ordinal()\n",
+            "                {\n"
+          ]
+        },
+        {
+          "after_start": 302,
+          "after_end": 305,
+          "before": [
+            "            } else { LOST.store(true, Ordering::Release); }\n"
+          ],
+          "after": [
+            "            } else {\n",
+            "                LOST.store(true, Ordering::Release);\n",
+            "            }\n"
+          ]
+        },
+        {
+          "after_start": 320,
+          "after_end": 323,
+          "before": [
+            "        AppError::Account(AccountError::Session(SessionError::Engine(EngineError::Storage(_)))) => 6,\n"
+          ],
+          "after": [
+            "        AppError::Account(AccountError::Session(SessionError::Engine(EngineError::Storage(_)))) => {\n",
+            "            6\n",
+            "        }\n"
+          ]
+        }
       ]
     },
     "crates/marmot-app/src/native_device_linking/enabled.rs": {
@@ -366,6 +655,21 @@
             "                terminal_diagnostic::refresh_error(self, &error, producer);\n"
           ]
         }
+      ],
+      "formatted_sha256": "3f33664bb2a6dcc24ed0ef554efa4f21feb4486992de15d766fb31a25658d793",
+      "remote_format_reverse_edits": [
+        {
+          "after_start": 122,
+          "after_end": 125,
+          "before": [
+            "        let observation = self.manager.linking_native_observation(&self.account, &self.scope);\n"
+          ],
+          "after": [
+            "        let observation = self\n",
+            "            .manager\n",
+            "            .linking_native_observation(&self.account, &self.scope);\n"
+          ]
+        }
       ]
     },
     "crates/marmot-app/src/native_device_linking.rs": {
@@ -393,6 +697,42 @@
             "// OWNER_FIVE_PRODUCER_TEST_END\n"
           ]
         }
+      ],
+      "formatted_sha256": "51db4d2079000c8cb27b3105dfa33c0ea373ec68e75d6633e429556bd951245c",
+      "remote_format_reverse_edits": [
+        {
+          "after_start": 292,
+          "after_end": 297,
+          "before": [
+            "#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n"
+          ],
+          "after": [
+            "#[cfg(all(\n",
+            "    test,\n",
+            "    feature = \"experimental-device-sync\",\n",
+            "    feature = \"test-policy-overrides\"\n",
+            "))]\n"
+          ]
+        },
+        {
+          "after_start": 300,
+          "after_end": 309,
+          "before": [
+            "#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "pub(crate) fn record_receive_before_reopen_for_test(client: &crate::AppClient, error: &crate::AppError) {\n"
+          ],
+          "after": [
+            "#[cfg(all(\n",
+            "    test,\n",
+            "    feature = \"experimental-device-sync\",\n",
+            "    feature = \"test-policy-overrides\"\n",
+            "))]\n",
+            "pub(crate) fn record_receive_before_reopen_for_test(\n",
+            "    client: &crate::AppClient,\n",
+            "    error: &crate::AppError,\n",
+            ") {\n"
+          ]
+        }
       ]
     },
     "crates/marmot-app/src/client/device_linking.rs": {
@@ -416,6 +756,40 @@
             "    }\n",
             "}\n",
             "// OWNER_FIVE_PRODUCER_TEST_END\n"
+          ]
+        }
+      ],
+      "formatted_sha256": "93f69eea90c8b2ab77db06daefa9017dca2d451cba9841440b13f0d35d5bac9b",
+      "remote_format_reverse_edits": [
+        {
+          "after_start": 1642,
+          "after_end": 1647,
+          "before": [
+            "#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n"
+          ],
+          "after": [
+            "#[cfg(all(\n",
+            "    test,\n",
+            "    feature = \"experimental-device-sync\",\n",
+            "    feature = \"test-policy-overrides\"\n",
+            "))]\n"
+          ]
+        },
+        {
+          "after_start": 1648,
+          "after_end": 1655,
+          "before": [
+            "    pub(crate) fn native_settlement_scope_for_terminal_diagnostic(&self) -> Option<&PurposeAttemptScope> {\n",
+            "        self.linking_owner.settlement_attempt.as_ref().map(|attempt| attempt.guard.scope())\n"
+          ],
+          "after": [
+            "    pub(crate) fn native_settlement_scope_for_terminal_diagnostic(\n",
+            "        &self,\n",
+            "    ) -> Option<&PurposeAttemptScope> {\n",
+            "        self.linking_owner\n",
+            "            .settlement_attempt\n",
+            "            .as_ref()\n",
+            "            .map(|attempt| attempt.guard.scope())\n"
           ]
         }
       ]
@@ -491,6 +865,117 @@
             "            })?;\n"
           ]
         }
+      ],
+      "formatted_sha256": "6304b3348ab014a4c5aea99286751521d46f4331800657782d7213bd9b92d5a4",
+      "remote_format_reverse_edits": [
+        {
+          "after_start": 538,
+          "after_end": 548,
+          "before": [
+            "            #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "            if matches!(&result, Err(ClientLinkingError::Runtime(error)) if matches!(error.as_ref(), AppError::TransportClosed)) {\n",
+            "                crate::native_device_linking::record_observation_transport_closed_producer_for_test(4);\n"
+          ],
+          "after": [
+            "            #[cfg(all(\n",
+            "                test,\n",
+            "                feature = \"experimental-device-sync\",\n",
+            "                feature = \"test-policy-overrides\"\n",
+            "            ))]\n",
+            "            if matches!(&result, Err(ClientLinkingError::Runtime(error)) if matches!(error.as_ref(), AppError::TransportClosed))\n",
+            "            {\n",
+            "                crate::native_device_linking::record_observation_transport_closed_producer_for_test(\n",
+            "                    4,\n",
+            "                );\n"
+          ]
+        },
+        {
+          "after_start": 551,
+          "after_end": 552,
+          "before": [
+            "        },\n"
+          ],
+          "after": [
+            "        }\n"
+          ]
+        },
+        {
+          "after_start": 554,
+          "after_end": 559,
+          "before": [
+            "            #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n"
+          ],
+          "after": [
+            "            #[cfg(all(\n",
+            "                test,\n",
+            "                feature = \"experimental-device-sync\",\n",
+            "                feature = \"test-policy-overrides\"\n",
+            "            ))]\n"
+          ]
+        },
+        {
+          "after_start": 562,
+          "after_end": 563,
+          "before": [
+            "        },\n"
+          ],
+          "after": [
+            "        }\n"
+          ]
+        },
+        {
+          "after_start": 592,
+          "after_end": 607,
+          "before": [
+            "        let commands = self\n",
+            "            .worker_commands(account_ref)\n",
+            "            .await\n",
+            "            .map_err(|error| {\n",
+            "                // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "                #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "                if matches!(&error, AppError::TransportClosed) {\n",
+            "                    crate::native_device_linking::record_observation_transport_closed_producer_for_test(1);\n",
+            "                }\n",
+            "                // OWNER_FIVE_PRODUCER_TEST_END\n",
+            "                runtime_error(error)\n",
+            "            })?;\n"
+          ],
+          "after": [
+            "        let commands = self.worker_commands(account_ref).await.map_err(|error| {\n",
+            "            // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "            #[cfg(all(\n",
+            "                test,\n",
+            "                feature = \"experimental-device-sync\",\n",
+            "                feature = \"test-policy-overrides\"\n",
+            "            ))]\n",
+            "            if matches!(&error, AppError::TransportClosed) {\n",
+            "                crate::native_device_linking::record_observation_transport_closed_producer_for_test(\n",
+            "                    1,\n",
+            "                );\n",
+            "            }\n",
+            "            // OWNER_FIVE_PRODUCER_TEST_END\n",
+            "            runtime_error(error)\n",
+            "        })?;\n"
+          ]
+        },
+        {
+          "after_start": 615,
+          "after_end": 623,
+          "before": [
+            "                #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "                crate::native_device_linking::record_observation_transport_closed_producer_for_test(2);\n"
+          ],
+          "after": [
+            "                #[cfg(all(\n",
+            "                    test,\n",
+            "                    feature = \"experimental-device-sync\",\n",
+            "                    feature = \"test-policy-overrides\"\n",
+            "                ))]\n",
+            "                crate::native_device_linking::record_observation_transport_closed_producer_for_test(\n",
+            "                    2,\n",
+            "                );\n"
+          ]
+        }
       ]
     },
     "crates/marmot-app/src/runtime/account_worker.rs": {
@@ -511,7 +996,9 @@
             "                        // OWNER_FIVE_PRODUCER_TEST_END\n"
           ]
         }
-      ]
+      ],
+      "formatted_sha256": "76025f620017a256326f2fdb236c8cb3b821e49aa0d962541fd531c2fc3a7943",
+      "remote_format_reverse_edits": []
     },
     "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs": {
       "draft": "crates__marmot-app__src__native_device_linking__tests__sequential_installations_acceptance.rs",
@@ -530,7 +1017,9 @@
             "                        side, producer_known, first_error_producer, receive_before_reopen, terminal_ordinal);\n"
           ]
         }
-      ]
+      ],
+      "formatted_sha256": "9aed56003238460841d44cd84a966e5efd85312d9d01c1e6d00c266aa5f36c30",
+      "remote_format_reverse_edits": []
     }
   },
   "receive_kind_codes": {
@@ -613,5 +1102,12 @@
     "literal_count": 2,
     "baseline_sha256": "5684ac974b6020908a25887e9c67c041148b14a70a0f93e742fb0fea0bc43688",
     "draft_sha256": "dfb9a23521debb1e0c71a8191ce5117e4f31f623f595888578a5e9c1af98beee"
+  },
+  "remote_format": {
+    "source_commit": "4a2004117457aacf47841e54783f47969d0734fa",
+    "patch_sha256": "b1bb7b0cc2e0d2fd7f82bdf5d3968a33d62db09ce9a77b4163344fe4aea25f75",
+    "patch_bytes": 16873,
+    "order": "reverse_exact_remote_format_then_original_seven_edits",
+    "local_formatter_or_qualification_parser_executed": false
   }
 }

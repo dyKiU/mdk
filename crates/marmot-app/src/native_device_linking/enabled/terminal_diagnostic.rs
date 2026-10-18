@@ -47,28 +47,45 @@ impl Probe {
             self.attempted_error.try_lock(),
             self.accepted_terminal.try_lock(),
         ) {
-            (Ok(error), Ok(transition)) => (!LOST.load(Ordering::Acquire), error.as_ref().map(|v| v.0), transition.as_ref().map(|v| v.0)),
+            (Ok(error), Ok(transition)) => (
+                !LOST.load(Ordering::Acquire),
+                error.as_ref().map(|v| v.0),
+                transition.as_ref().map(|v| v.0),
+            ),
             _ => (false, None, None),
         }
     }
-    pub(in super::super) fn producer_snapshot(&self) -> (bool, Option<[u64; 2]>, Option<[u64; 3]>, Option<u64>) {
-        match (self.attempted_error.try_lock(), self.receive_before_reopen.try_lock(), self.accepted_terminal.try_lock()) {
+    pub(in super::super) fn producer_snapshot(
+        &self,
+    ) -> (bool, Option<[u64; 2]>, Option<[u64; 3]>, Option<u64>) {
+        match (
+            self.attempted_error.try_lock(),
+            self.receive_before_reopen.try_lock(),
+            self.accepted_terminal.try_lock(),
+        ) {
             (Ok(error), Ok(receive), Ok(terminal)) => (
                 !LOST.load(Ordering::Acquire),
                 error.as_ref().map(|v| [u64::from(v.1), v.2]),
-                receive.as_ref().map(|v| [u64::from(v.0[0]), u64::from(v.0[1]), v.1]),
+                receive
+                    .as_ref()
+                    .map(|v| [u64::from(v.0[0]), u64::from(v.0[1]), v.1]),
                 terminal.as_ref().map(|v| v.1),
             ),
             _ => (false, None, None, None),
         }
     }
     fn next_ordinal(&self) -> Option<u64> {
-        match self.ordinal.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1)) {
+        match self
+            .ordinal
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+        {
             Ok(n) => Some(n + 1),
-            Err(_) => { LOST.store(true, Ordering::Release); None }
+            Err(_) => {
+                LOST.store(true, Ordering::Release);
+                None
+            }
         }
     }
-
 }
 fn observe(owner: &SessionState, record: impl Fn(&Probe)) {
     let Some(registry) = PROBES.get() else {
@@ -88,8 +105,14 @@ fn observe(owner: &SessionState, record: impl Fn(&Probe)) {
 }
 fn first_error(probe: &Probe, value: [u8; 3], producer: u8) {
     if let Ok(mut slot) = probe.attempted_error.try_lock() {
-        if slot.is_none() && let Some(ordinal) = probe.next_ordinal() { *slot = Some((value, producer, ordinal)); }
-    } else { LOST.store(true, Ordering::Release); }
+        if slot.is_none()
+            && let Some(ordinal) = probe.next_ordinal()
+        {
+            *slot = Some((value, producer, ordinal));
+        }
+    } else {
+        LOST.store(true, Ordering::Release);
+    }
 }
 pub(super) fn refresh_error(owner: &SessionState, error: &ClientLinkingError, producer: u8) {
     let category = match error {
@@ -156,9 +179,7 @@ pub(super) fn driver_error(owner: &SessionState, error: &DeviceLinkingError) {
         DeviceLinkingError::StaleRevision => 5,
         DeviceLinkingError::RuntimeUnavailable => 6,
     };
-    observe(owner, |probe| {
-        first_error(probe, [2, category, 0], 0)
-    });
+    observe(owner, |probe| first_error(probe, [2, category, 0], 0));
 }
 fn phase(phase: DeviceLinkingPhase) -> u8 {
     match phase {
@@ -187,12 +208,17 @@ pub(super) fn accepted_terminal(
     ) {
         observe(owner, |probe| {
             if let Ok(mut slot) = probe.accepted_terminal.try_lock() {
-                if slot.is_none() && let Some(ordinal) = probe.next_ordinal() { *slot = Some(([phase(before), phase(after)], ordinal)); }
-            } else { LOST.store(true, Ordering::Release); }
+                if slot.is_none()
+                    && let Some(ordinal) = probe.next_ordinal()
+                {
+                    *slot = Some(([phase(before), phase(after)], ordinal));
+                }
+            } else {
+                LOST.store(true, Ordering::Release);
+            }
         });
     }
 }
-
 
 struct ObservationContext {
     probe: Weak<Probe>,
@@ -200,23 +226,38 @@ struct ObservationContext {
 }
 tokio::task_local! { static OBSERVATION: ObservationContext; }
 
-pub(super) async fn observation<T>(owner: &SessionState, future: impl std::future::Future<Output = T>) -> (T, u8) {
+pub(super) async fn observation<T>(
+    owner: &SessionState,
+    future: impl std::future::Future<Output = T>,
+) -> (T, u8) {
     let mut selected = Weak::new();
     if let Some(registry) = PROBES.get() {
         if let Ok(entries) = registry.try_lock() {
             for entry in entries.iter() {
-                if let Some(probe) = entry.upgrade() && std::ptr::eq(probe.owner.as_ptr(), owner) {
+                if let Some(probe) = entry.upgrade()
+                    && std::ptr::eq(probe.owner.as_ptr(), owner)
+                {
                     selected = Arc::downgrade(&probe);
                     break;
                 }
             }
-        } else { LOST.store(true, Ordering::Release); }
+        } else {
+            LOST.store(true, Ordering::Release);
+        }
     }
-    OBSERVATION.scope(ObservationContext { probe: selected, producer: std::cell::Cell::new(0) }, async move {
-        let result = future.await;
-        let producer = OBSERVATION.with(|context| context.producer.get());
-        (result, producer)
-    }).await
+    OBSERVATION
+        .scope(
+            ObservationContext {
+                probe: selected,
+                producer: std::cell::Cell::new(0),
+            },
+            async move {
+                let result = future.await;
+                let producer = OBSERVATION.with(|context| context.producer.get());
+                (result, producer)
+            },
+        )
+        .await
 }
 
 // Called only on actual TransportClosed-producing branches. No new task/RPC.
@@ -224,25 +265,44 @@ pub(in super::super) fn producer(code: u8) {
     let _ = OBSERVATION.try_with(|context| {
         if context.probe.upgrade().is_some() {
             let old = context.producer.get();
-            if old == 0 || old == code { context.producer.set(code); }
-            else { context.producer.set(255); LOST.store(true, Ordering::Release); }
+            if old == 0 || old == code {
+                context.producer.set(code);
+            } else {
+                context.producer.set(255);
+                LOST.store(true, Ordering::Release);
+            }
         }
     });
 }
 
 pub(in super::super) fn receive_before_reopen(client: &crate::AppClient, error: &crate::AppError) {
-    let Some(scope) = client.native_settlement_scope_for_terminal_diagnostic() else { return; };
-    let Some(registry) = PROBES.get() else { return; };
-    let Ok(entries) = registry.try_lock() else { LOST.store(true, Ordering::Release); return; };
+    let Some(scope) = client.native_settlement_scope_for_terminal_diagnostic() else {
+        return;
+    };
+    let Some(registry) = PROBES.get() else {
+        return;
+    };
+    let Ok(entries) = registry.try_lock() else {
+        LOST.store(true, Ordering::Release);
+        return;
+    };
     for entry in entries.iter() {
-        if let Some(probe) = entry.upgrade() && &probe.original_scope == scope
-            && probe.owner.upgrade().is_some_and(|owner| !owner.closed.load(Ordering::Acquire))
+        if let Some(probe) = entry.upgrade()
+            && &probe.original_scope == scope
+            && probe
+                .owner
+                .upgrade()
+                .is_some_and(|owner| !owner.closed.load(Ordering::Acquire))
         {
             if let Ok(mut slot) = probe.receive_before_reopen.try_lock() {
-                if slot.is_none() && let Some(ordinal) = probe.next_ordinal() {
+                if slot.is_none()
+                    && let Some(ordinal) = probe.next_ordinal()
+                {
                     *slot = Some(([storage_shape(error), receive_kind(error)], ordinal));
                 }
-            } else { LOST.store(true, Ordering::Release); }
+            } else {
+                LOST.store(true, Ordering::Release);
+            }
         }
     }
 }
@@ -258,7 +318,9 @@ fn storage_shape(error: &crate::AppError) -> u8 {
         AppError::Session(SessionError::Engine(EngineError::Storage(_))) => 3,
         AppError::Account(AccountError::Engine(EngineError::Storage(_))) => 4,
         AppError::Account(AccountError::Session(SessionError::Storage(_))) => 5,
-        AppError::Account(AccountError::Session(SessionError::Engine(EngineError::Storage(_)))) => 6,
+        AppError::Account(AccountError::Session(SessionError::Engine(EngineError::Storage(_)))) => {
+            6
+        }
         AppError::Session(SessionError::Engine(_)) => 7,
         AppError::Account(AccountError::Engine(_)) => 8,
         AppError::Account(AccountError::Session(SessionError::Engine(_))) => 9,

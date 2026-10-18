@@ -1640,10 +1640,19 @@ impl cgka_engine::private_device_invite::TrustedPrivateWelcomePublisher
 }
 
 // OWNER_FIVE_PRODUCER_TEST_BEGIN
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 impl AppClient {
-    pub(crate) fn native_settlement_scope_for_terminal_diagnostic(&self) -> Option<&PurposeAttemptScope> {
-        self.linking_owner.settlement_attempt.as_ref().map(|attempt| attempt.guard.scope())
+    pub(crate) fn native_settlement_scope_for_terminal_diagnostic(
+        &self,
+    ) -> Option<&PurposeAttemptScope> {
+        self.linking_owner
+            .settlement_attempt
+            .as_ref()
+            .map(|attempt| attempt.guard.scope())
     }
 }
 // OWNER_FIVE_PRODUCER_TEST_END
