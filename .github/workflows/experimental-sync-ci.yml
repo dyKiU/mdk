@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-directed-preflight, pure-directed-readiness, pure-directed-snapshot-mutations, pure-directed-snapshot-full19, pure-directed-storage-static, pure-directed-all, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, automatic-body-negative, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression]
+        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-directed-preflight, pure-directed-readiness, pure-directed-snapshot-mutations, pure-directed-snapshot-full19, pure-directed-storage-static, pure-directed-all, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, automatic-body-negative, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment]
         default: full
       native_case:
         description: Exact native component mode (static executes no runtime bodies)
@@ -3289,10 +3289,12 @@ jobs:
           if-no-files-found: error
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression","sync-failure-regressions","publication-regressions","profile-edit-regression","default-checkpoint-diagnostic","experimental-departure-diagnostic"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression","sync-failure-regressions","publication-regressions","profile-edit-regression","default-checkpoint-diagnostic","experimental-departure-diagnostic","public-third-device-deployment"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: ${{ inputs.scope == 'public-third-device-deployment' && '1' || '0' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -3325,7 +3327,16 @@ jobs:
           features=agent-connector/otlp-export,agent-connector/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
           filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name) | test(account_sharing_peer_generation_uses_authenticated_role_and_live_original) | test(=confirmed_publish_retries_failed_inbound_replay_through_normal_advance) | binary(crash_recovery_sqlite)'
           args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --test crash_recovery_sqlite --test publish_lifecycle --features "$features")
-          if [[ "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
+          ignored_args=(--run-ignored default)
+          test_threads=6
+          if [[ "$REGRESSION_SCOPE" == public-third-device-deployment ]]; then
+            args=(--locked --workspace --features "$SYNC_FEATURES")
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::public_third_device_enrollment_with_existing_chat)'
+            ignored_args=(--run-ignored only)
+            test_threads=1
+            export CARGO_BUILD_JOBS=2
+            export WN_PUBLIC_ENROLLMENT_RELAY=wss://relay.eu.whitenoise.chat
+          elif [[ "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
             args=(--locked --workspace --features "$SYNC_FEATURES")
             filter='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race)'
           elif [[ "$REGRESSION_SCOPE" == default-checkpoint-diagnostic ]]; then
@@ -3366,14 +3377,22 @@ jobs:
             args=(--locked -p cgka-conformance-simulator -p marmot-app -p cgka-engine --bin cgka-conformance-campaign --features "$features")
             filter='test(kills_and_reaps_a_worker_that_exceeds_its_timeout) | test(preserves_a_workers_nonzero_exit_code)'
           fi
-          cargo nextest list "${args[@]}" -E "$filter" --message-format json > core-regression-inventory.json
+          cargo nextest list "${args[@]}" "${ignored_args[@]}" -E "$filter" --message-format json > core-regression-inventory.json
           python3 - <<'PYGUARD'
           import json, os
           inventory = json.load(open("core-regression-inventory.json"))
-          selected = {name for suite in inventory["rust-suites"].values() for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches" and not case["ignored"]}
+          public_deployment = os.environ["REGRESSION_SCOPE"] == "public-third-device-deployment"
+          selected = {name for suite in inventory["rust-suites"].values() for name, case in suite["testcases"].items()
+                      if case["filter-match"]["status"] == "matches" and case["ignored"] == public_deployment}
           required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name", "account_sharing_peer_generation_uses_authenticated_role_and_live_original", "confirmed_publish_retries_failed_inbound_replay_through_normal_advance", "h5_kill_before_historical_apply_commit_preserves_live_inputs", "h6_kill_after_retained_anchor_rewind_recovers_live_snapshot"]
           expected = 14
-          if os.environ["REGRESSION_SCOPE"] in ("default-checkpoint-diagnostic", "experimental-departure-diagnostic"):
+          if public_deployment:
+              required = ["native_device_linking::automatic_pairing_acceptance::public_third_device_enrollment_with_existing_chat"]
+              expected = 1
+              actual = {(suite_id, name, case["ignored"]) for suite_id, suite in inventory["rust-suites"].items()
+                        for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches"}
+              assert actual == {("marmot-app", required[0], True)}, "exact ignored public deployment case required"
+          elif os.environ["REGRESSION_SCOPE"] in ("default-checkpoint-diagnostic", "experimental-departure-diagnostic"):
               required = (["native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race"]
                           if os.environ["REGRESSION_SCOPE"] == "experimental-departure-diagnostic"
                           else ["runtime::conversation_window::tests::hot_checkpoints_do_not_postpone_not_ready_retry"])
@@ -3429,10 +3448,10 @@ jobs:
           print("qualification-selected-core-regression-cases:", len(selected))
           PYGUARD
           output_args=()
-          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering || "$REGRESSION_SCOPE" == default-checkpoint-diagnostic || "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
+          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering || "$REGRESSION_SCOPE" == default-checkpoint-diagnostic || "$REGRESSION_SCOPE" == experimental-departure-diagnostic || "$REGRESSION_SCOPE" == public-third-device-deployment ]]; then
             output_args=(--success-output immediate)
           fi
-          regression_threads=6
+          regression_threads="$test_threads"
           if [[ "$REGRESSION_SCOPE" == pairing-regression || "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
             output_args=(--success-output immediate)
             export WN_UPSTREAM_PUBLICATION_DIAGNOSTICS=1
@@ -3461,7 +3480,7 @@ jobs:
           PYCOUNTS
             exit "$runtime_status"
           fi
-          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads "$regression_threads" --retries 0 --no-fail-fast "${output_args[@]}"
+          cargo nextest run "${args[@]}" "${ignored_args[@]}" -E "$filter" --profile m5-bounded --test-threads "$regression_threads" --retries 0 --no-fail-fast "${output_args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

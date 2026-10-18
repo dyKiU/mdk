@@ -16,6 +16,8 @@ CASE = "runtime::conversation_window::tests::hot_checkpoints_do_not_postpone_not
 FEATURES = "wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
 DEPARTURE_SCOPE = "experimental-departure-diagnostic"
 DEPARTURE_CASE = "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race"
+PUBLIC_SCOPE = "public-third-device-deployment"
+PUBLIC_CASE = "native_device_linking::automatic_pairing_acceptance::public_third_device_enrollment_with_existing_chat"
 EXPERIMENTAL_FEATURES = (
     "marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,"
     "marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,"
@@ -29,8 +31,9 @@ class CheckpointDispatchTests(unittest.TestCase):
         workflow = WORKFLOW.read_text()
         options = re.search(r"options: \[(.*?)\]", workflow).group(1).split(", ")
         job = workflow.split("  core-regressions:\n", 1)[1].split("    name:", 1)[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", job)
         routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
-        for scope in (SCOPE, DEPARTURE_SCOPE):
+        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE):
             self.assertIn(scope, options)
             self.assertIn(scope, routes)
 
@@ -40,12 +43,16 @@ class CheckpointDispatchTests(unittest.TestCase):
     def test_exact_default_features_and_inventory_are_required(self):
         self.check_inventory(SCOPE, CASE, FEATURES)
 
-    def check_inventory(self, scope, required_case, features):
+    def test_public_scope_executes_only_the_exact_ignored_deployment_case(self):
+        self.check_inventory(PUBLIC_SCOPE, PUBLIC_CASE, EXPERIMENTAL_FEATURES, ignored_only=True)
+
+    def check_inventory(self, scope, required_case, features, ignored_only=False):
         workflow = WORKFLOW.read_text()
         start = workflow.index("      - name: Run selected affected regressions without retries\n")
         step = workflow[start:workflow.index("      - uses:", start)]
         script = textwrap.dedent(step.split("        run: |\n", 1)[1])
-        for mode in ("exact", "empty", "extra", "ignored", "wrong-suite"):
+        modes = ("exact", "empty", "extra", "not-ignored" if ignored_only else "ignored", "wrong-suite")
+        for mode in modes:
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 cargo = root / "cargo"
@@ -54,7 +61,10 @@ class CheckpointDispatchTests(unittest.TestCase):
                     from pathlib import Path
                     args = sys.argv[1:]
                     if args[:2] == ['nextest', 'list']:
-                        case = {'ignored': os.environ['MODE'] == 'ignored',
+                        Path('list-command.json').write_text(json.dumps(args))
+                        case = {'ignored': (os.environ['MODE'] != 'not-ignored'
+                                            if os.environ['IGNORED_ONLY'] == '1'
+                                            else os.environ['MODE'] == 'ignored'),
                                 'filter-match': {'status': 'matches'}}
                         cases = {} if os.environ['MODE'] == 'empty' else {os.environ['CASE']: case}
                         if os.environ['MODE'] == 'extra': cases['extra'] = case
@@ -62,13 +72,14 @@ class CheckpointDispatchTests(unittest.TestCase):
                         print(json.dumps({'rust-suites': {suite: {'testcases': cases}}}))
                     elif args[:2] == ['nextest', 'run']:
                         Path('command.json').write_text(json.dumps(args))
+                        Path('relay.json').write_text(json.dumps(os.environ.get('WN_PUBLIC_ENROLLMENT_RELAY')))
                     else:
                         raise SystemExit('unexpected cargo command')
                 '''))
                 cargo.chmod(0o700)
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                            REGRESSION_SCOPE=scope, MODE=mode, CASE=required_case,
-                           SYNC_FEATURES=EXPERIMENTAL_FEATURES)
+                           SYNC_FEATURES=EXPERIMENTAL_FEATURES, IGNORED_ONLY=str(int(ignored_only)))
                 result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
                                         capture_output=True, text=True)
                 command = root / 'command.json'
@@ -78,16 +89,23 @@ class CheckpointDispatchTests(unittest.TestCase):
                     continue
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads(command.read_text())
+                listing = json.loads((root / 'list-command.json').read_text())
                 self.assertIn('--workspace', args)
                 if scope == SCOPE:
                     self.assertEqual(args[args.index('--exclude') + 1], 'cgka-conformance-simulator')
                 else:
                     self.assertNotIn('--exclude', args)
                 for option, value in (('--features', features), ('--retries', '0'),
-                                      ('--test-threads', '6'), ('--profile', 'm5-bounded')):
+                                      ('--test-threads', '1' if ignored_only else '6'), ('--profile', 'm5-bounded')):
                     self.assertEqual(args[args.index(option) + 1], value)
                 self.assertEqual(args[args.index('-E') + 1], f'package(marmot-app) & test(={required_case})')
                 self.assertIn('--locked', args)
+                self.assertEqual(listing[listing.index('--features') + 1], features)
+                self.assertEqual(listing[listing.index('-E') + 1], args[args.index('-E') + 1])
+                self.assertEqual(listing[listing.index('--run-ignored') + 1], 'only' if ignored_only else 'default')
+                if ignored_only:
+                    self.assertEqual(args[args.index('--run-ignored') + 1], 'only')
+                    self.assertEqual(json.loads((root / 'relay.json').read_text()), 'wss://relay.eu.whitenoise.chat')
 
 
 if __name__ == '__main__':
