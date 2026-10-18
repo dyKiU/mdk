@@ -13,6 +13,15 @@ on:
         type: boolean
         default: false
 
+      relay_source_probe:
+        description: Replay one exact existing relay test archive without compiling
+        type: boolean
+        default: false
+      relay_producer_run:
+        description: Pinned producer run; other runs fail closed
+        type: string
+        default: '39158936977'
+
 permissions:
   contents: read
 
@@ -220,5 +229,131 @@ jobs:
         with:
           name: windows-source-probe
           path: windows-provenance-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  relay-source-probe:
+    if: github.event_name == 'workflow_dispatch' && inputs.relay_source_probe && github.ref == 'refs/heads/ci/upstream-windows-provenance-20261018'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: a839cabf5a401f81bba53f22344e62346d6c4070
+          path: relay-source
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - name: Verify pinned archive runner
+        run: cargo nextest --version
+      - name: One exact archive replay without compilation or retries
+        working-directory: relay-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_RUN: ${{ inputs.relay_producer_run }}
+          RUST_BACKTRACE: '1'
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re,shutil,stat,subprocess,sys,zipfile,io
+          from pathlib import Path
+          sys.path.insert(0,'scripts')
+          import qualify_upstream_storage_boundary as bounded
+          ensure=bounded.ensure
+          SOURCE='a839cabf5a401f81bba53f22344e62346d6c4070'
+          RUN=39158936977;ATTEMPT=2;JOB=117769919507;ARTIFACT=12147994322
+          DIGEST='902cc6f25cb34d5b936915920048857f6a6096491077ca7a3f1031affeae4985'
+          NAME='cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart'
+          FILTER='binary(relay_runtime) & test(='+NAME+')'
+          out=Path(os.environ['RUNNER_TEMP'])/'relay-source-probe-evidence';out.mkdir(mode=0o700,exist_ok=True)
+          report={'scope':'one existing archive invocation; repeatability only, not cause or fix proof','source':SOURCE,'workflow_source':os.environ['GITHUB_SHA'],'producer_run':RUN,'producer_attempt':ATTEMPT,'producer_job':JOB,'artifact':ARTIFACT,'automatic_retries':0,'compiler_invoked':False,'runtime_attempted':False,'original_failure_resolved':False,'qualification_passed':False}
+          def save():(out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+          def git(*args):return subprocess.check_output(['git',*args],text=True).strip()
+          def api(endpoint):
+           c,raw,_=bounded.capture(['gh','api','repos/dyKiU/mdk/'+endpoint],60,limit=1024*1024)
+           ensure(c==0,'bounded-API-success');return json.loads(raw)
+          def pristine():return git('rev-parse','HEAD')==SOURCE and git('diff','--name-only','HEAD')=='' and git('ls-files','--others','--exclude-standard')==''
+          def summary(text,code):
+           rows=[{'run':int(m[0]),'passed':int(m[1]),'failed':int(m[2]) if m[2] else 0} for m in re.findall(r'\b(\d+) tests? run: (\d+) passed(?:, (\d+) failed)?',text)]
+           known=(len(rows)==1 and rows[0]['run']==1 and rows[0]['passed']+rows[0]['failed']==1 and ((code==0 and rows[0]['passed']==1) or (code==100 and rows[0]['failed']==1)))
+           return {'known':known,'rows':rows}
+          def runtime_identity(text,code):
+           pattern=r'^\s*(PASS|FAIL)\s+\[\s*[0-9]+(?:\.[0-9]+)?s\]\s+(?:\([0-9]+/[0-9]+\)\s+)?marmot-app::relay_runtime '+re.escape(NAME)+r'\s*$'
+           statuses=re.findall(pattern,text,re.M)
+           return bool(statuses) and all(status==('PASS' if code==0 else 'FAIL') for status in statuses) and code in [0,100]
+          def controls():
+           ensure(summary('1 test run: 1 passed, 0 skipped',0)['known'],'completed-positive')
+           ensure(summary('1 test run: 0 passed, 1 failed, 0 skipped',100)['known'],'failed-positive')
+           for text,code in [('0 tests run: 0 passed',0),('1 test run: 0 passed',0),('1 test run: 1 passed',100),('1 test run: 0 passed, 1 failed',101),('1 test run: 1 passed\n1 test run: 1 passed',0),('private',0)]:ensure(not summary(text,code)['known'],'incomplete-counts-remain-unknown')
+           passline='PASS [  1.123s] (1/1) marmot-app::relay_runtime '+NAME+'\n';failline=passline.replace('PASS','FAIL')
+           ensure(runtime_identity(passline,0) and runtime_identity(failline+failline,100),'named-runtime-identity-positive')
+           for text,code in [(passline.replace(NAME,'foreign'),0),(passline.replace('marmot-app::relay_runtime','foreign::relay_runtime'),0),(failline,0)]:ensure(not runtime_identity(text,code),'named-runtime-identity-negative')
+           return {'positive':4,'negative':9,'runtime_bodies':0}
+          binary=None
+          try:
+           ensure(os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk' and os.environ['GITHUB_WORKFLOW_REF']=='dyKiU/mdk/.github/workflows/upstream-merge-artifacts.yml@refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['PRODUCER_RUN']==str(RUN),'exact-manual-proof-scope')
+           ensure(pristine(),'exact-source-pristine');report['source_tree']=git('rev-parse','HEAD^{tree}');report['parser_controls']=controls();save()
+           version_code,version,_=bounded.capture(['cargo','nextest','--version'],30,limit=4096)
+           ensure(version_code==0 and re.match(r'^cargo-nextest 0\.9\.132(?: |\n|$)',version),'actual-pinned-nextest-version');report['nextest_version']='0.9.132';save()
+           run=api('actions/runs/'+str(RUN)+'/attempts/'+str(ATTEMPT))
+           ensure(run['id']==RUN and run['run_attempt']==ATTEMPT and run['head_sha']==SOURCE and run['event']=='pull_request' and run['name']=='CI' and run['repository']['id']==1413433183,'exact-producer-run')
+           job=api('actions/jobs/'+str(JOB))
+           ensure(job['id']==JOB and job['run_id']==RUN and job['run_attempt']==ATTEMPT and job['head_sha']==SOURCE and job['name']=='Build relay runtime tests' and job['status']=='completed' and job['conclusion']=='success','completed-producer-job')
+           a=api('actions/artifacts/'+str(ARTIFACT))
+           ensure(a['id']==ARTIFACT and a['name']=='relay-runtime' and a['size_in_bytes']==84428581 and a['expired'] is False and a['digest']=='sha256:'+DIGEST and a['workflow_run']['id']==RUN and a['workflow_run']['head_sha']==SOURCE and a['workflow_run']['repository_id']==1413433183 and a['workflow_run']['head_repository_id']==1413433183,'exact-artifact-provenance')
+           ensure(job['started_at']<=a['created_at']<=job['completed_at'],'artifact-created-during-producer')
+           free=shutil.disk_usage(os.environ['RUNNER_TEMP']).free;report['disk_preflight']={'free_bytes':free,'minimum_free_bytes':4*1024**3};save();ensure(free>=4*1024**3,'archive-extraction-disk-reserve')
+           c,data,_=bounded.capture(['gh','api','repos/dyKiU/mdk/actions/artifacts/'+str(ARTIFACT)+'/zip'],180,limit=96*1024*1024,binary=True)
+           ensure(c==0 and len(data)==84428581 and hashlib.sha256(data).hexdigest()==DIGEST,'exact-archive-ZIP-digest')
+           tmp=Path(os.environ['RUNNER_TEMP'])/'relay-source-probe';tmp.mkdir(mode=0o700,exist_ok=False)
+           with zipfile.ZipFile(io.BytesIO(data)) as z:
+            ensure(z.namelist()==['tests.tar.zst'],'one-safe-archive-member');member=z.infolist()[0]
+            ensure(0<member.file_size<=128*1024*1024 and not stat.S_ISLNK(member.external_attr>>16),'bounded-regular-archive-member')
+            archive=tmp/'tests.tar.zst';archive.write_bytes(z.read(member));archive.chmod(0o600)
+           report['archive_sha256']=hashlib.sha256(archive.read_bytes()).hexdigest();report['archive_ZIP_digest_verified']=True;save()
+           common=['--archive-file',str(archive),'--extract-to',str(tmp/'extract'),'--workspace-remap',str(Path.cwd())]
+           c,raw,_=bounded.capture(['bash','-c','exec "$@" 2>/dev/null','archive-inventory','cargo','nextest','list',*common,'--message-format','json','-E',FILTER],120,limit=4*1024*1024)
+           ensure(c==0,'archive-inventory-success');inventory=json.loads(raw);suites=inventory.get('rust-suites');ensure(type(suites) is dict,'closed-archive-inventory')
+           selected=[]
+           for suite in suites.values():
+            for name,case in suite.get('testcases',{}).items():
+             if case.get('filter-match',{}).get('status')=='matches':selected.append((suite,name,case))
+           ensure(len(selected)==1 and selected[0][1]==NAME and selected[0][2].get('ignored') is False,'exact-one-nonignored-selected')
+           suite=selected[0][0];ensure(suite.get('package-name')=='marmot-app' and suite.get('binary-id')=='marmot-app::relay_runtime' and suite.get('binary-name')=='relay_runtime' and suite.get('kind')=='test','exact-package-binary-identity');binary=Path(suite['binary-path']);ensure(binary.is_file() and not binary.is_symlink() and binary.resolve().is_relative_to((tmp/'extract').resolve()),'extracted-actual-binary')
+           before=hashlib.sha256(binary.read_bytes()).hexdigest();mode=stat.S_IMODE(binary.stat().st_mode);report.update(binary_before_sha256=before,binary_mode=mode,inventory_one_nonignored=True)
+           ensure(pristine(),'before-runtime-source-pristine')
+           cmd=['cargo','nextest','run',*common,'--extract-overwrite','--profile','ci','--retries','0','--test-threads','1','--success-output','final','--failure-output','final','-E',FILTER]
+           report.update(command=cmd,runtime_attempted=True);save()
+           c,raw,seconds=bounded.capture(cmd,900,limit=8*1024*1024)
+           report.update(exit_code=c,seconds=seconds,source_after_pristine=pristine(),binary_after_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),binary_after_mode=stat.S_IMODE(binary.stat().st_mode));save()
+           text=re.sub(r'\x1b\[[0-9;]*m','',raw)
+           summaries=re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;',text,re.M)
+           report['libtest_actual_counts']={'passed':int(summaries[0][1]),'failed':int(summaries[0][2]),'ignored':int(summaries[0][3])} if len(summaries)==1 else None
+           report['known_KP_gate_panic']=bool(re.search(r"thread '"+re.escape(NAME)+r"'(?: \([1-9][0-9]*\))? panicked at crates/marmot-app/tests/relay_runtime\.rs:2206:10:\n[ \t]*KeyPackage publication must reach the blocking relay: Elapsed\(\(\)\)",text))
+           report['panic_header_count']=text.count('panicked at ')
+           report['closed_nextest_summary']=summary(text,c);report['runtime_exact_named_body_observed']=runtime_identity(text,c)
+           report['raw_output_retained']=False;save()
+           ensure(report['source_after_pristine'] and report['binary_after_sha256']==before and report['binary_after_mode']==mode,'physical-source-binary-pristine')
+           ensure(report['closed_nextest_summary']['known'] and report['runtime_exact_named_body_observed'],'actual-one-invocation-completed')
+           report['metadata_completed']=True;save()
+          finally:
+           report['source_final_pristine']=pristine()
+           if binary is not None:
+            report['binary_final_sha256']=hashlib.sha256(binary.read_bytes()).hexdigest() if binary.is_file() and not binary.is_symlink() else None
+            report['binary_final_mode']=stat.S_IMODE(binary.stat().st_mode) if binary.is_file() and not binary.is_symlink() else None
+            report['binary_final_pristine']=report['binary_final_sha256']==report.get('binary_before_sha256') and report['binary_final_mode']==report.get('binary_mode')
+           if report['source_final_pristine'] is False or report.get('binary_final_pristine') is False:report['metadata_completed']=False
+           save()
+           if sys.exc_info()[0] is None:ensure(report['source_final_pristine'] and report.get('binary_final_pristine') is True,'final-source-binary-pristine')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: relay-source-probe
+          path: ${{ runner.temp }}/relay-source-probe-evidence/result.json
           if-no-files-found: error
           retention-days: 7
