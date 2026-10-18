@@ -3021,8 +3021,14 @@ impl AppClient {
         (SyncSummary, bool, bool, AppError, SyncFailureStage),
     > {
         // NATIVE5_INTAKE_COMMON_BEGIN
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-        let native5_ingest = self.native5_intake_token_for_test(&delivery.message.id).and_then(|token| token.begin_ingest(0));
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        let native5_ingest = self
+            .native5_intake_token_for_test(&delivery.message.id)
+            .and_then(|token| token.begin_ingest(0));
         // NATIVE5_INTAKE_COMMON_END
         #[cfg(all(
             test,
@@ -3036,8 +3042,14 @@ impl AppClient {
         let event_id = hex::encode(message_id.as_slice());
         let receipts = self.transport_receipts().map_err(|error| {
             // NATIVE5_INTAKE_COMMON_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-            if let Some(token) = &native5_ingest { token.finish(false); }
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if let Some(token) = &native5_ingest {
+                token.finish(false);
+            }
             // NATIVE5_INTAKE_COMMON_END
             (
                 SyncSummary::default(),
@@ -3052,8 +3064,14 @@ impl AppClient {
                 .await
                 .map_err(|error| {
                     // NATIVE5_INTAKE_COMMON_BEGIN
-                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-                    if let Some(token) = &native5_ingest { token.finish(false); }
+                    #[cfg(all(
+                        test,
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if let Some(token) = &native5_ingest {
+                        token.finish(false);
+                    }
                     // NATIVE5_INTAKE_COMMON_END
                     // Projection may have repaired an older durable prefix before
                     // this delivery failed. Its caller owns that prefix now.
@@ -3103,8 +3121,14 @@ impl AppClient {
                     self.abandon_transport_cursor(sealed);
                 }
                 // NATIVE5_INTAKE_COMMON_BEGIN
-                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-                if let Some(token) = &native5_ingest { token.finish(false); }
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                if let Some(token) = &native5_ingest {
+                    token.finish(false);
+                }
                 // NATIVE5_INTAKE_COMMON_END
                 return Err((
                     summary,
@@ -3125,8 +3149,14 @@ impl AppClient {
             Ok(refresh) => refresh,
             Err(error) => {
                 // NATIVE5_INTAKE_COMMON_BEGIN
-                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-                if let Some(token) = &native5_ingest { token.finish(false); }
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                if let Some(token) = &native5_ingest {
+                    token.finish(false);
+                }
                 // NATIVE5_INTAKE_COMMON_END
                 return Err((
                     summary,
@@ -3151,8 +3181,14 @@ impl AppClient {
                     self.abandon_transport_cursor(sealed);
                 }
                 // NATIVE5_INTAKE_COMMON_BEGIN
-                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-                if let Some(token) = &native5_ingest { token.finish(false); }
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                if let Some(token) = &native5_ingest {
+                    token.finish(false);
+                }
                 // NATIVE5_INTAKE_COMMON_END
                 return Err((
                     summary,
@@ -3172,8 +3208,14 @@ impl AppClient {
         self.pending_runtime_group_subscription_refresh |= routes_dirty || refresh.routing_changed;
         self.drain_epoch_stall_escalations(&mut summary);
         // NATIVE5_INTAKE_COMMON_BEGIN
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_ingest { token.finish(true); }
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if let Some(token) = &native5_ingest {
+            token.finish(true);
+        }
         // NATIVE5_INTAKE_COMMON_END
         Ok((summary, settled))
     }
@@ -3319,7 +3361,11 @@ impl AppClient {
             ))]
             self.test_observe_automatic_consent_raw(&delivery.message);
             // NATIVE5_INTAKE_DRAIN_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             let native5_intake = self.native5_intake_token_for_test(&delivery.message.id);
             // NATIVE5_INTAKE_DRAIN_END
             let receipts = match self.transport_receipts() {
@@ -3341,8 +3387,14 @@ impl AppClient {
             let event_id = hex::encode(delivery.message.id.as_slice());
             let already_held = receipts.contains(&event_id);
             // NATIVE5_INTAKE_DRAIN_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-            if let Some(token) = &native5_intake { token.receipt(2, already_held); }
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if let Some(token) = &native5_intake {
+                token.receipt(2, already_held);
+            }
             // NATIVE5_INTAKE_DRAIN_END
             if already_held {
                 self.record_durable_transport_reconciliation_delivery(&delivery);
@@ -3369,8 +3421,14 @@ impl AppClient {
             let mut delivery_summary = SyncSummary::default();
             let message_id = delivery.message.id.clone();
             // NATIVE5_INTAKE_DRAIN_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-            let native5_ingest = native5_intake.as_ref().and_then(|token| token.begin_ingest(1));
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            let native5_ingest = native5_intake
+                .as_ref()
+                .and_then(|token| token.begin_ingest(1));
             // NATIVE5_INTAKE_DRAIN_END
             let ingest = Self::ingest_delivery_observed(
                 receipts,
@@ -3380,8 +3438,14 @@ impl AppClient {
             )
             .await;
             // NATIVE5_INTAKE_DRAIN_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-            if let Some(token) = &native5_ingest { token.finish(ingest.is_ok()); }
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if let Some(token) = &native5_ingest {
+                token.finish(ingest.is_ok());
+            }
             // NATIVE5_INTAKE_DRAIN_END
             self.prepend_pending_applied_summary(&mut summary);
             let ingested = match ingest {
