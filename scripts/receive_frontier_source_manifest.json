@@ -1,0 +1,83 @@
+{
+  "baseline": "5d383ebb2bab3e74b52100a33eec0357abe210ab",
+  "parent": "a839cabf5a401f81bba53f22344e62346d6c4070",
+  "reviewed_source": "5d383ebb2bab3e74b52100a33eec0357abe210ab",
+  "paths": {
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs": {
+      "before": "2fdc807d6c18c8f78a4958c765418e4b5caff42b38e9c181426f0c44a1bb3ddf",
+      "reviewed_after": "f5a7f7b69987f3deebdbf03484ec9a31ff86a421a3cbb7800f547d8a6ad74f30",
+      "baseline_after": "f5a7f7b69987f3deebdbf03484ec9a31ff86a421a3cbb7800f547d8a6ad74f30",
+      "mode": "100644"
+    },
+    "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
+      "before": "a5bd3b37d749ac3ca186db601c1eb181b50bf1b524aaf593222fdbda970c2542",
+      "reviewed_after": "9c9f2d58dfd2bd0ae25a72eaad7befc367be229cb11b2f055648f6e7d60d3710",
+      "baseline_after": "9c9f2d58dfd2bd0ae25a72eaad7befc367be229cb11b2f055648f6e7d60d3710",
+      "mode": "100644"
+    },
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs": {
+      "before": "1f2284d84e2d68af4038361edb1e839688e23fd44794fbb135c5411a7184fab6",
+      "reviewed_after": "ecf1d89decad6e6b2b887645b202a4491b6d3bc64c31fb5073e39553a3ff8e58",
+      "baseline_after": "ecf1d89decad6e6b2b887645b202a4491b6d3bc64c31fb5073e39553a3ff8e58",
+      "mode": "100644"
+    },
+    "crates/marmot-app/src/native_device_linking/enabled.rs": {
+      "before": "e0b1126b4e90d35bd681e9474184dbdd6d73a14acce27a013a094a7a5a44df52",
+      "reviewed_after": "f0ed6ba061d9dd6dc35ac9162c52ea571a3821a465f8e6c6246d0425e21b0040",
+      "baseline_after": "f0ed6ba061d9dd6dc35ac9162c52ea571a3821a465f8e6c6246d0425e21b0040",
+      "mode": "100644"
+    },
+    "crates/marmot-app/src/runtime/account_worker.rs": {
+      "before": "3c2d1f25bae154ff1fdb8c15cbe26a15dfd3791421c66c152129e1a040b11719",
+      "reviewed_after": "55c6cac48ffd72d40e9408a02d750dc7d2b6a29a17d7ed7ef9c279dd3f4d3954",
+      "baseline_after": "55c6cac48ffd72d40e9408a02d750dc7d2b6a29a17d7ed7ef9c279dd3f4d3954",
+      "mode": "100644"
+    },
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": {
+      "before": "49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa",
+      "reviewed_after": "c4fb99d847a80a0f76b441edddb81b79466fe90f6494eb2d82c81d47f1f7a4c7",
+      "baseline_after": "c4fb99d847a80a0f76b441edddb81b79466fe90f6494eb2d82c81d47f1f7a4c7",
+      "mode": "100644"
+    },
+    "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs": {
+      "before": "a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca",
+      "reviewed_after": "4e93fa9cbe6b788d2bc1656fe225a857cd1e44673aa7091fff5b36c441f9a971",
+      "baseline_after": "4e93fa9cbe6b788d2bc1656fe225a857cd1e44673aa7091fff5b36c441f9a971",
+      "mode": "100644"
+    },
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/receive_frontier.rs": {
+      "before": null,
+      "reviewed_after": "6dceb8f877dcb2e7302ac1c5532246b79f73c4cbae04fec207510b796d2c5db6",
+      "baseline_after": "6dceb8f877dcb2e7302ac1c5532246b79f73c4cbae04fec207510b796d2c5db6",
+      "mode": "100644"
+    }
+  },
+  "source_only_unexecuted": true,
+  "whole_guard_Rust_exceptions": [],
+  "import_contract": {
+    "qualify_upstream_pure_native5": [
+      "NAME",
+      "SUFFIX",
+      "NODES",
+      "parse",
+      "green",
+      "parser_controls"
+    ],
+    "upstream_completion_ci": [
+      "compile_cases",
+      "ensure",
+      "digest"
+    ],
+    "qualify_upstream_storage_app_handles": [
+      "parse_body",
+      "parse_inventory"
+    ],
+    "qualify_upstream_body_negative": [
+      "feature_identity"
+    ],
+    "qualify_upstream_storage_boundary": [
+      "capture"
+    ]
+  },
+  "old_guards_main_globals_used": false
+}
