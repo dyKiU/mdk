@@ -287,6 +287,8 @@ jobs:
           shared-key: experimental-sync-tests
           cache-on-failure: true
       - name: Strict all-targets App static, zero runtime bodies
+        env:
+          CARGO_INCREMENTAL: '1'
         run: python3 scripts/qualify_upstream_pure_native5.py --static-cohort ${{ matrix.cohort }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
