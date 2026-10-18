@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -531,6 +531,45 @@ jobs:
           print("qualification-selected-baseline-cases:", selected)
           PYGUARD
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+
+  checkpoint-refresh-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'default-checkpoint-regression'
+    name: Checkpoint refresh scenario proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record exact checkpoint source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: ${{ inputs.scope }}"
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: core-regressions
+      - name: Check checkpoint qualification controls
+        run: python3 scripts/test_qualify_hot_checkpoints.py
+      - name: Prove real refresh and mutation sensitivity without retries
+        run: python3 scripts/qualify_hot_checkpoints.py --directory "$RUNNER_TEMP/checkpoint-proof"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: checkpoint-refresh-proof
+          path: ${{ runner.temp }}/checkpoint-proof
+          retention-days: 7
+          if-no-files-found: error
 
   core-regressions:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","profile-edit-regression","default-checkpoint-diagnostic","experimental-departure-diagnostic"]'), inputs.scope)
