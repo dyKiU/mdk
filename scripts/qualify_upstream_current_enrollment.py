@@ -8,13 +8,13 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='5e4fa3b21b9e88eca971c246674dd545783e2bb4'
-SOURCE_PARENT='d50c3b93915bd2e63cfdbdc12038394363afa5e8'
-RAW_SOURCE='677b70886fec5dafa766b6b223e0413a2a9c0a1f'
-RESULT_SOURCE_PATHS={'crates/marmot-app/src/client/device_linking/native_enrollment.rs': {'before': '9cc281b78bf61b137f8809fc4eeaeb6b3a0bf736b8ff8400c9f7cb270b4d9470', 'raw': '8b63c7a121b6a0f3dd843c36003e557aa2ad7690893c188dbd4099d1be19ec8d', 'canonical': 'af418979f8ab87c002890b5426600cd20cfff9028bb452548ec60f22820d5387', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before': 'c64c9aab4e601480a61c1f2b15e9273b745c600cb91af98051400328844ad6b9', 'raw': 'cea6e20dd859fa082e390794214c33c867e744f46f5bf1527b4c55ab1a092cd1', 'canonical': 'a0d487a6a653a61de16d3fa44eec9f787a5181658011fb75c6c09e157905c215', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before': 'cbd7723fc00b3eb3c0a6b20f2ffced3a3d8c0acead72b89f466c767d102e984d', 'raw': 'dce5231dc86d7eb00b2093ace62e3e0bd27bf69b32b6b3084d55bb714e7ffba2', 'canonical': '6e819677f2a746f2e7e34465245772bf59e335221dba22ae336572f751d2324a', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before': '13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2', 'raw': 'bd3d6fc39f5578d3f1eeec05dc6238e30bb74217f7cfd8e9ee840577599669ad', 'canonical': 'bd3d6fc39f5578d3f1eeec05dc6238e30bb74217f7cfd8e9ee840577599669ad', 'mode': '100644'}}
+BASE='4d48ddd9648535e906029884695f07d9abf4f366'
+SOURCE_PARENT='2565b3e5e8860678e1f4c8dce33119c1a4599c2b'
+RAW_SOURCE='4d48ddd9648535e906029884695f07d9abf4f366'
+RESULT_SOURCE_PATHS={'crates/marmot-app/src/client/device_linking/native_enrollment.rs': {'before': 'af418979f8ab87c002890b5426600cd20cfff9028bb452548ec60f22820d5387', 'raw': 'bd99b26a259f65a7f4bda44cf814034e2d5c446f2f433ca7634ac28d45771919', 'canonical': 'bd99b26a259f65a7f4bda44cf814034e2d5c446f2f433ca7634ac28d45771919', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before': 'a0d487a6a653a61de16d3fa44eec9f787a5181658011fb75c6c09e157905c215', 'raw': 'cd54cc5d1b81e350e3789f77cef2258a3ffcd9b818a8dc261144ad3a859e51d5', 'canonical': 'cd54cc5d1b81e350e3789f77cef2258a3ffcd9b818a8dc261144ad3a859e51d5', 'mode': '100644'}}
 FAILURE_LABELS=('original_2','stress_0','stress_1','stress_2')
 HANDOFF_LABELS=('original_2','stress_1')
-WORKFLOW_SHA='9f41b803f920f86017dfe5a3621207209c95c9538fd37006db3ba65902872be7'
+WORKFLOW_SHA='9bff6ffce4909d2f7437097330ab837cad550224f31d80e77dbb3401ab038ca1'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261018'
@@ -66,7 +66,7 @@ def source_guard(preflight=False):
     ensure(type(RAW_SOURCE)is str and re.fullmatch('[0-9a-f]{40}',RAW_SOURCE),'root-reviewed-raw-result-source-required')
     ensure(all(subprocess.run(['git','merge-base','--is-ancestor',a,b]).returncode==0 for a,b in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,BASE)]),'latest-owner-then-result-source-ancestry')
     ensure(set(git('diff','--name-only',SOURCE_PARENT,RAW_SOURCE).decode().splitlines())==set(RESULT_SOURCE_PATHS)
-        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<=set(RESULT_SOURCE_PATHS),'exact-four-persist-error-paths-then-format-only')
+        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<=set(RESULT_SOURCE_PATHS),'exact-two-classifier-paths-then-format-only')
     for path,pins in RESULT_SOURCE_PATHS.items():
         for ref,key in [(SOURCE_PARENT,'before'),(RAW_SOURCE,'raw'),(BASE,'canonical')]:
             ensure(layout(ref)[path][0]==pins['mode'] and digest(git('show',ref+':'+path))==pins[key],'reviewed-result-path-full-source-and-mode')
@@ -332,12 +332,13 @@ def native_result_controls():
 
 PERSIST_SITES=('InitialCoreRoster','LocalRole','ContextDigest','AccountStorage','LegacyCapture','PolicyCommit')
 ENGINE_KINDS=('unknown_group','group_not_hydrated','unknown_pending','not_a_member','not_group_admin','unknown_member','invalid_credential_identity','admin_cannot_self_remove','leave_already_requested','admin_depletion','missing_required_capabilities','disbanding_unsupported_members','disbanding_not_enabled','unsupported_ciphersuite','invalid_app_message_payload','invalid_account_identity_proof','invalid_key_package_lifetime','invalid_key_package_capabilities','app_message_epoch_mismatch','app_message_epoch_unsettled','forked_epoch','queued_outbound_at_capacity','group_unrecoverable_repair_required','invalid_transition','storage','peeler','serialize','invalid_welcome','linking_welcome_denied','selected_chat_welcome_denied','missing_welcome_key_package','welcome_already_processed','private_enrollment_intake_at_capacity','backend','other')
-STORAGE_KINDS=('storage_not_found','storage_already_exists','storage_record_denied_by_departure','storage_snapshot_missing','storage_timeline_cursor_expired','storage_busy','storage_corruption','storage_capacity','storage_closed','storage_unsupported_schema_version','storage_invalid_attachment_body','storage_backend','storage_serialization')
+STORAGE_KINDS=('storage_not_found','storage_already_exists','storage_record_denied_by_departure','storage_snapshot_missing','storage_timeline_cursor_expired','storage_busy','storage_corruption','storage_capacity','storage_closed','storage_unsupported_schema_version','storage_invalid_attachment_body','storage_backend')
+POLICY_SERIALIZATION_KINDS=('storage_serialization_original_unavailable', 'storage_serialization_settlement_store_missing', 'storage_serialization_round_read_err', 'storage_serialization_round_missing', 'storage_serialization_guard_anchor', 'storage_serialization_fresh_core_err', 'storage_serialization_fresh_core_none', 'storage_serialization_roster_changed', 'storage_serialization_legacy_unavailable', 'storage_serialization_invalid_policy', 'storage_serialization_unknown')
 def closed_persist_errors(raw):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     lines=[line for line in text.splitlines() if line.startswith('native-persist-errors')]
     n=PROGRESS_UINT;array=r'\['+', '.join([n]*6)+r'\]'
-    kinds='|'.join(ENGINE_KINDS+STORAGE_KINDS)
+    kinds='|'.join(ENGINE_KINDS+STORAGE_KINDS+POLICY_SERIALIZATION_KINDS)
     last=r'(None|Some\(\(('+'|'.join(PERSIST_SITES)+r'), (None|Some\("('+kinds+r')"\))\)\))'
     pattern=r'native-persist-errors stage=(PhaseWait|AutomaticPublicationHold|SiblingConsentPeerProgress) side=(left|right|source|recipient) snapshot=(None|Some\(\(('+array+r'), (true|false), '+last+r'\)\))'
     result={'schema_known':True,'records':[],'candidate_count':len(lines),'counter_order':list(PERSIST_SITES),'cumulative_per_original':True,'last_error_only_no_history':True,'per_pass_or_deadline_attribution':False,'all_zero_means_no_recorded_error_only':True,'missing_or_None_is_unknown':True,'raw_errors_exported':False}
@@ -355,7 +356,7 @@ def closed_persist_errors(raw):
             if any(v>2**64-1 for v in values) or (match[5]=='true' and 2**64-1 not in values) or ((last_value is None)!= (not any(values))):result['schema_known']=False;continue
             if last_value is not None:
                 site=last_value['stage'];kind=last_value['kind']
-                valid_kind=(kind in ENGINE_KINDS if site=='InitialCoreRoster' else kind in STORAGE_KINDS if site=='PolicyCommit' else kind is None)
+                valid_kind=(kind in ENGINE_KINDS if site=='InitialCoreRoster' else kind in STORAGE_KINDS+POLICY_SERIALIZATION_KINDS if site=='PolicyCommit' else kind is None)
                 if not valid_kind or values[PERSIST_SITES.index(site)]==0:result['schema_known']=False;continue
         seen.add((stage,side));stages.add(stage)
         result['records'].append({'stage':stage,'side':side,'counts':values,'overflow':None if values is None else match[5]=='true','last_error':last_value,'any_recorded_error':None if values is None else any(values)})
@@ -373,7 +374,33 @@ def persist_error_controls():
     bad=[pair(engine.replace('false','true')),pair(engine.replace('backend','PRIVATE')),pair(engine.replace('Some("backend")','None')),pair(policy.replace('storage_busy','backend')),pair(engine.replace('[1,','[0,')),pair(zero.replace('false, None','false, Some((LocalRole, None))')),pair(engine.replace('18446744073709551615','18446744073709551616').replace('[1,','[18446744073709551616,')),pair(engine.replace('[1,','[-1,')),pair(engine.replace('Some((InitialCoreRoster','Some(InitialCoreRoster')),pair(engine)+' PRIVATE',pair(engine)+'\n'+pair(engine),pair(engine).split('\n')[0],pair(engine).replace('side=right','side=left'),pair(engine).replace('side=right','side=recipient'),pair(engine).replace('stage=PhaseWait','stage=PRIVATE'),pair(engine.replace('[1, 0, 0, 0, 0, 0]','[1, 0, 0, 0, 0]')),pair('Some(([0, 1, 0, 0, 0, 0], false, Some((LocalRole, Some("backend")))))')]
     for text in bad:
         row=closed_persist_errors(text);ensure(not row['schema_known'] and 'PRIVATE' not in json.dumps(row),'persist-malformed-private-or-incoherent-rejected')
-    return {'positive':7,'negative':17,'runtime_bodies':0}
+    # Exact source-owned static classifier labels only; no free-form Serialization payload.
+    classifier_positives=[]
+    classifier_negatives=[]
+    for kind in POLICY_SERIALIZATION_KINDS:
+        observed='Some(([0, 0, 0, 0, 0, 1], false, Some((PolicyCommit, Some("'+kind+'")))))'
+        classifier_positives.append(pair(observed))
+        classifier_negatives.extend([
+            pair('Some(([1, 0, 0, 0, 0, 0], false, Some((InitialCoreRoster, Some("'+kind+'")))))'),
+            pair('Some(([0, 1, 0, 0, 0, 0], false, Some((LocalRole, Some("'+kind+'")))))'),
+            pair(observed.replace('[0, 0, 0, 0, 0, 1]', '[0, 0, 0, 0, 0, 0]')),
+        ])
+    maximum='18446744073709551615'
+    longest=max(POLICY_SERIALIZATION_KINDS,key=len)
+    max_snapshot='Some((['+', '.join([maximum]*6)+'], true, Some((PolicyCommit, Some("'+longest+'")))))'
+    max_pair='native-persist-errors stage=SiblingConsentPeerProgress side=source snapshot='+max_snapshot+'\n'+'native-persist-errors stage=SiblingConsentPeerProgress side=recipient snapshot='+max_snapshot
+    ensure(sum(len(line.encode())+1 for line in max_pair.splitlines())<=1024,'classifier-max-width-existing-pair-cap')
+    classifier_positives.append(max_pair)
+    for text in classifier_positives:
+        parsed=closed_persist_errors(text)
+        ensure(parsed['schema_known'] and all(row['last_error'] is None or row['last_error']['kind'] in POLICY_SERIALIZATION_KINDS for row in parsed['records']),'classifier-static-policy-kind-positive')
+    for kind in ['storage_serialization','storage_serialization_unrecognized','storage_serialization_unknown_suffix','storage_serialization_PRIVATE', 'x'*1024]:
+        classifier_negatives.append(pair('Some(([0, 0, 0, 0, 0, 1], false, Some((PolicyCommit, Some("'+kind+'")))))'))
+    for text in classifier_negatives:
+        parsed=closed_persist_errors(text)
+        ensure(not parsed['schema_known'] and 'PRIVATE' not in json.dumps(parsed),'classifier-unknown-wrong-site-zero-count-or-private-rejected')
+    ensure(len(classifier_positives)==12 and len(classifier_negatives)==38,'classifier-authored-control-inventory')
+    return {'positive':19,'negative':55,'runtime_bodies':0,'inherited_positive':7,'inherited_negative':17,'classifier_positive':12,'classifier_negative':38,'max_width_pair_bytes':sum(len(line.encode())+1 for line in max_pair.splitlines()),'existing_pair_cap_bytes':1024}
 
 def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)

@@ -237,11 +237,19 @@ pub(super) async fn verify(
             }
             reopened.reconcile_accounts().await.unwrap();
             if ordered {
+                let mut publication_wait_polls = 0_u64;
+                let mut publication_wait_empty = 0_u64;
+                let mut publication_wait_queued = 0_u64;
+                let mut publication_wait_published = 0_u64;
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     loop {
                         let store = reopened_app.account_storage("test").unwrap();
                         let round = store.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
                         let work = store.app_storage().pending_local_account_chat_departures(&round.anchor.account,&round.anchor.local_device,None,16).unwrap();
+                        publication_wait_polls += 1;
+                        publication_wait_empty += u64::from(work.is_empty());
+                        publication_wait_queued += work.iter().filter(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Queued).count() as u64;
+                        publication_wait_published += work.iter().filter(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published).count() as u64;
                         if work.iter().any(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published) {
                             let current = store.get_group(&peer.group).unwrap().epoch;
                             let proposed = store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch;
@@ -255,7 +263,7 @@ pub(super) async fn verify(
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     }
-                }).await.expect("B must independently commit A and actually publish SelfRemove before the competing D commit");
+                }).await.expect(&format!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}"));
                 assert_administrator_holds_only_a(peer,epoch_before);
                 eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
                 {
