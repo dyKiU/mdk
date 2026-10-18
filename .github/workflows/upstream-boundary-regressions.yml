@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
@@ -25,6 +25,85 @@ env:
   UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && '0c9065255fa16292e84e12b32fb920db0494b9aa' || inputs.extraction_cohort_baseline }}
 
 jobs:
+  # STORAGE_HANDLE_JOBS_BEGIN
+  storage-handle-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["storage-handle-preflight","storage-handle-red"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_STORAGE_HANDLE_BASELINE: c6f499b7780b66284e5e088ae7c786500c991143
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact merged contents and closed crossing parser controls
+        run: |
+          python3 scripts/qualify_upstream_storage_handle.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/storage-handle-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-handle-preflight
+          path: |
+            storage-handle-evidence/result.json
+            ${{ runner.temp }}/storage-handle-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  storage-handle-red:
+    needs: storage-handle-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-handle-red'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_STORAGE_HANDLE_BASELINE: c6f499b7780b66284e5e088ae7c786500c991143
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Four ownership controls and original boundary-policy RED
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Merged storage-handle boundary policy' --output "$RUNNER_TEMP/storage-handle-capacity.json"
+          python3 scripts/qualify_upstream_storage_handle.py --cohort '${{ matrix.cohort }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-handle-red-${{ matrix.cohort }}
+          path: |
+            storage-handle-evidence/result.json
+            ${{ runner.temp }}/storage-handle-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # STORAGE_HANDLE_JOBS_END
   cohort-preflight:
     if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
     runs-on: ubuntu-latest
