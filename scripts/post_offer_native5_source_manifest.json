@@ -1,0 +1,21 @@
+{
+  "baseline": "a9c99b7025f1b4d4a948a041b2d6d0e0ed9ddd55",
+  "immutable_dependencies": {
+    "scripts/diagnose_upstream_native5_consent.py": "056089f004cc6c0846e80fc35a57f08704a9e43b89f9ec029bd61653dcbeaa68",
+    "scripts/native5_timing_parser.py": "83ea7f40544138cd87500a3a087a03218a4191c4d808c85bcc563b754c9d6211",
+    "scripts/upstream_completion_ci.py": "653ee721447382753e7a69a16762b1981e70188ca029886dfa72026231550b7b",
+    "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs": "75998408ac1d0b1ab8fab0174ba4391594bc1e24f4f6fde3e76595fdba8b214f",
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": "516b123d21c218a185e92f854559f965d3f003d0417ca5c44a4193ac49cd7286",
+    "crates/marmot-app/src/runtime/account_worker.rs": "dc35d1d24a21fb0ac85ab9353217272bdd9797fb780fcab23afbbae24d1cf767"
+  },
+  "Rust_exceptions": [],
+  "old_source_guards_called": false,
+  "old_main_called": false,
+  "runtime_evidence_reused": false,
+  "expected_actual_native5_bodies": 1,
+  "runtime_result_may_fail": true,
+  "diagnostic_completion_is_not_native_pass": true,
+  "strict_phase_seconds": 15,
+  "Tokio_workers": 2,
+  "stack_bytes": 4194304
+}
