@@ -1908,3 +1908,8 @@ async fn another_installations_private_welcome_cannot_abort_an_approved_recipien
         runtime.shutdown_and_close().await.unwrap();
     }
 }
+
+// OWNER_FIVE_1611_REGISTRATION_BEGIN
+#[path = "sequential_installations_acceptance.rs"]
+mod sequential_installations_acceptance;
+// OWNER_FIVE_1611_REGISTRATION_END

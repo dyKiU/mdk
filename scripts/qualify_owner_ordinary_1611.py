@@ -36,6 +36,15 @@ FEATURES = 'marmot-app/experimental-device-sync,marmot-app/test-policy-overrides
 ROOT_FEATURES = sorted(['default', 'experimental-device-sync', 'test-policy-overrides', 'otlp-export', 'product-analytics-export'])
 OUT = Path('owner-components-1611-evidence')
 
+FIVE_REF = 'refs/heads/ci/upstream-owner-five-1611-20261018'
+FIVE_FILE = 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
+FIVE_SUFFIX = 'sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing'
+FIVE_NAME = PREFIX + FIVE_SUFFIX
+FIVE_SHA256 = '97f70b7b61523b95efb1f5e85bc69669d8fefa940f3741d7b340ca41bfbf88d6'
+FIVE_BEGIN = '  # OWNER_FIVE_1611_JOBS_BEGIN\n'
+FIVE_END = '  # OWNER_FIVE_1611_JOBS_END\n'
+FIVE_OPTIONS = 'options: [owner-five-preflight, owner-five-acceptance, '
+FIVE_REGISTRATION = '\n// OWNER_FIVE_1611_REGISTRATION_BEGIN\n#[path = "sequential_installations_acceptance.rs"]\nmod sequential_installations_acceptance;\n// OWNER_FIVE_1611_REGISTRATION_END\n'
 
 class GateFailure(ValueError):
     pass
@@ -64,12 +73,12 @@ def snapshot():
     return result
 
 
-def source_guard():
+def source_guard(five=False):
     source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     ensure(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('GITHUB_REPOSITORY') == 'dyKiU/mdk'
            and os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' and os.environ.get('GITHUB_SHA') == source
-           and os.environ.get('GITHUB_REF') == REF
-           and os.environ.get('GITHUB_WORKFLOW_REF') == 'dyKiU/mdk/' + WORKFLOW + '@' + REF
+           and os.environ.get('GITHUB_REF') == (FIVE_REF if five else REF)
+           and os.environ.get('GITHUB_WORKFLOW_REF') == 'dyKiU/mdk/' + WORKFLOW + '@' + (FIVE_REF if five else REF)
            and os.environ.get('OWNER_COMPONENTS_BASELINE') == BASE, 'exact-owned-remote-source')
     ensure(os.environ.get('CARGO_INCREMENTAL') == '1' and os.environ.get('CARGO_BUILD_JOBS') == '2'
            and os.environ.get('RUST_MIN_STACK') == '4194304'
@@ -85,7 +94,7 @@ def source_guard():
             ensure(kind == 'blob' and mode in {'100644', '100755', '120000'}, 'ordinary-baseline-tree')
             baseline[os.fsdecode(name)] = (mode, blob)
     frozen = snapshot()
-    ensure(set(frozen) == set(baseline) | {SELF} and SELF not in baseline, 'whole-owner-input-inventory')
+    ensure(set(frozen) == set(baseline) | ({SELF,FIVE_FILE} if five else {SELF}) and SELF not in baseline and FIVE_FILE not in baseline, 'whole-owner-input-inventory')
     for name, actual in frozen.items():
         mode, blob = baseline.get(name, ('100644', None))
         ensure(actual['mode'] == mode and (mode == '120000' or actual['actual_executable'] == (mode == '100755')), 'whole-owner-mode')
@@ -97,17 +106,24 @@ def source_guard():
                 new = '#[tokio::test(flavor = "multi_thread", worker_threads = 2)]\nasync fn ' + suffix + '() {'
                 ensure(text.count(new) == 1 and old not in text, 'exact-reviewed-wrapper-flavor')
                 text = text.replace(new, old, 1)
+            if five:
+                ensure(text.count(FIVE_REGISTRATION)==1,'one-exact-new-module-registration')
+                text=text.replace(FIVE_REGISTRATION,'',1)
             data = text.encode()
+        if five and name == FIVE_FILE:
+            ensure(digest(data)==FIVE_SHA256,'exact-reviewed-five-device-module')
         if name == WORKFLOW:
-            text = data.decode(); ensure(text.count(BEGIN) == text.count(END) == text.count(OPTIONS) == 1, 'one-owned-workflow-overlay')
-            before, rest = text.split(BEGIN); _, after = rest.split(END)
-            data = (before + after).replace(OPTIONS, 'options: [', 1).encode()
+            text = data.decode(); begin,end,options=(FIVE_BEGIN,FIVE_END,FIVE_OPTIONS) if five else (BEGIN,END,OPTIONS)
+            ensure(text.count(begin) == text.count(end) == text.count(options) == 1, 'one-owned-workflow-overlay')
+            before, rest = text.split(begin); _, after = rest.split(end)
+            data = (before + after).replace(options, 'options: [', 1).encode()
         if blob is not None:
             ensure(hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == blob, 'whole-owner-content:' + name)
     ensure(not subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'], text=True).strip(), 'no-untracked-source-overlay')
     return {'source': source, 'baseline': BASE, 'all_owner_contents_and_modes_reconstructed': True,
-            'only_Rust_delta': 'five explicitly listed wrapper attributes Tokio multi_thread worker_threads=2',
-            'aligned_wrappers': ALIGNED_WRAPPERS, 'runtime_selected_cases': CASES,
+            'only_Rust_delta': 'five wrapper attributes plus exact reviewed new fifth-device module/registration' if five else 'five explicitly listed wrapper attributes Tokio multi_thread worker_threads=2',
+            'new_five_fixture_sha256': FIVE_SHA256 if five else None,
+            'aligned_wrappers': ALIGNED_WRAPPERS, 'runtime_selected_cases': [FIVE_SUFFIX] if five else CASES,
             'owner_EnrollmentComplete_seconds': 90, 'owner_comparison_seconds': 15,
             'owner_real_held_setup_seconds': 90, 'owner_actual_held_fairness_seconds': 10,
             'all_bodies_assertions_deadlines_lock_and_SDK_inputs_unchanged': True,
@@ -186,8 +202,8 @@ def body_receipt(raw, code, frozen, name=NAME):
     return result
 
 
-def aggregate(rows):
-    complete = set(rows) == {PREFIX + suffix for suffix in CASES} and all(
+def aggregate(rows, case_suffixes=CASES):
+    complete = set(rows) == {PREFIX + suffix for suffix in case_suffixes} and all(
         row.get('actual_counts_complete') is True and all(type(row.get(k)) is int for k in
         ['passed', 'failed', 'ignored', 'executed_nonignored']) and row['ignored'] == 0
         and row['passed'] >= 0 and row['failed'] >= 0
@@ -229,17 +245,70 @@ def parser_controls():
             'aggregate_positive': 1, 'aggregate_negative': 4, 'actual_runtime_bodies': 0}
 
 
+def five_receipt(raw, code, frozen):
+    row=body_receipt(raw,code,frozen,FIVE_NAME)
+    clean=re.sub(r'\x1b\[[0-9;]*m','',raw)
+    clean=re.sub(r'(?m)^test '+re.escape(FIVE_NAME)+r' \.\.\. (?=sequential-installations )','',clean)
+    lines=[line for line in clean.splitlines() if line.startswith('sequential-installations')]
+    row['five_marker_count']=len(lines)
+    pattern=(r'sequential-installations completed_steps=([0-4]) final_device_count=([0-5]) final_roster_and_policies=(true|false)'
+        r' public_cancels=([0-9]{1,2}) runtime_closes=([0-5]) storages_closed=(true|false) plane_shutdown_returns=([0-5])'
+        r' listener_closed=(true|false) attempt_completed=(true|false)')
+    match=re.fullmatch(pattern,lines[0]) if len(lines)==1 and len(lines[0])<=512 else None
+    row['five_facts']=None
+    if match and int(match[4])<=14:
+        row['five_facts']={'completed_steps':int(match[1]),'final_device_count':int(match[2]),'final_roster_and_policies':match[3]=='true',
+            'public_cancels':int(match[4]),'runtime_closes':int(match[5]),'storages_closed':match[6]=='true',
+            'plane_shutdown_returns':int(match[7]),'listener_closed':match[8]=='true','attempt_completed':match[9]=='true'}
+    row['five_device_positive_closures']=({k:row['five_facts'][k] for k in ['runtime_closes','storages_closed','plane_shutdown_returns','listener_closed']}
+        if row['five_facts'] else None)
+    return row
+
+
+def five_green(row):
+    facts=row.get('five_facts')
+    return (row.get('actual_counts_complete') is True and row.get('exact_selected_name') is True
+        and all(type(row.get(k)) is int and row[k]==v for k,v in {'passed':1,'failed':0,'ignored':0,'executed_nonignored':1,'exit_code':0,'compiler_error_count':0,'panic_count':0,'five_marker_count':1}.items())
+        and isinstance(facts,dict) and all(type(facts.get(k)) is int and facts[k]==v for k,v in
+            {'completed_steps':4,'final_device_count':5,'public_cancels':14,'runtime_closes':5,'plane_shutdown_returns':5}.items())
+        and all(facts.get(k) is True for k in ['final_roster_and_policies','storages_closed','listener_closed','attempt_completed']))
+
+
+def five_parser_controls():
+    marker='sequential-installations completed_steps=4 final_device_count=5 final_roster_and_policies=true public_cancels=14 runtime_closes=5 storages_closed=true plane_shutdown_returns=5 listener_closed=true attempt_completed=true'
+    raw='running 1 test\ntest '+FIVE_NAME+' ... ok\n'+marker+'\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 1.0s\n'
+    ensure(five_green(five_receipt(raw,0,{})),'five-device-positive-closed-parser')
+    shared=raw.replace(' ... ok\n'+marker,' ... '+marker+'\nok')
+    ensure(five_green(five_receipt(shared,0,{})),'exact-five-name-shared-marker-parser')
+    bad=[raw.replace('completed_steps=4','completed_steps=3'),raw.replace('final_device_count=5','final_device_count=4'),
+        raw.replace('final_roster_and_policies=true','final_roster_and_policies=false'),raw.replace('public_cancels=14','public_cancels=13'),
+        raw.replace('runtime_closes=5','runtime_closes=4'),raw.replace('storages_closed=true','storages_closed=false'),
+        raw.replace('plane_shutdown_returns=5','plane_shutdown_returns=4'),raw.replace('listener_closed=true','listener_closed=false'),
+        raw.replace('attempt_completed=true','attempt_completed=false'),raw+'\n'+marker,raw.replace(marker,''),
+        raw.replace(FIVE_NAME,FIVE_NAME+'_foreign'),raw.replace('0 ignored','1 ignored'),raw.replace('1 passed','0 passed'),
+        raw.replace(marker,marker+' private=hidden'),raw.replace('public_cancels=14','public_cancels=99'),raw.replace('storages_closed=true','storages_closed=hidden')]
+    for text in bad: ensure(not five_green(five_receipt(text,0,{})),'incomplete-unclosed-or-foreign-five-device-rejected')
+    row=five_receipt(raw,0,{})
+    for k in ['passed','failed','ignored','executed_nonignored','exit_code','compiler_error_count','panic_count','five_marker_count']:
+        ensure(not five_green(dict(row,**{k:True})),'bool-is-not-runtime-count')
+    return {'positive':2,'negative':len(bad)+8,'actual_runtime_bodies':0}
+
+
 def main(args):
     os.umask(0o077); OUT.mkdir(exist_ok=True)
     report = {'baseline': BASE, 'qualification_passed': False, 'native_acceptance_claim': False,
               'installed_binary_inclusion_known': False, 'strict_integration_15s_qualified': False,
               'owner_contract_component_passed': False, 'actual_counts_complete': False,
               'positive_native_closures': None, 'old_locked_negentropy': '0.5.0 diagnostic baseline only',
-              'required_case_count': 4, 'cases': {}, 'one_compile_for_selected_experimental_cohort': True}
+              'required_case_count': 1 if args.five else 4, 'cases': {}, 'one_compile_for_selected_experimental_cohort': True}
     frozen = None
+    selected_cases = [FIVE_SUFFIX] if args.five else CASES
     def save(): (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     try:
-        report['source_guard'] = source_guard(); report['parser_controls'] = parser_controls(); save()
+        report['scope']='five-device-journey' if args.five else 'four-owner-components'
+        report['source_guard'] = source_guard(args.five); report['parser_controls'] = parser_controls()
+        if args.five: report['five_parser_controls']=five_parser_controls()
+        save()
         if args.preflight: report['source_parser_preflight_passed'] = True; save(); return
         frozen = snapshot(); report['input_manifest_sha256'] = digest(json.dumps(frozen, sort_keys=True).encode())
         report['toolchain'] = {v: subprocess.check_output([v, '--version'], text=True).strip() for v in ['cargo', 'rustc']}
@@ -265,7 +334,7 @@ def main(args):
             compiled_feature_manifest_sha256=digest(json.dumps([{'target': a['target']['name'], 'features': sorted(a['features']), 'profile': a['profile']} for a in artifacts], sort_keys=True).encode()))
         ensure(snapshot() == frozen, 'whole-inputs-pristine-after-compile')
         report['inventory'] = {}
-        for suffix in CASES:
+        for suffix in selected_cases:
             name = PREFIX + suffix
             code, raw, _ = capture([str(binary), '--exact', name, '--list', '--format', 'terse'], 60, 1024*1024)
             ensure(code == 0 and inventory(raw, name), 'exact-one-nonignored-inventory')
@@ -273,23 +342,29 @@ def main(args):
             ensure(code == 0 and raw.strip() in {'', '0 tests, 0 benchmarks'}, 'selected-body-not-ignored')
             report['inventory'][name] = {'selected_nonignored': 1, 'selected_ignored': 0}
         save()
-        for suffix in CASES:
+        for suffix in selected_cases:
             name = PREFIX + suffix
             ensure(snapshot() == frozen and digest(binary.read_bytes()) == binary_hash, 'before-body-source-binary-pristine')
             report['active_phase'] = 'runtime-body'; report['active_case'] = name; save()
             code, raw, seconds = capture([str(binary), '--exact', name, '--nocapture', '--test-threads=1'], 900, 8*1024*1024)
-            row = body_receipt(raw, code, frozen, name); row.update(seconds=seconds, binary_sha256=binary_hash)
+            row = five_receipt(raw,code,frozen) if args.five else body_receipt(raw, code, frozen, name); row.update(seconds=seconds, binary_sha256=binary_hash)
             row['runtime_passed'] = row['passed'] == 1 and row['failed'] == 0 and code == 0 and row['panic_count'] == 0
-            report['cases'][name] = row; report.update(aggregate(report['cases'])); save()
+            report['cases'][name] = row; report.update(aggregate(report['cases'],selected_cases)); save()
             ensure(row['actual_counts_complete'] and row['compiler_error_count'] == 0 and code in {0, 101}, 'one-real-runtime-body-not-compile-or-watchdog')
             ensure(snapshot() == frozen and digest(binary.read_bytes()) == binary_hash, 'after-body-source-binary-pristine')
-        held = report['cases'][PREFIX + CASES[0]]
-        report['genuine_held_metric_complete'] = (held['actual_held_metric_count'] == 1
-            and held['actual_held_metrics']['other_peer_progress'] is True)
-        report['owner_contract_component_passed'] = (report['actual_counts_complete']
-            and all(row['runtime_passed'] for row in report['cases'].values()) and report['genuine_held_metric_complete'])
-        report['active_phase'] = 'all-selected-bodies-completed'; save()
-        ensure(report['owner_contract_component_passed'], 'selected-owner-components-not-green')
+        if args.five:
+            report['five_device_journey_passed']=five_green(report['cases'][FIVE_NAME])
+            report['plane_shutdown_returns_are_not_internal_task_quiescence']=True
+            report['active_phase']='one-five-device-body-completed';save()
+            ensure(report['five_device_journey_passed'],'five-device-real-roster-policies-and-positive-closures-required')
+        else:
+            held = report['cases'][PREFIX + CASES[0]]
+            report['genuine_held_metric_complete'] = (held['actual_held_metric_count'] == 1
+                and held['actual_held_metrics']['other_peer_progress'] is True)
+            report['owner_contract_component_passed'] = (report['actual_counts_complete']
+                and all(row['runtime_passed'] for row in report['cases'].values()) and report['genuine_held_metric_complete'])
+            report['active_phase'] = 'all-selected-bodies-completed'; save()
+            ensure(report['owner_contract_component_passed'], 'selected-owner-components-not-green')
     except Exception as error:
         report['exception_type'] = type(error).__name__
         if isinstance(error, GateFailure): report['failure_gate'] = str(error)
@@ -303,4 +378,5 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--preflight', action='store_true')
+    parser.add_argument('--five', action='store_true')
     main(parser.parse_args())

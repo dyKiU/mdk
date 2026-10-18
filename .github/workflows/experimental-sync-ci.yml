@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [owner-components-preflight, owner-components-baseline, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression]
+        options: [owner-five-preflight, owner-five-acceptance, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -44,11 +44,11 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
-  # OWNER_COMPONENTS_1611_JOBS_BEGIN
-  owner-components-preflight:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["owner-components-preflight","owner-components-baseline"]'), inputs.scope)
+  # OWNER_FIVE_1611_JOBS_BEGIN
+  owner-five-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["owner-five-preflight","owner-five-acceptance"]'), inputs.scope)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       OWNER_COMPONENTS_BASELINE: 1611fa4ba239933d41875017e12464fef2f4e0d0
       CARGO_INCREMENTAL: '1'
@@ -62,20 +62,29 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Exact whole owner source plus one attribute and closed parser controls
-        run: python3 scripts/qualify_owner_ordinary_1611.py --preflight
+      - name: Exact owner source, five wrappers and one reviewed module with closed parser controls
+        run: |
+          python3 scripts/qualify_owner_ordinary_1611.py --five --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          rustfmt --edition 2024 crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs
+          git diff --binary -- crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs > "$RUNNER_TEMP/owner-five-format.patch"
+          git diff --exit-code -- crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: owner-components-1611-preflight
-          path: owner-components-1611-evidence/result.json
+          name: owner-five-1611-preflight
+          path: |
+            owner-components-1611-evidence/result.json
+            ${{ runner.temp }}/owner-five-format.patch
           if-no-files-found: error
           retention-days: 7
-  owner-components-baseline:
-    needs: owner-components-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'owner-components-baseline'
+  owner-five-acceptance:
+    needs: owner-five-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'owner-five-acceptance'
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 60
     env:
       OWNER_COMPONENTS_BASELINE: 1611fa4ba239933d41875017e12464fef2f4e0d0
       CARGO_INCREMENTAL: '1'
@@ -98,18 +107,18 @@ jobs:
         with:
           shared-key: experimental-sync-tests
           cache-on-failure: 'true'
-      - name: Compile once and execute four exact owner fairness and restart bodies
+      - name: Compile once and execute the exact five-installation real-SDK journey
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_owner_ordinary_1611.py
+        run: python3 scripts/qualify_owner_ordinary_1611.py --five
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: owner-components-1611-runtime
+          name: owner-five-1611-runtime
           path: owner-components-1611-evidence/result.json
           if-no-files-found: error
           retention-days: 7
-  # OWNER_COMPONENTS_1611_JOBS_END
+  # OWNER_FIVE_1611_JOBS_END
   pairing-recovery-components:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-recovery-components","pairing-recovery-convergence"]'), inputs.scope)
     name: Pairing recovery component (${{ matrix.component }})
