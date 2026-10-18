@@ -67,8 +67,8 @@ COMPONENT=[PREFIX+name for name in [
  'private_device_invite_encrypted_reopen_retains_exact_uncertainty_and_scope',
  'private_invite_transport_duplicate_ids_do_not_freeze_a_draft',
  'private_invite_batch_bounds_and_exact_order_are_atomic',
- 'private_invite_full_bound_batch_survives_storage_and_old_singleton_shape_fails_closed']]+['base::migrations::private_device_invite_tests::schema_preserves_confirmed_anchor_separately',
- 'base::migrations::private_device_invite_tests::schema_retirement_and_deletion_preserve_denied_provenance']
+ 'private_invite_full_bound_batch_survives_storage_and_old_singleton_shape_fails_closed']]+['base::migrations::private_device_invite_tests::private_device_invite_schema_preserves_confirmed_anchor_separately',
+ 'base::migrations::private_device_invite_tests::private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance']
 OUT=Path('rotating-sponsor-candidate-evidence')
 
 def source_guard():
