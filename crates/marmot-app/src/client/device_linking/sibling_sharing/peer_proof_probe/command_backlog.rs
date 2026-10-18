@@ -8,6 +8,8 @@ struct Probe {
     sender: Weak<OriginalEnrollmentSharingChoice>,
     nonce: [u8; 32],
     message: OnceLock<cgka_traits::MessageId>,
+    own_message: OnceLock<cgka_traits::MessageId>,
+    pause_rx_len: OnceLock<usize>,
     fired: AtomicBool,
     known: AtomicBool,
     active_ingest: AtomicUsize,
@@ -20,12 +22,12 @@ struct Probe {
     release: Notify,
     accepted_observed: Notify,
 }
-fn registry() -> &'static OnceLock<Weak<Probe>> {
-    static REGISTRY: OnceLock<Weak<Probe>> = OnceLock::new();
-    &REGISTRY
+fn registry() -> &'static Mutex<Weak<Probe>> {
+    static REGISTRY: OnceLock<Mutex<Weak<Probe>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(Weak::new()))
 }
 fn probe() -> Option<Arc<Probe>> {
-    registry().get()?.upgrade()
+    registry().lock().ok()?.upgrade()
 }
 pub(crate) struct Guard(Arc<Probe>);
 impl Guard {
@@ -52,6 +54,8 @@ impl Guard {
     pub(crate) fn message(&self) -> Option<cgka_traits::MessageId> {
         self.0.message.get().cloned()
     }
+    pub(crate) fn own_message(&self) -> Option<cgka_traits::MessageId> { self.0.own_message.get().cloned() }
+    pub(crate) fn pause_rx_len(&self) -> Option<usize> { self.0.pause_rx_len.get().copied() }
     pub(crate) fn release(&self) {
         self.0.release.notify_one();
     }
@@ -73,6 +77,11 @@ impl Guard {
             count += 1;
             ok &= reply.await.is_ok_and(|result| result.is_ok());
         }
+        self.0.consumed.store(count, Ordering::Release);
+        self.0.reply_errors.store(!ok, Ordering::Release);
+        let Ok(mut slot) = self.0.replies.lock() else { return false; };
+        if slot.is_some() { self.0.known.store(false, Ordering::Release); return false; }
+        *slot = Some(Vec::new());
         count == 8 && ok
     }
 }
@@ -92,6 +101,8 @@ impl super::Guard {
             sender: self.0.owner.clone(),
             nonce,
             message: OnceLock::new(),
+            own_message: OnceLock::new(),
+            pause_rx_len: OnceLock::new(),
             fired: AtomicBool::new(false),
             known: AtomicBool::new(true),
             active_ingest: AtomicUsize::new(0),
@@ -104,7 +115,9 @@ impl super::Guard {
             release: Notify::new(),
             accepted_observed: Notify::new(),
         });
-        registry().set(Arc::downgrade(&probe)).ok()?;
+        let mut slot = registry().lock().ok()?;
+        if slot.upgrade().is_some() { return None; }
+        *slot = Arc::downgrade(&probe);
         Some(Guard(probe))
     }
 }
@@ -115,13 +128,15 @@ pub(in super::super) fn prepared(entry: &SiblingChannel, message: &cgka_traits::
     if entry.channel.scope().nonce != probe.nonce {
         return;
     }
-    let SiblingOriginal::Recipient { choice, .. } = entry.original.as_ref() else {
-        return;
-    };
-    if !probe.sender.ptr_eq(&Arc::downgrade(choice)) {
-        return;
+    match entry.original.as_ref() {
+        SiblingOriginal::Recipient { choice, .. } if probe.sender.ptr_eq(&Arc::downgrade(choice)) => {
+            let _ = probe.message.set(message.clone());
+        }
+        SiblingOriginal::Existing { .. } if target(&probe, entry) => {
+            let _ = probe.own_message.set(message.clone());
+        }
+        _ => {}
     }
-    let _ = probe.message.set(message.clone()); // The first actual ID is immutable; later publications never replace it.
 }
 fn target(probe: &Probe, entry: &SiblingChannel) -> bool {
     entry.channel.scope().nonce == probe.nonce
@@ -136,7 +151,7 @@ impl Pause {
         }
     }
 }
-pub(in super::super) fn pause(entries: &[SiblingChannel], receive: [bool; 5]) -> Option<Pause> {
+pub(in super::super) fn pause(entries: &[SiblingChannel], receive: [bool; 5], queue_len: impl FnOnce() -> Option<usize>) -> Option<Pause> {
     let probe = probe()?;
     let entry = entries.iter().find(|entry| target(&probe, entry))?;
     if !entry.ready
@@ -152,6 +167,8 @@ pub(in super::super) fn pause(entries: &[SiblingChannel], receive: [bool; 5]) ->
     if !receive.into_iter().all(|value| value) {
         return None;
     }
+    let queue_len = queue_len()?;
+    if queue_len != 0 { return None; }
     if probe.fired.swap(true, Ordering::AcqRel) {
         return None;
     }
@@ -159,6 +176,7 @@ pub(in super::super) fn pause(entries: &[SiblingChannel], receive: [bool; 5]) ->
         probe.known.store(false, Ordering::Release);
         return None;
     };
+    let _ = probe.pause_rx_len.set(queue_len);
     *paused = Some([
         entry.original.live(),
         entry.state.live(),
@@ -219,8 +237,8 @@ pub(in super::super) fn accepted(entry: &SiblingChannel) {
         return;
     };
     let mut remaining = Vec::with_capacity(8);
-    let mut completed = 0usize;
-    let mut ok = true;
+    let mut completed = probe.consumed.load(Ordering::Acquire);
+    let mut ok = !probe.reply_errors.load(Ordering::Acquire);
     for mut reply in pending.drain(..) {
         match reply.try_recv() {
             Ok(result) => {

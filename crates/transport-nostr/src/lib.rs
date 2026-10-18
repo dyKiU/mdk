@@ -4895,6 +4895,13 @@ impl MarmotRelayPlaneAccountAdapter {
         Ok(event.map(|event| self.account_delivery_receive(event)))
     }
 
+    // COMMAND_BACKLOG_QUEUE_TEST_BEGIN
+    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[doc(hidden)]
+    pub fn account_delivery_queue_len_for_test(&self) -> Option<usize> {
+        self.delivery_rx.try_lock().ok().map(|receiver| receiver.len())
+    }
+    // COMMAND_BACKLOG_QUEUE_TEST_END
     /// The next queued item, if one is ready now.
     #[doc(hidden)]
     pub fn try_receive_account_delivery(&self) -> Option<AccountDeliveryReceive> {

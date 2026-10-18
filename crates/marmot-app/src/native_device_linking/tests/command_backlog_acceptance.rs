@@ -4,8 +4,56 @@ use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScenarioMode { QueuedBody, HeldBody }
+struct ScenarioOutcome {
+    facts: [bool; 13], completed_before: Option<usize>, runtime_closes: usize,
+    planes_shutdown: usize, relay_closed: bool, attempt_completed: bool, queue: QueueFacts,
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
+    let ScenarioOutcome { facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed, queue } =
+        Box::pin(run_command_scenario(ScenarioMode::QueuedBody)).await;
+    eprintln!(
+        "command-backlog facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
+        facts,
+        completed_before,
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt_completed
+    );
+    emit_queue(queue);
+    assert!(
+        facts.into_iter().all(|value| value)
+            && runtime_closes == 3
+            && planes_shutdown == 3
+            && relay_closed
+            && attempt_completed,
+        "authenticated_body_must_precede_second_queued_history_read"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn eight_history_reads_complete_while_actual_peer_proof_is_held() {
+    let ScenarioOutcome { facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed, queue } =
+        Box::pin(run_command_scenario(ScenarioMode::HeldBody)).await;
+    // These are independently observed real setup/command/auth/cleanup facts;
+    // the queued-body order/witness slots5/11 are not used by this counterpart.
+    let progress_facts = [facts[0], facts[1], facts[2], facts[3], facts[4], facts[6],
+        facts[7], facts[8], facts[9], facts[10], facts[12]];
+    eprintln!("command-backlog-progress facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
+        progress_facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed);
+    emit_queue(queue);
+    assert!(progress_facts.into_iter().all(|value| value) && completed_before == Some(8)
+        && runtime_closes == 3 && planes_shutdown == 3 && relay_closed && attempt_completed,
+        "eight_real_history_reads_must_finish_before_releasing_actual_peer_proof");
+}
+
+async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
+    static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _serial = SERIAL.lock().await;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
     let keys = nostr::prelude::Keys::generate();
@@ -19,6 +67,7 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     let mut facts = [false; 13];
     let mut completed_before = None;
+    let mut queue_observations = QueueFacts::default();
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes {
             runtime.reconcile_accounts().await.unwrap();
@@ -167,18 +216,23 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
             .message()
             .expect("first actual peer Body0 transport ID");
         facts[4] = message.as_slice().len() == 32;
+        let account = cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec());
+        let id = hex::encode(message.as_slice());
+        queue_observations.pause_rx_len = backlog.pause_rx_len();
+        let own_message = backlog.own_message();
+        queue_observations.own_id_bound = Some(own_message.is_some());
+        queue_observations.own = own_message.as_ref().and_then(|message| queue_observation(&apps[1], &account, &hex::encode(message.as_slice())));
+        if mode == ScenarioMode::QueuedBody {
         // The exact target actor is parked BEFORE select. No receive, SQL/Core
         // query, or actor RPC is used to establish the queue witness.
         drop(proof_gate);
-        let account = cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec());
-        let id = hex::encode(message.as_slice());
         let queue = tokio::time::timeout(Duration::from_secs(15), async {
             loop {
-                if let Some(row) = apps[1]
-                    .relay_plane
-                    .account_notification_timing_for_test(&account, &id)
-                    && row.2[0] > 0
-                    && (row.4.0.is_some() || row.4.3)
+                let row = queue_observation(&apps[1], &account, &id);
+                queue_observations.target = row;
+                if let Some(row) = row
+                    && row.1[0] > 0
+                    && (row.2.is_some() || row.5)
                 {
                     break row;
                 }
@@ -187,7 +241,7 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
         })
         .await
         .unwrap();
-        facts[5] = queue.4 == (Some((0, 1)), 0, None, false);
+        facts[5] = (queue.2, queue.3, queue.4, queue.5) == (Some((0, 1)), 0, false, false);
         let replies = managers[1]
             .enqueue_command_backlog_reads_for_test("test")
             .await
@@ -204,6 +258,19 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
         facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.drain_replies())
             .await
             .unwrap();
+        } else {
+            // C's genuine proof future remains held while all eight real read
+            // commands complete. No command waits for the missing target Body0.
+            let replies = managers[1].enqueue_command_backlog_reads_for_test("test").await.unwrap();
+            facts[6] = backlog.install_replies(replies);
+            backlog.release();
+            facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.drain_replies()).await.unwrap();
+            drop(proof_gate);
+            let accepted = tokio::time::timeout(Duration::from_secs(15), backlog.accepted()).await.unwrap().unwrap();
+            completed_before = Some(accepted.0);
+            facts[7] = accepted == (8, true);
+            queue_observations.target = queue_observation(&apps[1], &account, &id);
+        }
         wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
         facts[9] = true;
         a.cancel().await.unwrap();
@@ -231,23 +298,22 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
-    eprintln!(
-        "command-backlog facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
-        facts,
-        completed_before,
-        runtime_closes,
-        planes_shutdown,
-        relay_closed,
-        attempt.is_ok()
-    );
-    assert!(
-        facts.into_iter().all(|value| value)
-            && runtime_closes == 3
-            && planes_shutdown == 3
-            && relay_closed
-            && attempt.is_ok(),
-        "authenticated_body_must_precede_second_queued_history_read"
-    );
+    ScenarioOutcome { facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed: attempt.is_ok(), queue: queue_observations }
+}
+
+type QueueObservation = ([u64; 8], [u64; 6], Option<(usize, usize)>, u64, bool, bool);
+#[derive(Default)]
+struct QueueFacts {
+    pause_rx_len: Option<usize>, target: Option<QueueObservation>,
+    own_id_bound: Option<bool>, own: Option<QueueObservation>,
+}
+fn queue_observation(app: &MarmotApp, account: &cgka_traits::MemberId, id: &str) -> Option<QueueObservation> {
+    app.relay_plane.account_notification_timing_for_test(account, id)
+        .map(|row| (row.0, row.2, row.4.0, row.4.1, row.4.2.is_some(), row.4.3))
+}
+fn emit_queue(queue: QueueFacts) {
+    eprintln!("command-backlog-queue pause_rx_len={:?} target={:?} own_id_bound={:?} own={:?}",
+        queue.pause_rx_len, queue.target, queue.own_id_bound, queue.own);
 }
 
 // Probe only this fixture's owned loopback MockRelay listener.

@@ -2723,7 +2723,7 @@ impl AppClient {
         &self,
         receive: [bool; 5],
     ) -> Option<peer_proof_probe::command_backlog::Pause> {
-        peer_proof_probe::command_backlog::pause(&self.linking_owner.sibling_channels, receive)
+        peer_proof_probe::command_backlog::pause(&self.linking_owner.sibling_channels, receive, || self.adapter.account_delivery_queue_len_for_test())
     }
     #[cfg(all(
         test,
@@ -2956,7 +2956,7 @@ impl AppClient {
             feature = "experimental-device-sync",
             feature = "test-policy-overrides"
         ))]
-        if proof && entry.recipient {
+        if proof {
             peer_proof_probe::command_backlog::prepared(entry, &request.message.id);
         }
         // COMMAND_BACKLOG_TEST_END
