@@ -148,7 +148,7 @@
     "path": "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs",
     "mode": "100644",
     "draft_file": "consent_timing.rs",
-    "sha256": "9db20868e45144c9f7c8fb610f53c4d613cfc653c30061730fafcb282646812a",
+    "sha256": "59a6f00cb4db09e6fa273cb8f7c6c5497e1e8bae4f1cffadd5edc4f05defa2d2",
     "pre_remote_format_sha256": "8a418d337a9325ea7d5202b5ab1f3789535c357374892268995ce9f663cbdad6"
   },
   "support_pins": {
@@ -162,5 +162,11 @@
     "bytes": 22432,
     "source": "104d74a947e677390a92318c3ca427fbde19497f",
     "policy": "Exact remote formatting only; reverse pinned format chunks first, then original14 behavioral/passive substitutions."
+  },
+  "compiler_import_followup": {
+    "parent": "028c08732449961ba05b28bf1d4cd2f935cadd79",
+    "run": 39110449800,
+    "actual_runtime": 0,
+    "change": "explicit AccountSharingControl import for cfg-test leaf; type was only function-local in ancestor"
   }
 }

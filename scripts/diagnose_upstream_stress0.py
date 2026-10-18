@@ -16,7 +16,7 @@ WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 TIMING_PARSER='scripts/stress0_consent_timing_parser.py'
 TIMING_MANIFEST='scripts/stress0_consent_timing_manifest.json'
 TIMING_MODULE='crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs'
-TIMING_MANIFEST_SHA256='e752f20ebf1682dea6800113d226d7be86d6f5ab6ce5bf4802341fde75e8442a'
+TIMING_MANIFEST_SHA256='5e01f90457e7637175d64922b5d37ff852c506f0d32ac852846cad672e0d57df'
 TIMING_PARSER_SHA256='1555ca2cc7d99a41ad0420bf7c39b022beb5372201745d43c300f873c7363865'
 HOOK_PATHS={
     'crates/marmot-app/src/client/device_linking/sibling_sharing.rs',
