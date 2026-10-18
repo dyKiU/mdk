@@ -4,6 +4,10 @@
 mod attachments;
 pub(crate) mod recovery_credits;
 
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+use crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing as native5_worker_timing;
+// NATIVE5_WORKER_TIMING_END
 use crate::RuntimePerformanceOperation as RuntimeOp;
 use crate::app_telemetry::runtime::{Observation, Outcome as TelemetryOutcome};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1047,14 +1051,28 @@ pub(crate) fn spawn_app_runtime_account_worker(
 ) -> JoinHandle<()> {
     // Pin the large worker future before moving it into Tokio's spawn frame.
     // Reopening an account can otherwise exhaust a bounded caller stack.
-    tokio::spawn(Box::pin(run_app_runtime_account_worker(
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let native5_worker_tag=native5_worker_timing::WorkerTag::new();
+// NATIVE5_WORKER_TIMING_END
+    let worker=Box::pin(run_app_runtime_account_worker(
         runtime,
         command_tx,
         commands,
         ready,
         startup_progress,
         shutdown,
-    )))
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+native5_worker_tag.clone(),
+// NATIVE5_WORKER_TIMING_END
+    ));
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+return tokio::spawn(native5_worker_timing::WorkerFuture::new(worker,native5_worker_tag));
+// NATIVE5_WORKER_TIMING_END
+    #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+    tokio::spawn(worker)
 }
 
 async fn run_app_runtime_account_worker(
@@ -1064,6 +1082,10 @@ async fn run_app_runtime_account_worker(
     ready: oneshot::Sender<Result<(), AppError>>,
     startup_progress: AccountStartupProgress,
     mut shutdown: oneshot::Receiver<()>,
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+native5_worker_tag:native5_worker_timing::WorkerTag,
+// NATIVE5_WORKER_TIMING_END
 ) {
     let worker_started_at = Instant::now();
     let mut ready = Some(ready);
@@ -1957,6 +1979,10 @@ async fn run_app_runtime_account_worker(
             && job.network.is_none()
             && admit_comparison_turn
         {
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _native5_section=native5_worker_tag.section(1);
+// NATIVE5_WORKER_TIMING_END
             // An admission batch is already one foreground/convergence quantum.
             // Do not also yield the due sibling debt to another ready branch.
             #[cfg(feature = "experimental-device-sync")]
@@ -2130,6 +2156,10 @@ async fn run_app_runtime_account_worker(
                     } => {
                         #[cfg(feature = "experimental-device-sync")]
                         {
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _native5_section=native5_worker_tag.section(2);
+// NATIVE5_WORKER_TIMING_END
                             sibling_maintenance_due = false;
                             if !lifecycle.is_stopping()
                                 && client.maintain_sibling_sharing().await.is_err()
@@ -2263,6 +2293,10 @@ async fn run_app_runtime_account_worker(
                             None => commands.recv().await.map(|command| (command, false)),
                         }
                     }, if !yield_to_convergence || !scheduled_convergence.has_ready() || scheduled_convergence_held_for_test(&account_id_hex) => {
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _native5_section=native5_worker_tag.section(6);
+// NATIVE5_WORKER_TIMING_END
                         yield_to_convergence = true;
                         match command {
                             Some((command, approved_pending)) => {
@@ -2577,6 +2611,10 @@ async fn run_app_runtime_account_worker(
                         match result {
                             Err(_) => sibling_completions_open = false,
                             Ok(()) if !lifecycle.is_stopping() => {
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _native5_section=native5_worker_tag.section(3);
+// NATIVE5_WORKER_TIMING_END
                                 if client.service_sibling_publication_completions().await.is_err() {
                                     tracing::debug!(target: "marmot_app::device_linking", method = "worker_sibling_completion", "sibling publication completion deferred");
                                 }
@@ -2649,9 +2687,21 @@ async fn run_app_runtime_account_worker(
                         let receive_observation = shared.app_performance_telemetry().observe(RuntimeOp::WorkerReceive);
                         let result = match received {
                             Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) => {
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _native5_section=native5_worker_tag.section(4);
+// NATIVE5_WORKER_TIMING_END
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let native5_delivery=client.native5_first_peer_delivery_for_test(&delivery.message.id,native5_worker_tag.ordinal());
+// NATIVE5_WORKER_TIMING_END
                                 #[cfg(feature = "experimental-device-sync")]
                                 client.begin_selected_recipient_ingest();
                                 let result = client.ingest_observed_received_delivery(&delivery).await;
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+if let Some(token)=native5_delivery { token.finish(result.is_ok()); }
+// NATIVE5_WORKER_TIMING_END
                                 #[cfg(feature = "experimental-device-sync")]
                                 if delivery.message.payload.len() <= 512 * 1024
                                     && let Some(error) = result.as_ref().err()
@@ -3150,6 +3200,10 @@ async fn run_app_runtime_account_worker(
                     } => {
                         #[cfg(feature = "experimental-device-sync")]
                         if !lifecycle.is_stopping() {
+// NATIVE5_WORKER_TIMING_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _native5_section=native5_worker_tag.section(5);
+// NATIVE5_WORKER_TIMING_END
                             if client.maintain_device_linking_after_sibling_turn(Instant::now()).await.is_err() {
                                 tracing::debug!(
                                     target: "marmot_app::device_linking",

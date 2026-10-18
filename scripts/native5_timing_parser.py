@@ -31,17 +31,17 @@ def timing(raw,name):
     lines=[s for s in raw.splitlines() if s.startswith('native5-consent-')]
     if not lines:
         return {'observed':False,'known':False,'loss_mask':None,'snapshot_available':False,
-            'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,'peer_proofs':None,'peer_progress':None,'incoming_peer_proof':None,
+            'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,'peer_proofs':None,'peer_progress':None,'incoming_peer_proof':None,'first_peer_outer_delivery':None,
             'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,
-            'missing_is_not_zero':True,'missing_peer_observation_is_unknown':True,'all_milestones_observed':False,'missing_reason':'NoOwnedProbeReport','sdk_publication':sdk_timing(raw,name,None,None,None,None)}
-    require(len(lines)<=156 and all(len(s)<4096 for s in lines),'bounded-lines')
+            'missing_is_not_zero':True,'missing_peer_observation_is_unknown':True,'worker_poll':safe_worker_timing(raw),'all_milestones_observed':False,'missing_reason':'NoOwnedProbeReport','sdk_publication':sdk_timing(raw,name,None,None,None,None)}
+    require(len(lines)<=159 and all(len(s)<4096 for s in lines),'bounded-lines')
     h=re.fullmatch(r'native5-consent-timing known=(true|false) loss_mask=('+N+r') snapshot_available=(true|false)',lines[0]);require(h is not None,'closed-header')
     known=h[1]=='true';loss=number(h[2],127);available=h[3]=='true'
     require(known==(loss==0) and (available or not known),'loss-unknown-semantics')
-    result={'observed':True,'known':known,'loss_mask':loss,'snapshot_available':available,'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,'peer_proofs':None,'peer_progress':None,'incoming_peer_proof':None,'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,'missing_is_not_zero':True,'missing_peer_observation_is_unknown':True,'all_milestones_observed':False}
+    result={'observed':True,'known':known,'loss_mask':loss,'snapshot_available':available,'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,'peer_proofs':None,'peer_progress':None,'incoming_peer_proof':None,'first_peer_outer_delivery':None,'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,'missing_is_not_zero':True,'missing_peer_observation_is_unknown':True,'worker_poll':safe_worker_timing(raw),'all_milestones_observed':False}
     result['sdk_publication']=sdk_timing(raw,name,None,None,None,None)
     if not available:require(len(lines)==1,'no-invented-unavailable-rows');return result
-    require(len(lines)>=27,'three-channel-phase-slots-and-rpc-count')
+    require(len(lines)>=30,'three-channel-phase-slots-and-rpc-count')
     w=re.fullmatch(r'native5-consent-wait constructed_before_us=('+ON+r') constructed_after_us=('+ON+r') deadline_lower_us=('+ON+r') deadline_upper_us=('+ON+r') outcome_ok=('+OB+r') observed_us=('+ON+r') exact_deadline_known=false',lines[1]);require(w is not None,'closed-wait')
     before,after,lo,hi=[opt(w[i],615000000) for i in range(1,5)]
     require(lo==(None if before is None else before+15000000) and hi==(None if after is None else after+15000000) and (before is None or after is None or before<=after),'original-duration-bounds')
@@ -155,10 +155,21 @@ def timing(raw,name):
             require(times[3] is None or accepted is not None and accepted[1]==0 and accepted[0]==times[3],'first-accept-has-separate-success')
         incoming.append({'channel_index':i//3,'wire_category':['same_first_sealed_wire','other_wire','unbound_first_sealed_wire'][i%3],'first_receive_attempt_us':dict(zip(['route','open_before','open_returned','semantic_accepted','rebuffered','handler_returned'],times)),'first_receive_open_ok':opened,'first_receive_result':None if disposition is None else ['OkTrue','OkFalse','Unsupported','NotReady','Closed','StaleRevision','RuntimeUnavailable'][disposition],'later_receive_calls':later,'first_successful_acceptance':None if accepted is None else {'observed_us':accepted[0],'receive_attempt_ordinal':accepted[1]},'receiver_outer_event_identity_known':False,'wire_equality_is_not_first_envelope_delivery':True,'later_receive_events_not_merged_into_first':True})
     result['incoming_peer_proof']=incoming
-    c=re.fullmatch(r'native5-consent-rpc-count count=('+N+r')',lines[26]);require(c is not None,'closed-rpc-count');count=number(c[1],128);require(len(lines)==28+count,'all-rpc-rows-and-terminal-cost-exact')
+    delivery_pattern=r'native5-consent-first-outer-delivery index=([012]) observation=(?:None|Some\(\(('+N+r'), ('+ON+r'), ('+ON+r'), ('+OB+r'), ('+N+r')\)\))'
+    deliveries=[]
+    for i,line in enumerate(lines[26:29]):
+        m=re.fullmatch(delivery_pattern,line);require(m is not None and int(m[1])==i,'exact-first-outer-delivery-indices')
+        if line.endswith('observation=None'):deliveries.append(None);continue
+        worker=number(m[2],4);before=opt(m[3]);after=opt(m[4]);ok=boolean(m[5]);later=number(m[6],4294967295)
+        if known:
+            require(rows[i] is not None and peer_proofs[i] is not None and peer_proofs[i]['first_attempt_actual_message_bound'],'first-outer-real-actual-message-binding')
+            require(before is not None and (after is None or before<=after) and (ok is None or after is not None),'first-outer-result-bracket')
+        deliveries.append({'channel_index':i,'recipient_worker_ordinal':worker,'selected_before_ingest_us':before,'ingest_returned_us':after,'first_ingest_result_ok':ok,'later_exact_outer_delivery_reselections':later,'actual_first_peer_outer_message_identity_matched':True,'recipient_original_and_child_matched':True,'content_only_AppRoute_not_automatically_same_outer_delivery':True})
+    result['first_peer_outer_delivery']=deliveries
+    c=re.fullmatch(r'native5-consent-rpc-count count=('+N+r')',lines[29]);require(c is not None,'closed-rpc-count');count=number(c[1],128);require(len(lines)==31+count,'all-rpc-rows-and-terminal-cost-exact')
     pattern=r'native5-consent-rpc index=('+N+r') times=\['+', '.join(['('+ON+')']*5)+r'\] results=\['+', '.join(['('+ON+')']*2)+r'\] sent=('+OB+r')'
     result['rpc']=[]
-    for i,line in enumerate(lines[27:-1]):
+    for i,line in enumerate(lines[30:-1]):
         m=re.fullmatch(pattern,line);require(m is not None and number(m[1],127)==i,'unique-ordered-rpc-index')
         times=[opt(m[j]) for j in range(2,7)];categories=[opt(m[j],10) for j in (7,8)]
         if known:
@@ -190,7 +201,7 @@ def parser_controls():
     rpc='native5-consent-rpc index=0 times=[Some(0), Some(1), Some(2), Some(4), Some(3)] results=[Some(4), Some(4)] sent=Some(true)'
     proof='native5-consent-proof index=0 observation=None'
     progress='native5-consent-progress index=0 observation=Some(([None, None, None, None, None], [0, 0, 0, 0, 0]))'
-    sample='\n'.join([header,wait,slot,slot.replace('index=0','index=1'),slot.replace('index=0','index=2'),proof,proof.replace('index=0','index=1'),proof.replace('index=0','index=2'),progress,progress.replace('index=0','index=1'),progress.replace('index=0','index=2'),*['native5-consent-peer-proof index='+str(i)+' observation=None' for i in range(3)],*['native5-consent-peer-progress index='+str(i)+' observation=None' for i in range(3)],*['native5-consent-incoming index='+str(i)+' observation=None' for i in range(9)],'native5-consent-rpc-count count=1',rpc,'native5-consent-terminal-cost observation=([0, 0, 0, 0, 0, 0, 0, 0], 0, [None, None])'])
+    sample='\n'.join([header,wait,slot,slot.replace('index=0','index=1'),slot.replace('index=0','index=2'),proof,proof.replace('index=0','index=1'),proof.replace('index=0','index=2'),progress,progress.replace('index=0','index=1'),progress.replace('index=0','index=2'),*['native5-consent-peer-proof index='+str(i)+' observation=None' for i in range(3)],*['native5-consent-peer-progress index='+str(i)+' observation=None' for i in range(3)],*['native5-consent-incoming index='+str(i)+' observation=None' for i in range(9)],*['native5-consent-first-outer-delivery index='+str(i)+' observation=None' for i in range(3)],'native5-consent-rpc-count count=1',rpc,'native5-consent-terminal-cost observation=([0, 0, 0, 0, 0, 0, 0, 0], 0, [None, None])'])
     unavailable='native5-consent-timing known=false loss_mask=1 snapshot_available=false'
     positives=['', 'unrelated runtime output is discarded',sample,unavailable,sample.replace('known=true loss_mask=0','known=false loss_mask=2'),sample.replace(slot,'native5-consent-slot index=0 observation=None').replace(progress,'native5-consent-progress index=0 observation=None'),'test '+name+' ... '+sample,sample.replace('results=[Some(4), Some(4)]','results=[Some(9), Some(10)]')]
     for s in positives:timing(s,name)
@@ -229,7 +240,8 @@ def parser_controls():
         except ValueError:continue
         raise ValueError('adversarial-terminal-cost-accepted')
     reciprocal=peer_parser_controls(sample,name)
-    return {'reciprocal':reciprocal,'positive':len(positives)+4,'negative':len(bad)+len(extra_bad)+len(terminal_bad),'actual_runtime_bodies':0}
+    worker=worker_parser_controls();capacity=worker_output_capacity_control()
+    return {'worker':worker,'output_capacity':capacity,'reciprocal':reciprocal,'positive':len(positives)+4,'negative':len(bad)+len(extra_bad)+len(terminal_bad),'actual_runtime_bodies':0}
 
 
 SDK_STAGES=['sdk_entry','verify_before','verify_after','lease_retain_before','lease_retain_after','endpoint_task_first_poll','connect_before','connect_after','first_send_before','first_send_returned','first_attempt_receipt_constructed','lease_release_before','lease_release_after','single_call_finished','single_call_accepted_receipt']
@@ -325,6 +337,7 @@ def window_parser_controls():
         *['native5-consent-proof index='+str(i)+' observation=None' for i in range(3)],
         *['native5-consent-progress index='+str(i)+' observation=None' for i in range(3)],
         *['native5-consent-peer-proof index='+str(i)+' observation=None' for i in range(3)],*['native5-consent-peer-progress index='+str(i)+' observation=None' for i in range(3)],*['native5-consent-incoming index='+str(i)+' observation=None' for i in range(9)],
+        *['native5-consent-first-outer-delivery index='+str(i)+' observation=None' for i in range(3)],
         'native5-consent-rpc-count count=0',
         'native5-consent-terminal-cost observation=([0, 0, 0, 0, 0, 0, 0, 0], 0, [None, None])',
         'native5-sdk-timing known=true loss_mask=0 snapshot_available=true',
@@ -367,3 +380,110 @@ def peer_parser_controls(sample,name):
         except ValueError:continue
         raise ValueError('adversarial-reciprocal-observation-accepted')
     return {'positive':4,'negative':len(rejected),'actual_runtime_bodies':0}
+
+WORKER_CATEGORIES=['OtherOrUninstrumented','ComparisonAdmission','SiblingPeriodic','SiblingCompletion','ClaimedDeliveryIngest','BroadMaintenance','Command']
+WORKER_SAMPLE=r'(?:None|Some\(\('+', '.join([N]*7)+r', (?:true|false)\)\))'
+def worker_samples(text,threads):
+    require(re.fullmatch(r'\['+', '.join([WORKER_SAMPLE]*4)+r'\]',text) is not None,'four-closed-worker-samples')
+    rows=[];empty=False
+    for match in re.finditer(WORKER_SAMPLE,text):
+        token=match[0]
+        if token=='None':empty=True;rows.append(None);continue
+        require(not empty,'longest-samples-contiguous')
+        fields=token[6:-2].split(', ');values=[number(v) for v in fields[:7]];ordinal,start,end,thread,entry,exit,mask=values
+        require(1<=ordinal<=1000000 and start<=end and thread<8 and entry<=6 and exit<=6 and mask<=127,'worker-sample-bounds')
+        require(threads is None or thread<threads,'worker-anonymous-thread-observed')
+        require(mask&(1<<entry)!=0,'worker-entry-category-in-selected-mask')
+        rows.append({'poll_ordinal':ordinal,'enter_us':start,'return_us':end,'thread_ordinal':thread,'entry_category':WORKER_CATEGORIES[entry],'exit_category':WORKER_CATEGORIES[exit],'selected_category_mask':mask,'returned_ready':fields[7]=='true','wall_us':end-start})
+    present=[row for row in rows if row is not None]
+    require(len({row['poll_ordinal'] for row in present})==len(present),'unique-selected-poll-ordinals')
+    require([(-row['wall_us'],row['poll_ordinal']) for row in present]==sorted((-row['wall_us'],row['poll_ordinal']) for row in present),'longest-sample-order')
+    return rows
+
+def worker_timing(raw):
+    lines=[line for line in raw.splitlines() if line.startswith('native5-worker-')]
+    result={'observed':bool(lines),'known':False,'loss_mask':None,'spawned_workers':None,'observed_thread_count':None,'workers':None,'focus':None,'same_origin_as_native':True,'no_joint_snapshot_claim':True,'wall_is_not_CPU':True,'between_polls_is_not_proven_ready_queue_delay':True,'top_samples_are_not_complete_event_log':True,'mixed_mask_does_not_attribute_whole_poll_to_one_arm':True,'focus_is_online_candidate_sampling_refiltered_at_independent_endpoint_snapshot':True}
+    if not lines:return result
+    require(len(lines)==21 and all(len(line)<4096 for line in lines),'fixed-worker-report-size')
+    h=re.fullmatch(r'native5-worker-meta known=(true|false) loss_mask=('+N+r') spawned=('+N+r') threads=('+ON+r') endpoints=\['+', '.join(['('+ON+')']*6)+r'\]',lines[0]);require(h is not None,'closed-worker-header')
+    loss=number(h[2],127);known=h[1]=='true';spawned=number(h[3],1000000);threads=opt(h[4],8);endpoints=[opt(h[j]) for j in range(5,11)]
+    require(known==(loss==0) and (not known or spawned==5 and threads is not None),'worker-independent-loss-semantics')
+    result.update(known=known,loss_mask=loss,spawned_workers=spawned,observed_thread_count=threads,workers=[],focus=[],expected_spawned_workers=5,worker_identity_is_anonymous_spawn_ordinal=True,thread_ordinals_are_per_window_only=True)
+    inflight_pattern=r'(?:None|Some\(\('+', '.join([N]*4)+r'\)\))'
+    samples_pattern=r'\['+', '.join([WORKER_SAMPLE]*4)+r'\]'
+    pattern=r'native5-worker-poll index=([0-4]) observation=(?:None|Some\(\(\[('+N+r'(?:, '+N+r'){6})\], ('+N+r'), ('+inflight_pattern+r'), ('+samples_pattern+r')\)\))'
+    for worker in range(5):
+        line=lines[1+worker*4];m=re.fullmatch(pattern,line);require(m is not None and int(m[1])==worker,'five-exact-worker-indices')
+        if line.endswith('observation=None'):
+            require(not known,'worker-missing-not-known');row=None
+        else:
+            counts=[number(v) for v in m[2].split(', ')];mask=number(m[3],255);inflight=None if m[4]=='None' else [number(v) for v in m[4][6:-2].split(', ')];samples=worker_samples(m[5],threads)
+            started,completed,pending,ready,unfinished,total,maximum=counts
+            if known:
+                require(started<=1000000 and started==completed+unfinished and unfinished<=1 and completed==pending+ready,'worker-actual-count-closure')
+                require(maximum<=total and (completed>0 or total==maximum==0),'worker-wall-closure')
+                require(bool(unfinished)==(inflight is not None),'worker-unfinished-not-zero')
+                require(threads is not None and mask<(1<<threads) and (started>0 or mask==0),'worker-thread-bitmap-bounds')
+                if inflight:require(inflight[0]==started and inflight[2]<threads and inflight[3]<=6,'worker-current-poll-bounds')
+                require(all(sample is None or sample['poll_ordinal']<=completed and sample['wall_us']<=maximum for sample in samples),'worker-samples-completed-only')
+            row={'worker_ordinal':worker,'observed_poll_count':started,'completed_poll_count':completed,'pending_returns':pending,'ready_returns':ready,'unfinished_at_freeze':unfinished,'completed_wall_total_us':total,'completed_wall_max_us':maximum,'observed_thread_ordinal_mask':mask,'unfinished_poll':None if inflight is None else dict(zip(['ordinal','enter_us','thread_ordinal','entry_category'],inflight)),'four_longest_completed_polls':samples}
+        result['workers'].append(row)
+        for channel in range(3):
+            line=lines[2+worker*4+channel];m=re.fullmatch(r'native5-worker-focus worker=([0-4]) channel=([012]) observation=(None|Some\(('+samples_pattern+r')\))',line);require(m is not None and int(m[1])==worker and int(m[2])==channel,'exact-worker-channel-focus')
+            samples=None if m[3]=='None' else worker_samples(m[4],threads)
+            ack,route=endpoints[channel*2:channel*2+2]
+            if known:
+                require((samples is not None)==(row is not None),'worker-focus-same-snapshot-row')
+                require(samples is None or all(sample is None or ack is not None and sample['return_us']>=ack and (route is None or ack<=route and sample['enter_us']<=route) for sample in samples),'focus-actual-native-ACK-route-overlap')
+                require(samples is None or all(sample is None or sample['poll_ordinal']<=row['completed_poll_count'] for sample in samples),'focus-completed-not-inflight')
+            result['focus'].append({'worker_ordinal':worker,'channel_index':channel,'native_accepted_ack_us':ack,'same_first_sealed_wire_AppRoute_us':route,'first_outer_event_route_identity_known':False,'interval_scope':'native-peer-acceptedACK-to-content-matched-AppRoute','four_longest_overlapping_completed_polls':samples})
+    return result
+
+def worker_parser_controls():
+    header='native5-worker-meta known=true loss_mask=0 spawned=5 threads=Some(1) endpoints=[Some(2), Some(5), None, None, None, None]'
+    samples='[Some((1, 1, 4, 0, 0, 0, 1, false)), None, None, None]'
+    rows=[]
+    for worker in range(5):
+        rows.append('native5-worker-poll index='+str(worker)+' observation=Some(([1, 1, 1, 0, 0, 3, 3], 1, None, '+samples+'))')
+        for channel in range(3):rows.append('native5-worker-focus worker='+str(worker)+' channel='+str(channel)+' observation=Some('+(samples if channel==0 else '[None, None, None, None]')+')')
+    sample='\n'.join([header,*rows]);worker_timing(sample)
+    inflight=sample.replace('[1, 1, 1, 0, 0, 3, 3], 1, None','[2, 1, 1, 0, 1, 3, 3], 1, Some((2, 5, 0, 0))')
+    worker_timing(inflight);worker_timing(sample.replace('known=true loss_mask=0','known=false loss_mask=1'));worker_timing('')
+    bad=[sample.replace('spawned=5','spawned=6'),sample.replace('threads=Some(1)','threads=None'),sample.replace('index=4','index=3'),sample.replace('Some((1, 1, 4','Some((1, 4, 1'),sample.replace('[1, 1, 1, 0, 0','[1, 1, 0, 0, 0'),sample.replace('0, 0, 1, false','0, 0, 128, false'),sample.replace('Some(2), Some(5)','None, Some(5)'),sample+'\n'+header,inflight.replace('Some((2, 5, 0, 0))','None'),sample.replace('3, 3], 1, None','3, 4], 1, None'),sample.replace('Some((1, 1, 4, 0','Some((1, 1, 4, 1')]
+    for raw in bad:
+        try:worker_timing(raw)
+        except ValueError:continue
+        raise ValueError('adversarial-worker-poll-observation-accepted')
+    return {'positive':4,'negative':len(bad),'actual_runtime_bodies':0}
+
+def worker_output_capacity_control():
+    # Maximum-width closed fields, not invented runtime evidence. Deliberately
+    # repeated sample ordinals measure serialization capacity only.
+    def array(value,count):return '['+', '.join([value]*count)+']'
+    stamp='Some(600000000)';flag='Some(false)';counter='4294967295'
+    publication='Some(('+array(stamp,9)+', '+array(flag,5)+', '+counter+'))'
+    proof='Some((false, '+array(stamp,9)+', '+array(flag,5)+', '+array(stamp,4)+', '+counter+', '+array(stamp,6)+'))'
+    native=['native5-consent-timing known=false loss_mask=127 snapshot_available=true','native5-consent-wait constructed_before_us='+stamp+' constructed_after_us='+stamp+' deadline_lower_us=Some(615000000) deadline_upper_us=Some(615000000) outcome_ok='+flag+' observed_us='+stamp+' exact_deadline_known=false']
+    for label,value in [('slot',publication),('proof',proof),('progress','Some(('+array(stamp,5)+', '+array(counter,5)+'))'),('peer-proof',proof),('peer-progress','Some(('+array(stamp,7)+', '+array(counter,7)+', '+array(counter,2)+', '+array(counter,8)+'))')]:
+        native.extend('native5-consent-'+label+' index='+str(i)+' observation='+value for i in range(3))
+    native.extend('native5-consent-incoming index='+str(i)+' observation=Some(('+array(stamp,6)+', '+flag+', Some(6), '+counter+', Some((600000000, '+counter+'))))' for i in range(9))
+    native.extend('native5-consent-first-outer-delivery index='+str(i)+' observation=Some((4, '+stamp+', '+stamp+', '+flag+', '+counter+'))' for i in range(3))
+    native.append('native5-consent-rpc-count count=128')
+    native.extend('native5-consent-rpc index='+str(i)+' times='+array(stamp,5)+' results=[Some(10), Some(10)] sent='+flag for i in range(128))
+    native.append('native5-consent-terminal-cost observation=('+array('600000000',8)+', 1000000, '+array(stamp,2)+')')
+    sdk=['native5-sdk-timing known=false loss_mask=127 snapshot_available=true']
+    sdk.extend('native5-sdk-slot index='+str(i)+' observation=Some((false, '+array(stamp,15)+', '+array('Some(2)',7)+', Some(1), '+counter+', '+counter+', false))' for i in range(9))
+    sample='Some((1000000, 600000000, 600000000, 7, 6, 6, 127, false))';samples=array(sample,4)
+    worker=['native5-worker-meta known=false loss_mask=127 spawned=18446744073709551615 threads=Some(8) endpoints='+array(stamp,6)]
+    for index in range(5):
+        worker.append('native5-worker-poll index='+str(index)+' observation=Some(('+array('600000000',7)+', 255, Some((1000000, 600000000, 7, 6)), '+samples+'))')
+        worker.extend('native5-worker-focus worker='+str(index)+' channel='+str(channel)+' observation=Some('+samples+')' for channel in range(3))
+    report='\n'.join(native+sdk+worker)+'\n'
+    require(len(native)==159 and len(sdk)==10 and len(worker)==21 and all(len(line)<4096 for line in native+sdk+worker),'maximum-closed-report-shape')
+    require(len(report.encode())<=65536,'existing-64KiB-output-capacity')
+    return {'maximum_width_serialized_bytes':len(report.encode()),'existing_cap_bytes':65536,'maximum_RPC_rows':128,'maximum_longest_poll_samples':20,'maximum_focus_candidates':60,'runtime_bodies':0,'capacity_fixture_is_not_runtime_evidence':True}
+
+
+def safe_worker_timing(raw):
+    try:return worker_timing(raw)
+    except ValueError:return {'observed':True,'known':False,'loss_mask':None,'workers':None,'focus':None,'parser_failure_category':'ClosedWorkerSchemaRejected','protocol_ledger_retained':True,'no_joint_snapshot_claim':True}
