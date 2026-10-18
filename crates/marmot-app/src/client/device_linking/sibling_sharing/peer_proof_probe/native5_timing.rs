@@ -135,11 +135,20 @@ fn active_probe() -> Option<Arc<Probe>> {
 }
 fn register(probe: &Arc<Probe>) {
     let registry = registry();
-    let index = registry.next.fetch_update(Ordering::AcqRel, Ordering::Acquire, |next| {
-        if next < 2 { Some(next + 1) } else { None }
-    }).unwrap_or(2);
-    let Some(slot) = registry.slots.get(index) else { probe.loss(4); return; };
-    if slot.set(Arc::downgrade(probe)).is_err() { probe.loss(64); return; }
+    let index = registry
+        .next
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |next| {
+            if next < 2 { Some(next + 1) } else { None }
+        })
+        .unwrap_or(2);
+    let Some(slot) = registry.slots.get(index) else {
+        probe.loss(4);
+        return;
+    };
+    if slot.set(Arc::downgrade(probe)).is_err() {
+        probe.loss(64);
+        return;
+    }
     // Publish only after this immutable weak slot is initialized. No reuse/wrap.
     registry.active.store(index, Ordering::Release);
 }
