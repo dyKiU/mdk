@@ -19,6 +19,11 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Add `marmot_open_attachment_handoff` and `marmot_release_attachment_handoff`
+  (record `MarmotAttachmentHandoff`, freed with `marmot_attachment_handoff_free`,
+  which does not release the lease) for handoff copies of retained attachments
+  (mdk#2314 step 4). Use matching regenerated headers and libraries.
+
 - Appends nullable `direct_peer_account_id_hex` to `MarmotPairedChatSummary` for
   source-attested direct-chat labels. It grants no MLS membership or send rights.
   Consumers must use the matching generated header and library for this layout.
