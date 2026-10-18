@@ -99,6 +99,20 @@ def check_case(text, case, code, mutant):
                 oracle="original ready-refresh deadline" if mutant else "original ready/hot/header/send guards")
 
 
+def feature_cohort(rows):
+    entries = set()
+    for row in rows:
+        if row.get("reason") != "compiler-artifact":
+            continue
+        entries.add(json.dumps(dict(package=row["package_id"], target=row["target"]["name"],
+                                    kind=sorted(row["target"]["kind"]),
+                                    test=row["profile"]["test"], features=sorted(row["features"])),
+                               sort_keys=True))
+    if not entries:
+        raise ValueError("Actual compiler dependency feature cohort required")
+    return [json.loads(entry) for entry in sorted(entries)]
+
+
 def compile_app(root, output, phase):
     command = ["cargo", "test", "--workspace", "--exclude", "cgka-conformance-simulator",
                "--features", FEATURES, "--locked", "--no-run", "--message-format=json"]
@@ -118,6 +132,7 @@ def compile_app(root, output, phase):
         raise ValueError("Wrong default feature cohort")
     binary = Path(artifact["executable"])
     return binary, dict(command=command, exit_code=result.returncode, features=artifact["features"],
+                        feature_cohort=feature_cohort(rows),
                         binary_identity=binary_identity(binary), fresh=False,
                         stdout_sha256=digest((output / f"{phase}-compile.jsonl").read_bytes()),
                         stderr_sha256=digest((output / f"{phase}-compile.log").read_bytes()))
@@ -145,7 +160,7 @@ def qualify(root, output):
                  source_tree=subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=root, text=True).strip(),
                  schema=1, source_physical_root=str(root), source_clean_before=True,
                  baseline_inputs=baseline, baseline_inputs_sha256=input_digest(baseline),
-                 completed=False, phases=[], scope="Actual default-cohort two-case checkpoint PFP; not full CI or SDK admission")
+                 completed=False, error_kind=None, phases=[], scope="Actual default-cohort two-case checkpoint PFP; not full CI or SDK admission")
     if os.environ.get("GITHUB_SHA", state["source"]) != state["source"]:
         raise ValueError("Workflow source differs from the actual checkout")
 
@@ -167,6 +182,8 @@ def qualify(root, output):
                            source_before=source_before, source_after_compile=require_inputs(root, expected), cases=[])
                 state["phases"].append(row)
                 save_state()
+                if compiled["feature_cohort"] != state["phases"][0]["compile"]["feature_cohort"]:
+                    raise ValueError("Actual compiler dependency feature cohort changed between phases")
                 for index, case in enumerate(CASES):
                     log = output / f"{phase}-{index}.log"
                     command = [str(binary), "--exact", case, "--show-output", "--test-threads=1"]
@@ -199,7 +216,11 @@ def qualify(root, output):
         require_inputs(root, baseline)
         state["completed"] = True
     except BaseException as error:
-        state["error"] = str(error)
+        state["error_kind"] = ("timeout" if isinstance(error, subprocess.TimeoutExpired)
+                               else "command_failed" if isinstance(error, subprocess.CalledProcessError)
+                               else "verification_failed" if isinstance(error, ValueError)
+                               else "interrupted" if isinstance(error, KeyboardInterrupt)
+                               else "unexpected_exception")
         raise
     finally:
         state["actor_restored"] = actor.read_bytes() == original
