@@ -218,7 +218,7 @@ impl AppClient {
                     .map(|entry| (entry.next_body,
                         entry.pending.front().map(|body| body.kind),
                         entry.pending.back().map(|body| body.kind),
-                        entry.handshake_publication.is_some())));
+                        entry.publication.as_ref().is_some_and(|publication| matches!(publication.kind, AccountSharingControl::Request | AccountSharingControl::Consent)))));
                 eprintln!("pending_restart_post_timeout_next_body_front_back_handshake_task={body_progress:?}");
             }
             delivery.expect("actual restarted peers must deliver genuine ordinary catalog and canonical record within the unchanged recovery deadline");

@@ -166,6 +166,8 @@ pub(crate) struct AccountSharingOwner {
     pub(crate) next_original_lifetime_for_test: Option<Duration>,
     pub(crate) departure_cursor: Option<[u8; 32]>,
     pub(crate) automatic_handshake_slots: Arc<tokio::sync::Semaphore>,
+    pub(crate) automatic_body_slots: Arc<tokio::sync::Semaphore>,
+    pub(crate) automatic_body_after: Option<[u8; 32]>,
     pub(crate) automatic:
         BTreeMap<[u8; 32], crate::client::account_chat_sharing::automatic::AutomaticChannel>,
 }
@@ -182,6 +184,10 @@ impl Default for AccountSharingOwner {
             automatic_handshake_slots: Arc::new(tokio::sync::Semaphore::new(
                 crate::client::account_chat_sharing::automatic::MAX_AUTOMATIC_HANDSHAKES,
             )),
+            automatic_body_slots: Arc::new(tokio::sync::Semaphore::new(
+                crate::client::account_chat_sharing::automatic::MAX_AUTOMATIC_BODIES,
+            )),
+            automatic_body_after: None,
             automatic: BTreeMap::new(),
             departure_cursor: None,
         }

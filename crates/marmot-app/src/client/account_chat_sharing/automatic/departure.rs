@@ -44,6 +44,38 @@ pub(super) struct DepartureProgress {
     cursor: Option<[u8; 32]>,
     last: Option<([u8; 32], [u8; 32], std::time::Instant)>,
 }
+#[derive(PartialEq, Eq)]
+pub(super) struct DeparturePublicationIdentity {
+    action_id: [u8; 32],
+    reply: Option<(DeliveryKind, bool, bool, bool)>,
+}
+impl DepartureProgress {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn pending_action_for_test(&self) -> Option<[u8; 32]> {
+        self.pending.as_ref().map(|pending| pending.action_id)
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn complete_assembly_for_test(&self) -> bool {
+        self.assembly.as_ref().is_some_and(|(_, assembly)| {
+            !assembly.fragments.is_empty() && assembly.fragments.iter().all(Option::is_some)
+        })
+    }
+    pub(super) fn publication_identity(&self) -> Option<DeparturePublicationIdentity> {
+        self.pending
+            .as_ref()
+            .map(|pending| DeparturePublicationIdentity {
+                action_id: pending.action_id,
+                reply: pending.reply.map(|(kind, status)| {
+                    (
+                        kind,
+                        status.complete,
+                        status.needs_administrator,
+                        status.awaiting_sources,
+                    )
+                }),
+            })
+    }
+}
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl DepartureProgress {
@@ -530,7 +562,22 @@ impl AppClient {
                             )
                         },
                     )
+                    .inspect_err(|_error| {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        super::body_negative_probe::sql_failure(
+                            self.app.account_home().root(),
+                            entry,
+                            &intent.group,
+                            _error,
+                        );
+                    })
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                super::body_negative_probe::commit(
+                    self.app.account_home().root(),
+                    entry,
+                    &intent.group,
+                );
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 if !inserted {
                     super::duplicate_departure_probe::observe_duplicate(
@@ -777,6 +824,14 @@ impl AppClient {
                 })
                 .map_err(|_| failure())?,
             });
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if kind == AccountSharedBodyKind::DepartureIntent {
+            super::body_negative_probe::peer_intent_prepared(
+                self.app.account_home().root(),
+                entry,
+                &row.intent,
+            );
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if kind == AccountSharedBodyKind::DepartureIntent {

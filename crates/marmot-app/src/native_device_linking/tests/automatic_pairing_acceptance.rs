@@ -2,6 +2,237 @@ use super::*;
 use crate::{MarmotApp, MarmotAppRuntime};
 use marmot_account::AccountHome;
 
+// AUTOMATIC_BODY_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test]
+async fn held_automatic_catalog_body_keeps_fresh_account_commands_responsive() {
+    use cgka_traits::StorageProvider;
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let apps = std::array::from_fn::<_, 2, _>(|index| {
+        AccountHome::open(dirs[index].path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dirs[index].path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
+    let old_chat = managers[0]
+        .create_group("test", "Body responsiveness baseline", &[], None)
+        .await
+        .unwrap();
+    let history = managers[0]
+        .send_message(
+            "test",
+            &old_chat,
+            b"Body responsiveness baseline history".to_vec(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(history.message_ids.len(), 1);
+    let recipient = managers[1]
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let source = managers[0]
+        .approve_automatic_device_linking_session(
+            "test",
+            recipient.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    source.automatic_pairing_code().await.unwrap();
+    compare_and_confirm_pair(&source, &recipient).await;
+    recipient
+        .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    source
+        .continue_automatic_linking(source.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;
+    assert!(
+        apps.iter().all(|app| {
+            let policies = app
+                .account_storage("test")
+                .unwrap()
+                .approved_account_sharing_policy_storage()
+                .unwrap()
+                .approved_account_sharing_policies()
+                .unwrap();
+            policies.len() == 1 && !policies[0].revoked
+        }),
+        "actual bilateral completed policies are required"
+    );
+    let history_id = hex::decode(&history.message_ids[0]).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let chats = managers[1]
+                .paired_chat_list_page("test", None, 128)
+                .await
+                .unwrap();
+            let messages = managers[1]
+                .paired_chat_message_page("test", old_chat.clone(), None, 128)
+                .await;
+            if chats
+                .chats
+                .iter()
+                .filter(|chat| chat.group_id == old_chat)
+                .count()
+                == 1
+                && messages.is_ok_and(|page| {
+                    page.messages
+                        .iter()
+                        .any(|message| message.event_id.as_slice() == history_id)
+                })
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("the real existing chat and history must be fully mirrored first");
+    source.cancel().await.unwrap();
+    recipient.cancel().await.unwrap();
+    eprintln!("automatic-body-control stage=bilateral-pair-and-history-ready");
+
+    let before = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        managers[0].device_linking_targets("test"),
+    )
+    .await
+    .expect("the source actor must respond within the same bound before the hold")
+    .expect("the pre-hold actor command must return actual targets");
+    assert!(
+        before.len() == 1 && before[0].device_count == 2,
+        "the pre-hold control must observe the real two-device roster"
+    );
+    eprintln!("automatic-body-control stage=prehold-control");
+
+    let (observed, release) = apps[0].relay_plane.hold_next_automatic_catalog_body_except(
+        cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec()),
+        old_chat.clone(),
+    );
+    struct BodyRelease(std::sync::Arc<tokio::sync::Notify>);
+    impl Drop for BodyRelease {
+        fn drop(&mut self) {
+            self.0.notify_one();
+        }
+    }
+    let release = BodyRelease(release);
+    let fresh_chat = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        managers[0].create_group("test", "Body responsiveness new chat", &[], None),
+    )
+    .await
+    .expect("the actual new-chat trigger must finish before its Catalog Body hold")
+    .unwrap();
+    let (held_group, held_message) =
+        tokio::time::timeout(std::time::Duration::from_secs(30), observed)
+            .await
+            .expect("a genuine new-chat Catalog Body must reach transport")
+            .expect("the genuine Catalog Body observer must remain alive");
+    assert!(
+        held_group == fresh_chat,
+        "held cached catalog receipt must belong to the actual new chat"
+    );
+    assert!(
+        held_message.id.as_slice().len() == 32 && !held_message.payload.is_empty(),
+        "the held body must be an actual prepared transport message"
+    );
+    eprintln!("automatic-body-control stage=actual-new-chat-catalog-body-held");
+
+    let peer = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        managers[1].device_linking_targets("test"),
+    )
+    .await
+    .expect("the independent peer actor must respond while the actual body is held")
+    .expect("the held-phase peer command must return actual targets");
+    assert!(
+        peer.len() == 1 && peer[0].device_count == 2,
+        "the peer progress control must observe the real two-device roster"
+    );
+    eprintln!("automatic-body-control stage=peer-progress-control");
+
+    let mut command = Box::pin(managers[0].device_linking_targets("test"));
+    let first = tokio::time::timeout(std::time::Duration::from_secs(1), command.as_mut()).await;
+    let responsive = first.is_ok();
+    let early = first.ok();
+    eprintln!("automatic-body-control stage=fresh-command-verdict-frozen responsive={responsive}");
+    release.0.notify_one();
+    eprintln!("automatic-body-control stage=actual-body-released");
+    let targets = match early {
+        Some(result) => result,
+        None => tokio::time::timeout(std::time::Duration::from_secs(15), command.as_mut())
+            .await
+            .expect("the same fresh actor command must finish after body release"),
+    }
+    .expect("the same fresh actor command must return real targets");
+    assert!(
+        targets.len() == 1 && targets[0].device_count == 2,
+        "the same command must observe the genuine two-device roster"
+    );
+    eprintln!("automatic-body-control stage=same-fresh-command-completed");
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let page = managers[1]
+                .paired_chat_list_page("test", None, 128)
+                .await
+                .unwrap();
+            let count = page
+                .chats
+                .iter()
+                .filter(|chat| chat.group_id == fresh_chat)
+                .count();
+            assert!(
+                count <= 1,
+                "the actual new catalog effect must not be duplicated"
+            );
+            if count == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("the released actual Catalog Body must discover the new chat exactly once");
+    let page = managers[1]
+        .paired_chat_list_page("test", None, 128)
+        .await
+        .unwrap();
+    assert!(
+        page.chats
+            .iter()
+            .filter(|chat| chat.group_id == fresh_chat)
+            .count()
+            == 1,
+        "the released actual catalog effect must remain unique"
+    );
+    eprintln!("automatic-body-control stage=actual-new-chat-delivered-once");
+    for (index, runtime) in runtimes.iter().enumerate() {
+        runtime.shutdown_and_close().await.unwrap();
+        assert!(
+            runtime.storage_is_closed(),
+            "the actual runtime must positively close storage"
+        );
+        eprintln!("automatic-body-control stage=positive-runtime-close index={index}");
+    }
+    assert!(
+        responsive,
+        "held automatic Catalog Body must not block a fresh account actor command"
+    );
+}
+// AUTOMATIC_BODY_TEST_END
+
 #[tokio::test]
 async fn cancelled_setup_can_reverse_roles_and_complete_enrollment() {
     cancelled_setup_role_reversal(false).await;
@@ -1911,3 +2142,11 @@ async fn another_installations_private_welcome_cannot_abort_an_approved_recipien
 
 #[path = "sequential_installations_acceptance.rs"]
 mod sequential_installations_acceptance;
+
+#[cfg(feature = "test-policy-overrides")]
+#[path = "automatic_body_late_ack_acceptance.rs"]
+mod body_late_ack_acceptance;
+
+#[cfg(feature = "test-policy-overrides")]
+#[path = "automatic_body_negative_acceptance.rs"]
+mod body_negative_acceptance;

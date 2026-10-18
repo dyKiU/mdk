@@ -23,6 +23,14 @@ EXPECTED = {
     "pairing-restart-higher-source": {
         "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record"
     },
+    "automatic-body-regression": {
+        PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
+        PREFIX + "held_automatic_catalog_body_keeps_fresh_account_commands_responsive",
+        PREFIX + "body_late_ack_acceptance::authenticated_receipt_retires_final_catalog_body_before_late_backend_ack",
+        PREFIX + "body_late_ack_acceptance::unchanged_catalog_context_accepts_the_same_real_backend_ack",
+        "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent",
+        "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record",
+    },
     "pairing-regression": {
         FOURTH,
         CONSENT,
@@ -72,7 +80,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 cargo.chmod(0o700)
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
-                           REPLAY_SCOPE=scope, SLOTS="3", PAIRING_COMMAND=str(command))
+                           REPLAY_SCOPE=scope, SLOTS="1" if scope == "automatic-body-regression" else "3", PAIRING_COMMAND=str(command))
                 result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -80,7 +88,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 selected = set(re.findall(r"test\(=([^)]*)\)", args[args.index("-E") + 1]))
                 self.assertEqual(selected, expected)
                 for option, value in (("--profile", "m5-bounded"), ("--retries", "0"),
-                                      ("--test-threads", "3"), ("--success-output", "immediate")):
+                                      ("--test-threads", env["SLOTS"]), ("--success-output", "immediate")):
                     self.assertEqual(args[args.index(option) + 1], value)
                 self.assertIn("qualification-selected-pairing-cases: " + str(len(expected)), result.stdout)
 

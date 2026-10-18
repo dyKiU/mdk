@@ -15,12 +15,35 @@ pub(super) struct RecordProgress {
     pending: Option<PendingRecord>,
     assembly: Option<Assembly>,
 }
+#[derive(PartialEq, Eq)]
+pub(super) struct RecordPublicationIdentity {
+    group: crate::GroupId,
+    batch_digest: [u8; 32],
+    first_sequence: u64,
+    last_sequence: u64,
+    record_count: u32,
+    peer_generation: u64,
+    published_at: Option<std::time::Instant>,
+}
 pub(super) struct RecordSourceCursor {
     group_after: Option<crate::GroupId>,
     group: Option<crate::GroupId>,
     cursor: Option<storage_sqlite::AppEventReplayCursor>,
 }
 impl RecordProgress {
+    pub(super) fn publication_identity(&self) -> Option<RecordPublicationIdentity> {
+        self.pending
+            .as_ref()
+            .map(|pending| RecordPublicationIdentity {
+                group: pending.group.clone(),
+                batch_digest: pending.batch.batch_digest,
+                first_sequence: pending.batch.first_sequence,
+                last_sequence: pending.batch.last_sequence,
+                record_count: pending.batch.record_count,
+                peer_generation: pending.peer_generation,
+                published_at: pending.published_at,
+            })
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn test_progress(&self) -> String {
         format!(
