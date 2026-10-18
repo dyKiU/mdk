@@ -73,6 +73,24 @@ def version_record(raw,code):
 
 def features(cohort):return DEFAULT_FEATURES if cohort=='default' else EXPERIMENTAL_FEATURES
 
+def cargo_args(cohort):
+    # Feature matching is against selected members and their direct dependencies.
+    # --test cli is one aggregate named-target filter, not one target per package.
+    return ['--locked','-p','wn-cli']+(['-p','marmot-app'] if cohort=='experimental' else [])+['--test','cli','--features',features(cohort)]
+
+def cargo_setup_diagnostics(raw):
+    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    # Pinned Cargo source-owned prefixes only; never retain feature/package suffixes.
+    patterns={
+        'selected_wn_cli_missing_features':r"(?m)^error: the package 'wn-cli' does not contain (?:this feature|these features): [^\n]+$",
+        'selected_packages_missing_features':r'(?m)^error: none of the selected packages contains (?:this feature|these features): [^\n]+$',
+        'named_cli_test_target_missing':r'(?m)^error: no test target named `cli`(?: in `[^`\n]+`(?:, \.\.\.)? packages?)?[^\n]*$',
+        'features_outside_workspace':r'(?m)^error: cannot specify features for packages outside of workspace[^\n]*$',
+    }
+    return {'fixed_error_families':{name:bool(re.search(pattern,text)) for name,pattern in patterns.items()},
+        'captured_bytes':len(raw.encode()),'raw_text_or_dynamic_suffix_exported':False,
+        'unmatched_setup_cause_is_unknown':True}
+
 def inventory_json(raw):
     decoder=json.JSONDecoder();objects=[]
     for match in re.finditer(r'(?m)^\{',raw):
@@ -97,14 +115,22 @@ def suite_inventory(value):
 def summary(raw,code):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     lines=re.findall(r'(?m)^\s*Summary\s*\[[^\]\n]{1,40}\]\s*([0-9]+) tests? run: ([0-9]+) passed(?: \(([0-9]+) slow\))?(?:, ([0-9]+) failed)?, ([0-9]+) skipped\s*$',text)
-    events=re.findall(r'(?m)^\s*(PASS|FAIL|TIMEOUT|LEAK|EXECFAIL)\s*\[[^\]\n]{1,40}\]\s*'+re.escape(SUITE)+r'\s+'+re.escape(NAME)+r'\s*$',text)
+    # Pinned nextest places optional progress counter AFTER duration, BEFORE suite.
+    # This exact one-case/retries0 run permits only the actual (1/1) counter.
+    events=re.findall(r'(?m)^\s*(PASS|FAIL|TIMEOUT|LEAK|EXECFAIL)\s*\[[^\]\n]{1,40}\]\s*(?:\(1/1\)\s+)?'+re.escape(SUITE)+r'\s+'+re.escape(NAME)+r'\s*$',text)
+    plain=re.findall(r'(?m)^\s*(?:PASS|FAIL|TIMEOUT|LEAK|EXECFAIL)\s*\[[^\]\n]{1,40}\]\s*'+re.escape(SUITE)+r'\s+'+re.escape(NAME)+r'\s*$',text)
+    counted=re.findall(r'(?m)^\s*(?:PASS|FAIL|TIMEOUT|LEAK|EXECFAIL)\s*\[[^\]\n]{1,40}\]\s*\(1/1\)\s+'+re.escape(SUITE)+r'\s+'+re.escape(NAME)+r'\s*$',text)
+    named_candidates=re.findall(r'(?m)^\s*(?:PASS|FAIL|TIMEOUT|LEAK|EXECFAIL)\s+[^\n]*\s'+re.escape(SUITE)+r'\s+'+re.escape(NAME)+r'\s*$',text)
     p=f=i=n=slow=None
     if len(lines)==1:
         n,p,slow,f,i=(int(v or '0') for v in lines[0])
         if n!=p+f or slow>p:n=p=f=i=None
     actual={'actual_counts_complete':n is not None,'passed':p,'failed':f,'skipped':i,'executed_nonignored':n,
         'passed_slow':slow,'runner_skips_are_not_selected_ignored':True,'selected_name_status_count':len(events),'selected_name_status':events[0] if len(events)==1 else None,'exit_code':code}
-    actual['original_case_passed']=(type(code)is int and code==0 and n==1 and p==1 and f==0 and events==['PASS'])
+    actual['summary_one_body_passed']=(type(code)is int and code==0 and n==1 and p==1 and f==0)
+    actual['named_status_layout']={'plain_count':len(plain),'one_of_one_counter_count':len(counted),
+        'fixed_status_exact_name_candidate_count':len(named_candidates),'unrecognized_layout_is_unknown':True,'raw_line_exported':False}
+    actual['original_case_passed']=actual['summary_one_body_passed'] and events==['PASS'] and len(named_candidates)==1
     return actual
 
 def skip_count_matches_inventory(basic,expected):
@@ -133,7 +159,25 @@ def closed_failure(raw,tracked):
         'startup_stage':stage,'missing_cause_is_unknown':True,'raw_messages_or_suffixes_exported':False}
 
 def controls():
+    ensure(cargo_args('default')==['--locked','-p','wn-cli','--test','cli','--features',DEFAULT_FEATURES],'default-selection-unchanged')
+    ensure(cargo_args('experimental')==['--locked','-p','wn-cli','-p','marmot-app','--test','cli','--features',EXPERIMENTAL_FEATURES],'experimental-selected-App-keeps-six-features')
+    private_cargo="\x1b[31merror: the package 'wn-cli' does not contain these features: PRIVATE_SENTINEL\x1b[0m\n"
+    diagnostic=cargo_setup_diagnostics(private_cargo)
+    ensure(diagnostic['fixed_error_families']['selected_wn_cli_missing_features'] and 'PRIVATE_SENTINEL' not in json.dumps(diagnostic),'closed-Cargo-prefix-privacy')
+    for text,key in [('error: none of the selected packages contains this feature: PRIVATE\n','selected_packages_missing_features'),('error: no test target named `cli` in `wn-cli`, ... packages\n','named_cli_test_target_missing'),('error: cannot specify features for packages outside of workspace\n','features_outside_workspace')]:
+        ensure(cargo_setup_diagnostics(text)['fixed_error_families'][key],'closed-Cargo-family-positive')
+    for text in ['PRIVATE_SENTINEL','error: the package \'foreign\' does not contain this feature: private','note: the package \'wn-cli\' does not contain this feature: private','error: no test target named `foreign`']:
+        ensure(not any(cargo_setup_diagnostics(text)['fixed_error_families'].values()),'foreign-Cargo-family-unknown')
     good='PASS [ 1.000s] '+SUITE+' '+NAME+'\nSummary [ 1.001s] 1 test run: 1 passed, 0 skipped\n'
+    counter=good.replace(SUITE+' '+NAME,'(1/1) '+SUITE+' '+NAME)
+    ensure(summary(counter,0)['original_case_passed'],'one-of-one-counter-positive')
+    ensure(summary(counter.replace('0 skipped','103 skipped').replace('1 passed','1 passed (1 slow)'),0)['original_case_passed'],'counter-slow-filtered-positive')
+    ensure(summary(counter,0)['named_status_layout']['one_of_one_counter_count']==1,'closed-counter-layout-positive')
+    for text in [counter.replace('(1/1)','(0/1)'),counter.replace('(1/1)','(1/2)'),counter.replace('(1/1)','(2/1)'),counter.replace('(1/1)','(1 /1)'),counter.replace('(1/1)','PRIVATE'),counter+counter]:
+        ensure(not summary(text,0)['original_case_passed'],'non-one-case-layout-negative')
+    ensure(not summary(good+'PASS [ 1.000s] (1/2) '+SUITE+' '+NAME+'\n',0)['original_case_passed'],'mixed-valid-and-unknown-exact-name-status-negative')
+    unknown_layout=summary(counter.replace('(1/1)','PRIVATE_SENTINEL'),0)
+    ensure(unknown_layout['summary_one_body_passed'] and not unknown_layout['original_case_passed'] and 'PRIVATE_SENTINEL' not in json.dumps(unknown_layout),'actual-summary-pass-retained-layout-unknown-private')
     ensure(summary(good.replace('0 skipped','23 skipped'),0)['original_case_passed'],'normal-filtered-skips-positive')
     ensure(summary(good.replace('1 passed','1 passed (1 slow)'),0)['original_case_passed'],'passed-slow-positive')
     filtered=summary(good.replace('0 skipped','23 skipped'),0)
@@ -156,10 +200,11 @@ def controls():
     private="thread '"+NAME+"' panicked at crates/cli/tests/cli.rs:4036:5:\nstream watcher failed\nstdout="+json.dumps({'ok':False,'error':{'code':'command_failed','message':'blocking app task failed: PRIVATE_SENTINEL'}})+'\nstderr=\n'
     ensure('PRIVATE_SENTINEL' not in json.dumps(closed_failure(private,{FIXTURE})),'private-suffix-not-exported')
     ensure(version_record('cargo-nextest 0.9.132\n',0) and not version_record('cargo-nextest 0.9.132\nPRIVATE',0) and not version_record('cargo-nextest 0.9.131\n',0),'version-controls')
-    return {'version_positive':1,'version_negative':2,'summary_positive':4,'summary_negative':6,'inventory_skip_match_positive':1,'inventory_skip_match_negative':1,'inventory_positive':1,'inventory_negative':3,'privacy':1,'count_helpers':counts.parser_controls(),'runtime_bodies':0}
+    return {'status_counter_positive':3,'status_counter_negative':7,'status_layout_unknown_privacy':1,'Cargo_argument_controls':2,'Cargo_setup_family_positive':4,'Cargo_setup_family_negative':4,'Cargo_setup_privacy':1,'version_positive':1,'version_negative':2,'summary_positive':4,'summary_negative':6,'inventory_skip_match_positive':1,'inventory_skip_match_negative':1,'inventory_positive':1,'inventory_negative':3,'privacy':1,'count_helpers':counts.parser_controls(),'runtime_bodies':0}
 
 def compile_case(row,cohort,tracked):
-    command=['cargo','test','--locked','-p','wn-cli','--test','cli','--no-run','--message-format=json','--features',features(cohort)]
+    args=cargo_args(cohort)
+    command=['cargo','test',*args[:-2],'--no-run','--message-format=json',*args[-2:]]
     code,raw,seconds=bounded.capture(command,1800,limit=8*1024*1024)
     events=[];bad_json=0
     for line in raw.splitlines():
@@ -170,7 +215,7 @@ def compile_case(row,cohort,tracked):
     complete=any(v.get('reason')=='build-finished' for v in events) and bad_json==0
     codes=sorted({v['message']['code']['code'] for v in errors if type(v.get('message',{}).get('code'))is dict and re.fullmatch('E[0-9]{4}',v['message']['code'].get('code',''))})
     sites=[{'file':s['file_name'],'line':s['line_start'],'column':s['column_start']} for v in errors for s in v.get('message',{}).get('spans',[]) if s.get('file_name')in tracked and s.get('is_primary')is True]
-    row['compilation']={'command':command,'exit_code':code,'seconds':seconds,'compiler_error_count':len(errors) if complete else None,'compiler_codes':codes[:32],'compiler_sites':sites[:32],'closed_sites_truncated':len(sites)>32,'raw_output_retained':False};save(row)
+    row['compilation']={'command':command,'exit_code':code,'seconds':seconds,'compiler_error_count':len(errors) if complete else None,'compiler_codes':codes[:32],'compiler_sites':sites[:32],'closed_sites_truncated':len(sites)>32,'raw_output_retained':False,'build_finished_observed':any(v.get('reason')=='build-finished' for v in events),'malformed_JSON_lines':bad_json,'setup_diagnostics':cargo_setup_diagnostics(raw)};save(row)
     ensure(type(code)is int and code==0 and complete and not errors,'successful-complete-compile-JSON')
     artifacts=[v for v in events if v.get('reason')=='compiler-artifact']
     required={'test':lambda v:v.get('target',{}).get('name')=='cli' and v['target'].get('kind')==['test'] and v.get('profile',{}).get('test')is True,
@@ -205,7 +250,7 @@ def runtime(row,cohort):
         for ignored in [False,True]:
             code,text,_=bounded.capture([str(binaries['test']),'--exact',NAME]+(['--ignored'] if ignored else [])+['--list','--format','terse'],60,limit=1024*1024)
             item=counts.parse_inventory(text,NAME,ignored);row.setdefault('libtest_inventory',{})['ignored' if ignored else 'normal']=item;save(row);ensure(code==0 and item['passed'],'normal-one-ignored-zero')
-        args=['--locked','-p','wn-cli','--test','cli','--features',features(cohort)]
+        args=cargo_args(cohort)
         filterset='package(wn-cli) & binary(cli) & test(='+NAME+')'
         code,raw,_=bounded.capture(['cargo-nextest','nextest','list',*args,'-E',filterset,'--message-format','json'],600,limit=8*1024*1024)
         ensure(code==0,'nextest-list-success');inventory=inventory_json(raw);suite=suite_inventory(inventory)
@@ -224,7 +269,7 @@ def runtime(row,cohort):
         basic=summary(raw,code);row['basic_counts']=basic
         for key in ['passed','failed','executed_nonignored']:row['actual_'+key]=basic[key]
         row['actual_runner_filtered_skipped']=basic['skipped'];row['selected_ignored_from_inventory']=0
-        row['actual_original_case_passed']=basic['original_case_passed'];save(row)
+        row['actual_summary_case_passed']=basic['summary_one_body_passed'];row['actual_original_case_passed']=basic['original_case_passed'];save(row)
         row['closed_failure']=closed_failure(raw,set(frozen));save(row)
         ensure(row['source_after_body_pristine'] and row['binaries_after']==before,'postbody-source-both-binaries')
         row['runner_skips_match_inventory']=skip_count_matches_inventory(basic,expected_skipped)
