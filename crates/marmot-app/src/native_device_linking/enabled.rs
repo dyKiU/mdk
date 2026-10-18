@@ -12,6 +12,13 @@ use std::sync::{
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
 
+// STRESS0_DEFERRED_ARM_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+struct NativeConsentTimingRegistration {
+    owner: std::sync::Weak<SessionState>,
+    probe: crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Pending,
+}
+// STRESS0_DEFERRED_ARM_END
 pub(super) struct SessionState {
     manager: AccountManager,
     account: String,
@@ -25,6 +32,10 @@ pub(super) struct SessionState {
             Arc<crate::client::device_linking::sibling_sharing::OriginalEnrollmentSharingChoice>,
         >,
     >,
+    // STRESS0_DEFERRED_ARM_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    consent_timing_registration: Mutex<Option<NativeConsentTimingRegistration>>,
+    // STRESS0_DEFERRED_ARM_END
     snapshot: Mutex<DeviceLinkingSnapshot>,
     updates: watch::Sender<DeviceLinkingSnapshot>,
     closed: AtomicBool,
@@ -397,33 +408,49 @@ impl DeviceLinkingSession {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn arm_consent_timing_for_test(
         &self,
-    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard
-    {
-        let owner = self
-            .inner
-            .sharing_choice
-            .try_lock()
-            .ok()
-            .and_then(|choice| choice.as_ref().map(Arc::downgrade));
-        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::arm(owner)
+    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard {
+        use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;
+        let (guard, pending) = consent_timing::arm();
+        match self.inner.consent_timing_registration.try_lock() {
+            Ok(mut slot) => {
+                if slot.is_some() { pending.duplicate_registration(); }
+                else {
+                    *slot = Some(NativeConsentTimingRegistration {
+                        owner: Arc::downgrade(&self.inner), probe: pending.clone(),
+                    });
+                }
+            }
+            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),
+        };
+        // Registration is installed and its try-lock guard is released first.
+        // Catch up once if the actual choice won the install race; never poll.
+        match self.inner.sharing_choice.try_lock() {
+            Ok(held) => {
+                if let Some(actual) = held.as_ref() { pending.bind(Arc::downgrade(actual)); }
+            }
+            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),
+        };
+        guard
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn consent_timing_wait_for_test(
         &self,
-    ) -> Option<
-        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait,
-    > {
-        if !crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::armed(
-        ) {
-            return None;
+    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait> {
+        use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;
+        if !consent_timing::armed() { return None; }
+        match self.inner.consent_timing_registration.try_lock() {
+            Ok(slot) => {
+                let registration = slot.as_ref()?;
+                if !registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {
+                    registration.probe.identity_failed(); return None;
+                }
+                registration.probe.wait_before()
+            }
+            Err(error) => {
+                consent_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_)));
+                None
+            }
         }
-        let owner = self
-            .inner
-            .sharing_choice
-            .try_lock()
-            .ok()
-            .and_then(|choice| choice.as_ref().map(Arc::downgrade));
-        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::wait_before(owner)
     }
     // STRESS0_CONSENT_TIMING_END
     // PEER_PROOF_TEST_BEGIN
@@ -520,6 +547,10 @@ impl DeviceLinkingSession {
             endorsed_setup,
             operation: AsyncMutex::new(PacketProgress::default()),
             sharing_choice: Mutex::new(None),
+            // STRESS0_DEFERRED_ARM_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            consent_timing_registration: Mutex::new(None),
+            // STRESS0_DEFERRED_ARM_END
             snapshot: Mutex::new(snapshot),
             updates,
             closed: AtomicBool::new(false),
@@ -861,6 +892,26 @@ impl DeviceLinkingSession {
                 return Err(DeviceLinkingError::Closed);
             }
             *held = Some(choice);
+            // STRESS0_DEFERRED_ARM_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            {
+                use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;
+                if consent_timing::armed() {
+                    match self.inner.consent_timing_registration.try_lock() {
+                        Ok(slot) => {
+                            if let Some(registration) = slot.as_ref() {
+                                if registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {
+                                    if let Some(actual) = held.as_ref() {
+                                        registration.probe.bind(Arc::downgrade(actual));
+                                    }
+                                } else { registration.probe.identity_failed(); }
+                            }
+                        }
+                        Err(error) => consent_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_))),
+                    }
+                }
+            }
+            // STRESS0_DEFERRED_ARM_END
         }
         if operation.enrollment_started {
             if share_chats {

@@ -38,6 +38,7 @@ struct Slot {
 }
 #[derive(Default)]
 struct Data {
+    owner: Option<Weak<OriginalEnrollmentSharingChoice>>,
     slots: [Option<Slot>; 2],
     before: Option<u64>,
     after: Option<u64>,
@@ -45,7 +46,6 @@ struct Data {
     wait_observed: Option<u64>,
 }
 struct Probe {
-    owner: Option<Weak<OriginalEnrollmentSharingChoice>>,
     origin: Instant,
     status: AtomicU32,
     data: Mutex<Data>,
@@ -87,10 +87,9 @@ impl Probe {
     }
 }
 pub(crate) struct Guard(Arc<Probe>);
-pub(crate) fn arm(owner: Option<Weak<OriginalEnrollmentSharingChoice>>) -> Guard {
+pub(crate) fn arm() -> (Guard, Pending) {
     let probe = Arc::new(Probe {
-        status: AtomicU32::new(if owner.is_some() { 0 } else { ARM_UNAVAILABLE }),
-        owner,
+        status: AtomicU32::new(0),
         origin: Instant::now(),
         data: Mutex::new(Data::default()),
     });
@@ -100,7 +99,46 @@ pub(crate) fn arm(owner: Option<Weak<OriginalEnrollmentSharingChoice>>) -> Guard
             old.loss(DUPLICATE);
         }
     }
-    Guard(probe)
+    let pending = Pending(Arc::downgrade(&probe));
+    (Guard(probe), pending)
+}
+// This opaque weak registration belongs to native SessionState. It never holds
+// or names SessionState here, and never retains a real original across an await.
+#[derive(Clone)]
+pub(crate) struct Pending(Weak<Probe>);
+impl Pending {
+    pub(crate) fn bind(&self, owner: Weak<OriginalEnrollmentSharingChoice>) {
+        let Some(probe) = self.0.upgrade() else { return; };
+        probe.observe(|data, _| {
+            if let Some(old) = &data.owner {
+                // The real continuation can present its SAME original again.
+                // Idempotent binding never retries or creates protocol work.
+                if !old.ptr_eq(&owner) { probe.loss(IDENTITY); }
+            } else { data.owner = Some(owner); }
+        });
+    }
+    pub(crate) fn registration_failed(&self, poisoned: bool) {
+        if let Some(probe) = self.0.upgrade() { probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY }); }
+    }
+    pub(crate) fn duplicate_registration(&self) {
+        if let Some(probe) = self.0.upgrade() { probe.loss(DUPLICATE); }
+    }
+    pub(crate) fn identity_failed(&self) {
+        if let Some(probe) = self.0.upgrade() { probe.loss(IDENTITY); }
+    }
+    pub(crate) fn wait_before(&self) -> Option<Wait> {
+        let probe = self.0.upgrade()?;
+        probe.observe(|data, time| {
+            if data.before.is_some() { probe.loss(DUPLICATE); }
+            else { data.before = time; }
+        });
+        Some(Wait(Arc::downgrade(&probe)))
+    }
+}
+pub(crate) fn registration_unavailable(poisoned: bool) {
+    if let Some(probe) = registry().get().and_then(Weak::upgrade) {
+        probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY });
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Token {
@@ -169,9 +207,6 @@ pub(in super::super::super) fn prepared(
         return None;
     };
     let probe = registry().get()?.upgrade()?;
-    if !probe.owner.as_ref()?.ptr_eq(&Arc::downgrade(choice)) {
-        return None;
-    }
     let key = Key {
         state: Arc::downgrade(&entry.state),
         nonce: entry.channel.scope().nonce,
@@ -179,6 +214,9 @@ pub(in super::super::super) fn prepared(
     };
     let mut selected = None;
     probe.observe(|data, time| {
+        if !data.owner.as_ref().is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice))) {
+            return;
+        }
         if let Some(slot) = data
             .slots
             .iter_mut()
@@ -218,24 +256,6 @@ pub(crate) fn armed() -> bool {
     registry().get().and_then(Weak::upgrade).is_some()
 }
 pub(crate) struct Wait(Weak<Probe>);
-pub(crate) fn wait_before(owner: Option<Weak<OriginalEnrollmentSharingChoice>>) -> Option<Wait> {
-    let probe = registry().get()?.upgrade()?;
-    let Some(owner) = owner else {
-        probe.loss(ARM_UNAVAILABLE);
-        return None;
-    };
-    if !probe.owner.as_ref()?.ptr_eq(&owner) {
-        return None;
-    }
-    probe.observe(|data, time| {
-        if data.before.is_some() {
-            probe.loss(DUPLICATE);
-        } else {
-            data.before = time;
-        }
-    });
-    Some(Wait(Arc::downgrade(&probe)))
-}
 impl Wait {
     pub(crate) fn constructed(&self) {
         if let Some(probe) = self.0.upgrade() {
@@ -271,6 +291,7 @@ impl Drop for Guard {
                 data.after,
                 data.wait_outcome,
                 data.wait_observed,
+                data.owner.is_some(),
                 std::array::from_fn::<_, 2, _>(|index| {
                     data.slots[index]
                         .as_ref()
@@ -281,6 +302,7 @@ impl Drop for Guard {
             Err(TryLockError::Poisoned(_)) => None,
         };
         let mut loss = old & !FROZEN;
+        if snapshot.as_ref().is_some_and(|row| !row.4) { loss |= ARM_UNAVAILABLE; }
         if snapshot.is_none() {
             // Snapshot failure is explicitly unknown; never a partial zero matrix.
             loss |= LOCK_BUSY;
@@ -294,7 +316,7 @@ impl Drop for Guard {
             loss,
             snapshot.is_some()
         );
-        if let Some((before, after, outcome, observed, slots)) = snapshot {
+        if let Some((before, after, outcome, observed, _bound, slots)) = snapshot {
             let lower = before.and_then(|value| value.checked_add(15_000_000));
             let upper = after.and_then(|value| value.checked_add(15_000_000));
             eprintln!(

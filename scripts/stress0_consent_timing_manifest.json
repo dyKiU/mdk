@@ -168,5 +168,84 @@
     "run": 39110449800,
     "actual_runtime": 0,
     "change": "explicit AccountSharingControl import for cfg-test leaf; type was only function-local in ancestor"
+  },
+  "deferred_arm": {
+    "reviewed_parent": "1a342c2043aacdc99638b9b3b5715819151a195e",
+    "paths": {
+      "crates/marmot-app/src/native_device_linking/enabled.rs": {
+        "mode": "100644",
+        "before_sha256": "0e9598089a79e4a6f9fac8bce25ded7f13d5aabfd0568510a958d2c7ddecaa6f",
+        "after_sha256": "38dd1a32a77d3f2d62a454a35b1c801073cc45642733befe588a6315455a01d0",
+        "exact_substitutions": [
+          {
+            "before": "pub(super) struct SessionState {",
+            "after": "// STRESS0_DEFERRED_ARM_BEGIN\n#[cfg(all(test, feature = \"test-policy-overrides\"))]\nstruct NativeConsentTimingRegistration {\n    owner: std::sync::Weak<SessionState>,\n    probe: crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Pending,\n}\n// STRESS0_DEFERRED_ARM_END\npub(super) struct SessionState {"
+          },
+          {
+            "before": "    snapshot: Mutex<DeviceLinkingSnapshot>,",
+            "after": "    // STRESS0_DEFERRED_ARM_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    consent_timing_registration: Mutex<Option<NativeConsentTimingRegistration>>,\n    // STRESS0_DEFERRED_ARM_END\n    snapshot: Mutex<DeviceLinkingSnapshot>,"
+          },
+          {
+            "before": "    // STRESS0_CONSENT_TIMING_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn arm_consent_timing_for_test(\n        &self,\n    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard\n    {\n        let owner = self\n            .inner\n            .sharing_choice\n            .try_lock()\n            .ok()\n            .and_then(|choice| choice.as_ref().map(Arc::downgrade));\n        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::arm(owner)\n    }\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn consent_timing_wait_for_test(\n        &self,\n    ) -> Option<\n        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait,\n    > {\n        if !crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::armed(\n        ) {\n            return None;\n        }\n        let owner = self\n            .inner\n            .sharing_choice\n            .try_lock()\n            .ok()\n            .and_then(|choice| choice.as_ref().map(Arc::downgrade));\n        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::wait_before(owner)\n    }\n    // STRESS0_CONSENT_TIMING_END\n",
+            "after": "    // STRESS0_CONSENT_TIMING_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn arm_consent_timing_for_test(\n        &self,\n    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard {\n        use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;\n        let (guard, pending) = consent_timing::arm();\n        match self.inner.consent_timing_registration.try_lock() {\n            Ok(mut slot) => {\n                if slot.is_some() { pending.duplicate_registration(); }\n                else {\n                    *slot = Some(NativeConsentTimingRegistration {\n                        owner: Arc::downgrade(&self.inner), probe: pending.clone(),\n                    });\n                }\n            }\n            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),\n        };\n        // Registration is installed and its try-lock guard is released first.\n        // Catch up once if the actual choice won the install race; never poll.\n        match self.inner.sharing_choice.try_lock() {\n            Ok(held) => {\n                if let Some(actual) = held.as_ref() { pending.bind(Arc::downgrade(actual)); }\n            }\n            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),\n        };\n        guard\n    }\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn consent_timing_wait_for_test(\n        &self,\n    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait> {\n        use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;\n        if !consent_timing::armed() { return None; }\n        match self.inner.consent_timing_registration.try_lock() {\n            Ok(slot) => {\n                let registration = slot.as_ref()?;\n                if !registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {\n                    registration.probe.identity_failed(); return None;\n                }\n                registration.probe.wait_before()\n            }\n            Err(error) => {\n                consent_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_)));\n                None\n            }\n        }\n    }\n    // STRESS0_CONSENT_TIMING_END\n"
+          },
+          {
+            "before": "            sharing_choice: Mutex::new(None),\n            snapshot:",
+            "after": "            sharing_choice: Mutex::new(None),\n            // STRESS0_DEFERRED_ARM_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            consent_timing_registration: Mutex::new(None),\n            // STRESS0_DEFERRED_ARM_END\n            snapshot:"
+          },
+          {
+            "before": "            *held = Some(choice);\n        }\n        if operation.enrollment_started",
+            "after": "            *held = Some(choice);\n            // STRESS0_DEFERRED_ARM_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            {\n                use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;\n                if consent_timing::armed() {\n                    match self.inner.consent_timing_registration.try_lock() {\n                        Ok(slot) => {\n                            if let Some(registration) = slot.as_ref() {\n                                if registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {\n                                    if let Some(actual) = held.as_ref() {\n                                        registration.probe.bind(Arc::downgrade(actual));\n                                    }\n                                } else { registration.probe.identity_failed(); }\n                            }\n                        }\n                        Err(error) => consent_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_))),\n                    }\n                }\n            }\n            // STRESS0_DEFERRED_ARM_END\n        }\n        if operation.enrollment_started"
+          }
+        ]
+      },
+      "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs": {
+        "mode": "100644",
+        "before_sha256": "59a6f00cb4db09e6fa273cb8f7c6c5497e1e8bae4f1cffadd5edc4f05defa2d2",
+        "after_sha256": "24f677bc66373c874b1fc3a02b9bec96b6b403756a710103f3b2087ca1c1de77",
+        "exact_substitutions": [
+          {
+            "before": "struct Data {\n    slots:",
+            "after": "struct Data {\n    owner: Option<Weak<OriginalEnrollmentSharingChoice>>,\n    slots:"
+          },
+          {
+            "before": "struct Probe {\n    owner: Option<Weak<OriginalEnrollmentSharingChoice>>,\n    origin:",
+            "after": "struct Probe {\n    origin:"
+          },
+          {
+            "before": "pub(crate) fn arm(owner: Option<Weak<OriginalEnrollmentSharingChoice>>) -> Guard {\n    let probe = Arc::new(Probe {\n        status: AtomicU32::new(if owner.is_some() { 0 } else { ARM_UNAVAILABLE }),\n        owner,",
+            "after": "pub(crate) fn arm() -> (Guard, Pending) {\n    let probe = Arc::new(Probe {\n        status: AtomicU32::new(0),"
+          },
+          {
+            "before": "    Guard(probe)\n}\n#[derive(Clone)]\npub(crate) struct Token",
+            "after": "    let pending = Pending(Arc::downgrade(&probe));\n    (Guard(probe), pending)\n}\n// This opaque weak registration belongs to native SessionState. It never holds\n// or names SessionState here, and never retains a real original across an await.\n#[derive(Clone)]\npub(crate) struct Pending(Weak<Probe>);\nimpl Pending {\n    pub(crate) fn bind(&self, owner: Weak<OriginalEnrollmentSharingChoice>) {\n        let Some(probe) = self.0.upgrade() else { return; };\n        probe.observe(|data, _| {\n            if let Some(old) = &data.owner {\n                // The real continuation can present its SAME original again.\n                // Idempotent binding never retries or creates protocol work.\n                if !old.ptr_eq(&owner) { probe.loss(IDENTITY); }\n            } else { data.owner = Some(owner); }\n        });\n    }\n    pub(crate) fn registration_failed(&self, poisoned: bool) {\n        if let Some(probe) = self.0.upgrade() { probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY }); }\n    }\n    pub(crate) fn duplicate_registration(&self) {\n        if let Some(probe) = self.0.upgrade() { probe.loss(DUPLICATE); }\n    }\n    pub(crate) fn identity_failed(&self) {\n        if let Some(probe) = self.0.upgrade() { probe.loss(IDENTITY); }\n    }\n    pub(crate) fn wait_before(&self) -> Option<Wait> {\n        let probe = self.0.upgrade()?;\n        probe.observe(|data, time| {\n            if data.before.is_some() { probe.loss(DUPLICATE); }\n            else { data.before = time; }\n        });\n        Some(Wait(Arc::downgrade(&probe)))\n    }\n}\npub(crate) fn registration_unavailable(poisoned: bool) {\n    if let Some(probe) = registry().get().and_then(Weak::upgrade) {\n        probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY });\n    }\n}\n#[derive(Clone)]\npub(crate) struct Token"
+          },
+          {
+            "before": "    if !probe.owner.as_ref()?.ptr_eq(&Arc::downgrade(choice)) {\n        return None;\n    }\n    let key = Key {",
+            "after": "    let key = Key {"
+          },
+          {
+            "before": "    let mut selected = None;\n    probe.observe(|data, time| {\n        if let Some(slot)",
+            "after": "    let mut selected = None;\n    probe.observe(|data, time| {\n        if !data.owner.as_ref().is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice))) {\n            return;\n        }\n        if let Some(slot)"
+          },
+          {
+            "before": "pub(crate) struct Wait(Weak<Probe>);\npub(crate) fn wait_before(owner: Option<Weak<OriginalEnrollmentSharingChoice>>) -> Option<Wait> {\n    let probe = registry().get()?.upgrade()?;\n    let Some(owner) = owner else {\n        probe.loss(ARM_UNAVAILABLE);\n        return None;\n    };\n    if !probe.owner.as_ref()?.ptr_eq(&owner) {\n        return None;\n    }\n    probe.observe(|data, time| {\n        if data.before.is_some() {\n            probe.loss(DUPLICATE);\n        } else {\n            data.before = time;\n        }\n    });\n    Some(Wait(Arc::downgrade(&probe)))\n}",
+            "after": "pub(crate) struct Wait(Weak<Probe>);"
+          },
+          {
+            "before": "                std::array::from_fn::<_, 2, _>(|index|",
+            "after": "                data.owner.is_some(),\n                std::array::from_fn::<_, 2, _>(|index|"
+          },
+          {
+            "before": "        let mut loss = old & !FROZEN;\n        if snapshot.is_none()",
+            "after": "        let mut loss = old & !FROZEN;\n        if snapshot.as_ref().is_some_and(|row| !row.4) { loss |= ARM_UNAVAILABLE; }\n        if snapshot.is_none()"
+          },
+          {
+            "before": "        if let Some((before, after, outcome, observed, slots)) = snapshot {",
+            "after": "        if let Some((before, after, outcome, observed, _bound, slots)) = snapshot {"
+          }
+        ]
+      }
+    }
   }
 }

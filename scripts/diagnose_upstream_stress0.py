@@ -16,7 +16,7 @@ WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 TIMING_PARSER='scripts/stress0_consent_timing_parser.py'
 TIMING_MANIFEST='scripts/stress0_consent_timing_manifest.json'
 TIMING_MODULE='crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs'
-TIMING_MANIFEST_SHA256='5e01f90457e7637175d64922b5d37ff852c506f0d32ac852846cad672e0d57df'
+TIMING_MANIFEST_SHA256='246d0ba2ef792d6d229fafef112331874e848f1f0ff04963d0a32d9f214babc7'
 TIMING_PARSER_SHA256='1555ca2cc7d99a41ad0420bf7c39b022beb5372201745d43c300f873c7363865'
 HOOK_PATHS={
     'crates/marmot-app/src/client/device_linking/sibling_sharing.rs',
@@ -167,6 +167,11 @@ def source_guard():
     ensure(manifest.get('baseline')==BASE and set(manifest.get('paths',{}))==HOOK_PATHS
         and sum(len(row.get('exact_substitutions',[])) for row in manifest['paths'].values())==14,
         'exact-four-path-fourteen-substitution-reconstruction')
+    deferred=manifest['deferred_arm']
+    ensure(deferred['reviewed_parent']=='1a342c2043aacdc99638b9b3b5715819151a195e'
+        and set(deferred['paths'])=={'crates/marmot-app/src/native_device_linking/enabled.rs',TIMING_MODULE},
+        'exact-native-deferred-arm-two-path-overlay')
+    subprocess.run(['git','merge-base','--is-ancestor',deferred['reviewed_parent'],head],check=True)
     module=manifest['new_module']
     ensure(module['path']==TIMING_MODULE and module['mode']=='100644'
         and manifest['support_pins']=={TIMING_PARSER:{'mode':'100644','sha256':TIMING_PARSER_SHA256}},
@@ -180,6 +185,15 @@ def source_guard():
         ensure(value['git_mode']==mode and value['symlink']==(mode=='120000')
             and (value['symlink'] or value['actual_executable']==(mode=='100755')),'whole-final-cohort-mode')
         data=os.fsencode(os.readlink(name)) if value['symlink'] else Path(name).read_bytes()
+        if name in deferred['paths']:
+            overlay=deferred['paths'][name]
+            ensure(mode==overlay['mode'] and ack.digest(data)==overlay['after_sha256'],'exact-deferred-arm-source:'+name)
+            text=data.decode()
+            for change in reversed(overlay['exact_substitutions']):
+                ensure(change['before']!=change['after'] and text.count(change['after'])==1,'one-exact-deferred-arm-substitution:'+name)
+                text=text.replace(change['after'],change['before'],1)
+            data=text.encode()
+            ensure(ack.digest(data)==overlay['before_sha256'],'exact-parent-before-deferred-arm:'+name)
         if name in HOOK_PATHS:
             reviewed=manifest['paths'][name]
             ensure(mode==reviewed['mode'] and ack.digest(data)==reviewed['draft_sha256'],'exact-passive-hook-source:'+name)
@@ -204,7 +218,7 @@ def source_guard():
     ensure(set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines()) <= {str(OUT/'result.json')},'no-untracked-source-overlay')
     ensure(len([row for row in ack.CASES if row[0]=='stress_0' and row[1]==CASE and row[2]==NAME])==1,'exact-existing-required-serial-case')
     return {'source':head,'reviewed_final_baseline':BASE,'all_original_contents_and_modes_reconstructed_exact':True,'passive_hook_manifest_sha256':TIMING_MANIFEST_SHA256,'timing_parser_sha256':TIMING_PARSER_SHA256,
-        'historical_ACK_controller_preserved':True,'historical_ACK_source_guard_invoked':False,
+        'native_deferred_arm_parent':deferred['reviewed_parent'],'only_real_install_binds_probe':True,'historical_ACK_controller_preserved':True,'historical_ACK_source_guard_invoked':False,
         'explicit_wrapper_guard_substitution':True,'historical_runtime_evidence_reused':False,
         'Rust_assertions_oracles_runtime_flavors_Duration15_and_original_future_reconstructed_exact':True,'passive_only_four_hook_files_and_one_leaf':True,'one_existing_required_stress_case_only':True}
 
