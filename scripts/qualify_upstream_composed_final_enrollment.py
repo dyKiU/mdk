@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 import subprocess
 import qualify_upstream_request_retry_ack as ack
+import qualify_upstream_composed_enrollment as rich
 import qualify_upstream_source_readiness_candidate as readiness
 import qualify_upstream_storage_boundary as bounded
 import qualify_upstream_storage_app_handles as counts
@@ -19,11 +20,11 @@ from upstream_extraction_cohort import frozen_inputs
 BASE = 'f994bc0fb5e54e25653986db89a4a2fc6d001a9b' # Root pins the exact reviewed formatted COMPOSED full baseline.
 SELF = 'scripts/qualify_upstream_composed_final_enrollment.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
-REF = 'refs/heads/ci/upstream-composed-enrollment-final-20261018'
+REF = 'refs/heads/ci/upstream-composed-enrollment-diagnostic-20261018'
 BEGIN = '  # COMPOSED_FINAL_ENROLLMENT_JOBS_BEGIN\n'
 END = '  # COMPOSED_FINAL_ENROLLMENT_JOBS_END\n'
-OPTIONS = 'options: [composed-final-preflight, composed-final-controls, composed-final-native-five, composed-enrollment-mutations, '
-OUT = Path('composed-enrollment-evidence')
+OPTIONS = 'options: [composed-diagnostic-preflight, composed-experimental-static-diagnostic, composed-ordinary-diagnostic, '
+OUT = Path('composed-enrollment-diagnostic-evidence')
 ensure = ack.ensure
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
@@ -88,7 +89,7 @@ def source_guard():
     return {'source':head,'reviewed_final_baseline':BASE,'all_product_tests_helpers_contents_and_modes_exact':True,
         'historical_ACK_controller_preserved':True,'historical_ACK_source_guard_invoked':False,
         'explicit_wrapper_guard_substitution':True,'historical_runtime_evidence_reused':False,
-        'storage_rotating_sponsor_GREEN_is_separate_required_evidence':True,'original_sixteen_including_three_required_serial_stress_cases_preserved':True,'five_device_fixture_already_in_baseline':True,'fixture_sha256':FIXTURE_SHA,'strict_helper_sha256':STRICT_HELPER_SHA,'new_composed_runtime_evidence_required':True,'native_parser_controls':parser_controls(),'readiness_parser_controls':readiness.parser_controls(),'readiness_historical_guard_invoked':False,'readiness_fresh_PFP_required':True}
+        'storage_rotating_sponsor_GREEN_is_separate_required_evidence':True,'original_sixteen_including_three_required_serial_stress_cases_preserved':True,'five_device_fixture_already_in_baseline':True,'fixture_sha256':FIXTURE_SHA,'strict_helper_sha256':STRICT_HELPER_SHA,'new_composed_runtime_evidence_required':True,'native_parser_controls':parser_controls(),'observational_parser_controls':observational_parser_controls(),'readiness_parser_controls':readiness.parser_controls(),'readiness_historical_guard_invoked':False,'readiness_fresh_PFP_required':True}
 
 
 def parse(raw,code):
@@ -170,8 +171,11 @@ def native_five_main(args):
         report['runtime_execution_attempted']=True;save()
         try:
             code,raw,seconds=bounded.capture([case['binary'],'--exact',NAME,'--nocapture','--test-threads=1'],900,limit=8*1024*1024)
+            if code!=0:_BODY_OBSERVATIONS['native-five']=rich_observations(raw,NAME)
             basic=counts.parse_body(raw,code,NAME);report['body']=basic;report['body_seconds']=seconds;save()
             report['body']=parse(raw,code);report['journey_passed']=green(report['body'])
+            if code!=0 or report['body'].get('failed',0):
+                report['body']['closed_failure_observations']=rich_observations(raw,NAME)
             body=report['body'];report['actual_counts_complete']=body['actual_counts_complete']
             for target,key in [('actual_executed_nonignored','executed_nonignored'),('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored')]:
                 report[target]=body.get(key)
@@ -199,10 +203,157 @@ def native_five_main(args):
         if compiled_binary is not None:ensure(report['binary_pristine'],'final-binary-pristine')
 
 
+
+# Observational metadata only: no raw diagnostic lines are persisted.
+ANSI = re.compile(r'\x1b\[[0-9;]*m')
+UNUSED_NAMES = {'enrollment_progress_for_test','sibling_channel_progress_for_test','sibling_publications_for_test',
+    'recipient_channel_progress_for_test','recipient_publications_for_test','StorageProvider','GroupStorage',
+    'AccountDeviceSignerStorage','PrivateRosterSettlementStorage','ApprovedAccountSharingPolicyStorage'}
+LINTS = {'dead_code','unused_imports','unused_mut','unused_variables','unused_must_use','unreachable_code',
+    'clippy::type_complexity','clippy::too_many_arguments','clippy::needless_borrow','clippy::redundant_closure',
+    'clippy::collapsible_if','clippy::useless_conversion','clippy::needless_return','clippy::unused_async'}
+_STATIC_OBSERVATIONS = None
+_BODY_OBSERVATIONS = {}
+
+def static_diagnostics(raw, known_sources):
+    ensure(len(raw.encode())<=8*1024*1024,'bounded-static-observations')
+    codes=set();lints=set();names=set();locations=set();unknown_names=0;headers=0;unknown_headers=0;discarded=0
+    for line in ANSI.sub('',raw).splitlines():
+        header=re.match(r'^(error|warning)(?:\[(E[0-9]{4})\])?:',line)
+        if header:
+            headers+=1
+            if header[2]:codes.add(header[2])
+            else:unknown_headers+=1
+        if 'is never used' in line or 'are never used' in line or re.search(r'unused (?:import|imports|variable|mut)',line):
+            for name in re.findall(r'`([A-Za-z_][A-Za-z0-9_]{0,95})`',line):
+                if name in UNUSED_NAMES:names.add(name)
+                else:unknown_names+=1
+        for lint in re.findall(r'(?:clippy::)?[a-z][a-z0-9_]{1,79}',line):
+            if lint in LINTS:lints.add(lint)
+        match=re.fullmatch(r'\s*(?:-->|:::) (crates/[A-Za-z0-9_./-]+\.rs):([0-9]{1,7}):([0-9]{1,5})\s*',line)
+        if match and match[1] in known_sources:
+            locations.add((match[1],int(match[2]),int(match[3])))
+        elif not header:discarded+=1
+    return {'error_codes':sorted(codes)[:32],'lint_categories':sorted(lints)[:32],
+        'allowlisted_unused_names':sorted(names)[:32],'unallowlisted_unused_name_occurrences':unknown_names,
+        'locations':[{'path':p,'line':line,'column':column} for p,line,column in sorted(locations)[:32]],
+        'header_count':headers,'headers_without_error_code':unknown_headers,'discarded_line_count':discarded,
+        'truncated':any(len(values)>32 for values in [codes,lints,names,locations]),
+        'raw_messages_exported':False,'static_result_reinterpreted':False}
+
+def rich_observations(raw,name):
+    # Normalize only an actually present full exact libtest name prefix for diagnostics.
+    # The original oracle always receives the original raw output.
+    clean=ANSI.sub('',raw)
+    clean,normalized=re.subn(r'(?m)^test '+re.escape(name)+r' \.\.\. (?=automatic-enrollment-control )','',clean)
+    try:
+        observed=rich.diagnostics(clean)
+        return {'closed_schema_accepted':True,'exact_prefix_normalizations':normalized,
+            'observations':observed,'at_deadline_state_known':False,
+            'observation_timing':'existing test output; post-timeout rows do not establish deadline state'}
+    except ValueError:
+        return {'closed_schema_accepted':False,'exact_prefix_normalizations':normalized,
+            'failure_category':'ClosedSchemaRejected','observations':None,'at_deadline_state_known':False}
+
+_ORIGINAL_ACK_PARSE = ack.parse_case
+
+def diagnostic_ack_parse(label,raw,code):
+    original_label=label.startswith('original_') or label.startswith('stress_')
+    if code!=0 and original_label:
+        name=next(name for key,_,name,_ in ack.CASES if key==label)
+        _BODY_OBSERVATIONS[label]=rich_observations(raw,name)
+    row=_ORIGINAL_ACK_PARSE(label,raw,code)
+    if original_label and (code!=0 or row.get('failed',0)):
+        name=next(name for key,_,name,_ in ack.CASES if key==label)
+        _BODY_OBSERVATIONS[label]=rich_observations(raw,name)
+        row['closed_failure_observations']=_BODY_OBSERVATIONS[label]
+    return row
+
+def observational_parser_controls():
+    inherited=rich.diagnostic_parser_controls()
+    known={'crates/marmot-app/src/native_device_linking/enabled.rs'}
+    sample='error: method `enrollment_progress_for_test` is never used\n  --> crates/marmot-app/src/native_device_linking/enabled.rs:442:5\nnote: `#[deny(dead_code)]`\nerror[E0624]: private value\n'
+    row=static_diagnostics(sample,known)
+    ensure(row['error_codes']==['E0624'] and row['lint_categories']==['dead_code']
+        and row['allowlisted_unused_names']==['enrollment_progress_for_test'] and len(row['locations'])==1,'closed-static-positive')
+    private='error: method `private_identifier` is never used\n --> /private/secret.rs:1:1\nprivate payload secret\n'
+    row=static_diagnostics(private,known)
+    ensure(not row['locations'] and not row['allowlisted_unused_names'] and row['unallowlisted_unused_name_occurrences']==1,'private-names-and-paths-discarded')
+    for raw in [' --> crates/../../secret.rs:1:1',' --> crates/marmot-app/src/native_device_linking/enabled.rs:1:1 extra',
+        ' --> crates/marmot-app/src/native_device_linking/enabled.rs:-1:1',' --> crates/foreign.rs:1:1']:
+        ensure(not static_diagnostics(raw,known)['locations'],'unknown-static-location-discarded')
+    row=static_diagnostics('\x1b[31m'+sample+'\x1b[0m',known)
+    ensure(row['error_codes']==['E0624'] and row['allowlisted_unused_names']==['enrollment_progress_for_test'],'ANSI-safe-static-positive')
+    # A wrong libtest identity is never normalized. Rich parser consumes no private text.
+    foreign=rich_observations('test foreign::case ... automatic-enrollment-control stage=fourth-device-completion',NAME)
+    ensure(foreign['exact_prefix_normalizations']==0,'foreign-prefix-not-normalized')
+    ensure(rich_observations('automatic-enrollment-control private=secret',NAME)['closed_schema_accepted'] is False,'unknown-rich-schema-rejected')
+    return {'historical_rich_controls':inherited,'static_positive':2,'static_negative':5,'rich_negative':2,'runtime_bodies':0}
+
+_ORIGINAL_CAPTURE = bounded.capture
+
+def diagnostic_capture(command,*args,**kwargs):
+    global _STATIC_OBSERVATIONS
+    result=_ORIGINAL_CAPTURE(command,*args,**kwargs)
+    if command==ack.alignment.static_command('experimental'):
+        code,raw,seconds=result
+        known={name for name in ack.layout() if name.startswith('crates/') and name.endswith('.rs')}
+        _STATIC_OBSERVATIONS={'command':command,'exit_code':code,'seconds':seconds,
+            'diagnostics':static_diagnostics(raw,known),'actual_runtime_bodies':0}
+    return result
+
+
+
+def ordinary_diagnostic_main(args):
+    os.umask(0o077);OUT.mkdir(exist_ok=True)
+    report={'scope':'one-unchanged-original_0-diagnostic','required_case_count':1,'full_sixteen_executed':False,
+        'qualification_passed':False,'promotion_eligible':False,'native_acceptance_claim':False,
+        'actual_counts_complete':False,'actual_executed_nonignored':None,'actual_passed':None,'actual_failed':None,'actual_ignored':None}
+    before=None;modes=None;binary=None;binary_sha=None
+    def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+    try:
+        report['source_guard']=source_guard();report['parser_controls']=ack.parser_controls();save()
+        report['environment']=ack.environment();before,modes=ack.freeze(),ack.layout()
+        selected=[row for row in ack.CASES if row[0]=='original_0'];ensure(len(selected)==1,'one-frozen-original-selector')
+        label,suffix,name,oracle=selected[0]
+        ensure(name=='native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts','exact-ordinary-name')
+        report.update(actual_required_name=name,historical_oracle_label=oracle,input_manifest_sha256=ack.identity(before));save()
+        compilation,cases=ack.compile_cases([suffix]);report['compilation']=compilation;save()
+        ensure(compilation.get('compile_exit_code')==compilation.get('compiler_error_count')==0
+            and compilation.get('compiled_fingerprints',{}).get('verified') is True and set(cases)=={suffix}
+            and cases[suffix]['name']==name,'one-actual-feature-verified-original')
+        report['feature_identity']=ack.feature_identity(compilation);case=cases[suffix]
+        binary=Path(case['binary']);binary_sha=case['binary_sha256'];report['compiled_binary_sha256']=binary_sha
+        ensure(ack.freeze()==before and ack.layout()==modes and digest(binary.read_bytes())==binary_sha,'before-original-pristine')
+        code,raw,seconds=bounded.capture([case['binary'],'--exact',name,'--nocapture','--test-threads=1'],300,limit=8*1024*1024)
+        report['body']=dict(ack.parse_body(raw,suffix),body_exit_code=code);report['seconds']=seconds;save()
+        try:
+            report['body']=ack.parse_case(label,raw,code)
+        except ValueError:
+            report['parser_rejected']=True
+        body=report['body'];report['actual_counts_complete']=ack.alignment.complete_counts(body)
+        for target,key in [('actual_executed_nonignored','executed_nonignored'),('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored')]:
+            report[target]=body.get(key) if type(body.get(key)) is int else None
+        report['original_oracle_passed']=not report.get('parser_rejected') and report['actual_counts_complete'] and ack.case_green(label,body);save()
+        ensure(report['original_oracle_passed'],'unchanged-original-runtime-oracle-required')
+    except Exception as error:
+        report['exception_type']=type(error).__name__
+        if isinstance(error,bounded.GateFailure):
+            report['watchdog_triggered']=str(error)=='bounded-command-timeout'
+            report['output_limit_triggered']=str(error)=='bounded-command-output-limit'
+        raise
+    finally:
+        if before is not None:report['inputs_pristine']=ack.freeze()==before and ack.layout()==modes
+        if binary is not None:report['binary_pristine']=binary.is_file() and digest(binary.read_bytes())==binary_sha
+        save()
+        if before is not None:ensure(report['inputs_pristine'],'final-original-source-modes-pristine')
+        if binary is not None:ensure(report['binary_pristine'],'final-original-binary-pristine')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--preflight',action='store_true')
-    parser.add_argument('--mode',choices=['full','static','native-five','readiness'],default='full')
+    parser.add_argument('--mode',choices=['full','static','native-five','readiness','ordinary-diagnostic'],default='full')
     parser.add_argument('--cohort',choices=['default','experimental'])
     parser.add_argument('--mutation',choices=['consume','permit'])
     args=parser.parse_args()
@@ -210,16 +361,30 @@ def main():
     ensure(args.mode!='static' or args.cohort in {'default','experimental'},'explicit-static-cohort')
     # These are the only substitutions. Historical case/parser/compile/runtime,
     # feature, count, binary, closure and finally-pristine functions stay intact.
+    ack.parse_case=diagnostic_ack_parse
+    bounded.capture=diagnostic_capture
     ack.source_guard=source_guard
     ack.OUT=OUT
-    if args.mode=='readiness' and not args.preflight:
-        readiness.source_guard=source_guard
-        readiness.OUT=OUT
-        readiness.main(args)
-    elif args.mode=='native-five' and not args.preflight:
-        native_five_main(args)
-    else:
-        ack.main(args)
+    try:
+        if args.mode=='ordinary-diagnostic' and not args.preflight:
+            ordinary_diagnostic_main(args)
+        elif args.mode=='readiness' and not args.preflight:
+            readiness.source_guard=source_guard
+            readiness.OUT=OUT
+            readiness.main(args)
+        elif args.mode=='native-five' and not args.preflight:
+            native_five_main(args)
+        else:
+            ack.main(args)
+    finally:
+        ack.parse_case=_ORIGINAL_ACK_PARSE
+        bounded.capture=_ORIGINAL_CAPTURE
+        if (_STATIC_OBSERVATIONS is not None or _BODY_OBSERVATIONS) and (OUT/'result.json').is_file():
+            report=json.loads((OUT/'result.json').read_text())
+            if _STATIC_OBSERVATIONS is not None:report['closed_static_observations']=_STATIC_OBSERVATIONS
+            if _BODY_OBSERVATIONS:report['closed_body_observations']=_BODY_OBSERVATIONS
+            report['diagnostic_metadata_only']=True
+            (OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
 
 
 if __name__=='__main__':

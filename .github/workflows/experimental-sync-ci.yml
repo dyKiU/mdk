@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [composed-final-preflight, composed-final-controls, composed-final-native-five, composed-enrollment-mutations, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [composed-diagnostic-preflight, composed-experimental-static-diagnostic, composed-ordinary-diagnostic, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -72,8 +72,8 @@ env:
 
 jobs:
   # COMPOSED_FINAL_ENROLLMENT_JOBS_BEGIN
-  composed-final-preflight:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["composed-final-preflight","composed-final-controls","composed-final-native-five","composed-enrollment-mutations"]'), inputs.scope)
+  composed-diagnostic-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["composed-diagnostic-preflight","composed-experimental-static-diagnostic","composed-ordinary-diagnostic"]'), inputs.scope)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -89,68 +89,22 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Frozen final cohort and unchanged sixteen-case parser controls
+      - name: Frozen source and observational parser adversaries only
         run: |
           python3 -m py_compile scripts/qualify_upstream_composed_final_enrollment.py
           python3 scripts/qualify_upstream_composed_final_enrollment.py --preflight
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: composed-final-preflight
-          path: |
-            composed-enrollment-evidence/result.json
+          name: composed-diagnostic-preflight
+          path: composed-enrollment-diagnostic-evidence/result.json
           if-no-files-found: error
           retention-days: 7
-  composed-final-controls:
-    needs: composed-final-preflight
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["composed-final-controls","composed-enrollment-mutations"]'), inputs.scope)
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      UPSTREAM_COMPOSED_ENROLLMENT_BASELINE: f994bc0fb5e54e25653986db89a4a2fc6d001a9b
-      CARGO_INCREMENTAL: '1'
-      CARGO_BUILD_JOBS: '2'
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_PROFILE_TEST_DEBUG: '0'
-      RUST_MIN_STACK: '4194304'
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
-        with:
-          tool: cargo-nextest@0.9.132
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-        with:
-          shared-key: core-regressions
-          cache-on-failure: 'true'
-      - name: All unchanged sixteen runtime controls on the frozen final cohort
-        env:
-          CARGO_INCREMENTAL: '1'
-        run: |
-          python3 scripts/qualification_build_preflight.py --label 'Final sixteen enrollment and ACK controls' --output "$RUNNER_TEMP/composed-enrollment-capacity.json"
-          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode full
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: composed-final-controls
-          path: |
-            composed-enrollment-evidence/result.json
-            ${{ runner.temp }}/composed-enrollment-capacity.json
-          if-no-files-found: error
-          retention-days: 7
-  composed-final-static:
-    needs: composed-final-preflight
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["composed-final-controls","composed-enrollment-mutations"]'), inputs.scope)
+  composed-experimental-static-diagnostic:
+    needs: composed-diagnostic-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'composed-experimental-static-diagnostic'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        cohort: [default, experimental]
     env:
       UPSTREAM_COMPOSED_ENROLLMENT_BASELINE: f994bc0fb5e54e25653986db89a4a2fc6d001a9b
       CARGO_INCREMENTAL: '1'
@@ -168,74 +122,26 @@ jobs:
         with:
           shared-key: core-regressions
           cache-on-failure: 'true'
-      - name: Existing strict App all-target static cohort
+      - name: Unchanged experimental strict App command plus closed diagnostics
         env:
           CARGO_INCREMENTAL: '1'
         run: |
-          python3 scripts/qualification_build_preflight.py --label 'Final enrollment strict App static cohort' --output "$RUNNER_TEMP/composed-enrollment-capacity.json"
-          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode static --cohort '${{ matrix.cohort }}'
+          python3 scripts/qualification_build_preflight.py --label 'Experimental strict App diagnostic' --output "$RUNNER_TEMP/composed-diagnostic-capacity.json"
+          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode static --cohort experimental
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: composed-final-static-${{ matrix.cohort }}
+          name: composed-experimental-static-diagnostic
           path: |
-            composed-enrollment-evidence/result.json
-            ${{ runner.temp }}/composed-enrollment-capacity.json
+            composed-enrollment-diagnostic-evidence/result.json
+            ${{ runner.temp }}/composed-diagnostic-capacity.json
           if-no-files-found: error
           retention-days: 7
-  composed-final-native-five:
-    needs: composed-final-preflight
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["composed-final-controls","composed-final-native-five","composed-enrollment-mutations"]'), inputs.scope)
+  composed-ordinary-diagnostic:
+    needs: composed-diagnostic-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'composed-ordinary-diagnostic'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    env:
-      UPSTREAM_COMPOSED_ENROLLMENT_BASELINE: f994bc0fb5e54e25653986db89a4a2fc6d001a9b
-      CARGO_INCREMENTAL: '1'
-      CARGO_BUILD_JOBS: '2'
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_PROFILE_TEST_DEBUG: '0'
-      RUST_MIN_STACK: '4194304'
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install exact source toolchain
-        run: |
-          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
-          rustup toolchain install "$toolchain" --profile minimal
-          rustup default "$toolchain"
-      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
-        with:
-          tool: cargo-nextest@0.9.132
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-        with:
-          shared-key: experimental-sync-tests
-          cache-on-failure: true
-      - name: One compile, one exact required real SDK body and positive owned cleanup
-        env:
-          CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_composed_final_enrollment.py --mode native-five
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: composed-five-acceptance
-          path: composed-enrollment-evidence/result.json
-          if-no-files-found: error
-          retention-days: 7
-  composed-final-readiness-mutations:
-    needs: composed-final-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'composed-enrollment-mutations'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        mutation: [consume, permit]
+    timeout-minutes: 45
     env:
       UPSTREAM_COMPOSED_ENROLLMENT_BASELINE: f994bc0fb5e54e25653986db89a4a2fc6d001a9b
       CARGO_INCREMENTAL: '1'
@@ -256,19 +162,19 @@ jobs:
         with:
           shared-key: core-regressions
           cache-on-failure: 'true'
-      - name: Independent omission exact runtime RED and restored GREEN
+      - name: One unchanged original ordinary case only
         env:
           CARGO_INCREMENTAL: '1'
         run: |
-          python3 scripts/qualification_build_preflight.py --label 'Source readiness independent omission' --output "$RUNNER_TEMP/source-readiness-capacity.json"
-          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode readiness --mutation '${{ matrix.mutation }}'
+          python3 scripts/qualification_build_preflight.py --label 'One ordinary closed diagnostic' --output "$RUNNER_TEMP/composed-diagnostic-capacity.json"
+          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode ordinary-diagnostic
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: composed-final-readiness-mutation-${{ matrix.mutation }}
+          name: composed-ordinary-diagnostic
           path: |
-            composed-enrollment-evidence/result.json
-            ${{ runner.temp }}/source-readiness-capacity.json
+            composed-enrollment-diagnostic-evidence/result.json
+            ${{ runner.temp }}/composed-diagnostic-capacity.json
           if-no-files-found: error
           retention-days: 7
   # COMPOSED_FINAL_ENROLLMENT_JOBS_END
