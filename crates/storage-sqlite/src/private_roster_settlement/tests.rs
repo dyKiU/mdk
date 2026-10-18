@@ -615,7 +615,7 @@ enum ForeignSettlementRead {
 }
 
 enum ForeignSettlementView {
-    Round(PrivateSettlementState),
+    Round(Box<PrivateSettlementState>),
     Facts(Vec<PrivateSettlementFact>),
 }
 
@@ -721,7 +721,7 @@ fn exercise_foreign_settlement_snapshot(mode: ForeignSettlementRead) {
         let result = match mode {
             ForeignSettlementRead::Round => reader.read_round().and_then(|value| {
                 value
-                    .map(ForeignSettlementView::Round)
+                    .map(|state| ForeignSettlementView::Round(Box::new(state)))
                     .ok_or(StorageError::NotFound)
             }),
             ForeignSettlementRead::Facts => reader.read_facts().map(ForeignSettlementView::Facts),
@@ -757,7 +757,7 @@ fn exercise_foreign_settlement_snapshot(mode: ForeignSettlementRead) {
     let mut typed_serialization = false;
     let mut returned_facts = false;
     let coherent = match result {
-        Ok(ForeignSettlementView::Round(state)) => state == old_state,
+        Ok(ForeignSettlementView::Round(state)) => *state == old_state,
         Ok(ForeignSettlementView::Facts(facts)) => {
             returned_facts = true;
             facts == old_facts

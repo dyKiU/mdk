@@ -322,7 +322,7 @@ fn mirrored_messages_encrypted_restart_retains_body_and_terminal_close_is_final(
             .query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        102
+        113 // Core 0113_staged_media; private migration receipts use their own ledger.
     );
 }
 #[test]

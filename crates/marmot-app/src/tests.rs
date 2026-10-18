@@ -528,6 +528,8 @@ pub(crate) struct ScriptedPushRelayClient {
     fail_next_subscribe: std::sync::atomic::AtomicBool,
     block_next_unsubscribe: std::sync::atomic::AtomicBool,
     block_next_publish: std::sync::atomic::AtomicBool,
+    block_next_publish_kind: std::sync::Mutex<Option<u64>>,
+    blocked_publish_kind: std::sync::Mutex<Option<u64>>,
     block_publish_count: std::sync::atomic::AtomicUsize,
     blocked_publish_count: std::sync::atomic::AtomicUsize,
     block_account_subscribe: std::sync::Mutex<Option<Vec<u8>>>,
@@ -834,6 +836,10 @@ impl ScriptedPushRelayClient {
     pub(crate) fn block_next_publish(&self) {
         self.block_next_publish
             .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn block_next_publish_of_kind(&self, kind: u64) {
+        *self.block_next_publish_kind.lock().unwrap() = Some(kind);
     }
 
     fn block_account_inbox_subscribe(&self, account_id: Vec<u8>) {
@@ -1304,12 +1310,26 @@ impl NostrRelayClient for ScriptedPushRelayClient {
                 |remaining| remaining.checked_sub(1),
             )
             .is_ok();
+        let block_matching_publish = {
+            let mut selected = self.block_next_publish_kind.lock().unwrap();
+            if *selected == Some(event.kind) {
+                selected.take();
+                true
+            } else {
+                false
+            }
+        };
         if block_counted_publish
+            || block_matching_publish
             || self
                 .block_next_publish
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
         {
             let released = registered_release(&self.publish_release);
+            self.blocked_publish_kind
+                .lock()
+                .unwrap()
+                .get_or_insert(event.kind);
             self.blocked_publish_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.publish_started.notify_one();
@@ -7050,7 +7070,8 @@ async fn initial_profile_retry_returns_the_profile_a_running_bootstrap_publishes
 async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     let directory = tempfile::tempdir().unwrap();
     let relay = Arc::new(ScriptedPushRelayClient::default());
-    relay.block_next_publish();
+    // Hold bootstrap metadata, after the worker has published its priority KeyPackage.
+    relay.block_next_publish_of_kind(0);
     let app = MarmotApp::with_relay(directory.path(), "wss://relay.example")
         .with_test_relay_client(relay.clone());
     let runtime = MarmotAppRuntime::new(app.clone());
@@ -7079,20 +7100,48 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     );
     assert!(result.profile.is_some());
     assert_eq!(result.readiness, AccountSetupReadiness::LocalReady);
-    assert_eq!(
-        runtime
-            .account_setup_readiness(&result.account.account_id_hex)
-            .unwrap(),
-        AccountSetupReadiness::Publishing
+    let live_readiness = runtime
+        .account_setup_readiness(&result.account.account_id_hex)
+        .unwrap();
+    let held_kind = *relay.blocked_publish_kind.lock().unwrap();
+    let readiness_code = |value| match value {
+        AccountSetupReadiness::Initializing => 0,
+        AccountSetupReadiness::LocalReady => 1,
+        AccountSetupReadiness::Publishing => 2,
+        AccountSetupReadiness::NetworkReady => 3,
+        AccountSetupReadiness::RecoveryRequired => 4,
+    };
+    eprintln!(
+        "generated_identity_blocked_publication held_kind_known={} held_kind={} returned_readiness={} live_readiness={}",
+        held_kind.is_some(),
+        held_kind.unwrap_or(0),
+        readiness_code(result.readiness),
+        readiness_code(live_readiness),
     );
+    assert_eq!(
+        held_kind,
+        Some(0),
+        "the held event must be bootstrap metadata"
+    );
+    assert_eq!(live_readiness, AccountSetupReadiness::Publishing);
     let lifecycle = app
         .account_storage(&result.account.label)
         .unwrap()
         .key_package_lifecycle()
         .unwrap()
         .unwrap();
-    let pending = lifecycle.pending_replacement.unwrap();
-    let signed_bytes = pending.signed_event.unwrap().bytes;
+    // The priority publication is already acknowledged before bootstrap metadata blocks.
+    let current_bytes = lifecycle.current_key_package.unwrap().bytes;
+    assert!(!current_bytes.is_empty());
+    assert_eq!(result.key_package_bytes, Some(current_bytes.len()));
+    assert!(lifecycle.publication_targets.iter().any(|target| matches!(
+        target.state,
+        cgka_traits::TransportFanoutAttemptState::Accepted
+    )));
+    let signed_bytes = lifecycle.authored_signed_event.unwrap().bytes;
+    let published: NostrTransportEvent = serde_json::from_slice(&signed_bytes).unwrap();
+    assert_eq!(published.kind, KIND_MARMOT_KEY_PACKAGE);
+    assert!(relay.published_events.lock().unwrap().contains(&published));
 
     let repeated = runtime
         .create_identity_local_ready(AccountSetupRequest {
@@ -7108,17 +7157,19 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     );
     assert_eq!(repeated.key_package_bytes, result.key_package_bytes);
     assert_eq!(repeated.readiness, AccountSetupReadiness::Publishing);
+    let repeated_lifecycle = app
+        .account_storage(&repeated.account.label)
+        .unwrap()
+        .key_package_lifecycle()
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        app.account_storage(&repeated.account.label)
-            .unwrap()
-            .key_package_lifecycle()
-            .unwrap()
-            .unwrap()
-            .pending_replacement
-            .unwrap()
-            .signed_event
-            .unwrap()
-            .bytes,
+        repeated_lifecycle.current_key_package.unwrap().bytes,
+        current_bytes,
+        "repeated create must retain the acknowledged initial KeyPackage"
+    );
+    assert_eq!(
+        repeated_lifecycle.authored_signed_event.unwrap().bytes,
         signed_bytes,
         "repeated create must retain the exact signed KeyPackage publication"
     );
@@ -13837,7 +13888,7 @@ async fn own_relay_echo_requires_known_event_id_not_just_pubkey() {
 fn account_worker_is_spawned_as_abortable_async_task() {
     let source = include_str!("runtime/account_worker.rs");
 
-    assert!(source.contains("tokio::spawn(run_app_runtime_account_worker"));
+    assert!(source.contains("tokio::spawn(Box::pin(run_app_runtime_account_worker("));
     assert!(source.contains("managed account worker shutdown timed out; aborting"));
 }
 
