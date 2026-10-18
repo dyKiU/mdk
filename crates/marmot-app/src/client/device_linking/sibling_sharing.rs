@@ -69,6 +69,8 @@ pub(crate) struct OriginalEnrollmentSharingChoice {
     pending_controls: Mutex<Vec<PendingSiblingControl>>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     native_observation_probe: Mutex<NativeObservationProbe>,
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    receive_frontier: Arc<peer_proof_probe::receive_frontier::Recorder>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     recipient_diagnostics: [std::sync::atomic::AtomicUsize; 19],
     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -381,6 +383,10 @@ struct ChoiceProgress {
     expected: Option<Vec<[u8; 32]>>,
 }
 impl OriginalEnrollmentSharingChoice {
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn active_receive_frontier_for_test(&self) -> Option<Arc<peer_proof_probe::receive_frontier::Recorder>> {
+        self.receive_frontier.active().then(|| self.receive_frontier.clone())
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_stage_for_test(&self, stage: NativeObservationStage) {
         let mut probe = self
@@ -733,6 +739,14 @@ fn denied() -> ClientLinkingError {
 }
 
 impl AppClient {
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn receive_frontier_gate_for_test(&self, enabled: bool) {
+        if let Some(choice) = &self.linking_owner.sharing_approval { choice.receive_frontier.gate(enabled); }
+    }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn receive_frontier_enter_for_test(&self) {
+        if let Some(choice) = &self.linking_owner.sharing_approval { choice.receive_frontier.receive(); }
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn native_observation_original_for_test(
         &self,
@@ -1244,6 +1258,8 @@ impl AppClient {
             pending_controls: Mutex::new(Vec::new()),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             native_observation_probe: Mutex::default(),
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            receive_frontier: Arc::default(),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             recipient_diagnostics: std::array::from_fn(|_| std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(all(test, feature = "test-policy-overrides"))]

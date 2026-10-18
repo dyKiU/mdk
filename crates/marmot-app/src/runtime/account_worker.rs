@@ -2659,8 +2659,17 @@ async fn run_app_runtime_account_worker(
                             Ok(transport_nostr::AccountDeliveryReceive::Delivery(
                                 enrollment_capacity_retry.take().expect("one exact capacity envelope"),
                             ))
-                        } else { client.receive_next_delivery().await }
-                    }, if !client.has_pending_effect_projections() => {
+                        } else {
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            client.receive_frontier_enter_for_test();
+                            client.receive_next_delivery().await
+                        }
+                    }, if {
+                        let enabled = !client.has_pending_effect_projections();
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        client.receive_frontier_gate_for_test(enabled);
+                        enabled
+                    } => {
                         #[cfg(test)]
                         if let Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) = &received
                             && let (Ok(event_id), Some(subscription_id)) = (

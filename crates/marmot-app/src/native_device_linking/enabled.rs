@@ -275,6 +275,14 @@ impl DeviceLinkingSession {
                 && state.check_open().is_err()
         }
     }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(super) fn arm_receive_frontier_for_test(&self) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::receive_frontier::Guard> {
+        self.inner.sharing_choice.lock().ok()?.as_ref().map(crate::client::device_linking::sibling_sharing::peer_proof_probe::receive_frontier::Guard::arm)
+    }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(super) fn active_receive_frontier_for_test(&self) -> Option<Arc<crate::client::device_linking::sibling_sharing::peer_proof_probe::receive_frontier::Recorder>> {
+        self.inner.sharing_choice.lock().ok()?.as_ref()?.active_receive_frontier_for_test()
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_projection_aggregates_for_test(&self) -> Option<[usize; 4]> {
         self.inner

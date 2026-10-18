@@ -225,15 +225,21 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     let mut completed_steps = 0usize;
     let mut public_cancels = 0usize;
     let mut final_roster_and_policies = false;
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    let mut receive_frontiers = Vec::with_capacity(2);
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         // New installations B,C,D,E join through already-authorized A,B,C,B.
         for (newcomer, sponsor) in [(1usize, 0usize), (2, 1), (3, 2), (4, 1)] {
             let (source, recipient, approvals) = join_installation(&apps, &managers, &account, sponsor, newcomer).await;
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            if newcomer >= 3 { receive_frontiers.push((newcomer + 1, recipient.arm_receive_frontier_for_test())); }
             // Reuse the integration helper:15s for every phase;
             // no deadline override, packets or extra host finalization calls.
             wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            if newcomer >= 3 { if let Some((_, Some(trace))) = receive_frontiers.last() { trace.freeze(); } }
             tokio::time::timeout(Duration::from_secs(20), async {
                 loop {
                     if complete_roster_and_bilateral_policies(&apps[..=newcomer], &account) { break; }
@@ -253,6 +259,10 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             for approval in approvals { approval.cancel().await.unwrap(); public_cancels += 1; }
         }
     }).catch_unwind().await;
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    for (ordinal, trace) in &receive_frontiers {
+        eprintln!("native5-receive-frontier join={} observation={:?}", ordinal, trace.as_ref().map(|trace| trace.freeze()));
+    }
     let mut runtime_closes = 0usize;
     for runtime in &runtimes {
         if runtime.shutdown_and_close().await.is_ok() && runtime.storage_is_closed() {
