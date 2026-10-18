@@ -16,7 +16,7 @@ WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 TIMING_PARSER='scripts/stress0_consent_timing_parser.py'
 TIMING_MANIFEST='scripts/stress0_consent_timing_manifest.json'
 TIMING_MODULE='crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs'
-TIMING_MANIFEST_SHA256='c62456fdeeb647e20592dcb58c011bceaf02f1ecc732e86900e263c09ebd5af5'
+TIMING_MANIFEST_SHA256='e752f20ebf1682dea6800113d226d7be86d6f5ab6ce5bf4802341fde75e8442a'
 TIMING_PARSER_SHA256='1555ca2cc7d99a41ad0420bf7c39b022beb5372201745d43c300f873c7363865'
 HOOK_PATHS={
     'crates/marmot-app/src/client/device_linking/sibling_sharing.rs',
@@ -184,6 +184,11 @@ def source_guard():
             reviewed=manifest['paths'][name]
             ensure(mode==reviewed['mode'] and ack.digest(data)==reviewed['draft_sha256'],'exact-passive-hook-source:'+name)
             text=data.decode()
+            for change in reversed(reviewed.get('remote_format_substitutions',[])):
+                ensure(change['before'] and change['after'] and text.count(change['after'])==1,'one-pinned-remote-format-substitution:'+name)
+                text=text.replace(change['after'],change['before'],1)
+            if 'pre_remote_format_sha256' in reviewed:
+                ensure(ack.digest(text.encode())==reviewed['pre_remote_format_sha256'],'exact-before-remote-format-hook-source:'+name)
             for change in reversed(reviewed['exact_substitutions']):
                 ensure(change['before'] and change['after'] and text.count(change['after'])==1,'one-reviewed-passive-source-substitution:'+name)
                 text=text.replace(change['after'],change['before'],1)

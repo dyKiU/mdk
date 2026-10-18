@@ -1,7 +1,7 @@
 //! Fixed, passive observations for one original D choice; never transport authority.
 use super::*;
-use std::sync::atomic::AtomicU32;
 use std::sync::TryLockError;
+use std::sync::atomic::AtomicU32;
 
 const FROZEN: u32 = 1 << 31;
 const LOCK_BUSY: u32 = 1;
@@ -55,9 +55,11 @@ fn registry() -> &'static OnceLock<Weak<Probe>> {
 }
 impl Probe {
     fn loss(&self, reason: u32) {
-        let _ = self.status.fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-            (value & FROZEN == 0).then_some(value | reason)
-        });
+        let _ = self
+            .status
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                (value & FROZEN == 0).then_some(value | reason)
+            });
     }
     fn elapsed(&self) -> Option<u64> {
         let value = self.origin.elapsed().as_micros();
@@ -69,7 +71,9 @@ impl Probe {
         }
     }
     fn observe(&self, apply: impl FnOnce(&mut Data, Option<u64>)) {
-        if self.status.load(Ordering::Acquire) & FROZEN != 0 { return; }
+        if self.status.load(Ordering::Acquire) & FROZEN != 0 {
+            return;
+        }
         match self.data.try_lock() {
             Ok(mut data) => {
                 if self.status.load(Ordering::Acquire) & FROZEN == 0 {
@@ -85,11 +89,15 @@ pub(crate) struct Guard(Arc<Probe>);
 pub(crate) fn arm(owner: Option<Weak<OriginalEnrollmentSharingChoice>>) -> Guard {
     let probe = Arc::new(Probe {
         status: AtomicU32::new(if owner.is_some() { 0 } else { ARM_UNAVAILABLE }),
-        owner, origin: Instant::now(), data: Mutex::new(Data::default()),
+        owner,
+        origin: Instant::now(),
+        data: Mutex::new(Data::default()),
     });
     if registry().set(Arc::downgrade(&probe)).is_err() {
         probe.loss(DUPLICATE);
-        if let Some(old) = registry().get().and_then(Weak::upgrade) { old.loss(DUPLICATE); }
+        if let Some(old) = registry().get().and_then(Weak::upgrade) {
+            old.loss(DUPLICATE);
+        }
     }
     Guard(probe)
 }
@@ -101,69 +109,129 @@ pub(crate) struct Token {
 }
 impl Token {
     pub(in super::super::super) fn stage(&self, index: usize, outcome: Option<(usize, bool)>) {
-        let Some(probe) = self.probe.upgrade() else { return; };
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
         probe.observe(|data, time| {
             let Some(slot) = data.slots.get_mut(self.index).and_then(Option::as_mut) else {
-                probe.loss(IDENTITY); return;
+                probe.loss(IDENTITY);
+                return;
             };
             if !slot.key.same_attempt(&self.key) || index >= slot.times.len() {
-                probe.loss(IDENTITY); return;
+                probe.loss(IDENTITY);
+                return;
             }
-            if slot.times[index].is_some() { probe.loss(DUPLICATE); return; }
+            if slot.times[index].is_some() {
+                probe.loss(DUPLICATE);
+                return;
+            }
             slot.times[index] = time;
             if let Some((field, value)) = outcome {
-                if let Some(destination) = slot.outcomes.get_mut(field) { *destination = Some(value); }
-                else { probe.loss(IDENTITY); }
+                if let Some(destination) = slot.outcomes.get_mut(field) {
+                    *destination = Some(value);
+                } else {
+                    probe.loss(IDENTITY);
+                }
             }
         });
     }
     pub(in super::super::super) fn report(&self, ok: bool, met: Option<bool>) {
-        let Some(probe) = self.probe.upgrade() else { return; };
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
         probe.observe(|data, time| {
             if let Some(slot) = data.slots.get_mut(self.index).and_then(Option::as_mut)
                 && slot.key.same_attempt(&self.key)
             {
-                if slot.times[4].is_some() { probe.loss(DUPLICATE); return; }
+                if slot.times[4].is_some() {
+                    probe.loss(DUPLICATE);
+                    return;
+                }
                 slot.times[4] = time;
                 slot.outcomes[0] = Some(ok);
                 slot.outcomes[1] = met;
-            } else { probe.loss(IDENTITY); }
+            } else {
+                probe.loss(IDENTITY);
+            }
         });
     }
 }
 pub(in super::super::super) fn prepared(
-    entry: &SiblingChannel, request: &cgka_traits::TransportPublishRequest,
+    entry: &SiblingChannel,
+    request: &cgka_traits::TransportPublishRequest,
     kind: AccountSharingControl,
 ) -> Option<Token> {
-    if !entry.recipient || kind != AccountSharingControl::Consent { return None; }
-    let SiblingOriginal::Recipient { choice, .. } = entry.original.as_ref() else { return None; };
+    if !entry.recipient || kind != AccountSharingControl::Consent {
+        return None;
+    }
+    let SiblingOriginal::Recipient { choice, .. } = entry.original.as_ref() else {
+        return None;
+    };
     let probe = registry().get()?.upgrade()?;
-    if !probe.owner.as_ref()?.ptr_eq(&Arc::downgrade(choice)) { return None; }
-    let key = Key { state: Arc::downgrade(&entry.state), nonce: entry.channel.scope().nonce,
-        message: request.message.id.clone() };
+    if !probe.owner.as_ref()?.ptr_eq(&Arc::downgrade(choice)) {
+        return None;
+    }
+    let key = Key {
+        state: Arc::downgrade(&entry.state),
+        nonce: entry.channel.scope().nonce,
+        message: request.message.id.clone(),
+    };
     let mut selected = None;
     probe.observe(|data, time| {
-        if let Some(slot) = data.slots.iter_mut().flatten().find(|slot| slot.key.same_channel(&key)) {
+        if let Some(slot) = data
+            .slots
+            .iter_mut()
+            .flatten()
+            .find(|slot| slot.key.same_channel(&key))
+        {
             // Follow only the first actual attempt. Retries cannot overwrite it.
-            if let Some(next) = slot.retry_prepared.checked_add(1) { slot.retry_prepared = next; }
-            else { slot.retry_prepared = u32::MAX; probe.loss(OVERFLOW); }
+            if let Some(next) = slot.retry_prepared.checked_add(1) {
+                slot.retry_prepared = next;
+            } else {
+                slot.retry_prepared = u32::MAX;
+                probe.loss(OVERFLOW);
+            }
             return;
         }
-        let Some(index) = data.slots.iter().position(Option::is_none) else { probe.loss(CAPACITY); return; };
-        let mut times = [None; 9]; times[0] = time;
-        data.slots[index] = Some(Slot { key: key.clone(), times, outcomes: [None; 5], retry_prepared: 0 });
-        selected = Some(Token { probe: Arc::downgrade(&probe), index, key: key.clone() });
+        let Some(index) = data.slots.iter().position(Option::is_none) else {
+            probe.loss(CAPACITY);
+            return;
+        };
+        let mut times = [None; 9];
+        times[0] = time;
+        data.slots[index] = Some(Slot {
+            key: key.clone(),
+            times,
+            outcomes: [None; 5],
+            retry_prepared: 0,
+        });
+        selected = Some(Token {
+            probe: Arc::downgrade(&probe),
+            index,
+            key: key.clone(),
+        });
     });
     selected
 }
-pub(crate) fn armed() -> bool { registry().get().and_then(Weak::upgrade).is_some() }
+pub(crate) fn armed() -> bool {
+    registry().get().and_then(Weak::upgrade).is_some()
+}
 pub(crate) struct Wait(Weak<Probe>);
 pub(crate) fn wait_before(owner: Option<Weak<OriginalEnrollmentSharingChoice>>) -> Option<Wait> {
     let probe = registry().get()?.upgrade()?;
-    let Some(owner) = owner else { probe.loss(ARM_UNAVAILABLE); return None; };
-    if !probe.owner.as_ref()?.ptr_eq(&owner) { return None; }
+    let Some(owner) = owner else {
+        probe.loss(ARM_UNAVAILABLE);
+        return None;
+    };
+    if !probe.owner.as_ref()?.ptr_eq(&owner) {
+        return None;
+    }
     probe.observe(|data, time| {
-        if data.before.is_some() { probe.loss(DUPLICATE); } else { data.before = time; }
+        if data.before.is_some() {
+            probe.loss(DUPLICATE);
+        } else {
+            data.before = time;
+        }
     });
     Some(Wait(Arc::downgrade(&probe)))
 }
@@ -171,15 +239,23 @@ impl Wait {
     pub(crate) fn constructed(&self) {
         if let Some(probe) = self.0.upgrade() {
             probe.observe(|data, time| {
-                if data.after.is_some() { probe.loss(DUPLICATE); } else { data.after = time; }
+                if data.after.is_some() {
+                    probe.loss(DUPLICATE);
+                } else {
+                    data.after = time;
+                }
             });
         }
     }
     pub(crate) fn observed(&self, ok: bool) {
         if let Some(probe) = self.0.upgrade() {
             probe.observe(|data, time| {
-                if data.wait_observed.is_some() { probe.loss(DUPLICATE); }
-                else { data.wait_outcome = Some(ok); data.wait_observed = time; }
+                if data.wait_observed.is_some() {
+                    probe.loss(DUPLICATE);
+                } else {
+                    data.wait_outcome = Some(ok);
+                    data.wait_observed = time;
+                }
             });
         }
     }
@@ -189,9 +265,17 @@ impl Drop for Guard {
         let old = self.0.status.fetch_or(FROZEN, Ordering::AcqRel);
         // Copy only closed aggregates; print after the lock has been dropped.
         let snapshot = match self.0.data.try_lock() {
-            Ok(data) => Some((data.before, data.after, data.wait_outcome, data.wait_observed,
-                std::array::from_fn::<_, 2, _>(|index| data.slots[index].as_ref()
-                    .map(|slot| (slot.times, slot.outcomes, slot.retry_prepared))))),
+            Ok(data) => Some((
+                data.before,
+                data.after,
+                data.wait_outcome,
+                data.wait_observed,
+                std::array::from_fn::<_, 2, _>(|index| {
+                    data.slots[index]
+                        .as_ref()
+                        .map(|slot| (slot.times, slot.outcomes, slot.retry_prepared))
+                }),
+            )),
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => None,
         };
@@ -199,13 +283,22 @@ impl Drop for Guard {
         if snapshot.is_none() {
             // Snapshot failure is explicitly unknown; never a partial zero matrix.
             loss |= LOCK_BUSY;
-            if self.0.data.is_poisoned() { loss |= LOCK_POISONED; }
+            if self.0.data.is_poisoned() {
+                loss |= LOCK_POISONED;
+            }
         }
-        eprintln!("stress0-consent-timing known={} loss_mask={} snapshot_available={}", loss == 0, loss, snapshot.is_some());
+        eprintln!(
+            "stress0-consent-timing known={} loss_mask={} snapshot_available={}",
+            loss == 0,
+            loss,
+            snapshot.is_some()
+        );
         if let Some((before, after, outcome, observed, slots)) = snapshot {
             let lower = before.and_then(|value| value.checked_add(15_000_000));
             let upper = after.and_then(|value| value.checked_add(15_000_000));
-            eprintln!("stress0-consent-wait constructed_before_us={before:?} constructed_after_us={after:?} deadline_lower_us={lower:?} deadline_upper_us={upper:?} outcome_ok={outcome:?} observed_us={observed:?} exact_deadline_known=false");
+            eprintln!(
+                "stress0-consent-wait constructed_before_us={before:?} constructed_after_us={after:?} deadline_lower_us={lower:?} deadline_upper_us={upper:?} outcome_ok={outcome:?} observed_us={observed:?} exact_deadline_known=false"
+            );
             for (index, slot) in slots.into_iter().enumerate() {
                 eprintln!("stress0-consent-slot index={index} observation={slot:?}");
             }

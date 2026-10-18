@@ -395,15 +395,33 @@ impl DeviceLinkingSession {
 
     // STRESS0_CONSENT_TIMING_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn arm_consent_timing_for_test(&self) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard {
-        let owner = self.inner.sharing_choice.try_lock().ok()
+    pub(super) fn arm_consent_timing_for_test(
+        &self,
+    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard
+    {
+        let owner = self
+            .inner
+            .sharing_choice
+            .try_lock()
+            .ok()
             .and_then(|choice| choice.as_ref().map(Arc::downgrade));
         crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::arm(owner)
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn consent_timing_wait_for_test(&self) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait> {
-        if !crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::armed() { return None; }
-        let owner = self.inner.sharing_choice.try_lock().ok()
+    pub(super) fn consent_timing_wait_for_test(
+        &self,
+    ) -> Option<
+        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait,
+    > {
+        if !crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::armed(
+        ) {
+            return None;
+        }
+        let owner = self
+            .inner
+            .sharing_choice
+            .try_lock()
+            .ok()
             .and_then(|choice| choice.as_ref().map(Arc::downgrade));
         crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::wait_before(owner)
     }
