@@ -113,7 +113,7 @@ def parser_controls():
     row='owner-five-terminal side={} known=true pre_arm_unknown=true attempted_error=Some([1, 1, 6]) accepted_terminal=Some([4, 6]) progress=Some([true, false, true, false, false])'
     good=row.format('source')+'\n'+row.format('recipient')
     owner.ensure(parse(good)['sessions']['source']['attempted_error']==[1,1,6],'finite-positive')
-    owner.ensure(parse(good.replace('known=true','known=false').replace('Some([1, 1, 6])','None').replace('Some([4, 6])','None').replace('Some([true, false, true, false, false])','None'))['sessions']['recipient']['known'] is False,'unknown-positive')
+    owner.ensure(parse(good.replace(' known=true ',' known=false ').replace('Some([1, 1, 6])','None').replace('Some([4, 6])','None').replace('Some([true, false, true, false, false])','None'))['sessions']['recipient']['known'] is False,'unknown-positive')
     bad=['',good+'\n'+row.format('source'),good.replace('side=recipient','side=source'),good.replace('pre_arm_unknown=true','pre_arm_unknown=false'),good.replace('Some([1, 1, 6])','Some([1, 1, 13])'),good.replace('Some([4, 6])','Some([7, 6])'),good.replace('Some([true, false, true, false, false])','Some([1, false, true, false, false])'),good+' private=hidden',good.replace('Some([1, 1, 6])','Some([2, 7, 0])'),good.replace('Some([1, 1, 6])','Some([true, 1, 6])')]
     for raw in bad:
         try: parse(raw)
