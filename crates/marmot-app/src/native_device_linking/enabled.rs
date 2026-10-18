@@ -11,6 +11,10 @@ use std::sync::{
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
+// OWNER_FIVE_TERMINAL_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod terminal_diagnostic;
+// OWNER_FIVE_TERMINAL_TEST_END
 
 pub(super) struct SessionState {
     manager: AccountManager,
@@ -95,6 +99,10 @@ impl SessionState {
         ) && (snapshot.phase != phase || snapshot.decimals != decimals)
         {
             snapshot.revision = snapshot.revision.saturating_add(1);
+            // OWNER_FIVE_TERMINAL_TEST_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            terminal_diagnostic::accepted_terminal(self, snapshot.phase, phase);
+            // OWNER_FIVE_TERMINAL_TEST_END
             snapshot.phase = phase;
             snapshot.decimals = decimals;
             self.updates.send_replace(snapshot.clone());
@@ -135,6 +143,10 @@ impl SessionState {
                     .clone())
             }
             Err(error) => {
+                // OWNER_FIVE_TERMINAL_TEST_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                terminal_diagnostic::refresh_error(self, &error);
+                // OWNER_FIVE_TERMINAL_TEST_END
                 let phase = match &error {
                     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::Expired)) => {
                         DeviceLinkingPhase::Expired
@@ -235,6 +247,12 @@ impl AccountManager {
     }
 }
 impl DeviceLinkingSession {
+    // OWNER_FIVE_TERMINAL_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn arm_terminal_diagnostic_for_test(&self) -> Arc<terminal_diagnostic::Probe> {
+        terminal_diagnostic::Probe::arm(&self.inner)
+    }
+    // OWNER_FIVE_TERMINAL_TEST_END
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn enrollment_progress_for_test(&self) -> Option<[bool; 5]> {
         self.inner.operation.try_lock().ok().map(|progress| {

@@ -6,6 +6,8 @@ use cgka_traits::{MemberId, private_roster_settlement::PrivateSettlementPhase};
 use futures::FutureExt;
 use std::collections::BTreeSet;
 use std::time::Duration;
+use std::sync::Arc;
+type TerminalProbe = super::super::enabled::terminal_diagnostic::Probe;
 
 fn installation_signer(app: &MarmotApp, account: &MemberId) -> Vec<u8> {
     app.account_storage("test")
@@ -121,6 +123,7 @@ async fn join_installation(
     DeviceLinkingSession,
     DeviceLinkingSession,
     Vec<DeviceLinkingApproval>,
+    Option<(Arc<TerminalProbe>, Arc<TerminalProbe>)>,
 ) {
     assert!(sponsor < newcomer && newcomer < apps.len());
     let targets = managers[sponsor]
@@ -142,6 +145,7 @@ async fn join_installation(
         .begin_device_linking_session("test")
         .await
         .unwrap();
+    let recipient_probe = (newcomer == 4).then(|| recipient.arm_terminal_diagnostic_for_test());
     let source = managers[sponsor]
         .approve_automatic_device_linking_session(
             "test",
@@ -150,6 +154,7 @@ async fn join_installation(
         )
         .await
         .unwrap();
+    let source_probe = (newcomer == 4).then(|| source.arm_terminal_diagnostic_for_test());
     source.automatic_pairing_code().await.unwrap();
     compare_and_confirm_pair(&source, &recipient).await;
     recipient
@@ -203,7 +208,7 @@ async fn join_installation(
         approvals.push(approval);
     }
     assert_eq!(approvals.len(), newcomer - 1);
-    (source, recipient, approvals)
+    (source, recipient, approvals, source_probe.zip(recipient_probe))
 }
 
 // Production scheduling uses two runtime workers. All original one-thread
@@ -230,10 +235,20 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         // New installations B,C,D,E join through already-authorized A,B,C,B.
         for (newcomer, sponsor) in [(1usize, 0usize), (2, 1), (3, 2), (4, 1)] {
-            let (source, recipient, approvals) = join_installation(&apps, &managers, &account, sponsor, newcomer).await;
+            let (source, recipient, approvals, terminal_probes) = join_installation(&apps, &managers, &account, sponsor, newcomer).await;
             // Reuse the OWNER1611 helper:90s enrollment,15s earlier phases;
             // no deadline override, packets or extra host finalization calls.
-            wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;
+            let completion = std::panic::AssertUnwindSafe(wait_for_automatic_phase(
+                &source, &recipient, DeviceLinkingPhase::EnrollmentComplete,
+            )).catch_unwind().await;
+            if let Some((source_probe, recipient_probe)) = terminal_probes {
+                for (side, probe, session) in [("source", source_probe, &source), ("recipient", recipient_probe, &recipient)] {
+                    let (known, error, transition) = probe.snapshot();
+                    eprintln!("owner-five-terminal side={} known={} pre_arm_unknown=true attempted_error={:?} accepted_terminal={:?} progress={:?}",
+                        side, known, error, transition, session.enrollment_progress_for_test());
+                }
+            }
+            if let Err(failure) = completion { std::panic::resume_unwind(failure); }
             tokio::time::timeout(Duration::from_secs(20), async {
                 loop {
                     if complete_roster_and_bilateral_policies(&apps[..=newcomer], &account) { break; }

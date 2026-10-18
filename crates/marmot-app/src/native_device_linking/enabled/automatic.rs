@@ -577,6 +577,10 @@ impl Driver {
                         && state.snapshot.lock().expect("native observation lock").phase
                             != DeviceLinkingPhase::EnrollmentComplete
                     {
+                        // OWNER_FIVE_TERMINAL_TEST_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        super::terminal_diagnostic::driver_error(&state, &error);
+                        // OWNER_FIVE_TERMINAL_TEST_END
                         tracing::warn!(target: "marmot_app::device_linking", method = "automatic_transport", error_kind = error_kind(&error), "automatic pairing transport ended");
                         state.update(DeviceLinkingPhase::Failed, None);
                         state.close();

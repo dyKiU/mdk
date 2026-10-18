@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [owner-five-preflight, owner-five-acceptance, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression]
+        options: [owner-five-diagnostic-preflight, owner-five-diagnostic, owner-five-preflight, owner-five-acceptance, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -44,6 +44,81 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  # OWNER_FIVE_DIAGNOSTIC_JOBS_BEGIN
+  owner-five-diagnostic-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["owner-five-diagnostic-preflight","owner-five-diagnostic"]'), inputs.scope)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OWNER_FIVE_DIAGNOSTIC_BASELINE: c75d41ce5070f4d99d12e8c933cdc67733eb4aa6
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact c75 source with passive fifth-session hooks and closed parser controls
+        run: |
+          python3 scripts/diagnose_owner_five_terminal.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          rustfmt --edition 2024 --config skip_children=true crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs
+          git diff --binary -- crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs > "$RUNNER_TEMP/owner-five-terminal-format.patch"
+          git diff --exit-code -- crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: owner-five-terminal-preflight
+          path: |
+            owner-five-terminal-evidence/result.json
+            ${{ runner.temp }}/owner-five-terminal-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  owner-five-diagnostic:
+    needs: owner-five-diagnostic-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'owner-five-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OWNER_FIVE_DIAGNOSTIC_BASELINE: c75d41ce5070f4d99d12e8c933cdc67733eb4aa6
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact original toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: 'true'
+      - name: One unchanged fifth enrollment journey with passive finite terminal observations
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/diagnose_owner_five_terminal.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: owner-five-terminal-runtime
+          path: owner-five-terminal-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # OWNER_FIVE_DIAGNOSTIC_JOBS_END
   # OWNER_FIVE_1611_JOBS_BEGIN
   owner-five-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["owner-five-preflight","owner-five-acceptance"]'), inputs.scope)
