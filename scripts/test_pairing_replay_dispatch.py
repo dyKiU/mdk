@@ -32,6 +32,9 @@ EXPECTED = {
         "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent",
         "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record",
     },
+    "automatic-body-negative": {
+        PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
+    },
     "pairing-regression": {
         FOURTH,
         CONSENT,
@@ -54,7 +57,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         start = text.index("  pairing-replay:\n")
         replay = text[start:text.index("  archive-recovery-plan:\n", start)]
-        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","automatic-body-regression"]', replay)
+        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","automatic-body-regression","automatic-body-negative"]', replay)
         self.assertEqual(replay.count("REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}"), 1)
 
     def test_every_scope_is_offered_and_routes_to_pairing_job(self):
@@ -94,7 +97,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 cargo.chmod(0o700)
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
-                           REPLAY_SCOPE=ALIASES.get(scope, scope), SLOTS="1" if scope == "automatic-body-regression" else "3", PAIRING_COMMAND=str(command))
+                           REPLAY_SCOPE=ALIASES.get(scope, scope), SLOTS="1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3", PAIRING_COMMAND=str(command))
                 result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)

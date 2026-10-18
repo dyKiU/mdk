@@ -32,6 +32,10 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
         .await
         .unwrap();
     assert_eq!(history.message_ids.len(), 1);
+    let record_receipts = managers[0]
+        .observe_automatic_record_receipts_for_test("test")
+        .await
+        .unwrap();
     let recipient = managers[1]
         .begin_device_linking_session("test")
         .await
@@ -89,6 +93,10 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
                         .iter()
                         .any(|message| message.event_id.as_slice() == history_id)
                 })
+                && record_receipts
+                    .committed
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    > 0
             {
                 break;
             }
@@ -96,7 +104,11 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
         }
     })
     .await
-    .expect("the real existing chat and history must be fully mirrored first");
+    .expect("the real existing chat and history must be mirrored and its source receipt committed first");
+    // A visible recipient row precedes the source's authenticated RecordReceipt.
+    // Starting departure before that ACK can make its cut reject an old replay,
+    // renew the channel and abort the held intent before our rollback scenario.
+    eprintln!("body-negative-control stage=initial-record-receipt-committed");
     source.cancel().await.unwrap();
     recipient.cancel().await.unwrap();
     eprintln!("automatic-body-control stage=bilateral-pair-and-history-ready");

@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-directed-preflight, pure-directed-readiness, pure-directed-snapshot-mutations, pure-directed-snapshot-full19, pure-directed-storage-static, pure-directed-all, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-directed-preflight, pure-directed-readiness, pure-directed-snapshot-mutations, pure-directed-snapshot-full19, pure-directed-storage-static, pure-directed-all, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, automatic-body-negative, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       native_case:
         description: Exact native component mode (static executes no runtime bodies)
@@ -336,7 +336,7 @@ jobs:
           retention-days: 7
   # PURE_SOURCE_FORMAT_JOB_END
   workflow-union-preflight:
-    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","automatic-body-regression","archive-recovery","profile-edit-regression"]'), inputs.scope)
+    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","automatic-body-regression","automatic-body-negative","archive-recovery","profile-edit-regression"]'), inputs.scope)
     name: Recovery provenance and pairing dispatch metadata tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -371,7 +371,7 @@ jobs:
 
   pairing-replay:
     needs: workflow-union-preflight
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","automatic-body-regression"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","automatic-body-regression","automatic-body-negative"]'), inputs.scope)
     name: Pairing replay (${{ matrix.slots }} slots)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -380,7 +380,7 @@ jobs:
       matrix:
         # Serial and shared budgets both reproduced the same fourth-device stall.
         # Continue diagnosis once per candidate rather than duplicating the fixture.
-        slots: ${{ fromJSON(inputs.scope == 'automatic-body-regression' && '[1]' || '[3]') }}
+        slots: ${{ fromJSON(contains(fromJSON('["automatic-body-regression","automatic-body-negative"]'), inputs.scope) && '[1]' || '[3]') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -421,6 +421,8 @@ jobs:
             filter='package(marmot-app) & test(=native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent)'
           elif [[ "$REPLAY_SCOPE" == pairing-restart-higher-source ]]; then
             filter='package(marmot-app) & test(=native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record)'
+          elif [[ "$REPLAY_SCOPE" == automatic-body-negative ]]; then
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition)'
           elif [[ "$REPLAY_SCOPE" == automatic-body-regression ]]; then
             filter='package(marmot-app) & (test(=client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position) | test(=native_device_linking::automatic_pairing_acceptance::held_automatic_catalog_body_keeps_fresh_account_commands_responsive) | test(=native_device_linking::automatic_pairing_acceptance::body_late_ack_acceptance::authenticated_receipt_retires_final_catalog_body_before_late_backend_ack) | test(=native_device_linking::automatic_pairing_acceptance::body_late_ack_acceptance::unchanged_catalog_context_accepts_the_same_real_backend_ack) | test(=native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent) | test(=native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record) | test(=native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition))'
           fi
@@ -445,6 +447,8 @@ jobs:
               expected = {'native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent'}
           elif os.environ['REPLAY_SCOPE'] == 'pairing-restart-higher-source':
               expected = {'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record'}
+          elif os.environ['REPLAY_SCOPE'] == 'automatic-body-negative':
+              expected = {'native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition'}
           elif os.environ['REPLAY_SCOPE'] == 'automatic-body-regression':
               expected = {
                   'client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position',
