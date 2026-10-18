@@ -3223,7 +3223,9 @@ impl NostrSdkRelayClient {
         endpoint: &RelayUrl,
         event: &Event,
         transport_endpoint: &TransportEndpoint,
-        #[cfg(feature = "test-policy-overrides")] trace: Option<&crate::sdk_publication_timing::Token>,
+        #[cfg(feature = "test-policy-overrides")] trace: Option<
+            &crate::sdk_publication_timing::Token,
+        >,
     ) -> Result<Option<TransportEndpointAckKind>, TransportEndpointFailure> {
         let local_failure = |reason: &str| TransportEndpointFailure {
             endpoint: transport_endpoint.clone(),
@@ -3234,10 +3236,15 @@ impl NostrSdkRelayClient {
         match &self.publication {
             SdkPublication::OpaqueClient => {
                 #[cfg(feature = "test-policy-overrides")]
-                if let Some(token) = trace { token.route(0); token.stage(8, None); }
+                if let Some(token) = trace {
+                    token.route(0);
+                    token.stage(8, None);
+                }
                 let actual_send = self.client.send_event(event).to([endpoint.clone()]).await;
                 #[cfg(feature = "test-policy-overrides")]
-                if let Some(token) = trace { token.stage(9, Some((3, if actual_send.is_ok() { 0 } else { 2 }))); }
+                if let Some(token) = trace {
+                    token.stage(9, Some((3, if actual_send.is_ok() { 0 } else { 2 })));
+                }
                 let output = actual_send.map_err(|_| local_failure("send event failed"))?;
                 let remote = output.failed.get(endpoint).map(String::as_str);
                 if relay_endpoint_publish_accepted(output.success.contains_key(endpoint), remote) {
@@ -3274,10 +3281,25 @@ impl NostrSdkRelayClient {
                 #[cfg(feature = "test-policy-overrides")]
                 self.diagnose_publish_stage("sdk-send-start");
                 #[cfg(feature = "test-policy-overrides")]
-                if let Some(token) = trace { token.route(1); token.stage(8, None); }
+                if let Some(token) = trace {
+                    token.route(1);
+                    token.stage(8, None);
+                }
                 let result = relay.send_event(event).await;
                 #[cfg(feature = "test-policy-overrides")]
-                if let Some(token) = trace { token.stage(9, Some((3, match &result { Ok(_) => 0, Err(error) if error.kind() == SdkErrorKind::Rejected => 1, Err(_) => 2 }))); }
+                if let Some(token) = trace {
+                    token.stage(
+                        9,
+                        Some((
+                            3,
+                            match &result {
+                                Ok(_) => 0,
+                                Err(error) if error.kind() == SdkErrorKind::Rejected => 1,
+                                Err(_) => 2,
+                            },
+                        )),
+                    );
+                }
                 #[cfg(feature = "test-policy-overrides")]
                 self.diagnose_publish_stage("sdk-send-returned");
                 match result {
@@ -3305,7 +3327,9 @@ impl NostrSdkRelayClient {
         &self,
         endpoint: RelayUrl,
         event: Event,
-        #[cfg(feature = "test-policy-overrides")] trace: Option<crate::sdk_publication_timing::Token>,
+        #[cfg(feature = "test-policy-overrides")] trace: Option<
+            crate::sdk_publication_timing::Token,
+        >,
     ) -> Result<TransportEndpointReceipt, TransportEndpointFailure> {
         let transport_endpoint = TransportEndpoint(endpoint.to_string());
         let mut last_failure = TransportEndpointFailure {
@@ -3316,10 +3340,17 @@ impl NostrSdkRelayClient {
         };
         for attempt in 1..=SDK_RELAY_PUBLISH_ATTEMPTS {
             #[cfg(feature = "test-policy-overrides")]
-            if attempt > 1 { if let Some(token) = &trace { token.later_send(); } }
+            if attempt > 1 {
+                if let Some(token) = &trace {
+                    token.later_send();
+                }
+            }
             match timeout(
                 SDK_RELAY_PUBLISH_WAIT,
-                self.send_event_attempt(&endpoint, &event, &transport_endpoint,
+                self.send_event_attempt(
+                    &endpoint,
+                    &event,
+                    &transport_endpoint,
                     #[cfg(feature = "test-policy-overrides")]
                     if attempt == 1 { trace.as_ref() } else { None },
                 ),
@@ -3328,7 +3359,11 @@ impl NostrSdkRelayClient {
             {
                 Ok(Ok(ack_kind)) => {
                     #[cfg(feature = "test-policy-overrides")]
-                    if attempt == 1 { if let Some(token) = &trace { token.stage(10, Some((4, u8::from(ack_kind.is_some())))); } }
+                    if attempt == 1 {
+                        if let Some(token) = &trace {
+                            token.stage(10, Some((4, u8::from(ack_kind.is_some()))));
+                        }
+                    }
                     return Ok(TransportEndpointReceipt {
                         endpoint: transport_endpoint,
                         accepted_at: None,
@@ -3404,19 +3439,28 @@ impl NostrSdkRelayClient {
             let endpoint_trace = trace.clone();
             publishes.spawn(async move {
                 #[cfg(feature = "test-policy-overrides")]
-                if let Some(token) = &endpoint_trace { token.stage(5, None); }
+                if let Some(token) = &endpoint_trace {
+                    token.stage(5, None);
+                }
                 if connect_before_send {
                     #[cfg(feature = "test-policy-overrides")]
-                    if let Some(token) = &endpoint_trace { token.stage(6, None); }
+                    if let Some(token) = &endpoint_trace {
+                        token.stage(6, None);
+                    }
                     let connected = sdk.connect_publish_relay(endpoint.clone()).await;
                     #[cfg(feature = "test-policy-overrides")]
-                    if let Some(token) = &endpoint_trace { token.stage(7, Some((2, u8::from(connected.is_ok())))); }
+                    if let Some(token) = &endpoint_trace {
+                        token.stage(7, Some((2, u8::from(connected.is_ok()))));
+                    }
                     connected?;
                 }
-                sdk.send_event_to_relay(endpoint, event,
+                sdk.send_event_to_relay(
+                    endpoint,
+                    event,
                     #[cfg(feature = "test-policy-overrides")]
                     endpoint_trace,
-                ).await
+                )
+                .await
             });
         }
 
@@ -3446,7 +3490,9 @@ impl NostrSdkRelayClient {
                 Ok(Some(result)) => match result {
                     Ok(Ok(receipt)) => {
                         #[cfg(feature = "test-policy-overrides")]
-                        if let Some(token) = &trace { token.stage(14, Some((6, u8::from(receipt.ack_kind.is_some())))); }
+                        if let Some(token) = &trace {
+                            token.stage(14, Some((6, u8::from(receipt.ack_kind.is_some()))));
+                        }
                         accepted.push(receipt);
                         if accepted.len() >= ack_goal {
                             publishes.abort_all();
@@ -3510,10 +3556,14 @@ impl NostrSdkRelayClient {
         let mut unavailable = HashMap::new();
         for endpoint in &request.endpoints {
             #[cfg(feature = "test-policy-overrides")]
-            if let Some(token) = &trace { token.stage(3, None); }
+            if let Some(token) = &trace {
+                token.stage(3, None);
+            }
             let retained = lease.retain(endpoint).await;
             #[cfg(feature = "test-policy-overrides")]
-            if let Some(token) = &trace { token.stage(4, Some((1, u8::from(retained.is_ok())))); }
+            if let Some(token) = &trace {
+                token.stage(4, Some((1, u8::from(retained.is_ok()))));
+            }
             match retained {
                 Ok(()) => {}
                 Err(failure) => {
@@ -3534,14 +3584,20 @@ impl NostrSdkRelayClient {
         #[cfg(feature = "test-policy-overrides")]
         self.diagnose_publish_stage("single-release-start");
         #[cfg(feature = "test-policy-overrides")]
-        if let Some(token) = &trace { token.stage(11, None); }
+        if let Some(token) = &trace {
+            token.stage(11, None);
+        }
         lease.release().await;
         #[cfg(feature = "test-policy-overrides")]
-        if let Some(token) = &trace { token.stage(12, None); }
+        if let Some(token) = &trace {
+            token.stage(12, None);
+        }
         #[cfg(feature = "test-policy-overrides")]
         self.diagnose_publish_stage("single-release-returned");
         #[cfg(feature = "test-policy-overrides")]
-        if let Some(token) = &trace { token.stage(13, Some((5, u8::from(outcome.is_ok())))); }
+        if let Some(token) = &trace {
+            token.stage(13, Some((5, u8::from(outcome.is_ok()))));
+        }
 
         outcome
     }
@@ -4506,7 +4562,12 @@ impl NostrRelayClient for NostrSdkRelayClient {
     ) -> NostrPublishBatch {
         let batch_started_at = std::time::Instant::now();
         #[cfg(feature = "test-policy-overrides")]
-        let sdk_call = requests.first().filter(|_| requests.len() == 1).and_then(|request| crate::sdk_publication_timing::begin(&request.event.id, request.endpoints.len()));
+        let sdk_call = requests
+            .first()
+            .filter(|_| requests.len() == 1)
+            .and_then(|request| {
+                crate::sdk_publication_timing::begin(&request.event.id, request.endpoints.len())
+            });
         if self.validate_publish_context().await.is_err() {
             return NostrPublishBatch {
                 outcomes: requests
@@ -4538,13 +4599,23 @@ impl NostrRelayClient for NostrSdkRelayClient {
             #[cfg(feature = "test-policy-overrides")]
             let trace = sdk_call.as_ref().map(|call| call.token());
             #[cfg(feature = "test-policy-overrides")]
-            if let Some(token) = &trace { token.stage(1, None); }
+            if let Some(token) = &trace {
+                token.stage(1, None);
+            }
             let verified = self.event_for_publish(&request.event).await;
             #[cfg(feature = "test-policy-overrides")]
-            if let Some(token) = &trace { match &verified { Ok(event) => token.verified(event.id.to_bytes(), true), Err(_) => token.stage(2, Some((0, 0))) } }
+            if let Some(token) = &trace {
+                match &verified {
+                    Ok(event) => token.verified(event.id.to_bytes(), true),
+                    Err(_) => token.stage(2, Some((0, 0))),
+                }
+            }
             let event = match verified {
                 Ok(event) => event,
-                Err(error) => { prepared.push(Err(error)); continue; }
+                Err(error) => {
+                    prepared.push(Err(error));
+                    continue;
+                }
             };
             prepared.push(Ok(PreparedPublish {
                 #[cfg(feature = "test-policy-overrides")]

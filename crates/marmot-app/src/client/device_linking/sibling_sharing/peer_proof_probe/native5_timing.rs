@@ -353,7 +353,12 @@ pub(crate) struct Token {
 }
 impl Token {
     fn bind_sdk(&self) {
-        if let Some(probe) = self.probe.upgrade() { probe.sdk.bind(self.index * 2 + usize::from(self.proof), self.key.message.as_slice()); }
+        if let Some(probe) = self.probe.upgrade() {
+            probe.sdk.bind(
+                self.index * 2 + usize::from(self.proof),
+                self.key.message.as_slice(),
+            );
+        }
     }
     pub(in super::super::super) fn spawn_boundary(&self, index: usize) {
         if !self.proof {
@@ -528,7 +533,10 @@ impl ProofAttempt {
                 proof: true,
             });
         });
-        selected.map(|token| { token.bind_sdk(); token })
+        selected.map(|token| {
+            token.bind_sdk();
+            token
+        })
     }
 }
 fn same_entry(slot: &Slot, entry: &SiblingChannel) -> bool {
@@ -683,7 +691,10 @@ pub(in super::super::super) fn prepared(
             proof: false,
         });
     });
-    selected.map(|token| { token.bind_sdk(); token })
+    selected.map(|token| {
+        token.bind_sdk();
+        token
+    })
 }
 pub(crate) fn armed() -> bool {
     registry().get().and_then(Weak::upgrade).is_some()
