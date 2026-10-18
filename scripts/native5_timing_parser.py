@@ -542,6 +542,8 @@ NOTIFICATION_OPTION = r'(?:None|Some\(\[' + U64 + r'(?:, ' + U64 + r'){7}\]\))'
 NOTIFICATION_TIMES = r'(?:None|Some\(\[' + ON + r'(?:, ' + ON + r'){7}\]\))'
 PLACEMENT_OPTION = r'(?:None|Some\(\[' + U64 + r'(?:, ' + U64 + r'){5}\]\))'
 PLACEMENT_TIMES = r'(?:None|Some\(\[' + ON + r'(?:, ' + ON + r'){5}\]\))'
+QUEUE_DEPTHS = r'(?:None|Some\(\(' + N + r', ' + N + r'\)\))'
+QUEUE_OBSERVATION = r'(?:None|Some\(\(' + QUEUE_DEPTHS + r', ' + U64 + r', ' + ON + r', (?:true|false)\)\))'
 NOTIFICATION_MASK = r'(?:None|Some\((?:0|[1-9][0-9]{0,2})\))'
 
 
@@ -575,7 +577,7 @@ def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_
     rows = []
     for index, line in enumerate(lines[1:]):
         match = re.fullmatch(r'native5-notification-disposition plane=([0-4]) channel=([0-2]) counts=('
-            + NOTIFICATION_OPTION + r') first_us=(' + NOTIFICATION_TIMES + r') clock_invalid_mask=(' + NOTIFICATION_MASK + r') placement_counts=(' + PLACEMENT_OPTION + r') placement_first_us=(' + PLACEMENT_TIMES + r') placement_clock_invalid_mask=(' + NOTIFICATION_MASK + ')', line)
+            + NOTIFICATION_OPTION + r') first_us=(' + NOTIFICATION_TIMES + r') clock_invalid_mask=(' + NOTIFICATION_MASK + r') placement_counts=(' + PLACEMENT_OPTION + r') placement_first_us=(' + PLACEMENT_TIMES + r') placement_clock_invalid_mask=(' + NOTIFICATION_MASK + r') queue_observation=(' + QUEUE_OBSERVATION + ')', line)
         require(match is not None and (int(match[1]),int(match[2])) == (index//3,index%3),
             'notification-ordered-five-by-three-rows')
         plane,channel = int(match[1]),int(match[2])
@@ -610,13 +612,30 @@ def notification_dispositions(raw, ordinal, peer_proofs, required=False, native_
                 require((count == 0 and stamp is None and not invalid) or
                     (count > 0 and ((invalid and stamp is None) or (not invalid and stamp is not None))),
                     'notification-placement-count-clock-coherence')
+        queue=None
+        if match[9] != 'None':
+            value=re.fullmatch(r'Some\(\(('+QUEUE_DEPTHS+r'), ('+U64+r'), ('+ON+r'), (true|false)\)\)',match[9])
+            depths=None
+            if value[1]!='None':
+                depth=re.fullmatch(r'Some\(\(('+N+r'), ('+N+r')\)\)',value[1])
+                depths={'before_accepted_send':number(depth[1],1025),'after_accepted_send':number(depth[2],1025)}
+                require(placement is not None and placement[0]>0,'notification-depth-needs-actual-accepted-placement')
+            dequeue_count=int(value[2]);require(dequeue_count<=U64_MAX,'notification-dequeue-u64-bound')
+            dequeue_first=opt(value[3]);invalid=value[4]=='true'
+            require((dequeue_count==0 and dequeue_first is None) or (dequeue_count>0 and (dequeue_first is not None or invalid)),
+                'notification-dequeue-count-first-clock-coherence')
+            queue={'first_accepted_send_depth_snapshot':depths,'successful_account_delivery_receive_count':dequeue_count,
+                'first_successful_account_delivery_receive_us':dequeue_first,'invalid_observation':invalid,
+                'depth_snapshot_and_dequeue_are_not_atomic':True,'no_FIFO_position_or_queue_depth_order_inferred':True,
+                'dequeue_is_not_Core_or_native_acceptance':True}
+        require((queue is None)==(values is None),'notification-queue-same-registry-entry-presence')
         require((available and bindings[channel] is True) or values is None, 'notification-unbound-or-unavailable-row-unknown')
         rows.append({'plane':plane,'channel':channel,'recipient_plane_for_this_join':plane == ordinal-1,
             'registry_entry_observed':values is not None,'counters':None if values is None else dict(zip(NOTIFICATION_COUNTERS,values)),
             'first_dispatcher_stage_us':None if first is None else dict(zip(NOTIFICATION_COUNTERS,first)),
             'clock_invalid_mask':mask,'placement_counters':None if placement is None else dict(zip(PLACEMENT_COUNTERS,placement)),
             'placement_first_dispatcher_us':None if placement_first is None else dict(zip(PLACEMENT_COUNTERS,placement_first)),
-            'placement_clock_invalid_mask':placement_mask,'queue_accepted_does_not_mean_dequeued':True,
+            'placement_clock_invalid_mask':placement_mask,'queue_observation':queue,'queue_accepted_does_not_mean_dequeued':True,
             'spill_offered_does_not_mean_durable':True,'stage_clocks_are_socket_arrival_times':False,
             'counts_and_first_instants_from_same_entry_mutex':True})
     return {'observed':True,'schema_complete':True,'source_ids_snapshot_available':available,
@@ -649,7 +668,7 @@ def notification_parser_controls():
             for channel in range(3):
                 counts = observations.get((plane,channel),'None')
                 first,mask = stamps.get((plane,channel),('None','None') if counts == 'None' else ('Some(['+', '.join(['None']*8)+'])','Some(0)'))
-                rows.append('native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counts+' first_us='+first+' clock_invalid_mask='+mask+' placement_counts='+('None' if counts == 'None' else 'Some([0, 0, 0, 0, 0, 0])')+' placement_first_us='+('None' if counts == 'None' else 'Some([None, None, None, None, None, None])')+' placement_clock_invalid_mask='+('None' if counts == 'None' else 'Some(0)'))
+                rows.append('native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counts+' first_us='+first+' clock_invalid_mask='+mask+' placement_counts='+('None' if counts == 'None' else 'Some([0, 0, 0, 0, 0, 0])')+' placement_first_us='+('None' if counts == 'None' else 'Some([None, None, None, None, None, None])')+' placement_clock_invalid_mask='+('None' if counts == 'None' else 'Some(0)')+' queue_observation='+('None' if counts == 'None' else 'Some((None, 0, None, false))'))
         return '\n'.join(rows)
     proofs = [{'first_attempt_actual_message_bound':True},None,None]
     baseline = appendix()
@@ -740,14 +759,32 @@ def notification_parser_controls():
         try:notification_dispositions(value,4,proofs,True)
         except ValueError:continue
         raise ValueError('notification-placement-adversary-accepted')
-    return {'positive':10,'negative':len(bad)+len(clock_bad)+len(placement_bad)+5,'safe_unknown_controls':2,'actual_runtime_bodies':0,
+    dequeue=zero.replace('queue_observation=Some((None, 0, None, false))','queue_observation=Some((Some((1025, 0)), 1, Some(0), false))').replace('placement_counts=Some([0, 0, 0, 0, 0, 0])','placement_counts=Some([1, 0, 0, 0, 0, 0])').replace('placement_first_us=Some([None, None, None, None, None, None])','placement_first_us=Some([Some(1), None, None, None, None, None])')
+    require(notification_dispositions(dequeue,4,proofs,True)['rows'][9]['queue_observation']['successful_account_delivery_receive_count']==1,'notification-real-dequeue-observation')
+    invalid_dequeue=zero.replace('queue_observation=Some((None, 0, None, false))','queue_observation=Some((None, 1, None, true))')
+    require(notification_dispositions(invalid_dequeue,4,proofs,True)['rows'][9]['queue_observation']['invalid_observation'],'notification-unknown-dequeue-clock-retained')
+    dequeue_bad=[dequeue.replace('placement_counts=Some([1, 0, 0, 0, 0, 0])','placement_counts=Some([0, 0, 0, 0, 0, 0])').replace('placement_first_us=Some([Some(1), None, None, None, None, None])','placement_first_us=Some([None, None, None, None, None, None])'),
+        dequeue.replace('Some((1025, 0))','Some((1026, 0))'),
+        dequeue.replace('Some((1025, 0))','Some((true, 0))'),
+        dequeue.replace(', 1, Some(0), false))',', 18446744073709551616, Some(0), false))'),
+        dequeue.replace(', 1, Some(0), false))',', 1, None, false))'),
+        dequeue.replace(', 1, Some(0), false))',', 0, Some(0), false))'),
+        dequeue.replace('queue_observation=Some((Some((1025, 0)), 1, Some(0), false))','queue_observation=None'),
+        baseline.replace('queue_observation=None','queue_observation=Some((None, 0, None, false))',1),
+        dequeue.replace(', 1, Some(0), false))',', 1, Some(600000001), false))'),
+        dequeue.replace(', 1, Some(0), false))',', 1, Some(0), PRIVATE_PAYLOAD))')]
+    for value in dequeue_bad:
+        try:notification_dispositions(value,4,proofs,True)
+        except ValueError:continue
+        raise ValueError('notification-dequeue-adversary-accepted')
+    return {'positive':12,'negative':len(bad)+len(clock_bad)+len(placement_bad)+len(dequeue_bad)+5,'safe_unknown_controls':2,'actual_runtime_bodies':0,
         'None_never_means_no_arrival':True,'authored_fixture_not_runtime_evidence':True}
 
 
 def notification_maximum_width_appendix():
     header = 'native5-notification-meta source_ids_snapshot_available=true source_id_bound=[Some(true), Some(true), Some(true)]'
     counters = 'Some(['+', '.join([str(U64_MAX)]*8)+'])'
-    rows = [header]+['native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counters+' first_us=Some(['+', '.join(['Some(600000000)']*8)+']) clock_invalid_mask=Some(0) placement_counts=Some(['+', '.join([str(U64_MAX)]*6)+']) placement_first_us=Some(['+', '.join(['Some(600000000)']*6)+']) placement_clock_invalid_mask=Some(0)'
+    rows = [header]+['native5-notification-disposition plane='+str(plane)+' channel='+str(channel)+' counts='+counters+' first_us=Some(['+', '.join(['Some(600000000)']*8)+']) clock_invalid_mask=Some(0) placement_counts=Some(['+', '.join([str(U64_MAX)]*6)+']) placement_first_us=Some(['+', '.join(['Some(600000000)']*6)+']) placement_clock_invalid_mask=Some(0) queue_observation=Some((Some((1025, 1025)), 18446744073709551615, Some(600000000), false))'
         for plane in range(5) for channel in range(3)]
     require(len(rows) == 16 and all(len(line.encode()) <= 1024 for line in rows), 'notification-maximum-closed-shape')
     return rows

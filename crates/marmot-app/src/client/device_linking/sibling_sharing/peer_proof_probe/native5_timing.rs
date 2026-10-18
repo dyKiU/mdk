@@ -2329,6 +2329,7 @@ impl Guard {
             Option<[u64; 6]>,
             Option<[Option<u64>; 6]>,
             Option<u8>,
+            Option<(Option<(usize, usize)>, u64, Option<u64>, bool)>,
         ); 3]; 5],
     ) -> String {
         use std::fmt::Write as _;
@@ -2566,12 +2567,13 @@ impl Guard {
                     placement_counts,
                     placement_first_us,
                     placement_clock_invalid_mask,
+                    queue_observation,
                 ),
             ) in rows.into_iter().enumerate()
             {
                 let _ = writeln!(
                     &mut output,
-                    "native5-notification-disposition plane={plane} channel={channel} counts={counts:?} first_us={first_us:?} clock_invalid_mask={clock_invalid_mask:?} placement_counts={placement_counts:?} placement_first_us={placement_first_us:?} placement_clock_invalid_mask={placement_clock_invalid_mask:?}"
+                    "native5-notification-disposition plane={plane} channel={channel} counts={counts:?} first_us={first_us:?} clock_invalid_mask={clock_invalid_mask:?} placement_counts={placement_counts:?} placement_first_us={placement_first_us:?} placement_clock_invalid_mask={placement_clock_invalid_mask:?} queue_observation={queue_observation:?}"
                 );
             }
         }
