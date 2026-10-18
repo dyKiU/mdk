@@ -1393,7 +1393,7 @@ jobs:
       - name: Record qualification source
         run: |
           echo "qualification-source: $(git rev-parse HEAD)"
-          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-tree: $(git rev-parse 'HEAD^{tree}')"
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5 # nextest

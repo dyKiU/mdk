@@ -2,7 +2,9 @@
 //! sharing consent, remote membership, or authority to send through a sibling.
 use crate::{Engine, device_group_snapshot::CandidateDeviceGroupSnapshot};
 use cgka_traits::{
-    EngineError, GroupId, GroupLifecycleState, group::ProtocolProfile, storage::StorageProvider,
+    EngineError, GroupId, GroupLifecycleState,
+    group::{Group, ProtocolProfile},
+    storage::{StorageError, StorageProvider},
 };
 
 /// One exact local membership; a remote catalog copy must not become an MLS row.
@@ -63,6 +65,40 @@ impl<S: StorageProvider> Engine<S> {
         })
     }
 
+    /// Observe one exact current local source independently of discovery cursors.
+    /// This carries no sharing permission or remote membership.
+    pub fn account_chat_catalog_entry(
+        &self,
+        protected: &GroupId,
+        group: &GroupId,
+    ) -> Result<Option<AccountChatCatalogEntry>, EngineError> {
+        if group.as_slice().is_empty() || group.as_slice().len() > 255 {
+            return Err(EngineError::Other(
+                "invalid account chat catalog group".into(),
+            ));
+        }
+        self.storage.with_read_snapshot(|storage| {
+            self.validated_settled_device_roster(protected)?
+                .ok_or_else(|| {
+                    EngineError::Other("settled account chat roster unavailable".into())
+                })?;
+            let record = match storage.get_group(group) {
+                Ok(record) => record,
+                Err(StorageError::NotFound) => return Ok(None),
+                Err(error) => return Err(error.into()),
+            };
+            if record.id != *group {
+                return Err(EngineError::Other(
+                    "account chat source identity mismatch".into(),
+                ));
+            }
+            match self.account_chat_catalog_observation(protected, record, false)? {
+                Some(AccountChatCatalogObservation::Active(entry)) => Ok(Some(entry)),
+                _ => Ok(None),
+            }
+        })
+    }
+
     /// Bounded source journal including only actual canonical terminal copies.
     /// Hidden local projections do not terminate MLS membership and are not withdrawals.
     pub fn account_chat_catalog_journal(
@@ -99,49 +135,15 @@ impl<S: StorageProvider> Engine<S> {
             records.sort_by(|a, b| a.id.as_slice().cmp(b.id.as_slice()));
             let mut entries = Vec::new();
             for record in records {
-                if record.id == *protected
-                    || after.is_some_and(|cursor| record.id.as_slice() <= cursor.as_slice())
-                {
+                if after.is_some_and(|cursor| record.id.as_slice() <= cursor.as_slice()) {
                     continue;
                 }
-                if record.is_terminal() {
-                    if include_terminal && !self.exclude_private_group_from_chat(&record.id)? {
-                        entries.push(AccountChatCatalogObservation::Withdrawn {
-                            group_id: record.id,
-                            epoch: record.epoch.0,
-                            profile: record.protocol_profile,
-                            disbanded: record.disbanded.is_some(),
-                        });
-                        if entries.len() == limit {
-                            break;
-                        }
-                    }
+                let Some(observation) =
+                    self.account_chat_catalog_observation(protected, record, include_terminal)?
+                else {
                     continue;
-                }
-                let authority = self.group_authority(&record.id)?;
-                if authority.lifecycle != GroupLifecycleState::Stable
-                    || authority.disbanding
-                    || !authority.facts.is_member
-                {
-                    continue;
-                }
-                if self.exclude_private_group_from_chat(&record.id)? {
-                    continue;
-                }
-                let membership = self.canonical_group_membership(&record.id)?;
-                if !membership.local_leaf_active {
-                    continue;
-                }
-                entries.push(AccountChatCatalogObservation::Active(
-                    AccountChatCatalogEntry {
-                        local_leaf_index: self
-                            .with_mls_group(&record.id, |group| Ok(group.own_leaf_index().u32()))?,
-                        local_is_admin: authority.facts.is_admin,
-                        group_id: record.id,
-                        epoch: authority.facts.epoch.0,
-                        profile: record.protocol_profile,
-                    },
-                ));
+                };
+                entries.push(observation);
                 if entries.len() == limit {
                     break;
                 }
@@ -152,5 +154,51 @@ impl<S: StorageProvider> Engine<S> {
                 entries,
             })
         })
+    }
+
+    fn account_chat_catalog_observation(
+        &self,
+        protected: &GroupId,
+        record: Group,
+        include_terminal: bool,
+    ) -> Result<Option<AccountChatCatalogObservation>, EngineError> {
+        if record.id == *protected {
+            return Ok(None);
+        }
+        if record.is_terminal() {
+            return Ok(
+                if include_terminal && !self.exclude_private_group_from_chat(&record.id)? {
+                    Some(AccountChatCatalogObservation::Withdrawn {
+                        group_id: record.id,
+                        epoch: record.epoch.0,
+                        profile: record.protocol_profile,
+                        disbanded: record.disbanded.is_some(),
+                    })
+                } else {
+                    None
+                },
+            );
+        }
+        let authority = self.group_authority(&record.id)?;
+        if authority.lifecycle != GroupLifecycleState::Stable
+            || authority.disbanding
+            || !authority.facts.is_member
+            || self.exclude_private_group_from_chat(&record.id)?
+            || !self
+                .canonical_group_membership(&record.id)?
+                .local_leaf_active
+        {
+            return Ok(None);
+        }
+        Ok(Some(AccountChatCatalogObservation::Active(
+            AccountChatCatalogEntry {
+                local_leaf_index: self
+                    .with_mls_group(&record.id, |group| Ok(group.own_leaf_index().u32()))?,
+                local_is_admin: authority.facts.is_admin,
+                group_id: record.id,
+                epoch: authority.facts.epoch.0,
+                profile: record.protocol_profile,
+            },
+        )))
     }
 }

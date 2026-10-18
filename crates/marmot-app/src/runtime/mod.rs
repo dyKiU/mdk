@@ -7284,6 +7284,9 @@ impl AccountManager {
             let pending = accounts
                 .into_iter()
                 .filter(|account| !existing_account_ids.contains(&account.account_id_hex))
+                .filter(|account| {
+                    target_account_id.is_none_or(|target| account.account_id_hex == target)
+                })
                 .collect::<Vec<_>>();
 
             let mut ready_receivers = Vec::new();
