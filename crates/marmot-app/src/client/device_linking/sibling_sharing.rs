@@ -1437,7 +1437,9 @@ impl AppClient {
     /// Neither an ingest result nor a watch notification grants sharing authority.
     pub(crate) fn note_owned_sibling_source_readiness(&self) {
         if self.linking_owner.pending_sibling_source.is_some() {
-            self.linking_owner.sibling_publication_completions.send_replace(());
+            self.linking_owner
+                .sibling_publication_completions
+                .send_replace(());
         }
     }
 
@@ -1458,13 +1460,15 @@ impl AppClient {
             Ok(Some(original)) => {
                 let mut actual_channel = false;
                 for (index, entry) in self.linking_owner.sibling_channels.iter_mut().enumerate() {
-                    if !entry.recipient && matches!(entry.original.as_ref(),
+                    if !entry.recipient
+                        && matches!(entry.original.as_ref(),
                         SiblingOriginal::Existing { original: held, .. } if Arc::ptr_eq(held, &original))
                     {
                         actual_channel = true;
                         // Only a newly created exact source gets this first shot.
                         // A consumed or failed attempt can never be revived here.
-                        if index >= previous_channels && !entry.handshake_attempted
+                        if index >= previous_channels
+                            && !entry.handshake_attempted
                             && entry.deferred_initial_error.is_none()
                         {
                             entry.initial_source_due = true;
