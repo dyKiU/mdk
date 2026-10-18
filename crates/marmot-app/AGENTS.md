@@ -66,6 +66,10 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   held open by the store's `CheckpointReader`, or one `media-staging/` file without a validator; authenticated into a
   discard sink before the receipt and decrypted by `DecryptingReader` straight into the store publish; never write a
   plaintext file for a download) and the `MediaFileTransferControl` cancellation/progress handle.
+- `runtime/attachment_storage.rs` is Manage storage (mdk#2314 step 5): usage and largest-first listings across both
+  body layouts, and bulk removal that is exactly explicit `Remove`. Every removal path (bulk or `control_attachment`)
+  unlinks the media files its transaction released through `unlink_released` before returning; never leave that to the
+  sweep.
 - `media/handoff.rs` owns handoff leases (mdk#2314 step 4): the only plaintext attachment files MDK writes, decrypted from a
   retained body (either layout) into `<account>/handoff/<lease>/<name>` for an OS surface that needs a real file.
   Register a lease before its directory exists, delete only on explicit release or by `wipe_stale` (worker start,
@@ -308,7 +312,9 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
 
 ## Code map (modules not covered above)
 
-- Crate root `src/`: `config.rs` (`MarmotAppConfig`, service endpoints, attachment acquisition policy), `error.rs`,
+- Crate root `src/`: `config.rs` (`MarmotAppConfig`, collector endpoints, attachment acquisition policy),
+  `deployment.rs` (`MarmotDeployment`: the deployment services, with `neutral()` and the White Noise preset; the one
+  place White Noise's values are defined), `error.rs`,
   `close_registry.rs` (terminal-close closures for runtime-owned handles outside the storage caches),
   `ids.rs` (npub/nprofile/account-ref helpers), `drafts.rs` (encrypted per-account composer drafts),
   `chat_presentation.rs` + `chat_presentation/` (shared selected-chat presentation policy and maintenance),

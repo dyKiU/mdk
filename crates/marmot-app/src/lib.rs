@@ -89,6 +89,11 @@ pub mod audit_otlp_sender;
 mod chat_presentation;
 mod client;
 mod config;
+mod deployment;
+pub use deployment::{
+    KeyPackageClientPreference, MarmotDeployment, NEUTRAL_KEYCHAIN_SERVICE_NAME,
+    OpenRankingProvider,
+};
 pub mod conversation_presentation;
 mod conversions;
 #[cfg(feature = "experimental-device-sync")]
@@ -161,9 +166,9 @@ mod messages;
 mod moderation_reports;
 pub use moderation_reports::{
     MODERATION_REPORT_EXPLANATION_MAX_CHARS, MODERATION_REPORT_IDEMPOTENCY_WINDOW,
-    MODERATION_REPORT_LABEL_NAMESPACE, MODERATION_REPORT_RATE_LIMIT, MODERATION_REPORT_RATE_WINDOW,
-    ModerationReportConfig, ModerationReportOrigin, ModerationReportOutcome,
-    ModerationReportRetrySummary, ModerationReportStatus,
+    MODERATION_REPORT_RATE_LIMIT, MODERATION_REPORT_RATE_WINDOW, ModerationReportConfig,
+    ModerationReportOrigin, ModerationReportOutcome, ModerationReportRetrySummary,
+    ModerationReportStatus,
 };
 mod nostr_secret;
 mod nostr_verification;
@@ -214,7 +219,6 @@ pub use runtime::{
     RuntimeNotificationsSubscription, RuntimeProjectionUpdate, RuntimeSharedServices,
     RuntimeTimelineMessageUpdate, RuntimeTimelineMessagesSubscription, SignOutOptions,
     SignOutOutcome, StreamStartView, TimelineWindowHandle, WipeOutcome,
-    default_directory_discovery_relays,
 };
 pub use runtime::{
     AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
@@ -308,14 +312,13 @@ pub use media::file_transfer::{
 };
 pub use media::handoff::AttachmentHandoff;
 pub use media::{
-    DEFAULT_BLOSSOM_SERVER_URL, DEFAULT_BLOSSOM_SERVER_URLS, ENCRYPTED_MEDIA_VERSION,
-    EncryptedMediaVersion, MAX_ENCRYPTED_MEDIA_BLOB_BYTES, MAX_GROUP_IMAGE_BYTES,
-    MAX_GROUP_IMAGE_DIMENSION, MAX_GROUP_IMAGE_PIXELS, MediaAttachmentOutcome,
-    MediaAttachmentReference, MediaAttachmentRejection, MediaAttachmentRejectionKind,
-    MediaDownloadResult, MediaLocator, MediaUploadAttachmentRequest, MediaUploadAttachmentResult,
-    MediaUploadRequest, MediaUploadResult, download_profile_image, media_attachment_from_imeta_tag,
-    media_attachment_outcomes_from_media_json, media_attachment_outcomes_from_tags,
-    parse_media_attachment,
+    ENCRYPTED_MEDIA_VERSION, EncryptedMediaVersion, MAX_ENCRYPTED_MEDIA_BLOB_BYTES,
+    MAX_GROUP_IMAGE_BYTES, MAX_GROUP_IMAGE_DIMENSION, MAX_GROUP_IMAGE_PIXELS,
+    MediaAttachmentOutcome, MediaAttachmentReference, MediaAttachmentRejection,
+    MediaAttachmentRejectionKind, MediaDownloadResult, MediaLocator, MediaUploadAttachmentRequest,
+    MediaUploadAttachmentResult, MediaUploadRequest, MediaUploadResult, download_profile_image,
+    media_attachment_from_imeta_tag, media_attachment_outcomes_from_media_json,
+    media_attachment_outcomes_from_tags, parse_media_attachment,
 };
 pub use messages::{is_reserved_app_event_kind, is_stream_final_event, tag_value, tag_values};
 pub use nostr_secret::is_nostr_secret;
@@ -1646,6 +1649,27 @@ impl MarmotApp {
         &self.config.service_endpoints
     }
 
+    pub(crate) fn deployment(&self) -> &MarmotDeployment {
+        &self.config.deployment
+    }
+
+    /// Public indexer relays used to resolve existing identities and spread
+    /// newly generated accounts' public relay lists and profile metadata: the
+    /// deployment's [`MarmotDeployment::discovery_indexer_relays`].
+    ///
+    /// A brand-new external-signer account (or an imported nsec) keeps its
+    /// NIP-65 relay list (kind:10002) and profile (kind:0) on public indexers,
+    /// not on the app's own messaging relays. Discovering an existing profile
+    /// against the app's relays therefore finds nothing and the display name
+    /// never resolves. These indexers give the directory preflight a discovery
+    /// set distinct from the operational messaging relays, and directory reads
+    /// stay available for imported and external-signer accounts even when
+    /// local development relays suppress public writes. They are never adopted
+    /// as the account's messaging relays.
+    pub fn discovery_indexer_relays(&self) -> Vec<TransportEndpoint> {
+        self.deployment().discovery_indexer_endpoints()
+    }
+
     /// Whether this build may act on loopback-HTTP blob endpoints (dev/test
     /// only). Production builds return `false` and skip such endpoints in the
     /// upload/download act paths.
@@ -1717,6 +1741,9 @@ impl MarmotApp {
         {
             config.dev_settlement_quiescence_ms = Some(0);
         }
+        // `deployment` is a public field, so a struct literal can skip
+        // `with_deployment`; normalize once where the app keeps it.
+        config.deployment = config.deployment.normalize();
         let root = root.as_ref().to_path_buf();
         let relay_plane = MarmotRelayPlane::runtime_default_with_loopback(
             APP_RUNTIME_RELAY_REBUILD_LOOKBACK,
@@ -1819,8 +1846,11 @@ impl MarmotApp {
         root: impl AsRef<Path>,
         relay_urls: Vec<String>,
         account_home: AccountHome,
-        config: MarmotAppConfig,
+        mut config: MarmotAppConfig,
     ) -> Self {
+        // `deployment` is a public field, so a struct literal can skip
+        // `with_deployment`; normalize once where the app keeps it.
+        config.deployment = config.deployment.normalize();
         let relay_plane = MarmotRelayPlane::runtime_default_with_loopback(
             APP_RUNTIME_RELAY_REBUILD_LOOKBACK,
             config.allow_loopback_relay_endpoints,
@@ -5965,6 +5995,7 @@ impl MarmotApp {
                         &account_id,
                         records,
                         self.directory_freshness(),
+                        &self.deployment().key_package_client_preference,
                     )?,
                     Some(entry.clone()),
                 )?;
@@ -8477,6 +8508,10 @@ pub use runtime::{
     AttachmentTransferState, AttachmentTransferStatus, AutomaticAttachmentRequest,
     MAX_ATTACHMENT_ASSET_LOOKUPS, MAX_ATTACHMENT_HISTORY_PAGE, MAX_ATTACHMENT_LOCAL_READ_BYTES,
     RetainedAttachmentAsset, RuntimeAttachmentTransferSubscription,
+};
+pub use runtime::{
+    AttachmentStorageUsage, ChatAttachmentUsage, ChatUsageCursor, RetainedAttachmentSummary,
+    RetainedSizeCursor,
 };
 
 pub use runtime::{

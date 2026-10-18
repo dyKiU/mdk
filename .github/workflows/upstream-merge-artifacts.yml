@@ -24,7 +24,7 @@ env:
 
 jobs:
   prepare:
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-')
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') || (github.event_name == 'workflow_dispatch' && inputs.generation_only && github.ref_name == 'ci/upstream-integration-refresh-20261018')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -49,6 +49,12 @@ jobs:
       - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
         with:
           tool: just,cbindgen@0.29.4
+      - name: Format authored merge source and preserve exact patch
+        if: github.event_name == 'workflow_dispatch' && inputs.generation_only && github.ref_name == 'ci/upstream-integration-refresh-20261018'
+        run: |
+          cargo fmt --all
+          git diff --binary -- '*.rs' > repair/formatting.patch
+          sha256sum repair/formatting.patch > repair/formatting.patch.sha256
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: upstream-merge-artifact-repair
@@ -103,7 +109,7 @@ jobs:
           # Preserve missing authored private guidance from the last combined
           # reference. Current upstream entries win every overlapping key;
           # the canonical generator below rewrites all signatures and anchors.
-          reference = '0aeb969a5c17102c00945b1c856fdc59983e2718'
+          reference = 'a387bef3d19ae4c2d0a96242381ce9094b88489b'
           paths = [Path('crates/marmot-uniffi/API-REFERENCE.md'),
                    Path('crates/marmot-c/API-REFERENCE.md')]
           catalogs = [canonical.uniffi_catalog(), canonical.c_exports_in(

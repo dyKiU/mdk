@@ -20,8 +20,6 @@ ROOT_BUILD_PATHS = {
     "Cargo.lock",
     "Cargo.toml",
     "Justfile",
-    "scripts/select_ci_tests.py",
-    "scripts/test_select_ci_tests.py",
     "rust-toolchain.toml",
 }
 
@@ -148,6 +146,9 @@ def _is_documentation(path: str) -> bool:
         (path.endswith(".md") and not executable_markdown)
         or path.startswith(".github/ISSUE_TEMPLATE/")
         or path.startswith(".github/PULL_REQUEST_TEMPLATE/")
+        # The symlink that exposes `.agents/skills` to Claude Code. Skill
+        # Markdown is covered above; other skill files fail open.
+        or path == ".claude/skills"
     )
 
 

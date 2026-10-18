@@ -35,6 +35,7 @@
 
 ### Added
 
+- `MarmotOptions.deployment` takes a `MarmotDeploymentFfi` (with `OpenRankingProviderFfi`) for the deployment's recovery relays, discovery indexers, media and image servers, Open Ranking, KeyPackage client preference, moderation label namespace and keychain service; `marmot_deployment_white_noise()` and `marmot_deployment_neutral()` build one. Without a `SecretStore`, the platform keychain now opens under the deployment's `keychain_service`. An omitted deployment is White Noise's, unchanged, until the neutral default lands, when every constructor will require one (host-configuration brief, PR 2).
 - `open_attachment_handoff` and `release_attachment_handoff`, with record
   `AttachmentHandoffFfi` (mdk#2314 step 4): a private plaintext copy of a
   retained attachment, lent under a lease to an OS surface that needs a real
