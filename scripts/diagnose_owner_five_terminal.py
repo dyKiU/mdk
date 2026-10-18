@@ -21,8 +21,8 @@ OUT = Path('owner-five-terminal-evidence')
 PINS = {
     'crates/marmot-app/src/native_device_linking/enabled.rs': 'a1346c0e15ecfcb39899ffefe1c580b29fa4d5a570983274967c6258d9513975',
     'crates/marmot-app/src/native_device_linking/enabled/automatic.rs': '69437cd30b2c435667a5d0d2318dd6f83b44cf82615d151f4751c17e1c122abd',
-    'crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs': '8975513291dd6189e9c3b5ecf1e4448fc6df6527e0585845512a050db7553b7f',
-    owner.FIVE_FILE: '38cf3306de378c35dc582cbf018eeb0a2c1b575b5a912628218023ac6e772ac6',
+    'crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs': 'c41b5b4ce0354e4fba0189568f81c7396ca16c31cdb61619087bd5bd119ba4db',
+    owner.FIVE_FILE: '5b53c21843dfbe8712bdfb5298ba586505adc543c3ae55348adbdbafaa6a4c0a',
 }
 PROBE = 'crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs'
 PHASES = ['AwaitingSetup','AwaitingPeer','ComparisonAvailable','AwaitingPeerVerification',

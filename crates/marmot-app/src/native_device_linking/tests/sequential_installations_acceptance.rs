@@ -5,8 +5,8 @@ use cgka_traits::storage::{AccountDeviceSignerStorage, StorageProvider};
 use cgka_traits::{MemberId, private_roster_settlement::PrivateSettlementPhase};
 use futures::FutureExt;
 use std::collections::BTreeSet;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 type TerminalProbe = super::super::enabled::terminal_diagnostic::Probe;
 
 fn installation_signer(app: &MarmotApp, account: &MemberId) -> Vec<u8> {
@@ -208,7 +208,12 @@ async fn join_installation(
         approvals.push(approval);
     }
     assert_eq!(approvals.len(), newcomer - 1);
-    (source, recipient, approvals, source_probe.zip(recipient_probe))
+    (
+        source,
+        recipient,
+        approvals,
+        source_probe.zip(recipient_probe),
+    )
 }
 
 // Production scheduling uses two runtime workers. All original one-thread
