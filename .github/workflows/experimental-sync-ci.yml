@@ -3284,7 +3284,7 @@ jobs:
         if: always()
         with:
           name: checkpoint-refresh-proof
-          path: ${{ runner.temp }}/checkpoint-proof
+          path: ${{ runner.temp }}/checkpoint-proof/proof/checkpoint-proof.json
           retention-days: 7
           if-no-files-found: error
 

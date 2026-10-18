@@ -3,8 +3,10 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import time
 
@@ -23,9 +25,44 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def identity(path):
+    return dict(sha256=digest(path.read_bytes()), mode=stat.S_IMODE(path.lstat().st_mode),
+                file_type=stat.S_IFMT(path.lstat().st_mode),
+                resolved_mode=stat.S_IMODE(path.stat().st_mode),
+                symlink_target=os.readlink(path) if path.is_symlink() else None)
+
+
 def inputs(root):
+    root = root.resolve(strict=True)
     names = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).split(b"\0")
-    return {name.decode(): digest((root / name.decode()).read_bytes()) for name in names if name}
+    result = {}
+    for name in names:
+        if not name:
+            continue
+        path = root / name.decode()
+        if not path.resolve(strict=True).is_relative_to(root):
+            raise ValueError("Tracked input resolves outside the physical source checkout")
+        result[name.decode()] = identity(path)
+    return result
+
+
+def input_digest(values):
+    return digest(json.dumps(values, sort_keys=True, separators=(",", ":")).encode())
+
+
+def require_inputs(root, expected):
+    observed = inputs(root)
+    if observed != expected:
+        raise ValueError("Source bytes, file modes or links changed unexpectedly")
+    if subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=root):
+        raise ValueError("Unexpected untracked source files")
+    return dict(sha256=input_digest(observed), files=len(observed))
+
+
+def binary_identity(path):
+    if path.is_symlink() or not path.is_file() or not path.stat().st_mode & 0o111:
+        raise ValueError("Actual test binary must be a regular executable")
+    return dict(path=str(path.resolve(strict=True)), size=path.stat().st_size, **identity(path))
 
 
 @contextmanager
@@ -44,7 +81,8 @@ def check_case(text, case, code, mutant):
     expected = ("FAILED", "0", "1", "0") if mutant else ("ok", "1", "0", "0")
     if summaries != [expected] or not re.search(r"^running 1 test$", text, re.M):
         raise ValueError("Expected exactly one nonignored test body")
-    if not re.search(r"^test " + re.escape(case) + r" \.\.\. (ok|FAILED)$", text, re.M):
+    status = "FAILED" if mutant else "ok"
+    if re.findall(r"^test " + re.escape(case) + r" \.\.\. (ok|FAILED)$", text, re.M) != [status]:
         raise ValueError("Wrong or missing actual test case")
     if mutant:
         if code == 0 or READY_FAILURE not in text:
@@ -57,6 +95,8 @@ def check_case(text, case, code, mutant):
             raise ValueError("Setup or hotness failure cannot qualify the mutation")
     elif code != 0:
         raise ValueError("Unmodified actor must pass")
+    return dict(passed=int(expected[1]), failed=int(expected[2]), ignored=0,
+                oracle="original ready-refresh deadline" if mutant else "original ready/hot/header/send guards")
 
 
 def compile_app(root, output, phase):
@@ -74,31 +114,43 @@ def compile_app(root, output, phase):
     if len(artifacts) != 1 or artifacts[0]["fresh"]:
         raise ValueError("One newly compiled actual App test binary required")
     artifact = artifacts[0]
-    if set(artifact["features"]) & {"experimental-device-sync", "otlp-export", "product-analytics-export"}:
+    if set(artifact["features"]) != {"default", "test-policy-overrides"}:
         raise ValueError("Wrong default feature cohort")
     binary = Path(artifact["executable"])
     return binary, dict(command=command, exit_code=result.returncode, features=artifact["features"],
-                        binary_sha256=digest(binary.read_bytes()),
+                        binary_identity=binary_identity(binary), fresh=False,
                         stdout_sha256=digest((output / f"{phase}-compile.jsonl").read_bytes()),
                         stderr_sha256=digest((output / f"{phase}-compile.log").read_bytes()))
 
 
 def qualify(root, output):
+    root = root.resolve(strict=True)
+    if output.is_relative_to(root):
+        raise ValueError("Evidence must remain outside the source checkout")
     output.mkdir(exist_ok=False)
+    proof = output / "proof"
+    proof.mkdir()
     subprocess.run(["git", "diff", "--exit-code", "HEAD", "--"], cwd=root, check=True)
+    if subprocess.check_output(["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=root):
+        raise ValueError("A clean physical source checkout is required")
+    if Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=root, text=True).strip()).resolve() != root:
+        raise ValueError("Source root does not match its physical Git checkout")
     baseline = inputs(root)
     actor = root / ACTOR
     original = actor.read_bytes()
     if original.count(ORIGINAL) != 1:
         raise ValueError("Exactly one production checkpoint deadline statement required")
     mutant = original.replace(ORIGINAL, MUTATION)
-    (output / "inputs.json").write_text(json.dumps(baseline, indent=2) + "\n")
     state = dict(source=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
                  source_tree=subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=root, text=True).strip(),
+                 schema=1, source_physical_root=str(root), source_clean_before=True,
+                 baseline_inputs=baseline, baseline_inputs_sha256=input_digest(baseline),
                  completed=False, phases=[], scope="Actual default-cohort two-case checkpoint PFP; not full CI or SDK admission")
+    if os.environ.get("GITHUB_SHA", state["source"]) != state["source"]:
+        raise ValueError("Workflow source differs from the actual checkout")
 
     def save_state():
-        (output / "status.json").write_text(json.dumps(state, indent=2) + "\n")
+        (proof / "checkpoint-proof.json").write_text(json.dumps(state, indent=2) + "\n")
 
     save_state()
     try:
@@ -108,29 +160,43 @@ def qualify(root, output):
             for phase, changed in (("baseline", False), ("mutant", True), ("restored", False)):
                 if phase != "baseline":
                     actor.write_bytes(mutant if changed else original)
-                expected = dict(baseline, **{ACTOR: digest(actor.read_bytes())})
-                if inputs(root) != expected:
-                    raise ValueError("Unexpected source before compilation")
+                expected = dict(baseline, **{ACTOR: identity(actor)})
+                source_before = require_inputs(root, expected)
                 binary, compiled = compile_app(root, output, phase)
-                row = dict(phase=phase, actor_sha256=expected[ACTOR], compile=compiled, cases=[])
+                row = dict(phase=phase, actor_identity=expected[ACTOR], compile=compiled,
+                           source_before=source_before, source_after_compile=require_inputs(root, expected), cases=[])
                 state["phases"].append(row)
                 save_state()
                 for index, case in enumerate(CASES):
                     log = output / f"{phase}-{index}.log"
                     command = [str(binary), "--exact", case, "--show-output", "--test-threads=1"]
+                    before_binary = binary_identity(binary)
+                    if before_binary != compiled["binary_identity"]:
+                        raise ValueError("Test binary changed after compilation")
+                    before_source = require_inputs(root, expected)
                     started = time.monotonic()
                     with log.open("wb") as stream:
                         result = subprocess.run(command, cwd=root, stdout=stream,
                                                 stderr=subprocess.STDOUT, timeout=120)
-                    row["cases"].append(dict(case=case, command=command, exit_code=result.returncode,
-                                             seconds=time.monotonic() - started, log_sha256=digest(log.read_bytes())))
+                    case_row = dict(case=case, command=command, exit_code=result.returncode,
+                                    seconds=time.monotonic() - started, log_sha256=digest(log.read_bytes()),
+                                    binary_before=before_binary, binary_after=binary_identity(binary),
+                                    source_before=before_source, source_after=require_inputs(root, expected))
+                    row["cases"].append(case_row)
                     save_state()
-                    check_case(log.read_text(), case, result.returncode, changed)
-                    if inputs(root) != expected:
-                        raise ValueError("Unexpected source during qualification")
+                    if case_row["binary_after"] != before_binary:
+                        raise ValueError("Test binary bytes or modes changed during execution")
+                    case_row["actual"] = check_case(log.read_text(), case, result.returncode, changed)
+                    save_state()
+                row["binary_final"] = binary_identity(binary)
+                if row["binary_final"] != compiled["binary_identity"]:
+                    raise ValueError("Phase binary did not remain unchanged")
+                row["source_final"] = require_inputs(root, expected)
+                save_state()
         if inputs(root) != baseline:
             raise ValueError("Final source did not restore exactly")
         subprocess.run(["git", "diff", "--exit-code", "HEAD", "--"], cwd=root, check=True)
+        require_inputs(root, baseline)
         state["completed"] = True
     except BaseException as error:
         state["error"] = str(error)
@@ -138,6 +204,9 @@ def qualify(root, output):
     finally:
         state["actor_restored"] = actor.read_bytes() == original
         state["inputs_restored"] = inputs(root) == baseline
+        state["final_inputs_sha256"] = input_digest(inputs(root))
+        state["source_clean_after"] = not subprocess.check_output(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=root)
         save_state()
 
 
