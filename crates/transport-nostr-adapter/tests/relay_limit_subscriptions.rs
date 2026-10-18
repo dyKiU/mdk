@@ -195,22 +195,39 @@ async fn delivered_groups(
             Ok(Ok(Some(delivery))) => {
                 if let Some(count) = diagnostic_receives.checked_add(1) {
                     diagnostic_receives = count;
-                } else { diagnostic_known = false; }
+                } else {
+                    diagnostic_known = false;
+                }
                 if let Some(group) = delivery.group_id_hint {
                     delivered.insert(group.as_slice().to_vec());
                 } else if let Some(count) = diagnostic_unhinted.checked_add(1) {
                     diagnostic_unhinted = count;
-                } else { diagnostic_known = false; }
+                } else {
+                    diagnostic_known = false;
+                }
             }
-            Err(_) => { diagnostic_exit = if next == deadline { 1 } else { 2 }; break; }
-            Ok(Ok(None)) => { diagnostic_exit = 3; break; }
-            Ok(Err(_)) => { diagnostic_exit = 4; break; }
+            Err(_) => {
+                diagnostic_exit = if next == deadline { 1 } else { 2 };
+                break;
+            }
+            Ok(Ok(None)) => {
+                diagnostic_exit = 3;
+                break;
+            }
+            Ok(Err(_)) => {
+                diagnostic_exit = 4;
+                break;
+            }
         }
     }
     eprintln!(
         "transport-delivery-exit known={} exit={} delivered={} receives={} unhinted={} elapsed_us={}",
-        diagnostic_known, diagnostic_exit, delivered.len(), diagnostic_receives,
-        diagnostic_unhinted, diagnostic_start.elapsed().as_micros()
+        diagnostic_known,
+        diagnostic_exit,
+        delivered.len(),
+        diagnostic_receives,
+        diagnostic_unhinted,
+        diagnostic_start.elapsed().as_micros()
     );
     delivered
 }
