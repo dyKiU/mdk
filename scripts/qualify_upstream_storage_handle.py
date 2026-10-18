@@ -129,7 +129,7 @@ def source_grounded_rejection(line, section, context):
     detail['origin'] = origin
     detail['origin_is_tracked_source'] = True
     if target == 'cgka_traits::*':
-        if re.search(r'\buse\s+cgka_traits\b[^;]*\*\s*;', context['sources'][origin]):
+        if re.search(r'\buse\s+cgka_traits\b[^;]*\*[^;]*;', context['sources'][origin]):
             detail.update(target_atoms=['cgka_traits', '*'], target_atoms_proven_static=True,
                           target_mentioned_in_origin=True)
         return detail
@@ -288,6 +288,20 @@ def parser_controls():
     rejected_trait = crossing_inventory(raw, 101, trait_context, 91)
     ensure(rejected_trait['status'] == 'rejected' and rejected_trait['counts'] is None
            and rejected_trait['unqualified_rejection_detail']['kind'] == 'trait', 'trait-stays-rejected')
+    for use in ['use cgka_traits::storage::*;',
+                'use cgka_traits::{GroupId, account_chat_record_stream::*, storage::{StorageError, StorageResult}};',
+                'use cgka_traits::{storage::{GroupStorage, *}, GroupId};']:
+        grouped = {**trait_context, 'sources': {**trait_context['sources'], 'app/test.rs': use}}
+        detail = source_grounded_rejection('trait app/test.rs cgka_traits::*', 'new', grouped)
+        ensure(detail['target_atoms'] == ['cgka_traits', '*'] and detail['target_atoms_proven_static'] is True
+               and detail['acceptance_widened'] is False and detail['automatically_allowed'] is False,
+               'grouped-glob-rejection-metadata-positive')
+    for use in ['use other_crate::{storage::*, GroupId};', 'use cgka_traits::{GroupId}; let x = a * b;',
+                'use cgka_traits::{GroupId, storage::GroupStorage};']:
+        grouped = {**trait_context, 'sources': {**trait_context['sources'], 'app/test.rs': use}}
+        detail = source_grounded_rejection('trait app/test.rs cgka_traits::*', 'new', grouped)
+        ensure(detail['target_atoms'] == [] and detail['target_atoms_proven_static'] is False,
+               'unrelated-or-absent-glob-not-exported')
     for target in ['PRIVATE_ACCOUNT', 'nsec1private', 'a' * 64]:
         rejected = source_grounded_rejection('trait app/test.rs ' + target, 'new', trait_context)
         ensure(rejected['target_atoms'] == [] and target not in json.dumps(rejected), 'private-trait-token-not-exported')
@@ -313,6 +327,7 @@ def parser_controls():
     return {'historical_body_parser': inherited, 'trait_positive': 3, 'trait_negative': len(negatives),
             'inventory_positive': 1, 'inventory_negative': 6, 'safe_rejection_controls': 2,
             'trait_metadata_positive': 2, 'trait_metadata_negative': 5,
+            'grouped_glob_metadata_positive': 3, 'grouped_glob_metadata_negative': 3,
             'aggregate_positive': 1, 'aggregate_negative': 5, 'runtime_bodies': 0}
 
 
