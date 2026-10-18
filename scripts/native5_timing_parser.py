@@ -3,6 +3,7 @@ import re
 MILESTONES=['prepared','validated','task_poll','adapter_callsite','adapter_returned','accepted_ack','result_send','result_receive','harvest_success']
 OUTCOMES=['adapter_result_ok','returned_report_met_required_acks','result_send_accepted','received_result_ok','harvest_accepted']
 PROOF_PREPARATION=['seal_before','seal_after','wrap_before','wrap_after']
+SPAWN_BOUNDARIES=['negative_hook_before','negative_hook_after','publication_mutex_before','publication_mutex_after','spawn_before','spawn_returned']
 CHANNEL_PROGRESS=['policy_first_call','policy_commit_success','proof_eligibility','authenticated_peer_proof_accepted','actual_complete_write']
 RPC_STAGES=['dispatch','worker_started','worker_returned','reply_send','facade_returned']
 RPC_RESULTS=['AwaitingSetup','AwaitingPeer','ComparisonAvailable','AwaitingPeerVerification','VerificationCompleteEnrollmentPending','Cancelled','Expired','Failed','EnrollmentComplete','ResponseTimedOut','OtherError']
@@ -58,12 +59,12 @@ def timing(raw,name):
             require(times[5] is None or flags[0] is True and flags[1] is True,'accepted-ack-has-successful-report')
         rows.append({'milestone_us':dict(zip(MILESTONES,times)),'deadline_relation':dict(zip(MILESTONES,[relation(t,lo,hi) for t in times])),'outcomes':dict(zip(OUTCOMES,flags)),'subsequent_prepared_attempts':retry})
     result['slots']=rows
-    proof_pattern=r'native5-consent-proof index=([012]) observation=(?:None|Some\(\((true|false), \['+', '.join(['('+ON+')']*9)+r'\], \['+', '.join(['('+OB+')']*5)+r'\], \['+', '.join(['('+ON+')']*4)+r'\], ('+N+r')\)\))'
+    proof_pattern=r'native5-consent-proof index=([012]) observation=(?:None|Some\(\((true|false), \['+', '.join(['('+ON+')']*9)+r'\], \['+', '.join(['('+OB+')']*5)+r'\], \['+', '.join(['('+ON+')']*4)+r'\], ('+N+r'), \['+', '.join(['('+ON+')']*6)+r'\]\)\))'
     proofs=[]
     for i,line in enumerate(lines[5:8]):
         m=re.fullmatch(proof_pattern,line);require(m is not None and int(m[1])==i,'exact-three-proof-indices')
         if line.endswith('observation=None'):proofs.append(None);continue
-        bound=m[2]=='true';times=[opt(m[j]) for j in range(3,12)];flags=[boolean(m[j]) for j in range(12,17)];preparation=[opt(m[j]) for j in range(17,21)];retries=number(m[21],4294967295)
+        bound=m[2]=='true';times=[opt(m[j]) for j in range(3,12)];flags=[boolean(m[j]) for j in range(12,17)];preparation=[opt(m[j]) for j in range(17,21)];retries=number(m[21],4294967295);spawn=[opt(m[j]) for j in range(22,28)]
         if known:
             require(rows[i] is not None and preparation[0] is not None,'proof-belongs-to-observed-channel-first-seal')
             require(bound==(times[0] is not None),'actual-first-proof-message-binding')
@@ -73,11 +74,15 @@ def timing(raw,name):
             require(ordered_observed(times[:6]) and ordered_observed(times[7:9]),'proof-pipeline-partial-order')
             require(all(flag is None or times[event] is not None for flag,event in zip(flags,[4,4,6,7,8])),'proof-outcome-has-actual-event')
             require(times[5] is None or flags[0] is True and flags[1] is True,'accepted-proof-ack-has-successful-report')
+            require(ordered_observed(spawn) and all(value is None or all(previous is not None for previous in spawn[:j]) for j,value in enumerate(spawn)),'spawn-parent-sequential-prefix')
+            require(all(value is None for value in spawn) or bound and times[1] is not None and times[1]<=next(value for value in spawn if value is not None),'spawn-after-real-validated-proof')
+            require(times[2] is None or spawn[4] is not None and spawn[4]<=times[2],'task-poll-after-before-spawn-not-after-return')
         proofs.append({'first_attempt_actual_message_bound':bound,'milestone_us':dict(zip(MILESTONES,times)),
             'deadline_relation':dict(zip(MILESTONES,[relation(t,lo,hi) for t in times])),
             'outcomes':dict(zip(OUTCOMES,flags)),'preparation_us':dict(zip(PROOF_PREPARATION,preparation)),
             'preparation_deadline_relation':dict(zip(PROOF_PREPARATION,[relation(t,lo,hi) for t in preparation])),
-            'subsequent_proof_attempts':retries,'later_attempt_events_are_not_merged':True})
+            'spawn_boundary_us':dict(zip(SPAWN_BOUNDARIES,spawn)),'spawn_deadline_relation':dict(zip(SPAWN_BOUNDARIES,[relation(t,lo,hi) for t in spawn])),
+            'spawn_return_and_task_poll_may_race':True,'subsequent_proof_attempts':retries,'later_attempt_events_are_not_merged':True})
     result['proofs']=proofs
     progress_pattern=r'native5-consent-progress index=([012]) observation=(?:None|Some\(\(\['+', '.join(['('+ON+')']*5)+r'\], \['+', '.join(['('+N+')']*5)+r'\]\)\))'
     progress=[]
@@ -134,17 +139,19 @@ def parser_controls():
         try:timing(s,name)
         except ValueError:continue
         raise ValueError('adversarial-timing-shape-accepted')
-    proof_partial='native5-consent-proof index=0 observation=Some((false, [None, None, None, None, None, None, None, None, None], [None, None, None, None, None], [Some(10), None, None, None], 2))'
+    proof_partial='native5-consent-proof index=0 observation=Some((false, [None, None, None, None, None, None, None, None, None], [None, None, None, None, None], [Some(10), None, None, None], 2, [None, None, None, None, None, None]))'
     progress_partial='native5-consent-progress index=0 observation=Some(([Some(6), Some(7), Some(8), None, None], [0, 0, 0, 0, 0]))'
     partial=sample.replace(proof,proof_partial).replace(progress,progress_partial)
-    complete_proof='native5-consent-proof index=0 observation=Some((true, [Some(14), Some(15), Some(16), Some(17), Some(18), Some(19), Some(21), Some(20), Some(22)], [Some(true), Some(true), Some(true), Some(true), Some(true)], [Some(10), Some(11), Some(12), Some(13)], 0))'
+    complete_proof='native5-consent-proof index=0 observation=Some((true, [Some(14), Some(15), Some(16), Some(17), Some(18), Some(19), Some(21), Some(20), Some(22)], [Some(true), Some(true), Some(true), Some(true), Some(true)], [Some(10), Some(11), Some(12), Some(13)], 0, [Some(15), Some(15), Some(15), Some(15), Some(15), Some(17)]))'
     progress_complete='native5-consent-progress index=0 observation=Some(([Some(6), Some(7), Some(8), Some(9), Some(23)], [0, 0, 0, 0, 0]))'
     complete=sample.replace(proof,complete_proof).replace(progress,progress_complete)
-    for value in [partial,complete]:timing(value,name)
-    extra_bad=[partial.replace('Some((false,','Some((true,',1),partial.replace('[Some(10), None, None, None]','[Some(10), None, Some(12), None]'),partial.replace('], 2))','], 4294967296))'),complete.replace('index=2 observation=None','index=1 observation=None'),complete.replace('Some(13)], 0))','Some(15)], 0))'),complete.replace('Some(18), Some(19)','Some(19), Some(18)'),complete.replace('Some(9), Some(23)','None, Some(23)'),complete.replace('Some(8), Some(9), Some(23)','Some(8), Some(24), Some(23)'),complete.replace('], [0, 0, 0, 0, 0]))','], [0, 0, -1, 0, 0]))'),partial.replace(progress_partial,progress),complete.replace('native5-consent-progress index=0 observation=Some(', 'native5-consent-progress index=0 observation=Some(secret',1)]
+    race=complete.replace('[Some(15), Some(15), Some(15), Some(15), Some(15), Some(17)]','[Some(15), Some(15), Some(15), Some(15), Some(15), Some(15)]')
+    for value in [partial,complete,race]:timing(value,name)
+    extra_bad=[partial.replace('Some((false,','Some((true,',1),partial.replace('[Some(10), None, None, None]','[Some(10), None, Some(12), None]'),partial.replace('], 2, [','], 4294967296, ['),complete.replace('index=2 observation=None','index=1 observation=None'),complete.replace('Some(13)], 0, [','Some(15)], 0, ['),complete.replace('Some(18), Some(19)','Some(19), Some(18)'),complete.replace('Some(9), Some(23)','None, Some(23)'),complete.replace('Some(8), Some(9), Some(23)','Some(8), Some(24), Some(23)'),complete.replace('], [0, 0, 0, 0, 0]))','], [0, 0, -1, 0, 0]))'),partial.replace(progress_partial,progress),complete.replace('native5-consent-progress index=0 observation=Some(', 'native5-consent-progress index=0 observation=Some(secret',1)]
+    extra_bad += [complete.replace('[Some(15), Some(15), Some(15), Some(15), Some(15), Some(17)]','[Some(15), Some(15), Some(15), Some(15), Some(18), Some(19)]'), complete.replace('[Some(15), Some(15), Some(15), Some(15), Some(15), Some(17)]','[Some(15), None, Some(15), Some(15), Some(15), Some(17)]'), complete.replace('[Some(15), Some(15), Some(15), Some(15), Some(15), Some(17)]','[Some(14), Some(15), Some(15), Some(15), Some(15), Some(17)]')]
     for value in extra_bad:
         try:timing(value,name)
         except ValueError:continue
         raise ValueError('adversarial-proof-progress-shape-accepted')
-    return {'positive':len(positives)+2,'negative':len(bad)+len(extra_bad),'actual_runtime_bodies':0}
+    return {'positive':len(positives)+3,'negative':len(bad)+len(extra_bad),'actual_runtime_bodies':0}
 

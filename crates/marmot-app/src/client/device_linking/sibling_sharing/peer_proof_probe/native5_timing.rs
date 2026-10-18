@@ -48,6 +48,8 @@ struct Proof {
     outcomes: [Option<bool>; 5],
     // Actual seal-before/after, wrap-before/after of first attempt only.
     preparation: [Option<u64>; 4],
+    // Before/after negative hook, publication test mutex, and actual spawn call.
+    spawn_boundaries: [Option<u64>; 6],
     subsequent_attempts: u32,
 }
 impl Slot {
@@ -238,6 +240,18 @@ pub(crate) struct Token {
     proof: bool,
 }
 impl Token {
+    pub(in super::super::super) fn spawn_boundary(&self, index: usize) {
+        if !self.proof { return; }
+        let Some(probe) = self.probe.upgrade() else { return; };
+        probe.observe(|data, time| {
+            let Some(slot) = data.slots.get_mut(self.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
+            let Some(proof) = slot.proof.as_mut() else { probe.loss(IDENTITY); return; };
+            if !proof.key.as_ref().is_some_and(|key| key.same_attempt(&self.key)) { probe.loss(IDENTITY); return; }
+            let Some(field) = proof.spawn_boundaries.get_mut(index) else { probe.loss(IDENTITY); return; };
+            if field.is_some() { probe.loss(DUPLICATE); } else { *field = time; }
+        });
+    }
+
     pub(in super::super::super) fn stage(&self, index: usize, outcome: Option<(usize, bool)>) {
         let Some(probe) = self.probe.upgrade() else {
             return;
@@ -451,6 +465,7 @@ pub(in super::super::super) fn begin_proof(entry: &SiblingChannel) -> Option<Pro
             times: [None; 9],
             outcomes: [None; 5],
             preparation: [time, None, None, None],
+            spawn_boundaries: [None; 6],
             subsequent_attempts: 0,
         });
         selected = Some(ProofAttempt {
@@ -669,6 +684,7 @@ impl Guard {
                                 proof.outcomes,
                                 proof.preparation,
                                 proof.subsequent_attempts,
+                                proof.spawn_boundaries,
                             )
                         })
                     })
