@@ -10,7 +10,7 @@ import subprocess
 import qualify_upstream_storage_boundary as old
 from upstream_extraction_cohort import frozen_inputs
 
-BASE = '3f06a0a8d1cff74142dd6c1570f733f09f990ca0'
+BASE = 'e517d6cccdbcc1b29ded8f3ebf4f617d318847ac'
 SELF = 'scripts/qualify_upstream_storage_app_handles.py'
 WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
 REF = 'refs/heads/ci/upstream-storage-app-handles-20261018'
@@ -78,6 +78,18 @@ def parse_body(raw,code,name):
     row['passed_gate'] = row['actual_counts_complete'] and code == 0 and row['passed'] == 1 and row['panic_count'] == row['compiler_error_count'] == 0
     return row
 
+def parse_inventory(raw, name, ignored=False):
+    lines=raw.splitlines()
+    selected=sum(line==name+': test' for line in lines)
+    summary='0 tests, 0 benchmarks' if ignored else '1 test, 0 benchmarks'
+    summaries=sum(line==summary for line in lines)
+    blank=sum(not line for line in lines)
+    unknown=len(lines)-selected-summaries-blank
+    return {'selected_line_count':selected,'summary_line_count':summaries,'blank_line_count':blank,
+        'unknown_line_count':unknown,'ignored_inventory':ignored,
+        'passed':selected==(0 if ignored else 1) and summaries<=1 and unknown==0}
+
+
 def parser_controls():
     name = ADDED[0]
     raw = 'running 1 test\ntest '+name+' ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.1s\n'
@@ -88,7 +100,17 @@ def parser_controls():
     for text,code in bad: ensure(not parse_body(text,code,name)['passed_gate'],'parser-negative')
     failure = raw.replace(' ... ok',' ... FAILED').replace('result: ok. 1 passed; 0 failed','result: FAILED. 0 passed; 1 failed')
     ensure(parse_body(failure,101,name)['actual_counts_complete'] and not parse_body(failure,101,name)['passed_gate'],'typed-runtime-failure')
-    return {'positive':2,'negative':len(bad),'runtime_bodies':0}
+    inventory_positive=[(name+': test\n',False),(name+': test\n\n1 test, 0 benchmarks\n',False),('',True),('0 tests, 0 benchmarks\n',True)]
+    for text,ignored in inventory_positive: ensure(parse_inventory(text,name,ignored)['passed'],'inventory-positive')
+    inventory_negative=[('',False),(name+': test\n'+name+': test\n',False),
+        (name+': test\n1 test, 0 benchmarks\n1 test, 0 benchmarks\n',False),
+        (ADDED[1]+': test\n',False),(name+': test\n1 tests, 0 benchmarks\n',False),
+        (name+': test\n0 tests, 0 benchmarks\n',False),(name+': test\nPRIVATE_DATA\n',False),
+        (name+': test (ignored)\n',False),(name+': test\n',True),('1 test, 0 benchmarks\n',True),
+        ('0 tests, 0 benchmarks\n0 tests, 0 benchmarks\n',True),('PRIVATE_DATA\n',True)]
+    for text,ignored in inventory_negative: ensure(not parse_inventory(text,name,ignored)['passed'],'inventory-negative')
+    return {'positive':2,'negative':len(bad),'inventory_positive':len(inventory_positive),
+        'inventory_negative':len(inventory_negative),'runtime_bodies':0}
 
 def compile_storage(cohort, frozen, phase, save):
     ensure(frozen_inputs()==frozen,'before-storage-compile-pristine')
@@ -126,11 +148,16 @@ def main(args):
         binary=compile_storage(args.cohort,frozen,phase,save)
         binary_hash=old.digest(binary.read_bytes())
         names=BOUNDARY+(ADDED if args.cohort == 'experimental' else [])
+        report['inventory']={}
         for name in names:
             code,listed,_=old.capture([str(binary),'--exact',name,'--list','--format','terse'],60)
-            ensure(code == 0 and [line for line in listed.splitlines() if line] == [name+': test', '1 test, 0 benchmarks'],'exact-selected-inventory')
+            selected=parse_inventory(listed,name); selected['exit_code']=code
+            report['inventory'][name]={'selected':selected}; save()
+            ensure(code==0 and selected['passed'],'exact-selected-inventory')
             code,ignored,_=old.capture([str(binary),'--exact',name,'--ignored','--list','--format','terse'],60)
-            ensure(code == 0 and ignored.strip() in {'','0 tests, 0 benchmarks'},'selected-not-ignored')
+            ignored_row=parse_inventory(ignored,name,True); ignored_row['exit_code']=code
+            report['inventory'][name]['ignored']=ignored_row; save()
+            ensure(code==0 and ignored_row['passed'],'selected-not-ignored')
         report['selected_names']=names; save()
         for name in names:
             ensure(frozen_inputs()==frozen and old.digest(binary.read_bytes())==binary_hash,'before-body-pristine')
