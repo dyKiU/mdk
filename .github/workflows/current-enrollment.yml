@@ -10,7 +10,7 @@ on:
         default: preflight
       mode:
         type: choice
-        options: [five, sixteen]
+        options: [five, sixteen, failures]
         default: five
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      UPSTREAM_CURRENT_ENROLLMENT_BASELINE: 288544fe2d9dc3323cb1df3b99f35cc017375e13
+      UPSTREAM_CURRENT_ENROLLMENT_BASELINE: 6e71aaf89f9df400be23c7e3183f0212c026c9ce
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.mode == 'sixteen' && 150 || 60 }}
     env:
-      UPSTREAM_CURRENT_ENROLLMENT_BASELINE: 288544fe2d9dc3323cb1df3b99f35cc017375e13
+      UPSTREAM_CURRENT_ENROLLMENT_BASELINE: 6e71aaf89f9df400be23c7e3183f0212c026c9ce
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

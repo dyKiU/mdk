@@ -8,8 +8,13 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='288544fe2d9dc3323cb1df3b99f35cc017375e13'
-WORKFLOW_SHA='095e571a79d1b5c82c3254f104376cfeb1343d5722b50cdd67c4925023a30f95'
+BASE='6e71aaf89f9df400be23c7e3183f0212c026c9ce'
+SOURCE_PARENT='288544fe2d9dc3323cb1df3b99f35cc017375e13'
+RAW_SOURCE='6e71aaf89f9df400be23c7e3183f0212c026c9ce'
+PARENT_BEFORE_SHA='49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa'
+PARENT_RAW_SHA='1f8bdf8ce473f756786997b5b615926cc9c6c88bb245227501400afcc254c8d0'
+FAILURE_LABELS=('original_2','stress_0','stress_1','stress_2')
+WORKFLOW_SHA='b13b8f5a7cf685e85cdf0d68204dcfc07b2958c44ec60fa070fc793c34827873'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261018'
@@ -18,7 +23,7 @@ OUT=Path('current-enrollment-evidence')
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 FIXTURE_SHA='a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca'
-PARENT_SHA='49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa'
+PARENT_SHA='1f8bdf8ce473f756786997b5b615926cc9c6c88bb245227501400afcc254c8d0'
 STRICT_HELPER_SHA='a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
 NATIVE_HELPER='scripts/qualify_upstream_pure_native5.py'
@@ -58,6 +63,11 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
+    ensure(all(subprocess.run(['git','merge-base','--is-ancestor',a,b]).returncode==0 for a,b in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,BASE)]),'reviewed-test-source-ancestry')
+    ensure(set(git('diff','--name-only',SOURCE_PARENT,RAW_SOURCE).decode().splitlines())=={PARENT}
+        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<={PARENT},'one-reviewed-test-path-then-hosted-format')
+    for ref,expected_sha in [(SOURCE_PARENT,PARENT_BEFORE_SHA),(RAW_SOURCE,PARENT_RAW_SHA),(BASE,PARENT_SHA)]:
+        ensure(layout(ref)[PARENT][0]=='100644' and digest(git('show',ref+':'+PARENT))==expected_sha,'reviewed-parent-full-blob-and-mode')
     baseline=layout(BASE);current=layout('HEAD')
     ensure(SELF not in baseline and WORKFLOW not in baseline and set(current)==set(baseline)|{SELF,WORKFLOW},'only-two-owned-metadata')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -126,6 +136,10 @@ def selected_cases(mode):
         and all(len({row[i] for row in rows})==16 for i in [0,1,2])
         and {'policy','stress_0','stress_1','stress_2','paused_clock'}<={row[0] for row in rows},'original-exact-sixteen-inventory')
     ensure(all(type(label) is str and type(suffix) is str and type(name) is str and name.endswith(suffix) for label,suffix,name,_ in rows),'exact-source-case-names')
+    if mode=='failures':
+        selected=[next(row for row in rows if row[0]==label) for label in FAILURE_LABELS]
+        ensure(tuple(row[0] for row in selected)==FAILURE_LABELS,'exact-four-original-failure-labels')
+        return selected
     return rows
 
 # Only fixed-field numeric/boolean projections leave memory. Strict original oracles
@@ -238,6 +252,43 @@ def timeout_progress_controls():
         ensure(not result['sides']['left']['native_rpc']['record_available'] and 'PRIVATE' not in json.dumps(result),'closed-progress-invalid-rpc')
     return {'positive':4,'negative':10,'actual_runtime_bodies':0}
 
+def closed_hold_timeout(raw):
+    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    n=PROGRESS_UINT;opt=lambda value:r'(?:None|Some\('+value+r'\))'
+    arr=lambda width:r'\['+', '.join([n]*width)+r'\]'
+    completion=opt(r'\((true|false), (None|Some\('+n+r'\)), ('+n+'), ('+n+r')\)')
+    rpc=opt(r'\(('+arr(6)+'), ('+arr(6)+'), (None|Some\(\(('+'|'.join(PROGRESS_REASONS)+'), ('+n+r')\)\))\)')
+    pattern=r'automatic-hold-timeout stage=(AutomaticPublicationHold|SiblingConsentPeerProgress) side=(source|recipient) completion=('+completion+r') native_rpc=('+rpc+r')'
+    lines=[line for line in text.splitlines() if line.startswith('automatic-hold-timeout')]
+    result={'schema_known':True,'records':[],'candidate_count':len(lines),'post_timeout_independent_samples':True,'common_wait_clock':False,'helper_call_attribution':False,'fresh_deadline_snapshot':False,'blocking_side_identified':False}
+    seen=set();stages=set()
+    if len(lines)>2:result['schema_known']=False;return result
+    for line in lines:
+        match=re.fullmatch(pattern,line) if len(line)<=2048 else None
+        if match is None or any(int(value)>2**64-1 for value in re.findall(r'(?<![A-Za-z_])[0-9]+',line)):
+            result['schema_known']=False;continue
+        stage,side=match[1],match[2];key=(stage,side)
+        if key in seen:result['schema_known']=False;continue
+        seen.add(key);stages.add(stage)
+        aggregate=None if match[3]=='None' else {'primary_committed':match[4]=='true','expected_children':None if match[5]=='None' else int(match[5][5:-1]),'children':int(match[6]),'completed_children':int(match[7])}
+        rpc_value=None if match[8]=='None' else {'counts':[int(value) for value in match[9][1:-1].split(', ')],'last_elapsed_ms':[int(value) for value in match[10][1:-1].split(', ')],'last_reason':None if match[11]=='None' else {'reason':match[12],'elapsed_ms':int(match[13])}}
+        result['records'].append({'stage':stage,'side':side,'completion':aggregate,'native_rpc':rpc_value})
+    if lines and (len(stages)!=1 or len(seen)!=2):result['schema_known']=False
+    return result
+
+def hold_timeout_controls():
+    make=lambda side:'automatic-hold-timeout stage=AutomaticPublicationHold side='+side+' completion=Some((true, Some(2), 2, 1)) native_rpc=Some(([1, 2, 3, 4, 5, 6], [0, 1, 2, 3, 4, 5], Some((SharingPending, 12))))'
+    good=make('source')+'\n'+make('recipient')
+    row=closed_hold_timeout(good)
+    ensure(row['schema_known'] and row['records'][0]['completion']['children']==2 and row['records'][1]['native_rpc']['last_reason']['reason']=='SharingPending','direct-hold-source-grammar')
+    ensure(closed_hold_timeout('')['schema_known'] and not closed_hold_timeout('')['records'],'no-timeout-observation-none')
+    none=good.replace('Some((true, Some(2), 2, 1))','None').replace('Some((SharingPending, 12))','None')
+    ensure(closed_hold_timeout(none)['schema_known'] and closed_hold_timeout(none)['records'][0]['completion'] is None,'source-None-unknown')
+    ensure(closed_hold_timeout(good.replace('AutomaticPublicationHold','SiblingConsentPeerProgress'))['schema_known'],'second-fixed-stage')
+    for text in [make('source'),good+'\n'+make('source'),good.replace('side=recipient','side=source'),good.replace('SharingPending','PRIVATE'),good.replace('Some((SharingPending, 12))','Some(SharingPending, 12)'),good.replace('Some(2)','Some(-2)'),good.replace('1, 2, 3, 4, 5, 6','1, 2, 3, 4, 5'),good.replace('SharingPending, 12','SharingPending, 18446744073709551616'),good+' PRIVATE',good.replace('side=recipient','side=PRIVATE'),make('source')+'\n'+make('recipient').replace('AutomaticPublicationHold','SiblingConsentPeerProgress')]:
+        bad=closed_hold_timeout(text);ensure(not bad['schema_known'] and 'PRIVATE' not in json.dumps(bad),'closed-hold-invalid-or-privacy')
+    return {'positive':4,'negative':11,'runtime_bodies':0}
+
 def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
     save(report)
@@ -259,9 +310,10 @@ def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     for dest,key in [('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored'),('actual_executed_nonignored','executed_nonignored')]:row[dest]=basic.get(key)
     row['actual_test_passed']=basic.get('passed_gate') is True;save(report)
     row['panic_locations']=closed_panic_sites(raw,name,set(inputs));save(report)
-    if five:
+    if five or label in FAILURE_LABELS:
         row['phase_timeout']=closed_phase_timeout(raw,name);save(report)
         row['timeout_progress']=closed_timeout_progress(raw);save(report)
+        if label in FAILURE_LABELS:row['hold_timeout']=closed_hold_timeout(raw);save(report)
     ensure(row['source_after_body_pristine'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
     parsed=native.parse(raw,code) if five else ack.parse_case(label,raw,code)
     row['original_oracle']=closed_oracle(parsed)
@@ -271,7 +323,7 @@ def execute_case(report,row,binary,before,mode,inputs,label,name,five):
 def parser_controls(mode):
     inherited=native.parser_controls() if mode=='five' else ack.parser_controls()
     names=selected_cases(mode)
-    ensure(len(names)==(1 if mode=='five' else 16),'exact-selected-case-count')
+    ensure(len(names)==(1 if mode=='five' else 4 if mode=='failures' else 16),'exact-selected-case-count')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
     complete={'basic_counts':{'passed':1,'failed':0,'ignored':0,'executed_nonignored':1,'actual_counts_complete':True}}
     observed_ignored={'basic_counts':{'passed':0,'failed':0,'ignored':1,'executed_nonignored':0,'actual_counts_complete':False}}
@@ -305,14 +357,14 @@ def parser_controls(mode):
     for text in [phase_header+phase_payload+' PRIVATE',phase_header+phase_payload.replace('VerificationCompleteEnrollmentPending','PRIVATE'),phase_header.replace(':'+str(phase_column)+':',':999:')+phase_payload,(phase_header+phase_payload+'\n')*2,phase_payload+'\n',phase_header+phase_payload.replace('Some((', '('),phase_header.replace('(123)','(PRIVATE)')+phase_payload]:
         row=closed_phase_timeout(text,native.NAME)
         ensure(not row['closed_phase_record_available'] and 'PRIVATE' not in json.dumps(row),'no-foreign-or-malformed-phase-payload-export')
-    return {'timeout_progress_controls':timeout_progress_controls(),'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
+    return {'hold_timeout_controls':hold_timeout_controls(),'timeout_progress_controls':timeout_progress_controls(),'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
 
 def main(args):
     os.umask(0o077)
     report={'expected_case_mode':args.mode,'preflight_only':args.preflight,'actual_test_qualification':False,'global_qualification':False,
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'automatic_retries':0,'raw_runtime_output_exported':False,
         'requested_features':FEATURES,'environment_stack_bytes':4194304,'Tokio_workers':2 if args.mode=='five' else None,
-        'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else 'original-source-defined-mixed-sixteen',
+        'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else 'original-source-defined-four-failures' if args.mode=='failures' else 'original-source-defined-mixed-sixteen',
         'actual_runtime_attempts':0,'actual_executed_nonignored':0,'original_join_deadline_seconds':15,'body_watchdog_seconds':900 if args.mode=='five' else 300,'output_limit_bytes':8*1024*1024,'cases':[]}
     save(report);inputs=None;binary=None;before=None;mode=None
     try:
@@ -337,7 +389,7 @@ def main(args):
     finally:
         report['actual_runtime_attempts']=sum(row.get('runtime_attempted') is True for row in report['cases'])
         if not args.preflight:
-            report.update(aggregate(report['cases'],1 if args.mode=='five' else 16))
+            report.update(aggregate(report['cases'],1 if args.mode=='five' else 4 if args.mode=='failures' else 16))
             if report['actual_runtime_attempts']==0:report['actual_executed_nonignored']=0
         report['final_source_pristine']=inputs is not None and physical()==inputs
         regular=binary is not None and binary.is_file() and not binary.is_symlink()
@@ -350,5 +402,5 @@ def main(args):
     ensure(report['actual_test_qualification'],'actual-current-native-qualification-required')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen'],default='five')
+    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','failures'],default='five')
     main(parser.parse_args())
