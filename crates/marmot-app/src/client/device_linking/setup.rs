@@ -178,13 +178,39 @@ impl AppClient {
                     .runtime
                     .session()
                     .validated_settled_device_roster(&attempt.guard.group())
+                    .inspect(|_roster| {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(observer) = &observer {
+                            observer.record_observation_result_for_test(if _roster.is_some() {
+                                super::sibling_sharing::NativeObservationResult::RosterSome
+                            } else {
+                                super::sibling_sharing::NativeObservationResult::RosterNone
+                            });
+                        }
+                    })
+                    .inspect_err(|_| {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(observer) = &observer {
+                            observer.record_observation_result_for_test(
+                                super::sibling_sharing::NativeObservationResult::RosterErr,
+                            );
+                        }
+                    })
                     .map_err(ClientLinkingError::Engine)?
                     .is_some()
             {
                 // A host can immediately close its original on this terminal
                 // observation. Complete the explicit durable approval handoff
                 // before exposing completion, not on a later maintenance tick.
-                self.persist_completed_pair_sharing_approval()?;
+                self.persist_completed_pair_sharing_approval()
+                    .inspect_err(|_| {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(observer) = &observer {
+                            observer.record_observation_result_for_test(
+                                super::sibling_sharing::NativeObservationResult::NativePersistErr,
+                            );
+                        }
+                    })?;
                 if self
                     .linking_owner
                     .sharing_approval

@@ -1261,7 +1261,17 @@ impl AppClient {
                 "account sharing original maintenance unavailable".into(),
             )))
         })?;
-        self.persist_completed_pair_sharing_approval()?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let persist_observer = self.linking_owner.sharing_approval.as_ref().map(Arc::downgrade);
+        self.persist_completed_pair_sharing_approval()
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if let Some(observer) = persist_observer.as_ref().and_then(std::sync::Weak::upgrade) {
+                    observer.record_observation_result_for_test(
+                        sibling_sharing::NativeObservationResult::MaintenancePersistErr,
+                    );
+                }
+            })?;
         if service_siblings {
             self.maintain_sibling_sharing().await?;
         }
@@ -1279,6 +1289,11 @@ impl AppClient {
             observer.record_observation_stage_for_test(
                 sibling_sharing::NativeObservationStage::AutomaticExited,
             );
+            observer.record_observation_result_for_test(if automatic.is_ok() {
+                sibling_sharing::NativeObservationResult::AutomaticOk
+            } else {
+                sibling_sharing::NativeObservationResult::AutomaticErr
+            });
         }
         automatic.map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
