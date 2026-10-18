@@ -15,11 +15,11 @@ import time
 import qualify_upstream_command_backlog_pair as pair
 red=pair.red
 ensure=red.ensure
-BASE='e71eba6f07636951c924c111b35c3619a038c215'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
+BASE='a9b6a59407c2b4c23781a32d1fc47c01603778ca'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
 SELF='scripts/qualify_upstream_pure_command_offer.py'
 PEER_SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
-MANIFEST_SHA='37ddb0c5f3953f617c903f416549d0cbe937d33b3161fccc301f727e92b942ad'  # Root pins the shared reviewed manifest after final formatting/source freeze.
+MANIFEST_SHA='fbc7ebc013eb97e30e11c222d3b38def3af87382b478ce53ea5773a4e172ea12'  # Root pins the shared reviewed manifest after final formatting/source freeze.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 REF='refs/heads/ci/upstream-integration-refresh-20261018'
 OUT=Path('pure-command-offer-evidence')

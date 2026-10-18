@@ -1,5 +1,5 @@
 {
-  "baseline": "e71eba6f07636951c924c111b35c3619a038c215",
+  "baseline": "a9b6a59407c2b4c23781a32d1fc47c01603778ca",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -206,7 +206,7 @@
   "watch_source_transfer": {
     "path": "crates/marmot-app/src/runtime/account_worker.rs",
     "git_mode": "100644",
-    "candidate_baseline": "e71eba6f07636951c924c111b35c3619a038c215",
+    "candidate_baseline": "a9b6a59407c2b4c23781a32d1fc47c01603778ca",
     "historical_source": "b36fcf08e36c31a50cef5860012cbd36dbc08bd4",
     "upstream_old_source": "5247c0846da5cd9fc4d3ce42158507dbe3c22c0a",
     "upstream_new_source": "56d43f7d89938cadff448a03d79930f2c188af1b",
