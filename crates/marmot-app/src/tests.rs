@@ -7104,7 +7104,11 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
         .account_setup_readiness(&result.account.account_id_hex)
         .unwrap();
     let held_kind = *relay.blocked_publish_kind.lock().unwrap();
-    assert_eq!(held_kind, Some(0), "the held event must be bootstrap metadata");
+    assert_eq!(
+        held_kind,
+        Some(0),
+        "the held event must be bootstrap metadata"
+    );
     let readiness_code = |value| match value {
         AccountSetupReadiness::Initializing => 0,
         AccountSetupReadiness::LocalReady => 1,
