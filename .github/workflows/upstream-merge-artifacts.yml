@@ -256,7 +256,7 @@ jobs:
         with:
           tool: cargo-nextest@0.9.132
       - name: Verify pinned archive runner
-        run: cargo nextest --version
+        run: cargo-nextest nextest --version
       - name: One exact archive replay without compilation or retries
         working-directory: relay-source
         env:
@@ -319,7 +319,7 @@ jobs:
           try:
            ensure(os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk' and os.environ['GITHUB_WORKFLOW_REF']=='dyKiU/mdk/.github/workflows/upstream-merge-artifacts.yml@refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['PRODUCER_RUN']==str(RUN),'exact-manual-proof-scope')
            ensure(pristine(),'exact-source-pristine');report['source_tree']=git('rev-parse','HEAD^{tree}');report['parser_controls']=dict(controls(),version=version_controls());save()
-           version_code,version,_=bounded.capture(['cargo','nextest','--version'],30,limit=4096)
+           version_code,version,_=bounded.capture(['cargo-nextest','nextest','--version'],30,limit=4096)
            report['nextest_version_check']={'exit_code':version_code,'captured_bytes':len(version.encode()),'starts_with_exact_version':re.match(r'^cargo-nextest 0\.9\.132(?: |\n|$)',version) is not None,'exact_version_line_count':len(re.findall(r'(?m)^cargo-nextest 0\.9\.132(?: |$)',version)),'toolchain_bootstrap_notice_present':re.search(r'(?m)^info: (?:syncing channel updates|downloading component|installing component)',version) is not None};save()
            report['nextest_version_check']['closed_full_version_record_valid']=exact_version_record(version,version_code);save()
            ensure(report['nextest_version_check']['closed_full_version_record_valid'],'actual-pinned-nextest-version');report['nextest_version']='0.9.132';save()
@@ -340,7 +340,7 @@ jobs:
             archive=tmp/'tests.tar.zst';archive.write_bytes(z.read(member));archive.chmod(0o600)
            report['archive_sha256']=hashlib.sha256(archive.read_bytes()).hexdigest();report['archive_ZIP_digest_verified']=True;save()
            common=['--archive-file',str(archive),'--extract-to',str(tmp/'extract'),'--workspace-remap',str(Path.cwd())]
-           c,raw,_=bounded.capture(['bash','-c','exec "$@" 2>/dev/null','archive-inventory','cargo','nextest','list',*common,'--message-format','json','-E',FILTER],120,limit=4*1024*1024)
+           c,raw,_=bounded.capture(['bash','-c','exec "$@" 2>/dev/null','archive-inventory','cargo-nextest','nextest','list',*common,'--message-format','json','-E',FILTER],120,limit=4*1024*1024)
            ensure(c==0,'archive-inventory-success');inventory=json.loads(raw);suites=inventory.get('rust-suites');ensure(type(suites) is dict,'closed-archive-inventory')
            selected=[]
            for suite in suites.values():
@@ -350,7 +350,7 @@ jobs:
            suite=selected[0][0];ensure(suite.get('package-name')=='marmot-app' and suite.get('binary-id')=='marmot-app::relay_runtime' and suite.get('binary-name')=='relay_runtime' and suite.get('kind')=='test','exact-package-binary-identity');binary=Path(suite['binary-path']);ensure(binary.is_file() and not binary.is_symlink() and binary.resolve().is_relative_to((tmp/'extract').resolve()),'extracted-actual-binary')
            before=hashlib.sha256(binary.read_bytes()).hexdigest();mode=stat.S_IMODE(binary.stat().st_mode);report.update(binary_before_sha256=before,binary_mode=mode,inventory_one_nonignored=True)
            ensure(pristine(),'before-runtime-source-pristine')
-           cmd=['cargo','nextest','run',*common,'--extract-overwrite','--profile','ci','--retries','0','--test-threads','1','--success-output','final','--failure-output','final','-E',FILTER]
+           cmd=['cargo-nextest','nextest','run',*common,'--extract-overwrite','--profile','ci','--retries','0','--test-threads','1','--success-output','final','--failure-output','final','-E',FILTER]
            report.update(command=cmd,runtime_attempted=True);save()
            c,raw,seconds=bounded.capture(cmd,900,limit=8*1024*1024)
            report.update(exit_code=c,seconds=seconds,source_after_pristine=pristine(),binary_after_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),binary_after_mode=stat.S_IMODE(binary.stat().st_mode));save()
