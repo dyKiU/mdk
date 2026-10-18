@@ -17,13 +17,13 @@ from upstream_completion_ci import compile_cases, digest
 from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
 
-BASE = '8b441d992832b73f74a3fba6e58a56edab1a4486' # Root pins the exact reviewed formatted COMPOSED full baseline.
+BASE = '0e6441b7b372bc3ce63c64e2af58b85ea71bd611' # Root pins the exact reviewed formatted COMPOSED full baseline.
 SELF = 'scripts/qualify_upstream_composed_final_enrollment.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 REF = 'refs/heads/ci/upstream-composed-enrollment-diagnostic-20261018'
 BEGIN = '  # COMPOSED_FINAL_ENROLLMENT_JOBS_BEGIN\n'
 END = '  # COMPOSED_FINAL_ENROLLMENT_JOBS_END\n'
-OPTIONS = 'options: [composed-diagnostic-preflight, composed-experimental-static-diagnostic, composed-ordinary-diagnostic, composed-stress0-diagnostic, '
+OPTIONS = 'options: [composed-diagnostic-preflight, composed-experimental-static-diagnostic, composed-ordinary-diagnostic, composed-stress0-diagnostic, composed-native-five-diagnostic, '
 OUT = Path('composed-enrollment-diagnostic-evidence')
 ensure = ack.ensure
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'

@@ -2682,7 +2682,7 @@ mod automatic_forwarding_acceptance;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_forwarding_non_admin_acceptance.rs"]
+#[path = "tests/automatic_forwarding_non_admin_acceptance.rs"]
 mod automatic_forwarding_non_admin_acceptance;
 
 #[cfg(all(
