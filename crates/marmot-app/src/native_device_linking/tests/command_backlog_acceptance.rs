@@ -5,24 +5,34 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScenarioMode { QueuedBody, HeldBody }
+enum ScenarioMode {
+    QueuedBody,
+    HeldBody,
+}
 struct ScenarioOutcome {
-    facts: [bool; 13], completed_before: Option<usize>, runtime_closes: usize,
-    planes_shutdown: usize, relay_closed: bool, attempt_completed: bool, queue: QueueFacts,
+    facts: [bool; 13],
+    completed_before: Option<usize>,
+    runtime_closes: usize,
+    planes_shutdown: usize,
+    relay_closed: bool,
+    attempt_completed: bool,
+    queue: QueueFacts,
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
-    let ScenarioOutcome { facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed, queue } =
-        Box::pin(run_command_scenario(ScenarioMode::QueuedBody)).await;
-    eprintln!(
-        "command-backlog facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
+    let ScenarioOutcome {
         facts,
         completed_before,
         runtime_closes,
         planes_shutdown,
         relay_closed,
-        attempt_completed
+        attempt_completed,
+        queue,
+    } = Box::pin(run_command_scenario(ScenarioMode::QueuedBody)).await;
+    eprintln!(
+        "command-backlog facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
+        facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed
     );
     emit_queue(queue);
     assert!(
@@ -37,18 +47,40 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn eight_history_reads_complete_while_actual_peer_proof_is_held() {
-    let ScenarioOutcome { facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed, queue } =
-        Box::pin(run_command_scenario(ScenarioMode::HeldBody)).await;
+    let ScenarioOutcome {
+        facts,
+        completed_before,
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt_completed,
+        queue,
+    } = Box::pin(run_command_scenario(ScenarioMode::HeldBody)).await;
     // These are independently observed real setup/command/auth/cleanup facts;
     // the queued-body order/witness slots5/11 are not used by this counterpart.
-    let progress_facts = [facts[0], facts[1], facts[2], facts[3], facts[4], facts[6],
-        facts[7], facts[8], facts[9], facts[10], facts[12]];
-    eprintln!("command-backlog-progress facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
-        progress_facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed);
+    let progress_facts = [
+        facts[0], facts[1], facts[2], facts[3], facts[4], facts[6], facts[7], facts[8], facts[9],
+        facts[10], facts[12],
+    ];
+    eprintln!(
+        "command-backlog-progress facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
+        progress_facts,
+        completed_before,
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt_completed
+    );
     emit_queue(queue);
-    assert!(progress_facts.into_iter().all(|value| value) && completed_before == Some(8)
-        && runtime_closes == 3 && planes_shutdown == 3 && relay_closed && attempt_completed,
-        "eight_real_history_reads_must_finish_before_releasing_actual_peer_proof");
+    assert!(
+        progress_facts.into_iter().all(|value| value)
+            && completed_before == Some(8)
+            && runtime_closes == 3
+            && planes_shutdown == 3
+            && relay_closed
+            && attempt_completed,
+        "eight_real_history_reads_must_finish_before_releasing_actual_peer_proof"
+    );
 }
 
 async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
@@ -221,52 +253,62 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
         queue_observations.pause_rx_len = backlog.pause_rx_len();
         let own_message = backlog.own_message();
         queue_observations.own_id_bound = Some(own_message.is_some());
-        queue_observations.own = own_message.as_ref().and_then(|message| queue_observation(&apps[1], &account, &hex::encode(message.as_slice())));
+        queue_observations.own = own_message.as_ref().and_then(|message| {
+            queue_observation(&apps[1], &account, &hex::encode(message.as_slice()))
+        });
         if mode == ScenarioMode::QueuedBody {
-        // The exact target actor is parked BEFORE select. No receive, SQL/Core
-        // query, or actor RPC is used to establish the queue witness.
-        drop(proof_gate);
-        let queue = tokio::time::timeout(Duration::from_secs(15), async {
-            loop {
-                let row = queue_observation(&apps[1], &account, &id);
-                queue_observations.target = row;
-                if let Some(row) = row
-                    && row.1[0] > 0
-                    && (row.2.is_some() || row.5)
-                {
-                    break row;
+            // The exact target actor is parked BEFORE select. No receive, SQL/Core
+            // query, or actor RPC is used to establish the queue witness.
+            drop(proof_gate);
+            let queue = tokio::time::timeout(Duration::from_secs(15), async {
+                loop {
+                    let row = queue_observation(&apps[1], &account, &id);
+                    queue_observations.target = row;
+                    if let Some(row) = row
+                        && row.1[0] > 0
+                        && (row.2.is_some() || row.5)
+                    {
+                        break row;
+                    }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-        })
-        .await
-        .unwrap();
-        facts[5] = (queue.2, queue.3, queue.4, queue.5) == (Some((0, 1)), 0, false, false);
-        let replies = managers[1]
-            .enqueue_command_backlog_reads_for_test("test")
+            })
             .await
             .unwrap();
-        facts[6] = backlog.install_replies(replies);
-        backlog.release();
-        let accepted = tokio::time::timeout(Duration::from_secs(15), backlog.accepted())
-            .await
-            .unwrap()
-            .unwrap();
-        completed_before = Some(accepted.0);
-        facts[7] = accepted.1 && accepted.0 <= 8;
-        facts[11] = accepted.0 <= 1;
-        facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.drain_replies())
-            .await
-            .unwrap();
+            facts[5] = (queue.2, queue.3, queue.4, queue.5) == (Some((0, 1)), 0, false, false);
+            let replies = managers[1]
+                .enqueue_command_backlog_reads_for_test("test")
+                .await
+                .unwrap();
+            facts[6] = backlog.install_replies(replies);
+            backlog.release();
+            let accepted = tokio::time::timeout(Duration::from_secs(15), backlog.accepted())
+                .await
+                .unwrap()
+                .unwrap();
+            completed_before = Some(accepted.0);
+            facts[7] = accepted.1 && accepted.0 <= 8;
+            facts[11] = accepted.0 <= 1;
+            facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.drain_replies())
+                .await
+                .unwrap();
         } else {
             // C's genuine proof future remains held while all eight real read
             // commands complete. No command waits for the missing target Body0.
-            let replies = managers[1].enqueue_command_backlog_reads_for_test("test").await.unwrap();
+            let replies = managers[1]
+                .enqueue_command_backlog_reads_for_test("test")
+                .await
+                .unwrap();
             facts[6] = backlog.install_replies(replies);
             backlog.release();
-            facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.drain_replies()).await.unwrap();
+            facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.drain_replies())
+                .await
+                .unwrap();
             drop(proof_gate);
-            let accepted = tokio::time::timeout(Duration::from_secs(15), backlog.accepted()).await.unwrap().unwrap();
+            let accepted = tokio::time::timeout(Duration::from_secs(15), backlog.accepted())
+                .await
+                .unwrap()
+                .unwrap();
             completed_before = Some(accepted.0);
             facts[7] = accepted == (8, true);
             queue_observations.target = queue_observation(&apps[1], &account, &id);
@@ -298,22 +340,39 @@ async fn run_command_scenario(mode: ScenarioMode) -> ScenarioOutcome {
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
-    ScenarioOutcome { facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt_completed: attempt.is_ok(), queue: queue_observations }
+    ScenarioOutcome {
+        facts,
+        completed_before,
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt_completed: attempt.is_ok(),
+        queue: queue_observations,
+    }
 }
 
 type QueueObservation = ([u64; 8], [u64; 6], Option<(usize, usize)>, u64, bool, bool);
 #[derive(Default)]
 struct QueueFacts {
-    pause_rx_len: Option<usize>, target: Option<QueueObservation>,
-    own_id_bound: Option<bool>, own: Option<QueueObservation>,
+    pause_rx_len: Option<usize>,
+    target: Option<QueueObservation>,
+    own_id_bound: Option<bool>,
+    own: Option<QueueObservation>,
 }
-fn queue_observation(app: &MarmotApp, account: &cgka_traits::MemberId, id: &str) -> Option<QueueObservation> {
-    app.relay_plane.account_notification_timing_for_test(account, id)
+fn queue_observation(
+    app: &MarmotApp,
+    account: &cgka_traits::MemberId,
+    id: &str,
+) -> Option<QueueObservation> {
+    app.relay_plane
+        .account_notification_timing_for_test(account, id)
         .map(|row| (row.0, row.2, row.4.0, row.4.1, row.4.2.is_some(), row.4.3))
 }
 fn emit_queue(queue: QueueFacts) {
-    eprintln!("command-backlog-queue pause_rx_len={:?} target={:?} own_id_bound={:?} own={:?}",
-        queue.pause_rx_len, queue.target, queue.own_id_bound, queue.own);
+    eprintln!(
+        "command-backlog-queue pause_rx_len={:?} target={:?} own_id_bound={:?} own={:?}",
+        queue.pause_rx_len, queue.target, queue.own_id_bound, queue.own
+    );
 }
 
 // Probe only this fixture's owned loopback MockRelay listener.

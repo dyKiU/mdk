@@ -54,8 +54,12 @@ impl Guard {
     pub(crate) fn message(&self) -> Option<cgka_traits::MessageId> {
         self.0.message.get().cloned()
     }
-    pub(crate) fn own_message(&self) -> Option<cgka_traits::MessageId> { self.0.own_message.get().cloned() }
-    pub(crate) fn pause_rx_len(&self) -> Option<usize> { self.0.pause_rx_len.get().copied() }
+    pub(crate) fn own_message(&self) -> Option<cgka_traits::MessageId> {
+        self.0.own_message.get().cloned()
+    }
+    pub(crate) fn pause_rx_len(&self) -> Option<usize> {
+        self.0.pause_rx_len.get().copied()
+    }
     pub(crate) fn release(&self) {
         self.0.release.notify_one();
     }
@@ -79,8 +83,13 @@ impl Guard {
         }
         self.0.consumed.store(count, Ordering::Release);
         self.0.reply_errors.store(!ok, Ordering::Release);
-        let Ok(mut slot) = self.0.replies.lock() else { return false; };
-        if slot.is_some() { self.0.known.store(false, Ordering::Release); return false; }
+        let Ok(mut slot) = self.0.replies.lock() else {
+            return false;
+        };
+        if slot.is_some() {
+            self.0.known.store(false, Ordering::Release);
+            return false;
+        }
         *slot = Some(Vec::new());
         count == 8 && ok
     }
@@ -116,7 +125,9 @@ impl super::Guard {
             accepted_observed: Notify::new(),
         });
         let mut slot = registry().lock().ok()?;
-        if slot.upgrade().is_some() { return None; }
+        if slot.upgrade().is_some() {
+            return None;
+        }
         *slot = Arc::downgrade(&probe);
         Some(Guard(probe))
     }
@@ -129,7 +140,9 @@ pub(in super::super) fn prepared(entry: &SiblingChannel, message: &cgka_traits::
         return;
     }
     match entry.original.as_ref() {
-        SiblingOriginal::Recipient { choice, .. } if probe.sender.ptr_eq(&Arc::downgrade(choice)) => {
+        SiblingOriginal::Recipient { choice, .. }
+            if probe.sender.ptr_eq(&Arc::downgrade(choice)) =>
+        {
             let _ = probe.message.set(message.clone());
         }
         SiblingOriginal::Existing { .. } if target(&probe, entry) => {
@@ -151,7 +164,11 @@ impl Pause {
         }
     }
 }
-pub(in super::super) fn pause(entries: &[SiblingChannel], receive: [bool; 5], queue_len: impl FnOnce() -> Option<usize>) -> Option<Pause> {
+pub(in super::super) fn pause(
+    entries: &[SiblingChannel],
+    receive: [bool; 5],
+    queue_len: impl FnOnce() -> Option<usize>,
+) -> Option<Pause> {
     let probe = probe()?;
     let entry = entries.iter().find(|entry| target(&probe, entry))?;
     if !entry.ready
@@ -168,7 +185,9 @@ pub(in super::super) fn pause(entries: &[SiblingChannel], receive: [bool; 5], qu
         return None;
     }
     let queue_len = queue_len()?;
-    if queue_len != 0 { return None; }
+    if queue_len != 0 {
+        return None;
+    }
     if probe.fired.swap(true, Ordering::AcqRel) {
         return None;
     }
