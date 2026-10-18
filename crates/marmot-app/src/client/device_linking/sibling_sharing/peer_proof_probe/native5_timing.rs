@@ -93,76 +93,154 @@ pub(in super::super::super) struct RequestToken {
     source_state: Weak<State>,
 }
 fn request_candidate(data: &mut Data, entry: &SiblingChannel, probe: &Probe) -> Option<usize> {
-    if entry.recipient { return None; }
-    let SiblingOriginal::Existing { original, .. } = entry.original.as_ref() else { return None; };
+    if entry.recipient {
+        return None;
+    }
+    let SiblingOriginal::Existing { original, .. } = entry.original.as_ref() else {
+        return None;
+    };
     let owner = data.owner.as_ref()?.upgrade()?;
     let scope = entry.channel.scope();
     // Coarse capture filter only. It is NOT a recipient ownership claim.
     if scope.recipient != owner.context.recipient
         || scope.protected.account.as_slice() != owner.context.account
-        || scope.protected.group_id.as_slice() != owner.context.device_group { return None; }
-    if let Some(index) = data.requests.iter().position(|row| row.as_ref().is_some_and(|row| row.common.matches(scope))) {
+        || scope.protected.group_id.as_slice() != owner.context.device_group
+    {
+        return None;
+    }
+    if let Some(index) = data
+        .requests
+        .iter()
+        .position(|row| row.as_ref().is_some_and(|row| row.common.matches(scope)))
+    {
         let row = data.requests[index].as_ref()?;
-        if !row.source.ptr_eq(&Arc::downgrade(original)) || !row.source_state.ptr_eq(&Arc::downgrade(&entry.state)) {
-            probe.loss(IDENTITY); return None;
+        if !row.source.ptr_eq(&Arc::downgrade(original))
+            || !row.source_state.ptr_eq(&Arc::downgrade(&entry.state))
+        {
+            probe.loss(IDENTITY);
+            return None;
         }
         return Some(index);
     }
-    let Some(index) = data.requests.iter().position(Option::is_none) else { probe.loss(CAPACITY); return None; };
+    let Some(index) = data.requests.iter().position(Option::is_none) else {
+        probe.loss(CAPACITY);
+        return None;
+    };
     data.requests[index] = Some(RequestRow {
-        common: CommonScope::new(scope), source: Arc::downgrade(original), source_state: Arc::downgrade(&entry.state),
-        recipient_state: None, consent_slot: None, times: [None; 12], outcomes: [None; 7], later_attempts: 0, later_dispatches: 0,
+        common: CommonScope::new(scope),
+        source: Arc::downgrade(original),
+        source_state: Arc::downgrade(&entry.state),
+        recipient_state: None,
+        consent_slot: None,
+        times: [None; 12],
+        outcomes: [None; 7],
+        later_attempts: 0,
+        later_dispatches: 0,
     });
     Some(index)
 }
-pub(in super::super::super) fn request_source(entry: &SiblingChannel, before: Option<Instant>, after: Option<Instant>) {
-    let Some(probe) = active_probe() else { return; };
-    probe.observe(|data,_time| {
-        let Some(index) = request_candidate(data,entry,&probe) else { return; };
-        let Some(row) = data.requests[index].as_mut() else { probe.loss(IDENTITY); return; };
+pub(in super::super::super) fn request_source(
+    entry: &SiblingChannel,
+    before: Option<Instant>,
+    after: Option<Instant>,
+) {
+    let Some(probe) = active_probe() else {
+        return;
+    };
+    probe.observe(|data, _time| {
+        let Some(index) = request_candidate(data, entry, &probe) else {
+            return;
+        };
+        let Some(row) = data.requests[index].as_mut() else {
+            probe.loss(IDENTITY);
+            return;
+        };
         if row.times[1].is_none() {
-            row.times[0] = before.and_then(|stamp| stamp.checked_duration_since(probe.origin))
-                .and_then(|duration| u64::try_from(duration.as_micros()).ok()).filter(|value| *value <= MAX_US);
-            row.times[1] = after.and_then(|stamp| stamp.checked_duration_since(probe.origin))
-                .and_then(|duration| u64::try_from(duration.as_micros()).ok()).filter(|value| *value <= MAX_US);
+            row.times[0] = before
+                .and_then(|stamp| stamp.checked_duration_since(probe.origin))
+                .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+                .filter(|value| *value <= MAX_US);
+            row.times[1] = after
+                .and_then(|stamp| stamp.checked_duration_since(probe.origin))
+                .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+                .filter(|value| *value <= MAX_US);
         }
     });
 }
 pub(in super::super::super) fn request_begin(entry: &SiblingChannel) -> Option<RequestToken> {
     let probe = active_probe()?;
     let mut selected = None;
-    probe.observe(|data,time| {
-        let Some(index) = request_candidate(data,entry,&probe) else { return; };
-        let Some(row) = data.requests[index].as_mut() else { probe.loss(IDENTITY); return; };
-        if row.times[2].is_some() { increment(&mut row.later_attempts,&probe); return; }
+    probe.observe(|data, time| {
+        let Some(index) = request_candidate(data, entry, &probe) else {
+            return;
+        };
+        let Some(row) = data.requests[index].as_mut() else {
+            probe.loss(IDENTITY);
+            return;
+        };
+        if row.times[2].is_some() {
+            increment(&mut row.later_attempts, &probe);
+            return;
+        }
         row.times[2] = time;
-        selected = Some(RequestToken { probe: Arc::downgrade(&probe),index,source_state: row.source_state.clone() });
+        selected = Some(RequestToken {
+            probe: Arc::downgrade(&probe),
+            index,
+            source_state: row.source_state.clone(),
+        });
     });
     selected
 }
 impl RequestToken {
-    pub(in super::super::super) fn stage(&self, stage: usize, outcome: Option<(usize,bool)>) {
-        let Some(probe) = self.probe.upgrade() else { return; };
-        probe.observe(|data,time| {
-            let Some(row) = data.requests.get_mut(self.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
-            if !row.source_state.ptr_eq(&self.source_state) || stage >= 12 { probe.loss(IDENTITY); return; }
-            if row.times[stage].is_none() { row.times[stage] = time; }
-            if let Some((field,value)) = outcome {
-                if let Some(target) = row.outcomes.get_mut(field) { target.get_or_insert(value); }
-                else { probe.loss(IDENTITY); }
+    pub(in super::super::super) fn stage(&self, stage: usize, outcome: Option<(usize, bool)>) {
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
+        probe.observe(|data, time| {
+            let Some(row) = data.requests.get_mut(self.index).and_then(Option::as_mut) else {
+                probe.loss(IDENTITY);
+                return;
+            };
+            if !row.source_state.ptr_eq(&self.source_state) || stage >= 12 {
+                probe.loss(IDENTITY);
+                return;
+            }
+            if row.times[stage].is_none() {
+                row.times[stage] = time;
+            }
+            if let Some((field, value)) = outcome {
+                if let Some(target) = row.outcomes.get_mut(field) {
+                    target.get_or_insert(value);
+                } else {
+                    probe.loss(IDENTITY);
+                }
             }
         });
     }
     pub(in super::super::super) fn report(&self, ok: bool, met: Option<bool>) {
-        self.stage(5,Some((0,ok)));
-        if let Some(met) = met { self.outcome(1,met); }
+        self.stage(5, Some((0, ok)));
+        if let Some(met) = met {
+            self.outcome(1, met);
+        }
     }
     pub(in super::super::super) fn outcome(&self, field: usize, value: bool) {
-        let Some(probe) = self.probe.upgrade() else { return; };
-        probe.observe(|data,_| {
-            let Some(row) = data.requests.get_mut(self.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
-            if !row.source_state.ptr_eq(&self.source_state) { probe.loss(IDENTITY); return; }
-            if let Some(target) = row.outcomes.get_mut(field) { target.get_or_insert(value); } else { probe.loss(IDENTITY); }
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
+        probe.observe(|data, _| {
+            let Some(row) = data.requests.get_mut(self.index).and_then(Option::as_mut) else {
+                probe.loss(IDENTITY);
+                return;
+            };
+            if !row.source_state.ptr_eq(&self.source_state) {
+                probe.loss(IDENTITY);
+                return;
+            }
+            if let Some(target) = row.outcomes.get_mut(field) {
+                target.get_or_insert(value);
+            } else {
+                probe.loss(IDENTITY);
+            }
         });
     }
 }
@@ -174,41 +252,105 @@ pub(in super::super::super) fn request_dispatch(
 ) -> Option<RequestToken> {
     let probe = active_probe()?;
     let mut selected = None;
-    probe.observe(|data,time| {
-        if !data.owner.as_ref().is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice))) { return; }
-        let Some(index) = data.requests.iter().position(|row| row.as_ref().is_some_and(|row|
-            row.common.nonce == received.nonce && row.common.source == received.source
-                && row.common.recipient == received.recipient && row.common.approval == received.approval_id)) else { return; };
-        let Some(row) = data.requests[index].as_mut() else { probe.loss(IDENTITY); return; };
+    probe.observe(|data, time| {
+        if !data
+            .owner
+            .as_ref()
+            .is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice)))
+        {
+            return;
+        }
+        let Some(index) = data.requests.iter().position(|row| {
+            row.as_ref().is_some_and(|row| {
+                row.common.nonce == received.nonce
+                    && row.common.source == received.source
+                    && row.common.recipient == received.recipient
+                    && row.common.approval == received.approval_id
+            })
+        }) else {
+            return;
+        };
+        let Some(row) = data.requests[index].as_mut() else {
+            probe.loss(IDENTITY);
+            return;
+        };
         // First contiguous receive attempt only; retries cannot fill its fields.
-        if row.times[8].is_some() { increment(&mut row.later_dispatches,&probe); return; }
+        if row.times[8].is_some() {
+            increment(&mut row.later_dispatches, &probe);
+            return;
+        }
         row.times[8] = time;
-        selected = Some(RequestToken { probe: Arc::downgrade(&probe),index,source_state: row.source_state.clone() });
+        selected = Some(RequestToken {
+            probe: Arc::downgrade(&probe),
+            index,
+            source_state: row.source_state.clone(),
+        });
     });
     selected
 }
-pub(in super::super::super) fn request_installed(entry: &SiblingChannel, token: Option<&RequestToken>) {
-    let Some(token) = token else { return; };
-    let Some(probe) = token.probe.upgrade() else { return; };
-    probe.observe(|data,time| {
-        if !owned(data,entry) || !entry.original.live() || !entry.state.live() { return; }
-        let Some(row) = data.requests.get_mut(token.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
-        if !row.common.matches(entry.channel.scope()) || !row.source_state.ptr_eq(&token.source_state)
-            || !row.source.upgrade().is_some_and(|source| source.state.live())
-            || !row.source_state.upgrade().is_some_and(|state| state.live()) { probe.loss(IDENTITY); return; }
+pub(in super::super::super) fn request_installed(
+    entry: &SiblingChannel,
+    token: Option<&RequestToken>,
+) {
+    let Some(token) = token else {
+        return;
+    };
+    let Some(probe) = token.probe.upgrade() else {
+        return;
+    };
+    probe.observe(|data, time| {
+        if !owned(data, entry) || !entry.original.live() || !entry.state.live() {
+            return;
+        }
+        let Some(row) = data.requests.get_mut(token.index).and_then(Option::as_mut) else {
+            probe.loss(IDENTITY);
+            return;
+        };
+        if !row.common.matches(entry.channel.scope())
+            || !row.source_state.ptr_eq(&token.source_state)
+            || !row
+                .source
+                .upgrade()
+                .is_some_and(|source| source.state.live())
+            || !row.source_state.upgrade().is_some_and(|state| state.live())
+        {
+            probe.loss(IDENTITY);
+            return;
+        }
         if let Some(state) = &row.recipient_state {
-            if !state.ptr_eq(&Arc::downgrade(&entry.state)) { probe.loss(IDENTITY); return; }
-        } else { row.recipient_state = Some(Arc::downgrade(&entry.state)); }
-        if row.times[11].is_none() { row.times[11] = time; }
+            if !state.ptr_eq(&Arc::downgrade(&entry.state)) {
+                probe.loss(IDENTITY);
+                return;
+            }
+        } else {
+            row.recipient_state = Some(Arc::downgrade(&entry.state));
+        }
+        if row.times[11].is_none() {
+            row.times[11] = time;
+        }
     });
 }
 fn request_link_consent(data: &mut Data, entry: &SiblingChannel, index: usize, probe: &Probe) {
-    if !owned(data,entry) || !entry.original.live() || !entry.state.live() { return; }
+    if !owned(data, entry) || !entry.original.live() || !entry.state.live() {
+        return;
+    }
     for row in data.requests.iter_mut().flatten() {
-        if row.common.matches(entry.channel.scope()) && row.recipient_state.as_ref().is_some_and(|state| state.ptr_eq(&Arc::downgrade(&entry.state))) {
-            if row.consent_slot.is_some_and(|old| old != index) { probe.loss(IDENTITY); }
-            else if row.source.upgrade().is_some_and(|source| source.state.live())
-                && row.source_state.upgrade().is_some_and(|state| state.live()) { row.consent_slot = Some(index); }
+        if row.common.matches(entry.channel.scope())
+            && row
+                .recipient_state
+                .as_ref()
+                .is_some_and(|state| state.ptr_eq(&Arc::downgrade(&entry.state)))
+        {
+            if row.consent_slot.is_some_and(|old| old != index) {
+                probe.loss(IDENTITY);
+            } else if row
+                .source
+                .upgrade()
+                .is_some_and(|source| source.state.live())
+                && row.source_state.upgrade().is_some_and(|state| state.live())
+            {
+                row.consent_slot = Some(index);
+            }
         }
     }
 }
@@ -2580,8 +2722,18 @@ impl Guard {
                     data.worker.deliveries.map(|row| {
                         row.map(|row| (row.worker, row.before, row.after, row.ok, row.later))
                     }),
-                    std::array::from_fn::<_, 3, _>(|index| data.requests[index].as_ref().map(|row|
-                        (row.times, row.outcomes, row.later_attempts, row.later_dispatches, row.recipient_state.is_some(), row.consent_slot))),
+                    std::array::from_fn::<_, 3, _>(|index| {
+                        data.requests[index].as_ref().map(|row| {
+                            (
+                                row.times,
+                                row.outcomes,
+                                row.later_attempts,
+                                row.later_dispatches,
+                                row.recipient_state.is_some(),
+                                row.consent_slot,
+                            )
+                        })
+                    }),
                 ))
             }
             Err(TryLockError::WouldBlock) => None,
@@ -2691,7 +2843,10 @@ impl Guard {
                 "native5-consent-terminal-cost observation={terminal_cost:?}"
             );
             for (index, row) in requests.into_iter().enumerate() {
-                let _ = writeln!(&mut output, "native5-request index={index} observation={row:?}");
+                let _ = writeln!(
+                    &mut output,
+                    "native5-request index={index} observation={row:?}"
+                );
             }
         }
         output.push_str(&sdk_report);
