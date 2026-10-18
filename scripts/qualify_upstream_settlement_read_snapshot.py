@@ -13,7 +13,7 @@ import qualify_upstream_storage_app_handles as common
 from upstream_extraction_cohort import frozen_inputs
 old=common.old
 ensure=old.ensure
-BASE='2043e9f137fffdfd1ee7143d8c3a9d6ce25acf5e' # Root pins the exact reviewed test-bearing RED or subsequent pure FIX baseline.
+BASE='c3215b2a5f8a9dfe6c8a0628e99f8ab13a771084' # Root pins the exact reviewed test-bearing RED or subsequent pure FIX baseline.
 FIXTURE='crates/storage-sqlite/src/private_roster_settlement/tests.rs'
 FIXTURE_SHA='32726730a2ea73101f771e11c5709dc8ff525ae58acbdec7d11762c9e25d8594'
 CASES={
@@ -21,7 +21,7 @@ CASES={
     'facts':{'name':'private_roster_settlement::tests::private_settlement_read_facts_pins_foreign_wal_replacement','line':793,'message':'public settlement facts snapshot must preserve coherent committed state and facts'},
     'control':{'name':'private_roster_settlement::tests::private_settlement_snapshot_reads_reject_persisted_foreign_generation_fact'},
 } # Root fills exact final assertion locations/payloads after source review.
-MUTATIONS={'round':None,'facts':None} # Exact {path,old,new} only after reviewed production FIX.
+MUTATIONS={'round': {'path': 'crates/storage-sqlite/src/private_roster_settlement.rs', 'old': '    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        self.connection.with_deferred_read(read)\n    }\n', 'new': '    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        {\n            let conn = self.lock()?;\n            read(&conn)\n        }\n    }\n'}, 'facts': {'path': 'crates/storage-sqlite/src/private_roster_settlement.rs', 'old': '    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        self.connection.with_deferred_read(|conn| match read(conn)? {\n            Some(state) => facts(conn, &state),\n            None => Ok(vec![]),\n        })\n    }\n', 'new': '    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        let conn = self.lock()?;\n        match read(&conn)? {\n            Some(s) => facts(&conn, &s),\n            None => Ok(vec![]),\n        }\n    }\n'}}
 SELF='scripts/qualify_upstream_settlement_read_snapshot.py'
 WORKFLOW='.github/workflows/upstream-boundary-regressions.yml'
 REF='refs/heads/ci/upstream-settlement-read-snapshot-20261018'

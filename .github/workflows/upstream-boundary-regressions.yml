@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SETTLEMENT_READ_BASELINE: 2043e9f137fffdfd1ee7143d8c3a9d6ce25acf5e
+      SETTLEMENT_READ_BASELINE: c3215b2a5f8a9dfe6c8a0628e99f8ab13a771084
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -49,9 +49,9 @@ jobs:
           python3 scripts/qualify_upstream_settlement_read_snapshot.py --preflight
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$toolchain" --profile minimal --component rustfmt
-          rustup run "$toolchain" rustfmt --edition 2024 --config skip_children=true crates/storage-sqlite/src/private_roster_settlement/tests.rs
-          git diff --binary -- crates/storage-sqlite/src/private_roster_settlement/tests.rs > "$RUNNER_TEMP/settlement-read-format.patch"
-          git diff --exit-code -- crates/storage-sqlite/src/private_roster_settlement/tests.rs
+          rustup run "$toolchain" rustfmt --edition 2024 --config skip_children=true crates/storage-sqlite/src/private_roster_settlement/tests.rs crates/storage-sqlite/src/private_roster_settlement.rs
+          git diff --binary -- crates/storage-sqlite/src/private_roster_settlement/tests.rs crates/storage-sqlite/src/private_roster_settlement.rs > "$RUNNER_TEMP/settlement-read-format.patch"
+          git diff --exit-code -- crates/storage-sqlite/src/private_roster_settlement/tests.rs crates/storage-sqlite/src/private_roster_settlement.rs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SETTLEMENT_READ_BASELINE: 2043e9f137fffdfd1ee7143d8c3a9d6ce25acf5e
+      SETTLEMENT_READ_BASELINE: c3215b2a5f8a9dfe6c8a0628e99f8ab13a771084
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -109,7 +109,7 @@ jobs:
       matrix:
         mutation: [round, facts]
     env:
-      SETTLEMENT_READ_BASELINE: 2043e9f137fffdfd1ee7143d8c3a9d6ce25acf5e
+      SETTLEMENT_READ_BASELINE: c3215b2a5f8a9dfe6c8a0628e99f8ab13a771084
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

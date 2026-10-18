@@ -275,10 +275,7 @@ pub(crate) fn deny_for_group_tx(
 
 impl PrivateRosterSettlementStorage for SqliteAccountStorage {
     fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {
-        {
-            let conn = self.lock()?;
-            read(&conn)
-        }
+        self.connection.with_deferred_read(read)
     }
     fn select_round(
         &self,
@@ -457,11 +454,10 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
         })
     }
     fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {
-        let conn = self.lock()?;
-        match read(&conn)? {
-            Some(s) => facts(&conn, &s),
+        self.connection.with_deferred_read(|conn| match read(conn)? {
+            Some(state) => facts(conn, &state),
             None => Ok(vec![]),
-        }
+        })
     }
 }
 #[cfg(test)]
