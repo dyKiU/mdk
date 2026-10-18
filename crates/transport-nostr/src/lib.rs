@@ -306,7 +306,12 @@ pub type AccountNotificationTimingForTest = (
     [Option<std::time::Instant>; 8],
     [u64; 6],
     [Option<std::time::Instant>; 6],
-    (Option<(usize, usize)>, u64, Option<std::time::Instant>, bool),
+    (
+        Option<(usize, usize)>,
+        u64,
+        Option<std::time::Instant>,
+        bool,
+    ),
 );
 
 #[cfg(all(
