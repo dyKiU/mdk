@@ -310,6 +310,33 @@ jobs:
            for text,code in negative:ensure(not exact_version_record(text,code),'closed-version-negative')
            ensure(len(public.encode())==171,'actual-public-version-record-171-bytes')
            return {'positive':len(positive),'negative':len(negative),'actual_public_record_bytes':171,'runtime_bodies':0,'raw_version_output_retained':False}
+          def inventory_diagnostics(raw,code,seconds):
+           text=re.sub(r'\x1b\[[0-9;]*m','',raw)
+           classes={0:'OK',1:'UNKNOWN_UNEXPECTED',2:'CLI_USAGE',4:'NO_TESTS_RUN',70:'DOUBLE_SPAWN_ERROR',92:'REQUIRED_VERSION_NOT_MET',94:'INVALID_FILTERSET',95:'EXPERIMENTAL_FEATURE_NOT_ENABLED',96:'SETUP_ERROR',101:'BUILD_FAILED',102:'CARGO_METADATA_FAILED',103:'ARCHIVE_CREATION_FAILED',104:'TEST_LIST_CREATION_FAILED',105:'SETUP_SCRIPT_FAILED',110:'WRITE_OUTPUT_ERROR'}
+           exact={'filterset_parse':'failed to parse filterset','rust_build_metadata_parse':'error parsing Rust build metadata','test_list_creation':'creating test list failed','archive_summary_reconstruction':'error reconstructing test list from archived summary','test_list_output':'failed to write test list to output'}
+           flags={name:bool(re.search(r'(?m)^error: '+re.escape(message)+r'$',text)) for name,message in exact.items()}
+           flags.update(archive_extract=bool(re.search(r'(?m)^error: error extracting archive `',text)),archive_format=bool(re.search(r'(?m)^error: failed to autodetect archive format for ',text)),cargo_metadata_parse=bool(re.search(r'(?m)^error: error parsing Cargo metadata(?:$| from file `)',text)),unexpected_argument=bool(re.search(r'(?m)^error: unexpected argument ',text)),invalid_argument_value=bool(re.search(r'(?m)^error: invalid value ',text)),required_argument_missing=bool(re.search(r'(?m)^error: the following required arguments were not provided:',text)))
+           return {'exit_code':code,'seconds':seconds,'captured_bytes':len(raw.encode()),'exit_class':classes.get(code,'UNMAPPED') if type(code) is int else 'UNKNOWN','tool_error_classes':flags,'raw_output_retained':False,'class_flags_are_not_cause_proof':True}
+          def inventory_root(raw):
+           text=re.sub(r'\x1b\[[0-9;]*m','',raw);decoder=json.JSONDecoder();objects=[]
+           for match in re.finditer(r'(?m)^\{',text):
+            try:value,_=decoder.raw_decode(text[match.start():])
+            except ValueError:continue
+            objects.append(value)
+           ensure(len(objects)==1 and type(objects[0]) is dict and type(objects[0].get('rust-suites')) is dict,'one-exact-inventory-JSON-root');return objects[0]
+          def inventory_controls():
+           sample='{"rust-suites":{}}'
+           ensure(inventory_root('tool-owned progress\n'+sample)['rust-suites']=={},'inventory-progress-positive')
+           d=inventory_diagnostics('error: failed to parse filterset\n',94,1)
+           ensure(d['exit_class']=='INVALID_FILTERSET' and d['tool_error_classes']['filterset_parse'],'inventory-fixed-error-positive')
+           ensure(inventory_diagnostics('error: error extracting archive `PRIVATE_SENTINEL`\n',96,1)['tool_error_classes']['archive_extract'],'inventory-private-path-boolean-only')
+           ensure('PRIVATE_SENTINEL' not in json.dumps(inventory_diagnostics('error: error extracting archive `PRIVATE_SENTINEL`\n',96,1)),'inventory-no-path-export')
+           for raw in ['',sample+'\n'+sample,'{"foreign":{}}','{"foreign":{}}\n'+sample]:
+            try:inventory_root(raw)
+            except ValueError:continue
+            raise ValueError('inventory-negative-accepted')
+           ensure(not inventory_diagnostics('foreign error: failed to parse filterset\n',1,1)['tool_error_classes']['filterset_parse'],'inventory-foreign-prefix-negative')
+           return {'positive':3,'negative':5,'privacy':1,'runtime_bodies':0}
           def controls():
            ensure(summary('1 test run: 1 passed, 0 skipped',0)['known'],'completed-positive')
            ensure(summary('1 test run: 0 passed, 1 failed, 0 skipped',100)['known'],'failed-positive')
@@ -321,7 +348,7 @@ jobs:
           binary=None
           try:
            ensure(os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk' and os.environ['GITHUB_WORKFLOW_REF']=='dyKiU/mdk/.github/workflows/upstream-merge-artifacts.yml@refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['PRODUCER_RUN']==str(RUN),'exact-manual-proof-scope')
-           ensure(pristine(),'exact-source-pristine');report['source_tree']=git('rev-parse','HEAD^{tree}');report['parser_controls']=dict(controls(),version=version_controls());save()
+           ensure(pristine(),'exact-source-pristine');report['source_tree']=git('rev-parse','HEAD^{tree}');report['parser_controls']=dict(controls(),version=version_controls(),inventory=inventory_controls());save()
            version_code,version,_=bounded.capture(['cargo-nextest','nextest','--version'],30,limit=4096)
            report['nextest_version_check']={'exit_code':version_code,'captured_bytes':len(version.encode()),'starts_with_exact_version':re.match(r'^cargo-nextest 0\.9\.132(?: |\n|$)',version) is not None,'exact_version_line_count':len(re.findall(r'(?m)^cargo-nextest 0\.9\.132(?: |$)',version)),'toolchain_bootstrap_notice_present':re.search(r'(?m)^info: (?:syncing channel updates|downloading component|installing component)',version) is not None};save()
            report['nextest_version_check']['closed_full_version_record_valid']=exact_version_record(version,version_code);save()
@@ -343,8 +370,9 @@ jobs:
             archive=tmp/'tests.tar.zst';archive.write_bytes(z.read(member));archive.chmod(0o600)
            report['archive_sha256']=hashlib.sha256(archive.read_bytes()).hexdigest();report['archive_ZIP_digest_verified']=True;save()
            common=['--archive-file',str(archive),'--extract-to',str(tmp/'extract'),'--workspace-remap',str(Path.cwd())]
-           c,raw,_=bounded.capture(['bash','-c','exec "$@" 2>/dev/null','archive-inventory','cargo-nextest','nextest','list',*common,'--message-format','json','-E',FILTER],120,limit=4*1024*1024)
-           ensure(c==0,'archive-inventory-success');inventory=json.loads(raw);suites=inventory.get('rust-suites');ensure(type(suites) is dict,'closed-archive-inventory')
+           c,raw,seconds=bounded.capture(['cargo-nextest','nextest','list',*common,'--message-format','json','-E',FILTER],120,limit=4*1024*1024)
+           report['archive_inventory']=inventory_diagnostics(raw,c,seconds);save()
+           ensure(type(c) is int and c==0,'archive-inventory-success');inventory=inventory_root(raw);suites=inventory.get('rust-suites');ensure(type(suites) is dict,'closed-archive-inventory')
            selected=[]
            for suite in suites.values():
             for name,case in suite.get('testcases',{}).items():
