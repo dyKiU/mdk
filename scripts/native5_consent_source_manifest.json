@@ -1,7 +1,7 @@
 {
-  "reviewed_source": "77caba679ab5986df88fd7296b5446004fba8bb7",
-  "formatted_pure_baseline": "77caba679ab5986df88fd7296b5446004fba8bb7",
-  "construction": "Direct immutable77ca to optional separate worker recorder and exact first peer outer delivery passive draft source-text groups; no local parser/formatter/sourceguard/test executed. Hosted preflight must establish exact reconstruction.",
+  "reviewed_source": "0aeb969a5c17102c00945b1c856fdc59983e2718",
+  "formatted_pure_baseline": "0aeb969a5c17102c00945b1c856fdc59983e2718",
+  "construction": "Exact hosted-formatted passive observation reversal to pure worker-turn checkpoint candidate 0aeb969a5c17102c00945b1c856fdc59983e2718; the actual checkpoint is retained in the reconstructed product baseline. No local target parser, formatter, sourceguard or test executed; hosted preflight must establish full inverse.",
   "paths": {
     "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
       "draft_file": "sibling_sharing.rs",
@@ -290,8 +290,8 @@
     "crates/marmot-app/src/runtime/account_worker.rs": {
       "draft_file": "account_worker.rs",
       "mode": "100644",
-      "before_sha256": "edc8a35f6752c320794785211eff4465c6b918b70e4273fdce2e3b30add8c6eb",
-      "after_sha256": "0d0ca8c2774728252e4ecb48106871cc6afc115dfabeee172c9f19d26eff61af",
+      "before_sha256": "f46a8e6207202868da871026ad093a4db074c4de8d68b609084505f121110969",
+      "after_sha256": "75a3eee395deeb0f2a5ca9ead61c4cda8e912fc93194f87931dd8f1daa06dfd3",
       "exact_substitutions": [
         {
           "before": "\nmod attachments;\npub(crate) mod recovery_credits;\n\nuse crate::RuntimePerformanceOperation as RuntimeOp;\nuse crate::app_telemetry::runtime::{Observation, Outcome as TelemetryOutcome};\nuse std::collections::{HashMap, HashSet, VecDeque};\nuse std::future::Future;\n",
