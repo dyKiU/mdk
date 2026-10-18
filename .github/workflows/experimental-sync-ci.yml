@@ -89,7 +89,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_RECEIVE_FRONTIER_BASELINE: 5d383ebb2bab3e74b52100a33eec0357abe210ab
+      UPSTREAM_RECEIVE_FRONTIER_BASELINE: 23cdbf7211cb4faeff3105b05bb06a0700963623
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -131,7 +131,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_RECEIVE_FRONTIER_BASELINE: 5d383ebb2bab3e74b52100a33eec0357abe210ab
+      UPSTREAM_RECEIVE_FRONTIER_BASELINE: 23cdbf7211cb4faeff3105b05bb06a0700963623
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

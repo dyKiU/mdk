@@ -7,8 +7,8 @@ import qualify_upstream_storage_boundary as bounded
 import qualify_upstream_storage_app_handles as counts
 from upstream_completion_ci import compile_cases, ensure, digest
 from qualify_upstream_body_negative import feature_identity
-BASE='5d383ebb2bab3e74b52100a33eec0357abe210ab'
-MANIFEST_SHA='68660fd4d4478d83ecca8c8200127c86173df2624f785c3a748583843b3c3847'
+BASE='23cdbf7211cb4faeff3105b05bb06a0700963623'
+MANIFEST_SHA='8cc4b96336bbe0b7ab3f8d94cc72797b14f94297e41550151991c07ee30ba2d9'
 SELF='scripts/diagnose_upstream_receive_frontier.py'
 MANIFEST='scripts/receive_frontier_source_manifest.json'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
