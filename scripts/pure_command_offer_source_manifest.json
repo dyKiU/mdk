@@ -1,5 +1,5 @@
 {
-  "baseline": "c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee",
+  "baseline": "d9cef842e698f274530d0ffd71ec7cc77682e5b3",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -34,8 +34,8 @@
   "product": {
     "path": "crates/marmot-app/src/runtime/account_worker.rs",
     "git_mode": "100644",
-    "before_sha256": "dbb496a73a3ca47bed7695698119eccaf7e38faef91e329a6b99ef15d4898f24",
-    "after_sha256": "74f0eb0d9abd7036fa8f60adec0cd26c15a04ad90c95e8ea3f888f474e354f33",
+    "before_sha256": "244a488d12fd828ede910346038aeb9882241cb4d5e1c1d8423426acfebcde30",
+    "after_sha256": "0d5356aff9da14971d406f9835a0569c446b3035c0dbae3f4c3134b870010071",
     "edits": [
       {
         "before": "    let mut yield_to_convergence = false;\n",
@@ -82,7 +82,7 @@
     "fixture": "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs",
     "fixture_sha256": "a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca",
     "parent": "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
-    "parent_sha256": "35ff6d576a49cfae6054e6603321b0e4a47e4d7f1b1e4bc1c7f216990daf9440",
+    "parent_sha256": "49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa",
     "strict_helper_sha256": "a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2",
     "oracle_region_sha256": "88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72"
   },
@@ -120,5 +120,17 @@
     "source": "c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee",
     "semantics": "unified publication is a handshake only for Request or Consent; retain same closed observation and assertions",
     "product_behavior_changed": false
+  },
+  "watch_pressure": {
+    "source": "773226ecb137f5e7a637a2f10c9efed366b25fee",
+    "formatted_source": "d9cef842e698f274530d0ffd71ec7cc77682e5b3",
+    "test_only": true,
+    "real_hint_sends": 8,
+    "actual_service_returns": 8,
+    "product_watch_offer_adopted": false,
+    "shared_fixture_serialization": true,
+    "source_patch_sha256": "6778202ece5804e8f6c66a2d29e820347d62d27b927d91411321e44eda0ec56d",
+    "exact_hosted_format_patch_sha256": "2e3ecb2f0c63a27aedf633362c44d8b1462d2d46c3b8002c00a161ac989811c0",
+    "runtime_evidence_reused": false
   }
 }

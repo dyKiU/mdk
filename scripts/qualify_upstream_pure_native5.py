@@ -14,8 +14,8 @@ import qualify_upstream_storage_app_handles as counts
 from upstream_completion_ci import compile_cases, digest, ensure
 from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
-BASE='c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee'
-MANIFEST_SHA='c7d529d9b080d2069b7a617900e3745b55a5c857e80b24ef832eac10e9bfd974'
+BASE='d9cef842e698f274530d0ffd71ec7cc77682e5b3'
+MANIFEST_SHA='b3e03ef30c21f296befd201e19c48ddf6bba020bb254278f4a1733e932841e5c'
 SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
 REF='refs/heads/ci/upstream-command-offer-pure-20261018'

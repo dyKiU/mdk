@@ -15,11 +15,11 @@ import time
 import qualify_upstream_command_backlog_pair as pair
 red=pair.red
 ensure=red.ensure
-BASE='c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
+BASE='d9cef842e698f274530d0ffd71ec7cc77682e5b3'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
 SELF='scripts/qualify_upstream_pure_command_offer.py'
 PEER_SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
-MANIFEST_SHA='c7d529d9b080d2069b7a617900e3745b55a5c857e80b24ef832eac10e9bfd974'  # Root pins the shared reviewed manifest after final formatting/source freeze.
+MANIFEST_SHA='b3e03ef30c21f296befd201e19c48ddf6bba020bb254278f4a1733e932841e5c'  # Root pins the shared reviewed manifest after final formatting/source freeze.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 REF='refs/heads/ci/upstream-command-offer-pure-20261018'
 OUT=Path('pure-command-offer-evidence')
@@ -148,7 +148,7 @@ def source_guard():
             continue
         if blob is not None:
             ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-pure-content-no-Rust-exceptions:'+name)
-    allowed={'pure-command-offer-evidence/result.json','pure-native5-evidence/result.json'}
+    allowed={'pure-command-offer-evidence/result.json','pure-native5-evidence/result.json','pure-watch-pressure-evidence/result.json'}
     ensure(set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())<=allowed,'no-untracked-source-overlay')
     return manifest,{'source':head,'baseline':BASE,'whole_source_modes_reconstructed':True,'no_Rust_exceptions':True,
         'owned_metadata_union':[SELF,PEER_SELF,MANIFEST],'baseline_owned_metadata_present':sorted(owned_metadata.intersection(baseline)),'metadata_controllers_commit_bound_by_GITHUB_SHA_and_pristine_HEAD':True,
@@ -318,7 +318,212 @@ def run_phase(label,expected,modes,expected_cases,save,report):
     return phase
 
 
+WATCH_OUT=Path('pure-watch-pressure-evidence')
+WATCH_FIXTURE='crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'
+WATCH_CASE='authenticated_body_is_serviced_before_eight_ready_watch_services'
+WATCH_COUNTER='eight_watch_services_complete_while_actual_peer_proof_is_held'
+WATCH_NAMES={suffix:'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::'+suffix for suffix in [WATCH_CASE,WATCH_COUNTER]}
+WATCH_MESSAGE='authenticated_body_must_precede_second_ready_watch_service'
+WATCH_FIELDS=['real_consent_held','request_ack_harvested','exact_peer_proof_held','paused_live_prerequisites',
+    'actual_first_message_id','queue_head_witness','actual_watch_seed','authenticated_exact_body',
+    'eight_services_and_hints_ok','normal_enrollment','public_cancelled','bounded_watch_order','probe_and_ingress_known']
+WATCH_COUNTER_FIELDS=[WATCH_FIELDS[i] for i in [0,1,2,3,4,6,7,8,9,10,12]]
+
+
+def watch_assertion_line():
+    lines=Path(WATCH_FIXTURE).read_text().splitlines()
+    sites=[i for i,line in enumerate(lines) if '"'+WATCH_MESSAGE+'"' in line]
+    ensure(len(sites)==1,'one-watch-final-oracle')
+    return max(i for i in range(sites[0]+1) if re.search(r'\bassert!\s*\(',lines[i]))+1
+
+
+def watch_extract(raw):
+    ensure(len(raw.encode())<=8*1024*1024,'watch-bounded-raw')
+    # Normalize only the two exact closed scheduling-observation prefixes,
+    # not names, outcomes, fact markers or immutable helper module globals.
+    ensure('command-backlog' not in raw,'no-foreign-command-marker-in-watch-case')
+    value=re.sub(r'(?m)^watch-pressure-ingress ', 'command-backlog-ingress ',raw)
+    value,ingress=extract_ingress(value)
+    value=re.sub(r'(?m)^watch-pressure-queue ', 'command-backlog-queue ',value)
+    value,queue=pair.extract_queue(value)
+    clean=re.sub(r'\x1b\[[0-9;]*m','',value)
+    lines=[line for line in clean.splitlines() if line.startswith('watch-pressure-services')]
+    ensure(len(lines)==1,'one-watch-service-marker')
+    match=re.fullmatch(r'watch-pressure-services snapshot=(None|Some\(\((true|false), ([0-8]), ([0-8]), ([0-8])\)\))',lines[0])
+    ensure(match is not None,'closed-watch-service-marker')
+    services=None
+    if match[1]!='None':
+        services={'started':match[2]=='true','actual_pressure_service_returns':int(match[3]),
+            'injected_hint_sends':int(match[4]),'actual_service_errors':int(match[5])}
+        ensure(services['actual_service_errors']<=services['actual_pressure_service_returns'],'watch-error-count-within-calls')
+    clean=''.join(line for line in clean.splitlines(keepends=True) if line.rstrip('\r\n')!=lines[0])
+    return clean,{'ingress':ingress,'queue':queue,'services':services,
+        'injected_watch_scheduling_not_publication_results':True,'all_watch_traffic_observed':False}
+
+
+def watch_observations_green(row,is_original):
+    services=row.get('services')
+    return (ingress_gate(row.get('ingress',{})) and pair.queue_gate(row.get('queue',{}),is_original)
+        and isinstance(services,dict) and services.get('started') is True
+        and all(type(services.get(k)) is int and services[k]==v for k,v in {
+            'actual_pressure_service_returns':8,'injected_hint_sends':8,'actual_service_errors':0}.items()))
+
+
+def watch_parse(raw,code,suffix):
+    ensure(suffix in WATCH_NAMES and len(raw.encode())<=8*1024*1024,'one-allowlisted-watch-case')
+    clean=re.sub(r'\x1b\[[0-9;]*m','',raw)
+    names=re.findall(r'(?m)^test ([A-Za-z_0-9:]+) \.\.\.',clean)
+    prefix='watch-pressure' if suffix==WATCH_CASE else 'watch-pressure-progress'
+    clean=re.sub(r'(?m)^test '+re.escape(WATCH_NAMES[suffix])+r' \.\.\. (?='+prefix+r' )','',clean)
+    row=dict(red.parse_body(clean,suffix),body_exit_code=code,executed_case_names=names,
+        compiler_error_count=len(re.findall(r'^error(?:\[E[0-9]+\])?:',clean,re.M)),
+        running_counts=[int(v) for v in re.findall(r'(?m)^running ([0-9]{1,3}) tests?$',clean)])
+    lines=[line for line in clean.splitlines() if line.startswith('watch-pressure')]
+    row['marker_header_count']=len(lines)
+    fields=WATCH_FIELDS if suffix==WATCH_CASE else WATCH_COUNTER_FIELDS
+    pattern=prefix+r' facts=\['+', '.join([r'(true|false)']*len(fields))+r'\] completed_before=(None|Some\([0-8]\))'
+    pattern+=r' runtime_closes=([0-3]) plane_shutdown_returns=([0-3]) relay_closed=(true|false) attempt_completed=(true|false)'
+    ensure(len(lines)==1 and len(lines[0])<1024,'sole-watch-facts-marker')
+    found=re.fullmatch(pattern,lines[0]);ensure(found is not None,'closed-watch-facts')
+    values=found.groups();n=len(fields)
+    row['facts']=dict(zip(fields,[v=='true' for v in values[:n]]))
+    row.update(completed_before=None if values[n]=='None' else int(values[n][5:-1]),runtime_closes=int(values[n+1]),
+        plane_shutdown_returns=int(values[n+2]),relay_closed=values[n+3]=='true',attempt_completed=values[n+4]=='true',
+        named_final_assertion_observed=WATCH_MESSAGE in clean)
+    return row
+
+
+def watch_case_expected(row,suffix):
+    original=suffix==WATCH_CASE
+    expected={'body_exit_code':101 if original else 0,'passed':0 if original else 1,'failed':1 if original else 0,
+        'ignored':0,'executed_nonignored':1,'compiler_error_count':0,'all_panic_header_count':1 if original else 0,
+        'marker_header_count':1,'completed_before':8,'runtime_closes':3,'plane_shutdown_returns':3}
+    if not (all(type(row.get(k)) is int and row[k]==v for k,v in expected.items())
+        and row.get('running_counts')==[1] and row.get('executed_case_names')==[WATCH_NAMES[suffix]]
+        and row.get('relay_closed') is True and row.get('attempt_completed') is True
+        and not row.get('watchdog_triggered') and not row.get('actual_count_unknown')):return False
+    facts=row.get('facts',{})
+    if original:
+        return (all(facts.get(key) is True for key in WATCH_FIELDS if key!='bounded_watch_order')
+            and facts.get('bounded_watch_order') is False and row.get('named_final_assertion_observed') is True
+            and len(row.get('panic_locations',[]))==1 and row['panic_locations'][0]['file']==WATCH_FIXTURE
+            and row['panic_locations'][0]['line']==watch_assertion_line())
+    return all(facts.get(key) is True for key in WATCH_COUNTER_FIELDS)
+
+
+def watch_totals(cases):
+    bodies=[case.get('body',{}) for case in cases];keys=['passed','failed','ignored','executed_nonignored']
+    return {'actual_'+key:sum(row[key] for row in bodies) if len(bodies)==2 and all(type(row.get(key)) is int for row in bodies) else None for key in keys} | {
+        'known_partial_counts':{key:sum(row[key] for row in bodies if type(row.get(key)) is int) for key in keys},
+        'unknown_count_cases':2-sum(all(type(row.get(key)) is int for key in keys) for row in bodies)}
+
+
+def watch_parser_controls():
+    bits=['true']*13;bits[11]='false'
+    marker='watch-pressure facts=['+', '.join(bits)+'] completed_before=Some(8) runtime_closes=3 plane_shutdown_returns=3 relay_closed=true attempt_completed=true'
+    raw='running 1 test\ntest '+WATCH_NAMES[WATCH_CASE]+' ... FAILED\n'+marker+'\nthread test panicked at '+WATCH_FIXTURE+':'+str(watch_assertion_line())+':5:\n'+WATCH_MESSAGE+'\ntest result: FAILED. 0 passed; 1 failed; 0 ignored;\n'
+    row=watch_parse(raw,101,WATCH_CASE);ensure(watch_case_expected(row,WATCH_CASE),'watch-sole-final-order-RED-positive')
+    ensure(watch_case_expected(watch_parse(raw.replace(' ... FAILED\n'+marker,' ... '+marker),101,WATCH_CASE),WATCH_CASE),'watch-exact-shared-prefix-positive')
+    counter='watch-pressure-progress facts=['+', '.join(['true']*11)+'] completed_before=Some(8) runtime_closes=3 plane_shutdown_returns=3 relay_closed=true attempt_completed=true'
+    counter_raw='running 1 test\ntest '+WATCH_NAMES[WATCH_COUNTER]+' ... ok\n'+counter+'\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n'
+    ensure(watch_case_expected(watch_parse(counter_raw,0,WATCH_COUNTER),WATCH_COUNTER),'watch-held-counterpart-positive')
+    negative=0
+    for key in WATCH_FIELDS:
+        changed={**row,'facts':{**row['facts'],key:not row['facts'][key]}}
+        ensure(not watch_case_expected(changed,WATCH_CASE),'watch-all-thirteen-facts-required');negative+=1
+    for delta in [{'passed':True},{'ignored':False},{'body_exit_code':True},{'completed_before':1},{'completed_before':7},
+        {'compiler_error_count':1},{'all_panic_header_count':2},{'running_counts':[0]},
+        {'executed_case_names':[WATCH_NAMES[WATCH_COUNTER]]},{'runtime_closes':2},{'plane_shutdown_returns':2},
+        {'relay_closed':False},{'attempt_completed':False},{'panic_locations':[]},{'named_final_assertion_observed':False}]:
+        ensure(not watch_case_expected({**row,**delta},WATCH_CASE),'watch-failure-not-intended-RED');negative+=1
+    for bad in [raw+'\n'+marker,raw.replace(marker,marker+' private=PAYLOAD'),raw.replace('Some(8)','Some(9)'),raw.replace(WATCH_NAMES[WATCH_CASE],WATCH_NAMES[WATCH_CASE]+'_foreign')]:
+        try:parsed=watch_parse(bad,101,WATCH_CASE)
+        except ValueError:negative+=1;continue
+        ensure(not watch_case_expected(parsed,WATCH_CASE),'watch-foreign-marker-rejected');negative+=1
+    ingress='watch-pressure-ingress schedule=Some(([true, true, true, true], 1, 2, 2, false))'
+    target='Some(([1, 1, 0, 1, 0, 1, 0, 1], [1, 0, 0, 0, 0, 0], Some((0, 1)), 0, false, false))'
+    queue='watch-pressure-queue pause_rx_len=Some(0) target='+target+' own_id_bound=None own=None'
+    service='watch-pressure-services snapshot=Some((true, 8, 8, 0))'
+    combined=raw+ingress+'\n'+queue+'\n'+service+'\n'
+    filtered,observations=watch_extract(combined)
+    ensure(watch_observations_green(observations,True) and watch_case_expected(watch_parse(filtered,101,WATCH_CASE),WATCH_CASE),'watch-full-closed-observations-positive')
+    for bad in [combined+'\n'+service,combined.replace(service,service+' private=PAYLOAD'),
+        combined.replace('snapshot=Some((true, 8, 8, 0))','snapshot=Some((true, 9, 8, 0))')]:
+        try:watch_extract(bad)
+        except ValueError:negative+=1;continue
+        raise ValueError('unclosed-watch-observation-accepted')
+    for value in ['None','Some((false, 8, 8, 0))','Some((true, 7, 8, 0))','Some((true, 8, 7, 0))','Some((true, 8, 8, 1))']:
+        parsed=watch_extract(combined.replace('Some((true, 8, 8, 0))',value))[1]
+        ensure(not watch_observations_green(parsed,True),'watch-actual-eight-successful-services-and-hints-required');negative+=1
+    return {'positive':4,'negative':negative,'actual_runtime_bodies':0,'injected_wakes_not_ACKs':True}
+
+
+def watch_main(options):
+    os.umask(0o077);WATCH_OUT.mkdir(exist_ok=True)
+    report={'watch_pressure_RED_verified':False,'component_PFP_verified':False,'qualification_passed':False,
+        'default_qualified':False,'native_qualified':False,'full_enrollment_qualified':False,'cases':[],
+        'expected_actual_bodies':2,'expected_passed':1,'expected_failed':1,'automatic_retries':0,
+        'evidence_kind':'finite_injected_actual_watch_notifications_with_real_authenticated_queued_input'}
+    report.update(watch_totals([]));before=modes=binary=None;binary_sha=None
+    def save():(WATCH_OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+    try:
+        _,report['source_guard']=source_guard();report['parser_controls']=parser_controls()
+        report['watch_parser_controls']=watch_parser_controls();save()
+        if options.preflight:report['preflight_passed']=True;save();return
+        before,modes=red.freeze(),red.layout();report['environment']=red.environment()
+        compilation,cases=red.compile_cases([WATCH_CASE,WATCH_COUNTER])
+        headers=compilation.pop('compiler_headers',[])
+        compilation['compiler_codes']=sorted(set(re.findall(r'error\[(E[0-9]{4})\]','\n'.join(headers))))
+        compilation['compiler_sites']=[{'file':p,'line':int(n),'column':int(c)} for p,n,c in re.findall(r'--> (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)','\n'.join(headers))]
+        report['compilation']=compilation;save()
+        ensure(all(type(compilation.get(key)) is int and compilation[key]==0 for key in ['compile_exit_code','compiler_error_count'])
+            and compilation.get('compiled_fingerprints',{}).get('verified') is True
+            and set(cases)=={WATCH_CASE,WATCH_COUNTER}
+            and all(cases[suffix]['name']==WATCH_NAMES[suffix] for suffix in WATCH_NAMES)
+            and cases[WATCH_CASE]['binary_sha256']==cases[WATCH_COUNTER]['binary_sha256'],'exact-two-watch-cases-same-binary-and-six-features')
+        binary=Path(cases[WATCH_CASE]['binary']);binary_sha=cases[WATCH_CASE]['binary_sha256']
+        report['binary_sha256']=binary_sha;report['feature_identity']=red.feature_identity(compilation);save()
+        for suffix in [WATCH_CASE,WATCH_COUNTER]:
+            case={'name':WATCH_NAMES[suffix],'runtime_started':False};report['cases'].append(case);save()
+            try:
+                ensure(red.freeze()==before and red.layout()==modes and red.digest(binary.read_bytes())==binary_sha,'watch-before-case-pristine')
+                case['runtime_started']=True;save()
+                code,raw,seconds=red.bounded.capture([str(binary),'--exact',WATCH_NAMES[suffix],'--nocapture','--test-threads=1'],300,limit=4*1024*1024)
+                case['body']=dict(red.parse_body(raw,suffix),body_exit_code=code,seconds=seconds,
+                    compiler_error_count=len(re.findall(r'^error(?:\[E[0-9]+\])?:',raw,re.M)));save()
+                case['post_body_binary_sha256']=red.digest(binary.read_bytes());save()
+                ensure(case['post_body_binary_sha256']==binary_sha,'watch-post-body-binary-pristine')
+                filtered,case['observations']=watch_extract(raw);save()
+                case['body']=dict(watch_parse(filtered,code,suffix),seconds=seconds);save()
+                case['expected_outcome_verified']=watch_case_expected(case['body'],suffix) and watch_observations_green(case['observations'],suffix==WATCH_CASE)
+            except red.bounded.GateFailure as error:
+                case['watchdog_triggered']=str(error)=='bounded-command-timeout';case['output_limit_triggered']=str(error)=='bounded-command-output-limit'
+                case['actual_count_unknown']=True;case['exception_type']=type(error).__name__
+            except Exception as error:case['exception_type']=type(error).__name__
+            finally:
+                case['source_after_sha256']=red.identity(red.freeze());case['mode_layout_after_sha256']=red.digest(json.dumps(red.layout(),sort_keys=True).encode())
+                case['inputs_pristine']=red.freeze()==before and red.layout()==modes
+                case['final_binary_sha256']=red.digest(binary.read_bytes()) if binary.is_file() and not binary.is_symlink() else None
+                if not case['inputs_pristine'] or case['final_binary_sha256']!=binary_sha:case['expected_outcome_verified']=False
+                report.update(watch_totals(report['cases']));save()
+        report['watch_pressure_RED_verified']=(len(report['cases'])==2 and all(case.get('expected_outcome_verified') is True for case in report['cases'])
+            and all(type(report.get(k)) is int and report[k]==v for k,v in {'actual_passed':1,'actual_failed':1,'actual_ignored':0,'actual_executed_nonignored':2}.items()))
+        save();ensure(report['watch_pressure_RED_verified'],'actual-watch-order-RED-and-held-input-positive-counterpart-required')
+    except Exception as error:report['exception_type']=type(error).__name__;raise
+    finally:
+        if before is not None:
+            report['source_after_sha256']=red.identity(red.freeze());report['mode_layout_after_sha256']=red.digest(json.dumps(red.layout(),sort_keys=True).encode())
+            report['inputs_pristine']=red.freeze()==before and red.layout()==modes
+            report['final_binary_sha256']=red.digest(binary.read_bytes()) if binary is not None and binary.is_file() and not binary.is_symlink() else None
+            report['binary_pristine']=binary is not None and report['final_binary_sha256']==binary_sha
+            if not report['inputs_pristine'] or not report['binary_pristine']:report['watch_pressure_RED_verified']=False
+        report.update(watch_totals(report['cases']));save()
+        if before is not None and sys.exc_info()[0] is None:
+            ensure(report['watch_pressure_RED_verified'],'finally-watch-RED-and-source-binary-pristine')
+
+
 def main(options):
+    if options.watch_red:return watch_main(options)
     os.umask(0o077);OUT.mkdir(exist_ok=True)
     report={'component_PFP_verified':False,'qualification_passed':False,'default_qualified':False,'native_qualified':False,
         'full_enrollment_qualified':False,'original_native_gates_waived':False,'phases':[],'automatic_retries':0,
@@ -406,4 +611,4 @@ def main(options):
             ensure(report['component_PFP_verified'],'finally-full-component-PFP-and-binary-restoration-required')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--preflight',action='store_true');main(parser.parse_args())
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--preflight',action='store_true');parser.add_argument('--watch-red',action='store_true');main(parser.parse_args())
