@@ -4,8 +4,6 @@ import argparse
 import copy
 import hashlib
 import json
-import io
-import zipfile
 import os
 from pathlib import Path
 import re
@@ -15,9 +13,9 @@ import qualify_upstream_storage_app_handles as common
 from upstream_extraction_cohort import frozen_inputs
 old=common.old
 ensure=old.ensure
-BASE='0e6441b7b372bc3ce63c64e2af58b85ea71bd611' # Root pins the exact reviewed test-bearing RED or subsequent pure FIX baseline.
+BASE='77caba679ab5986df88fd7296b5446004fba8bb7'
 FIXTURE='crates/storage-sqlite/src/private_roster_settlement/tests.rs'
-FIXTURE_SHA='32726730a2ea73101f771e11c5709dc8ff525ae58acbdec7d11762c9e25d8594'
+FIXTURE_SHA='f4ca580943dc2a22ddfd83753556dc7e4ba38bf84d5f24c6af2c25e3205f1a05'
 CASES={
     'round':{'name':'private_roster_settlement::tests::private_settlement_read_round_pins_foreign_wal_replacement','line':789,'message':'public settlement round snapshot must preserve coherent committed state and facts'},
     'facts':{'name':'private_roster_settlement::tests::private_settlement_read_facts_pins_foreign_wal_replacement','line':793,'message':'public settlement facts snapshot must preserve coherent committed state and facts'},
@@ -29,7 +27,7 @@ WORKFLOW='.github/workflows/upstream-boundary-regressions.yml'
 REF='refs/heads/ci/upstream-settlement-read-snapshot-20261018'
 BEGIN='  # SNAPSHOT_READ_JOBS_BEGIN\n'
 END='  # SNAPSHOT_READ_JOBS_END\n'
-OPTIONS='options: [settlement-read-preflight, settlement-read-red, settlement-read-green, settlement-read-full-green, settlement-read-unwind-control, settlement-read-mutations, '
+OPTIONS='options: [settlement-read-preflight, settlement-read-green, settlement-read-full-green, settlement-read-mutations, settlement-read-storage-static, '
 OUT=Path('settlement-read-snapshot-evidence')
 
 def source_guard(mutation):
@@ -209,12 +207,6 @@ def full_inventory_controls():
 UNWIND_NAME='base::connection::tests::read_snapshot_restores_mode_and_preserves_outer_transaction_on_all_exits'
 UNWIND_FILE='crates/storage-sqlite/src/base/connection.rs'
 UNWIND_LINE=1673
-PRIOR_HEAD='2a79bf402982ce5725e7f76733609cc73a4e9dee'
-PRIOR_RUN=39119501124
-PRIOR_ARTIFACT=12133568160
-PRIOR_ZIP_SHA='86a8789b7c3d8943c7aea2f1a8378cad90a9f26ffdf1dd6c8747d56a3efef8e1'
-PRIOR_RESULT_SHA='2175dff113b72c7d2a0a6656ec1d771ddc5e0fad30dc1786e69a71f0b9e3bfd7'
-PRIOR_OPTIONS='options: [settlement-read-preflight, settlement-read-red, settlement-read-green, settlement-read-full-green, settlement-read-mutations, '
 
 def expected_unwind(raw,code,name,row):
     clean=re.sub(r'\x1b\[[0-9;]*m','',raw)
@@ -262,69 +254,7 @@ def expected_unwind_controls():
     ensure(not expected_unwind(raw,0,'foreign::case',common.parse_body(raw,0,UNWIND_NAME))['expected_caught_unwind_verified'],'only-one-allowlisted-control')
     return {'positive':3,'negative':len(bad)+2,'runtime_bodies':0}
 
-def prior_eighteen(current_phase):
-    # The failed metadata receipt is retained as FAILED; only its18strictPASS bodies are reused.
-    prefix='repos/dyKiU/mdk/actions/'
-    run=old.github_metadata(prefix+'runs/'+str(PRIOR_RUN))
-    ensure(run.get('head_sha')==PRIOR_HEAD and run.get('event')=='workflow_dispatch' and run.get('status')=='completed'
-        and run.get('conclusion')=='failure' and run.get('path')==WORKFLOW and run.get('head_branch')==REF.removeprefix('refs/heads/')
-        and run.get('head_repository',{}).get('full_name')=='dyKiU/mdk','exact-retained-prior-failed-metadata-run')
-    listing=old.github_metadata(prefix+'runs/'+str(PRIOR_RUN)+'/artifacts?per_page=100')
-    ensure(isinstance(listing.get('artifacts'),list) and listing.get('total_count')==len(listing['artifacts'])<=100,'complete-prior-artifact-inventory')
-    selected=[row for row in listing['artifacts'] if row.get('id')==PRIOR_ARTIFACT]
-    ensure(len(selected)==1 and selected[0].get('name')=='settlement-read-full-green' and selected[0].get('expired') is False
-        and type(selected[0].get('size_in_bytes')) is int and 0<selected[0]['size_in_bytes']<=1024*1024,'one-bounded-prior-artifact')
-    data=old.github_metadata(prefix+'artifacts/'+str(PRIOR_ARTIFACT)+'/zip',archive=True)
-    ensure(old.digest(data)==PRIOR_ZIP_SHA and selected[0].get('digest')=='sha256:'+PRIOR_ZIP_SHA,'exact-prior-archive-digest')
-    with zipfile.ZipFile(io.BytesIO(data)) as bundle:
-        members=bundle.infolist();expected={'mdk/mdk/settlement-read-snapshot-evidence/result.json','_temp/settlement-read-capacity.json'}
-        ensure(len(members)==2 and {m.filename for m in members}==expected
-            and all(not m.flag_bits&1 and m.file_size<=512*1024 for m in members),'exact-bounded-prior-archive-layout')
-        raw=bundle.read('mdk/mdk/settlement-read-snapshot-evidence/result.json')
-    ensure(old.digest(raw)==PRIOR_RESULT_SHA,'exact-prior-result-bytes');r=json.loads(raw)
-    ensure(r.get('source_guard',{}).get('source')==PRIOR_HEAD and r['source_guard'].get('baseline')==BASE
-        and r['source_guard'].get('fixture_sha256')==FIXTURE_SHA and r['source_guard'].get('whole_contents_and_modes_exact') is True
-        and r.get('inputs_pristine') is True and r.get('actual_counts_complete') is True
-        and all(type(r.get(k)) is int and r[k]==v for k,v in {'actual_passed':19,'actual_failed':0,'actual_ignored':0,'actual_executed_nonignored':19}.items())
-        and r.get('full_module_component_GREEN') is False,'retain-exact-prior-body-counts-with-failed-metadata')
-    phase=r.get('phases',{}).get('full-green',{});cases=phase.get('cases',{})
-    ensure(set(cases)==set(FULL_NAMES) and phase.get('inputs_pristine') is True and phase.get('binary_pristine') is True
-        and phase.get('module_inventory',{}).get('normal',{}).get('passed') is True
-        and phase.get('module_inventory',{}).get('ignored',{}).get('passed') is True,'all-original-inventory-and-pristine-required')
-    for name,row in cases.items():
-        ensure(row.get('actual_counts_complete') is True and all(type(row.get(k)) is int and row[k]==v for k,v in
-            {'exit_code':0,'passed':1,'failed':0,'ignored':0,'executed_nonignored':1,'compiler_error_count':0}.items()),'exact-prior-passing-body')
-        ensure(type(row.get('panic_count')) is int and row.get('panic_count')==(1 if name==UNWIND_NAME else 0)
-            and row.get('component_GREEN') is (name!=UNWIND_NAME),'only-known-unwind-metadata-rejection')
-    # Rebuild old full input manifest AND exact product baseline, excluding only its reviewed metadata overlay.
-    manifest={};baseline={}
-    for ref,target in [(BASE,baseline),(PRIOR_HEAD,manifest)]:
-        for entry in subprocess.check_output(['git','ls-tree','-r','-z',ref]).split(b'\0'):
-            if entry:
-                meta,path=entry.split(b'\t',1);mode,kind,blob=meta.decode().split();name=os.fsdecode(path)
-                ensure(kind=='blob' and mode in {'100644','100755','120000'},'ordinary-prior-layout')
-                content=subprocess.check_output(['git','show',ref+':'+name])
-                target[name]={'mode':mode,'actual_executable':mode in {'100755','120000'},'sha256':old.digest(content)}
-    ensure(SELF not in baseline and set(manifest)==set(baseline)|{SELF},'prior-whole-input-inventory')
-    for name in baseline:
-        if name==WORKFLOW:
-            text=subprocess.check_output(['git','show',PRIOR_HEAD+':'+name],text=True)
-            ensure(text.count(BEGIN)==text.count(END)==text.count(PRIOR_OPTIONS)==1,'prior-owned-workflow-exact')
-            left,rest=text.split(BEGIN);_,right=rest.split(END)
-            value={**manifest[name],'sha256':old.digest((left+right).replace(PRIOR_OPTIONS,'options: [',1).encode())}
-            ensure(value==baseline[name],'prior-workflow-reconstructs-same-product')
-        else:ensure(manifest[name]==baseline[name],'prior-product-file-exact:'+name)
-    ensure(old.digest(json.dumps(manifest,sort_keys=True).encode())==phase.get('source_manifest_sha256'),'prior-manifest-reconstructed-byte-exact')
-    ensure(phase.get('binary_sha256')==current_phase['binary_sha256']
-        and phase.get('compilation',{}).get('compiled_features')==current_phase['compilation']['compiled_features']==['experimental-device-sync']
-        and phase['compilation'].get('compiler_error_count')==0 and phase['compilation'].get('exit_code')==0
-        and phase['compilation'].get('compiler_artifact_feature_manifest_sha256')==current_phase['compilation']['compiler_artifact_feature_manifest_sha256'],'same-actual-binary-and-feature-cohort')
-    return {'run':PRIOR_RUN,'head':PRIOR_HEAD,'artifact':PRIOR_ARTIFACT,'archive_sha256':PRIOR_ZIP_SHA,
-        'result_sha256':PRIOR_RESULT_SHA,'prior_run_conclusion':'failure','strict_prior_pass_bodies_reused':18,
-        'unwind_body_reused':False,'same_product_baseline_contents_modes':True,'same_binary_features':True}
-
-
-def run_full_green(expected,phase,save,only_unwind=False):
+def run_full_green(expected,phase,save):
     ensure(len(FULL_NAMES)==len(set(FULL_NAMES))==19,'exact-nineteen-required-names')
     binary=common.compile_storage('experimental',expected,phase,save);sha=old.digest(binary.read_bytes())
     phase.update(binary_sha256=sha,source_manifest_sha256=old.digest(json.dumps(expected,sort_keys=True).encode()),cases={});save()
@@ -332,8 +262,7 @@ def run_full_green(expected,phase,save,only_unwind=False):
         code,raw,_=old.capture([str(binary),MODULE]+(['--ignored'] if ignored else [])+['--list','--format','terse'],60)
         value=full_inventory(raw,ignored);phase.setdefault('module_inventory',{})['ignored' if ignored else 'normal']=value;save()
         ensure(code==0 and value['passed'],'all-seventeen-module-names-nonignored')
-    if only_unwind:phase['reused_eighteen_proof']=prior_eighteen(phase);save()
-    selected=[UNWIND_NAME] if only_unwind else FULL_NAMES
+    selected=FULL_NAMES
     inverse={spec['name']:key for key,spec in CASES.items()}
     for name in selected:
         for ignored in [False,True]:
@@ -360,6 +289,32 @@ def run_full_green(expected,phase,save,only_unwind=False):
     ensure(set(phase['cases'])==set(selected) and all(row.get('component_GREEN') for row in phase['cases'].values()),'all-nineteen-runtime-GREEN-required')
 
 
+def run_storage_static(expected,phase,save):
+    ensure(frozen_inputs()==expected,'before-static-pristine')
+    command=['cargo','clippy','--locked','-p','storage-sqlite','--all-targets','--all-features','--message-format=json','--','-D','warnings']
+    phase.update(command=command,runtime_executed=False,actual_executed_nonignored=0,static_passed=False);save()
+    code,raw,seconds=old.capture(command,1800,limit=8*1024*1024)
+    events=[json.loads(line) for line in raw.splitlines() if line.startswith('{')]
+    errors=[event for event in events if event.get('reason')=='compiler-message' and event.get('message',{}).get('level')=='error']
+    artifacts=[event for event in events if event.get('reason')=='compiler-artifact']
+    own=[event for event in artifacts if event['target']['name']=='storage_sqlite'
+        and event['target']['kind']==['lib']]
+    expected_features={'experimental-device-sync','extensions-draft','storage-format-benchmarks','media-store-benchmarks',
+        'test-conformance-replay','test-migrated-template','test-support'}
+    manifest=sorted([{'package':event['package_id'],'target':event['target']['name'],'kind':event['target']['kind'],
+        'features':sorted(event['features']),'profile':event['profile']} for event in artifacts],key=lambda event:json.dumps(event,sort_keys=True))
+    phase.update(exit_code=code,compiler_error_count=len(errors),wall_seconds=seconds,
+        safe_errors=[old.safe_compiler_diagnostic(event,expected) for event in errors[:32]],errors_truncated=len(errors)>32,
+        artifact_count=len(artifacts),selected_library_artifact_count=len(own),artifact_features=manifest,
+        compiler_artifact_feature_manifest_sha256=old.digest(json.dumps(manifest,sort_keys=True).encode()),
+        compiled_library_features=[sorted(event['features']) for event in own],
+        inputs_pristine=frozen_inputs()==expected)
+    save()
+    ensure(code==0 and not errors and own and all(set(event['features'])==expected_features for event in own)
+        and phase['inputs_pristine'],'storage-all-targets-all-features-clippy-required')
+    phase['static_passed']=True;save()
+
+
 def main(args):
     os.umask(0o077);OUT.mkdir(exist_ok=True)
     report={'scope':'two-deterministic-Protocol-read-snapshot-cases-plus-corruption-denial-control','mode':args.mode,'mutation':args.mutation,'phases':{},
@@ -372,12 +327,12 @@ def main(args):
         report['source_guard']=source_guard(args.mutation);report['parser_controls']=parser_controls();report['full_inventory_controls']=full_inventory_controls();report['expected_unwind_controls']=expected_unwind_controls();save()
         if args.preflight:report['preflight_passed']=True;save();return
         before=frozen_inputs();keys=['round','facts','control']
-        if args.mode=='unwind-control':
-            report.update(scope='one-expected-unwind-control-plus-eighteen-exact-prior-passes',required_nonignored_cases=1,prior_evidence_reused=True)
-            phase={};report['phases']['unwind-control']=phase;run_full_green(before,phase,save,only_unwind=True)
-            report['reconciled_nineteen_evidence_GREEN']=True;save();return
+        if args.mode=='storage-static':
+            report.update(scope='storage-all-targets-all-features-locked-clippy',required_nonignored_cases=0,prior_evidence_reused=False)
+            phase={};report['phases']['storage-static']=phase;run_storage_static(before,phase,save)
+            report['storage_static_passed']=True;save();return
         if args.mode=='full-green':
-            report.update(scope='seventeen-private-settlement-module-plus-two-base-snapshot-controls',required_nonignored_cases=19,component_mutation_qualified=False)
+            report.update(scope='seventeen-private-settlement-module-plus-two-base-snapshot-controls',required_nonignored_cases=19,component_mutation_qualified=False,prior_evidence_reused=False)
             phase={};report['phases']['full-green']=phase;run_full_green(before,phase,save)
             report['full_module_component_GREEN']=True;save();return
         if args.mutation:
@@ -389,7 +344,7 @@ def main(args):
                 target.write_bytes(content);target.chmod(original_mode);expected[spec['path']]['sha256']=old.digest(content)
             phase={};report['phases'][label]=phase;run_phase(expected,keys,phase,save)
             ensure(all(row.get('denial_control_PASS') if key=='control' else
-                (row.get('intended_runtime_RED') if args.mode=='red' or (label=='mutant' and key==args.mutation) else row.get('target_GREEN'))
+                (row.get('intended_runtime_RED') if label=='mutant' and key==args.mutation else row.get('target_GREEN'))
                 for key,row in phase['cases'].items())
                 and set(phase['cases'])==set(keys),'all-specific-runtime-oracles-required')
         if args.mutation:
@@ -398,7 +353,6 @@ def main(args):
                 and a['compilation']['compiled_features']==b['compilation']['compiled_features']==c['compilation']['compiled_features']
                 and a['compilation']['compiler_artifact_feature_manifest_sha256']==b['compilation']['compiler_artifact_feature_manifest_sha256']==c['compilation']['compiler_artifact_feature_manifest_sha256'],'exact-source-binary-feature-restoration')
             report['component_mutation_qualified']=True
-        elif args.mode=='red':report['initial_behavioral_RED_verified']=True
         else:report['component_GREEN']=True
     except Exception as error:
         report['exception_type']=type(error).__name__;raise
@@ -407,7 +361,7 @@ def main(args):
         if target is not None:target.write_bytes(original);target.chmod(original_mode)
         if before is not None:report['inputs_pristine']=frozen_inputs()==before
         rows=[row for phase in report['phases'].values() for row in phase.get('cases',{}).values()]
-        required=1 if args.mode=='unwind-control' else 19 if args.mode=='full-green' else 9 if args.mutation else 3
+        required=0 if args.mode=='storage-static' else 19 if args.mode=='full-green' else 9 if args.mutation else 3
         complete=len(rows)==required and all(row.get('actual_counts_complete') is True for row in rows)
         report['actual_counts_complete']=complete
         for key in ['passed','failed','ignored','executed_nonignored']:
@@ -416,9 +370,10 @@ def main(args):
         if report.get('inputs_pristine') is False:
             report['initial_behavioral_RED_verified']=report['component_GREEN']=report['component_mutation_qualified']=False
             report['full_module_component_GREEN']=False
+            report['storage_static_passed']=False
             report['reconciled_nineteen_evidence_GREEN']=False
         save()
         if not active_error and before is not None:ensure(report['inputs_pristine'],'final-original-source-modes-restored')
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true');p.add_argument('--mode',choices=['red','green','full-green','unwind-control','mutation'],default='red');p.add_argument('--mutation',choices=['round','facts']);main(p.parse_args())
+    p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true');p.add_argument('--mode',choices=['green','full-green','mutation','storage-static'],default='green');p.add_argument('--mutation',choices=['round','facts']);main(p.parse_args())

@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [settlement-read-preflight, settlement-read-red, settlement-read-green, settlement-read-full-green, settlement-read-unwind-control, settlement-read-mutations, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [settlement-read-preflight, settlement-read-green, settlement-read-full-green, settlement-read-mutations, settlement-read-storage-static, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
@@ -27,11 +27,11 @@ env:
 jobs:
   # SNAPSHOT_READ_JOBS_BEGIN
   settlement-read-preflight:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["settlement-read-preflight","settlement-read-red","settlement-read-green","settlement-read-full-green","settlement-read-unwind-control","settlement-read-mutations"]'), inputs.case)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["settlement-read-preflight","settlement-read-green","settlement-read-full-green","settlement-read-mutations","settlement-read-storage-static"]'), inputs.case)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SETTLEMENT_READ_BASELINE: 0e6441b7b372bc3ce63c64e2af58b85ea71bd611
+      SETTLEMENT_READ_BASELINE: 77caba679ab5986df88fd7296b5446004fba8bb7
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -63,11 +63,11 @@ jobs:
           retention-days: 7
   settlement-read-controls:
     needs: settlement-read-preflight
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["settlement-read-red","settlement-read-green","settlement-read-mutations"]'), inputs.case)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["settlement-read-green","settlement-read-mutations"]'), inputs.case)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SETTLEMENT_READ_BASELINE: 0e6441b7b372bc3ce63c64e2af58b85ea71bd611
+      SETTLEMENT_READ_BASELINE: 77caba679ab5986df88fd7296b5446004fba8bb7
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -88,7 +88,7 @@ jobs:
           CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Protocol read snapshot two-case controls' --output "$RUNNER_TEMP/settlement-read-capacity.json"
-          python3 scripts/qualify_upstream_settlement_read_snapshot.py --mode '${{ inputs.case == 'settlement-read-red' && 'red' || 'green' }}'
+          python3 scripts/qualify_upstream_settlement_read_snapshot.py --mode green
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -109,7 +109,7 @@ jobs:
       matrix:
         mutation: [round, facts]
     env:
-      SETTLEMENT_READ_BASELINE: 0e6441b7b372bc3ce63c64e2af58b85ea71bd611
+      SETTLEMENT_READ_BASELINE: 77caba679ab5986df88fd7296b5446004fba8bb7
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -146,7 +146,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      SETTLEMENT_READ_BASELINE: 0e6441b7b372bc3ce63c64e2af58b85ea71bd611
+      SETTLEMENT_READ_BASELINE: 77caba679ab5986df88fd7296b5446004fba8bb7
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -177,16 +177,15 @@ jobs:
             ${{ runner.temp }}/settlement-read-capacity.json
           if-no-files-found: error
           retention-days: 7
-  settlement-read-unwind-control:
+  settlement-read-storage-static:
     needs: settlement-read-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.case == 'settlement-read-unwind-control'
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'settlement-read-storage-static'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     permissions:
       contents: read
-      actions: read
     env:
-      SETTLEMENT_READ_BASELINE: 0e6441b7b372bc3ce63c64e2af58b85ea71bd611
+      SETTLEMENT_READ_BASELINE: 77caba679ab5986df88fd7296b5446004fba8bb7
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -202,17 +201,16 @@ jobs:
         with:
           shared-key: core-regressions
           cache-on-failure: 'true'
-      - name: One exact caught-unwind control and strict prior18 evidence
+      - name: Locked Storage all-targets all-features Clippy without runtime
         env:
           CARGO_INCREMENTAL: '1'
-          GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/qualification_build_preflight.py --label 'One expected unwind control' --output "$RUNNER_TEMP/settlement-read-capacity.json"
-          python3 scripts/qualify_upstream_settlement_read_snapshot.py --mode unwind-control
+          python3 scripts/qualification_build_preflight.py --label 'Storage all-features strict Clippy' --output "$RUNNER_TEMP/settlement-read-capacity.json"
+          python3 scripts/qualify_upstream_settlement_read_snapshot.py --mode storage-static
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: settlement-read-unwind-control
+          name: settlement-read-storage-static
           path: |
             settlement-read-snapshot-evidence/result.json
             ${{ runner.temp }}/settlement-read-capacity.json
