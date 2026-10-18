@@ -5,12 +5,12 @@ from pathlib import Path
 import qualify_upstream_storage_boundary as bounded
 import qualify_upstream_storage_app_handles as counts
 ensure=bounded.ensure
-BASE='ebc97baf97d54e1162c6271e0862beb680febae0'
+BASE='1b5628e6e4d83f6ce1e24d3b5115d2ba288c8e41'
 PARENT='a839cabf5a401f81bba53f22344e62346d6c4070'
 REVIEWED_SOURCE='ebc97baf97d54e1162c6271e0862beb680febae0'
 REVIEWED_FIXTURE_SHA='4d6da976cbf61415af5c299376b83a735bfc4decbe06e44f6f48927ed61e29e1'
-WORKFLOW_SHA='38a141781e7ad6730af08c07c863dbfb9a14ae82ae025ed75fa7965c4133c445'
-FIXTURE_SHA='4d6da976cbf61415af5c299376b83a735bfc4decbe06e44f6f48927ed61e29e1'
+WORKFLOW_SHA='f54c8509aceaba867392045e77bf3c40070963ae0251d10694726a1f15ebb7b1'
+FIXTURE_SHA='5a9a0d629c7bb54264a526a8d5001c1aaf82465ed1842e2896f5e1148f8e861e'
 SELF='scripts/qualify_upstream_account_isolation.py'
 WORKFLOW='.github/workflows/account-isolation.yml'
 REF='refs/heads/ci/upstream-account-isolation-20261018'

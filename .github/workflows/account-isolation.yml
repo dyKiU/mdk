@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: ebc97baf97d54e1162c6271e0862beb680febae0
+      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: 1b5628e6e4d83f6ce1e24d3b5115d2ba288c8e41
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
-      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: ebc97baf97d54e1162c6271e0862beb680febae0
+      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: 1b5628e6e4d83f6ce1e24d3b5115d2ba288c8e41
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
