@@ -7752,6 +7752,21 @@ impl AccountManager {
             .await
     }
 
+// COMMAND_BACKLOG_TEST_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) async fn enqueue_command_backlog_reads_for_test(&self, account_ref: &str) -> Result<Vec<oneshot::Receiver<Result<Vec<crate::HistoryNotice>, AppError>>>, AppError> {
+        let commands = self.existing_worker_commands(account_ref).await?
+            .ok_or_else(|| AppError::BlockingTask("existing bounded test worker missing".into()))?;
+        let mut replies = Vec::with_capacity(8);
+        for _ in 0..8 {
+            let (respond, reply) = oneshot::channel();
+            commands.try_send(AccountWorkerCommand::HistoryNotices { respond })
+                .map_err(|_| AppError::BlockingTask("bounded test command enqueue failed".into()))?;
+            replies.push(reply);
+        }
+        Ok(replies)
+    }
+// COMMAND_BACKLOG_TEST_END
     async fn worker_commands(
         &self,
         account_ref: &str,

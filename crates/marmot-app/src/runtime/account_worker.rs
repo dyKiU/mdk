@@ -2115,6 +2115,13 @@ async fn run_app_runtime_account_worker(
                 continue 'worker;
             }
         }
+// COMMAND_BACKLOG_TEST_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        if let Some(pause) = client.command_backlog_pause_for_test([
+            !client.has_pending_effect_projections(), selected_welcome_retry.is_none(),
+            revoked_confirmation_retry.is_none(), enrollment_capacity_retry.is_none(), comparison_recovery.is_none(),
+        ]) { pause.wait().await; }
+// COMMAND_BACKLOG_TEST_END
         let ready_command =
             ready_command_index(&pending, &media_http, comparison_recovery.is_some());
         #[cfg(test)]

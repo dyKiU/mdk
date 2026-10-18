@@ -1,0 +1,91 @@
+{
+  "baseline": "c3939a775d81f6d9380a9318ca9f729a774ef990",
+  "pure_product_ancestor": "df214431c8aad2fd22dfeb3b756206e98a8e2ec8",
+  "baseline_is_diagnostic_overlay": true,
+  "changes": {
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs": {
+      "before_sha256": "d901904302cc3ebe262d9a5bfb9298ec11a1ee03664fa042ef96838d308a2567",
+      "after_sha256": "e8e634fb4fe5effb6af0b1e54349c81804ee689da0545ec72194875d168e61dd",
+      "git_mode": "100644",
+      "edits": [
+        {
+          "before": "//! Test-only passive snapshots and one original recipient's real publication hold.\n",
+          "after": "//! Test-only passive snapshots and one original recipient's real publication hold.\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\npub(crate) mod command_backlog;\n// COMMAND_BACKLOG_TEST_END\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
+      "before_sha256": "c047da7a76adf16844abeb8ef3734449f3d3e3d67b211b804cea6102bf4ae671",
+      "after_sha256": "7ef3f0a5651d598de72130f811dce3808eb7e847dbf10732e5c8a0c9ed7b4220",
+      "git_mode": "100644",
+      "edits": [
+        {
+          "before": "                    entry.peer_committed = true;\n",
+          "after": "                    entry.peer_committed = true;\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n                    if received.control == AccountSharingControl::Body(0) {\n                        peer_proof_probe::command_backlog::accepted(&entry);\n                    }\n// COMMAND_BACKLOG_TEST_END\n"
+        },
+        {
+          "before": "        let proof = body.is_some();\n",
+          "after": "        let proof = body.is_some();\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n        if proof && entry.recipient { peer_proof_probe::command_backlog::prepared(entry, &request.message.id); }\n// COMMAND_BACKLOG_TEST_END\n"
+        },
+        {
+          "before": "    async fn start_sibling_publication(\n",
+          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n    pub(crate) fn command_backlog_pause_for_test(&self, receive: [bool; 5]) -> Option<peer_proof_probe::command_backlog::Pause> {\n        peer_proof_probe::command_backlog::pause(&self.linking_owner.sibling_channels, receive)\n    }\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n    pub(crate) fn command_backlog_ingest_for_test(&self, message: &cgka_traits::MessageId) -> Option<peer_proof_probe::command_backlog::Ingest> {\n        peer_proof_probe::command_backlog::begin(&self.linking_owner.sibling_channels, message)\n    }\n// COMMAND_BACKLOG_TEST_END\n    async fn start_sibling_publication(\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/runtime/account_worker.rs": {
+      "before_sha256": "79285a847b742cff939c33bb3e3d936e437236d01c8f7bb2dab37964e3de6bb2",
+      "after_sha256": "049e33503d790c366633a91763e07f33a7693ad8a8dd573a0d668bd4d7dbb034",
+      "git_mode": "100644",
+      "edits": [
+        {
+          "before": "        let ready_command =\n            ready_command_index(&pending, &media_http, comparison_recovery.is_some());\n",
+          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n        if let Some(pause) = client.command_backlog_pause_for_test([\n            !client.has_pending_effect_projections(), selected_welcome_retry.is_none(),\n            revoked_confirmation_retry.is_none(), enrollment_capacity_retry.is_none(), comparison_recovery.is_none(),\n        ]) { pause.wait().await; }\n// COMMAND_BACKLOG_TEST_END\n        let ready_command =\n            ready_command_index(&pending, &media_http, comparison_recovery.is_some());\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/client/sync.rs": {
+      "before_sha256": "5277e44698636a6c5ba4984c55b559f23d671cf10897f4719b5404b9771c6e09",
+      "after_sha256": "3f574b231502ac314db0d448a81b58793cdcb13e21a0b85316b08c6fd915291f",
+      "git_mode": "100644",
+      "edits": [
+        {
+          "before": "        let client = receipts.into_client();\n",
+          "after": "        let client = receipts.into_client();\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n        let _command_backlog_ingest = client.command_backlog_ingest_for_test(&delivery.message.id);\n// COMMAND_BACKLOG_TEST_END\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/runtime/mod.rs": {
+      "before_sha256": "47c66b6f1afcb207c3f88bb55d76f31e28a0d95d63dc494b482a20051f898eff",
+      "after_sha256": "7f4ae74eec7edc402775f2ddb0e17b1bf2039ee8f895d3898439f5eb6f9acbec",
+      "git_mode": "100644",
+      "edits": [
+        {
+          "before": "    async fn worker_commands(\n",
+          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n    pub(crate) async fn enqueue_command_backlog_reads_for_test(&self, account_ref: &str) -> Result<Vec<oneshot::Receiver<Result<Vec<crate::HistoryNotice>, AppError>>>, AppError> {\n        let commands = self.existing_worker_commands(account_ref).await?\n            .ok_or_else(|| AppError::BlockingTask(\"existing bounded test worker missing\".into()))?;\n        let mut replies = Vec::with_capacity(8);\n        for _ in 0..8 {\n            let (respond, reply) = oneshot::channel();\n            commands.try_send(AccountWorkerCommand::HistoryNotices { respond })\n                .map_err(|_| AppError::BlockingTask(\"bounded test command enqueue failed\".into()))?;\n            replies.push(reply);\n        }\n        Ok(replies)\n    }\n// COMMAND_BACKLOG_TEST_END\n    async fn worker_commands(\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": {
+      "before_sha256": "563994be85f0fa8a5acf7dda32992aa7e2db18c06ec77beb8357a0c8941efc3e",
+      "after_sha256": "2cde3f0215c655180fc706efd7634d0d3b9c0e1b0c98bb47eab5363d08716b77",
+      "git_mode": "100644",
+      "edits": [
+        {
+          "before": "// LATE_CONSENT_TEST_BEGIN\n",
+          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n#[path = \"command_backlog_acceptance.rs\"]\nmod command_backlog_acceptance;\n// COMMAND_BACKLOG_TEST_END\n// LATE_CONSENT_TEST_BEGIN\n"
+        }
+      ]
+    }
+  },
+  "new_files": {
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/command_backlog.rs": {
+      "sha256": "c26a8ae429dcb354330c5f65718c4e141eb8a00f725f2fca75bd4c0f9471b1fb",
+      "git_mode": "100644"
+    },
+    "crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs": {
+      "sha256": "b32ae9b0b4843e62f0bcea55305b313e6a440659a555d21ee6533a6486fdaac8",
+      "git_mode": "100644"
+    }
+  }
+}
