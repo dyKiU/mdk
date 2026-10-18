@@ -267,18 +267,6 @@ impl DeviceLinkingSession {
         receiver
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn enrollment_progress_for_test(&self) -> Option<[bool; 5]> {
-        self.inner.operation.try_lock().ok().map(|progress| {
-            [
-                progress.automatic_enrollment.is_some(),
-                progress.enrollment_started,
-                progress.enrollment_packet.is_some(),
-                progress.recipient_packet.is_some(),
-                progress.finalized,
-            ]
-        })
-    }
-    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn automatic_retirement_probe_for_test(&self) -> impl Fn() -> bool + use<> {
         let state = self.inner.clone();
         move || {
