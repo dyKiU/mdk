@@ -14,7 +14,7 @@ on:
       pressure_case:
         description: Component input scheduling case (watch expects genuine RED plus held-input positive)
         type: choice
-        options: [command, watch]
+        options: [command, watch, watch-pfp]
         default: command
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
