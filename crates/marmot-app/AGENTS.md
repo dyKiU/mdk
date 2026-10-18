@@ -791,6 +791,11 @@ Capture explicit sharing intent before taking the genuine verified SDK original.
 
 `account_chat_sharing` owns the fresh source/recipient action; the worker and client children retain actual Core channels. Authenticate the real protected source proof before constructing recipient review. Bind immutable metadata, fixed600-second original and displayedrevision; do not manufacture approval from stored policy or old SDK context. Durable writes validate the same channel before/tail SQL. Observe private controls identically on direct/replay paths, and keep them hidden from ordinary projection. Retain process-lifetime negative request IDs at the128-owner bound; this checkpoint does not claim restart denial or automatic channel renewal.
 
+Automatic record validation uses Core's exact current chat-source lookup.
+The discovery cursor only schedules scans; another chat appearing before an
+in-flight source must not make that source unavailable. Retain all original,
+Completed roster, privacy, membership and retention checks.
+
 Source-qualified automatic chat presentation lives in
 `account_chat_presentation.rs`, `client/account_chat_sharing/presentation.rs`, and
 `runtime/account_chat_{presentation,windows}.rs` /

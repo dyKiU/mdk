@@ -67,6 +67,9 @@ errors remain errors. App owns deduplication and its shared retention allowance.
 The four experimental selected-chat observation methods delegate to Core. Authenticated packet objects are metadata only; Session cannot mint live App consent or recipient join authority from them. No transport or package creation is implicit.
 
 Account-chat sharing forwarding lives in `src/account_chat_sharing.rs`. Keep original keys, transcript and fixed-lease checks in Core, explicit approval and publication custody in App. No Session-owned timer, permission DTO or transport policy.
+Exact chat-source metadata lookup also delegates to Core. Discovery cursors do
+not identify an in-flight record's source; preserve the same current Completed
+roster, privacy and actual local membership checks as paged discovery.
 
 The named broader enrollment endorsement is a thin Core forward. Keep ordinary
 endorsement unchanged and retain original opaque received request/deadline.

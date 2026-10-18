@@ -1,5 +1,8 @@
 //! Canonical logical records, separately acknowledged from catalog discovery.
 use super::*;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "tests/record_source_lookup.rs"]
+mod source_lookup_tests;
 use cgka_traits::account_chat_record_stream::{AccountChatRecordBatch, AccountChatRecordReceipt};
 use cgka_traits::mirrored_chat_messages::MirroredChatRecord;
 
@@ -498,20 +501,12 @@ impl AppClient {
         {
             return Ok(None);
         }
-        let page = self
+        let source = self
             .runtime
             .session()
-            .account_chat_catalog(
-                &entry.policy.protected_group,
-                entry.records.group_after.as_ref(),
-                1,
-            )
+            .account_chat_catalog_entry(&entry.policy.protected_group, group)
             .map_err(|_| AccountSharingError::Closed)?;
-        Ok(page
-            .entries
-            .first()
-            .filter(|source| &source.group_id == group)
-            .map(|source| source.epoch))
+        Ok(source.map(|source| source.epoch))
     }
 
     fn automatic_record_batch_source_current(
