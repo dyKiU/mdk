@@ -89,12 +89,28 @@ impl AppClient {
             assert_eq!(sent.published, 1);
             assert_eq!(sent.message_ids.len(), 1);
             let witness = &sent.message_ids[0];
+            let mut completed_syncs = [0_u32; 2];
+            let mut sync_millis = [0_u128; 2];
+            let mut completed_ticks = [0_u32; 2];
+            let mut tick_millis = [0_u128; 2];
+            let mut waiting_at = (0, "before_delivery");
+            let mut waiting_since = std::time::Instant::now();
             let delivery = tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
-                    for client in &mut clients {
+                    for (i, client) in clients.iter_mut().enumerate() {
+                        waiting_at = (i, "sync");
+                        waiting_since = std::time::Instant::now();
                         client.as_mut().unwrap().sync().await.unwrap();
+                        completed_syncs[i] += 1;
+                        sync_millis[i] += waiting_since.elapsed().as_millis();
+                        waiting_at = (i, "automatic_tick");
+                        waiting_since = std::time::Instant::now();
                         client.as_mut().unwrap().maintain_automatic_account_sharing().await.unwrap();
+                        completed_ticks[i] += 1;
+                        tick_millis[i] += waiting_since.elapsed().as_millis();
                     }
+                    waiting_at = (1, "projection");
+                    waiting_since = std::time::Instant::now();
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
                     let recipient = clients[1].as_ref().unwrap();
                     recipient.automatic_policy_current(&pair[1]).unwrap();
@@ -112,6 +128,8 @@ impl AppClient {
                         eprintln!("pending_restart_source_scoped_catalog_and_exact_record=true local_ordinary_present={}", storage.timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
                         break;
                     }
+                    waiting_at = (1, "inter_turn_sleep");
+                    waiting_since = std::time::Instant::now();
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
             }).await;
@@ -127,6 +145,7 @@ impl AppClient {
             };
             observation();
             if delivery.is_err() {
+                eprintln!("pending_restart_post_timeout_completed_syncs={completed_syncs:?} sync_millis={sync_millis:?} completed_ticks={completed_ticks:?} tick_millis={tick_millis:?} waiting_at={waiting_at:?} waiting_millis={}", waiting_since.elapsed().as_millis());
                 // Post-timeout observations only. Failed reads stay unknown and
                 // never replace the original recovery-deadline failure.
                 let projection = (|| {
@@ -149,6 +168,13 @@ impl AppClient {
                         entry.records.has_pending(), entry.sent.contains_key(ordinary_group.as_slice()),
                         entry.renew)));
                 eprintln!("pending_restart_post_timeout_catalog_record={projection:?} lower_pending_bodies_catalog_records_sent_renew={progress:?}");
+                let body_progress = [0, 1].map(|i| clients[i].as_ref()
+                    .and_then(|client| client.account_sharing_owner.automatic.get(&ids[i]))
+                    .map(|entry| (entry.next_body,
+                        entry.pending.front().map(|body| body.kind),
+                        entry.pending.back().map(|body| body.kind),
+                        entry.handshake_publication.is_some())));
+                eprintln!("pending_restart_post_timeout_next_body_front_back_handshake_task={body_progress:?}");
             }
             delivery.expect("actual restarted peers must deliver genuine ordinary catalog and canonical record within the unchanged recovery deadline");
             eprintln!("pending_restart_functional_catalog_and_new_record_delivered=true");
