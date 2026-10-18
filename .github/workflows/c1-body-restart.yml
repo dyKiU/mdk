@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      UPSTREAM_C1_BODY_BASELINE: df0e2177230fbe17cbd1d193e05c463efea37df9
+      UPSTREAM_C1_BODY_BASELINE: adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.expected == 'pfp' && 170 || 90 }}
     env:
-      UPSTREAM_C1_BODY_BASELINE: df0e2177230fbe17cbd1d193e05c463efea37df9
+      UPSTREAM_C1_BODY_BASELINE: adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

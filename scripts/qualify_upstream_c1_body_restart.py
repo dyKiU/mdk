@@ -8,11 +8,13 @@ import qualify_upstream_automatic_body as held
 import qualify_upstream_body_late_ack as late
 import upstream_completion_ci as completion
 ensure=bounded.ensure
-BASE='df0e2177230fbe17cbd1d193e05c463efea37df9'
-WORKFLOW_SHA='fcaed3c540b0824cbaaa4fbd1ea6ab6cca13c2d448beaec84ccc3d5ccda879ed'
+BASE='adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8'
+WORKFLOW_SHA='c6a07753dd7e35770b23a712b778c2ecb26d3484abe6a591bbb70b30b013d32b'
 SELF='scripts/qualify_upstream_c1_body_restart.py'
 WORKFLOW='.github/workflows/c1-body-restart.yml'
 REF='refs/heads/ci/upstream-c1-body-restart-20261018'
+SYNC_FRONTIER_PARSER_SOURCE='aa6c24ff73b43622b4094915e5a1b4d28028b759'
+SYNC_FRONTIER_SOURCE_PINS={'crates/marmot-app/src/client/explicit_sync_frontier.rs': 'f4a73ac1995134480f6398006ad3af4ddeb2f4a48cce37109df4b18356349dd7', 'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': '0b58fde3834d61a21f22afb34f4a9ac23fadf8c42a1b0a0fdca520ff9718068c'}
 PRODUCT='crates/marmot-app/src/client/account_chat_sharing/automatic.rs'
 PRODUCT_SHA='0fde8d14ceea74cd2dd998cd4bfd4e516d61f3704e682931fc42f2460b95d117'
 OMISSION='                    self.collect_finished_automatic_publication(&mut entry);\n                    if entry.publication.as_ref().is_some_and(|publication| {\n                        publication.body_context.is_some()\n                            && publication.outcome.as_ref().is_some_and(Result::is_ok)\n                    }) && self.harvest_automatic_publication(&mut entry)?\n                    {\n                        self.finish_automatic_body_effects(&mut entry)?;\n                    }\n'
@@ -71,6 +73,7 @@ def source_guard(preflight=False):
         ensure(actual==oid and (expected[1] is None or actual==expected[1]),'whole-BASE-and-HEAD-content')
     ensure(digest(Path(WORKFLOW).read_bytes())==WORKFLOW_SHA and digest(Path(PRODUCT).read_bytes())==PRODUCT_SHA
         and Path(PRODUCT).read_bytes().count(OMISSION.encode())==1,'exact-workflow-and-product-witness')
+    ensure(all(digest(Path(path).read_bytes())==value for path,value in SYNC_FRONTIER_SOURCE_PINS.items()),'exact-canonical-passive-sync-frontier-source')
     ensure(set(git('ls-files','--others','--exclude-standard').decode().splitlines())<={str(OUT/'result.json')},'untracked-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False}
@@ -161,7 +164,7 @@ def restart_ledgers(raw):
     ready_values=option_pair(ready[1],ready_pattern,lambda value:[part=='true' for part in value[6:-2].split(', ')])
     first=[optional_uint(probe[i],128) for i in [1,2]]
     ensure(all(value is None or value<30000 for value in first),'actual-predeadline-observation-range')
-    result={'schema_known':True,'joint_snapshot_claimed':False,'completed_call_wall_not_CPU':True,
+    result={'delivery_recovered':delivery[1]=='true','schema_known':True,'joint_snapshot_claimed':False,'completed_call_wall_not_CPU':True,
         'completed_syncs':paired_uints(delivery[4],32),'sync_wall_millis':paired_uints(delivery[5],128),
         'completed_ticks':paired_uints(delivery[6],32),'tick_wall_millis':paired_uints(delivery[7],128),
         'waiting_slot':int(delivery[8]),'waiting_stage':delivery[9],'waiting_wall_millis':unsigned(delivery[10],128),
@@ -202,6 +205,51 @@ def verdict(raw,code,basic,name,expected):
         case=name.rsplit('::',1)[1];parsed=late.parse(parser_raw,case,code);ok=late.green(parsed,case) and parsed.get('cleanup_diagnostics',{}).get('valid') is True
         result={k:parsed.get(k) for k in ['observed','cleanup_diagnostics','all_panic_header_count']}
     return dict(result,expected_outcome_verified=bool(ok and basic.get('passed_gate') is True))
+
+def phase_rows(raw,timeout):
+    lines=[line for line in clean(raw).splitlines() if 'pending_restart_sync_frontier' in line]
+    ensure(len(lines)==(2 if timeout else 0) and sum(len(line.encode())+1 for line in lines)<=1024,'two-fixed-timeout-only-frontier-lines')
+    result=[]
+    for slot,line in enumerate(lines):
+        number=r'(?:0|[1-9][0-9]{0,19})'
+        match=re.fullmatch('pending_restart_sync_frontier slot='+str(slot)+r' row=\[('+', '.join([number]*15)+r')\]',line)
+        ensure(match is not None,'exact-slot-15-u64-frontier')
+        values=list(map(int,match[1].split(', ')));ensure(all(value<1<<64 for value in values),'u64-frontier-width')
+        calls,status,stage,start,phase_start,end,drain,physical,ingested,skipped,refused,last_receive,last_wait,invalid,snapshot=values
+        ensure(status in range(5) and stage in range(11) and invalid in (0,1),'closed-phase-status-enums')
+        # Zero clock is UNKNOWN, never a zero elapsed duration or missing work proof.
+        if not invalid:
+            ensure(snapshot>0,'observed-snapshot-clock')
+            if calls==0:ensure(values[:13]==[0]*13,'unentered-fields-none')
+            else:
+                ensure(status>0 and stage>0 and start>0 and phase_start>=start,'observed-call-phase-clock')
+                ensure(phase_start<=snapshot and (end==0 or start<=end<=snapshot),'same-call-bounds')
+                ensure((status==1 and end==0) or (status!=1 and end>0),'completed-or-uncompleted-drop-end')
+                ensure(all(value==0 or start<=value<=snapshot for value in [last_receive,last_wait]),'current-call-receive-wait-bounds')
+                ensure(physical>0 or last_receive==0,'no-invented-first-receive')
+                ensure(drain>0 or all(value==0 for value in [physical,ingested,skipped,refused,last_receive,last_wait]),'no-invented-drain')
+        result.append({'slot':slot,'numeric_fields':values,'zero_clock_is_unknown':True,'invalid_clock_or_counter':bool(invalid),'joint_snapshot':False,'completed_wall_not_CPU':True})
+    return {'rows':result,'field_order':['calls','status','phase','call_start_plus1_us','phase_start_plus1_us','call_end_plus1_us','drain_ordinal','physical_Delivery_receives','ingested','skipped','refused','last_receive_plus1_us','last_outer_wait_plus1_us','invalid','snapshot_plus1_us'],'timeout_only':True,'schema_known':True,'enum_order':['unobserved','setup','first_drain','credit','second_drain','recovery_job','network','admission','subscription_refresh','finalization','returned'],
+        'status4_is_early_error_or_cancel_unknown':True,'current_call_last_drain_only':True,'physical_Delivery_not_overflow':True,'wait_is_outer_receive_not_EOSE_poll':True}
+
+def sync_frontier_controls():
+    line=lambda slot,row:'pending_restart_sync_frontier slot='+str(slot)+' row='+str(row)+'\n'
+    # status4 preserves pending first drain when original future is dropped.
+    current=[1,4,2,1,3,101,1,2,1,1,0,51,81,0,110]
+    other=[1,2,10,1,90,91,1,0,0,0,0,0,2,0,110]
+    good=line(0,current)+line(1,other)
+    ensure(phase_rows(good,True)['schema_known'],'closed-timeout-phase-positive')
+    ensure(phase_rows('',False)['schema_known'],'original-GREEN-no-appendix-positive')
+    none=[0]*14+[110];ensure(phase_rows(line(0,none)+line(1,other),True)['rows'][0]['numeric_fields'][0]==0,'unentered-not-fabricated-zero-work-positive')
+    invalid=[1,4,2,0,0,0,1,1,0,0,0,0,0,1,0]
+    ensure(phase_rows(line(0,invalid)+line(1,other),True)['schema_known'],'invalid-clock-stays-unknown-positive')
+    for data,timeout in [(good,False),(line(0,current),True),(good+good,True),(good.replace('slot=1','slot=2'),True),(good.replace('row=[1, 4, 2','row=[1, 5, 2'),True),(good.replace('row=[1, 4, 2','row=[1, 4, 11'),True),(good.replace('row=[1, 4, 2','row=[18446744073709551616, 4, 2'),True),(good.replace('row=[1, 4, 2','row=[PRIVATE, 4, 2'),True),(line(0,current[:-1])+line(1,other),True),(line(0,[1,4,2,1,0,101,1,2,1,1,0,51,81,0,110])+line(1,other),True)]:
+        try:accepted=phase_rows(data,timeout)['schema_known']
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'closed-phase-malformed-bounds-or-privacy-negative')
+    maximum=line(0,[(1<<64)-1]*15)+line(1,[(1<<64)-1]*15)
+    ensure(len(maximum.encode())==744 and len(maximum.encode())<=1024,'fixed-shape-source-output-bound')
+    return {'phase_positive':4,'phase_negative':10,'maximum_two_lines_bytes':744,'actual_runtime_bodies':0}
 
 def compile_app(report,cohort,tracked,save_report):
     features=['otlp-export','product-analytics-export','test-policy-overrides','experimental-device-sync']
@@ -264,8 +312,18 @@ def execute_case(root,row,binary,before,mode,expected_inputs,name,expected):
         except (ValueError,TypeError,OverflowError) as error:
             row['restart_ledgers']={'schema_known':False,'closed_parser_failure_type':type(error).__name__}
         save(root)
+    if name==NAMES[4]:
+        # Preserve the passive frontier before the original outcome parser. No
+        # successful SQL/phase state can waive the original 30s recovery oracle.
+        recovered=row.get('restart_ledgers',{}).get('delivery_recovered')
+        try:
+            ensure(type(recovered) is bool,'higher-original-timeout-mode-known')
+            row['sync_frontier']=phase_rows(raw,not recovered)
+        except (ValueError,TypeError,OverflowError) as error:
+            row['sync_frontier']={'schema_known':False,'closed_parser_failure_type':type(error).__name__}
+        save(root)
     row['outcome']=verdict(raw,code,basic,name,expected)
-    row['expected_outcome_verified']=row['outcome']['expected_outcome_verified'] and (name not in NAMES[3:] or row['restart_ledgers'].get('schema_known') is True);save(root)
+    row['expected_outcome_verified']=row['outcome']['expected_outcome_verified'] and (name not in NAMES[3:] or row['restart_ledgers'].get('schema_known') is True) and (name!=NAMES[4] or row['sync_frontier'].get('schema_known') is True);save(root)
 
 def phase(root,label,cohort,expected_inputs,specs,different_from=None):
     row={'cases':[],'phase_passed':False,'expected_case_count':len(specs)};root.setdefault('phases',{})[label]=row;save(root)
@@ -433,7 +491,7 @@ def main():
         'actual_executed_nonignored':0,'qualification_passed':False,'native_global_qualification':False,'automatic_retries':0,'environment_RUST_MIN_STACK':4194304,
         'restart_composed_driver_and_worker_stack_bytes':8388608,'Tokio_workers':2,'raw_output_retained':False}
     try:
-        report['source_guard']=source_guard(args.preflight);save(report);report['parser_controls']=controls();report['prefix_and_restart_ledger_controls']=prefix_and_ledger_controls();save(report)
+        report['source_guard']=source_guard(args.preflight);save(report);report['parser_controls']=controls();report['prefix_and_restart_ledger_controls']=prefix_and_ledger_controls();report['sync_frontier_controls']=sync_frontier_controls();save(report)
         if not args.preflight:runtime(report,'experimental',args.expected)
         report['controller_completed']=True;save(report)
     except Exception as error:report['controller_failure_type']=type(error).__name__;save(report);raise
