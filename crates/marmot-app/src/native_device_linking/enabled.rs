@@ -16,7 +16,8 @@ mod automatic;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 struct NativeConsentTimingRegistration {
     owner: std::sync::Weak<SessionState>,
-    probe: crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Pending,
+    probe:
+        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Pending,
 }
 // STRESS0_DEFERRED_ARM_END
 pub(super) struct SessionState {
@@ -408,46 +409,63 @@ impl DeviceLinkingSession {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn arm_consent_timing_for_test(
         &self,
-    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard {
+    ) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard
+    {
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;
         let (guard, pending) = consent_timing::arm();
         match self.inner.consent_timing_registration.try_lock() {
             Ok(mut slot) => {
-                if slot.is_some() { pending.duplicate_registration(); }
-                else {
+                if slot.is_some() {
+                    pending.duplicate_registration();
+                } else {
                     *slot = Some(NativeConsentTimingRegistration {
-                        owner: Arc::downgrade(&self.inner), probe: pending.clone(),
+                        owner: Arc::downgrade(&self.inner),
+                        probe: pending.clone(),
                     });
                 }
             }
-            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),
+            Err(error) => {
+                pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_)))
+            }
         };
         // Registration is installed and its try-lock guard is released first.
         // Catch up once if the actual choice won the install race; never poll.
         match self.inner.sharing_choice.try_lock() {
             Ok(held) => {
-                if let Some(actual) = held.as_ref() { pending.bind(Arc::downgrade(actual)); }
+                if let Some(actual) = held.as_ref() {
+                    pending.bind(Arc::downgrade(actual));
+                }
             }
-            Err(error) => pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_))),
+            Err(error) => {
+                pending.registration_failed(matches!(error, std::sync::TryLockError::Poisoned(_)))
+            }
         };
         guard
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn consent_timing_wait_for_test(
         &self,
-    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait> {
+    ) -> Option<
+        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait,
+    > {
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing;
-        if !consent_timing::armed() { return None; }
+        if !consent_timing::armed() {
+            return None;
+        }
         match self.inner.consent_timing_registration.try_lock() {
             Ok(slot) => {
                 let registration = slot.as_ref()?;
                 if !registration.owner.ptr_eq(&Arc::downgrade(&self.inner)) {
-                    registration.probe.identity_failed(); return None;
+                    registration.probe.identity_failed();
+                    return None;
                 }
                 registration.probe.wait_before()
             }
             Err(error) => {
-                consent_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_)));
+                consent_timing::registration_unavailable(matches!(
+                    error,
+                    std::sync::TryLockError::Poisoned(_)
+                ));
                 None
             }
         }
@@ -904,10 +922,15 @@ impl DeviceLinkingSession {
                                     if let Some(actual) = held.as_ref() {
                                         registration.probe.bind(Arc::downgrade(actual));
                                     }
-                                } else { registration.probe.identity_failed(); }
+                                } else {
+                                    registration.probe.identity_failed();
+                                }
                             }
                         }
-                        Err(error) => consent_timing::registration_unavailable(matches!(error, std::sync::TryLockError::Poisoned(_))),
+                        Err(error) => consent_timing::registration_unavailable(matches!(
+                            error,
+                            std::sync::TryLockError::Poisoned(_)
+                        )),
                     }
                 }
             }

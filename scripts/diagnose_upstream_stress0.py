@@ -16,7 +16,7 @@ WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 TIMING_PARSER='scripts/stress0_consent_timing_parser.py'
 TIMING_MANIFEST='scripts/stress0_consent_timing_manifest.json'
 TIMING_MODULE='crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs'
-TIMING_MANIFEST_SHA256='246d0ba2ef792d6d229fafef112331874e848f1f0ff04963d0a32d9f214babc7'
+TIMING_MANIFEST_SHA256='e253346bd551d2d46c606135641a875ef14b5b77fa610e0fa2a73000fc9d726e'
 TIMING_PARSER_SHA256='1555ca2cc7d99a41ad0420bf7c39b022beb5372201745d43c300f873c7363865'
 HOOK_PATHS={
     'crates/marmot-app/src/client/device_linking/sibling_sharing.rs',
@@ -189,6 +189,11 @@ def source_guard():
             overlay=deferred['paths'][name]
             ensure(mode==overlay['mode'] and ack.digest(data)==overlay['after_sha256'],'exact-deferred-arm-source:'+name)
             text=data.decode()
+            for change in reversed(overlay.get('remote_format_substitutions',[])):
+                ensure(change['before'] and change['after'] and text.count(change['after'])==1,'one-exact-deferred-arm-remote-format:'+name)
+                text=text.replace(change['after'],change['before'],1)
+            if 'pre_remote_format_sha256' in overlay:
+                ensure(ack.digest(text.encode())==overlay['pre_remote_format_sha256'],'exact-before-deferred-arm-format:'+name)
             for change in reversed(overlay['exact_substitutions']):
                 ensure(change['before']!=change['after'] and text.count(change['after'])==1,'one-exact-deferred-arm-substitution:'+name)
                 text=text.replace(change['after'],change['before'],1)

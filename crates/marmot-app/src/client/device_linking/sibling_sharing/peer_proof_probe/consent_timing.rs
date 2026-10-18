@@ -108,29 +108,44 @@ pub(crate) fn arm() -> (Guard, Pending) {
 pub(crate) struct Pending(Weak<Probe>);
 impl Pending {
     pub(crate) fn bind(&self, owner: Weak<OriginalEnrollmentSharingChoice>) {
-        let Some(probe) = self.0.upgrade() else { return; };
+        let Some(probe) = self.0.upgrade() else {
+            return;
+        };
         probe.observe(|data, _| {
             if let Some(old) = &data.owner {
                 // The real continuation can present its SAME original again.
                 // Idempotent binding never retries or creates protocol work.
-                if !old.ptr_eq(&owner) { probe.loss(IDENTITY); }
-            } else { data.owner = Some(owner); }
+                if !old.ptr_eq(&owner) {
+                    probe.loss(IDENTITY);
+                }
+            } else {
+                data.owner = Some(owner);
+            }
         });
     }
     pub(crate) fn registration_failed(&self, poisoned: bool) {
-        if let Some(probe) = self.0.upgrade() { probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY }); }
+        if let Some(probe) = self.0.upgrade() {
+            probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY });
+        }
     }
     pub(crate) fn duplicate_registration(&self) {
-        if let Some(probe) = self.0.upgrade() { probe.loss(DUPLICATE); }
+        if let Some(probe) = self.0.upgrade() {
+            probe.loss(DUPLICATE);
+        }
     }
     pub(crate) fn identity_failed(&self) {
-        if let Some(probe) = self.0.upgrade() { probe.loss(IDENTITY); }
+        if let Some(probe) = self.0.upgrade() {
+            probe.loss(IDENTITY);
+        }
     }
     pub(crate) fn wait_before(&self) -> Option<Wait> {
         let probe = self.0.upgrade()?;
         probe.observe(|data, time| {
-            if data.before.is_some() { probe.loss(DUPLICATE); }
-            else { data.before = time; }
+            if data.before.is_some() {
+                probe.loss(DUPLICATE);
+            } else {
+                data.before = time;
+            }
         });
         Some(Wait(Arc::downgrade(&probe)))
     }
@@ -214,7 +229,11 @@ pub(in super::super::super) fn prepared(
     };
     let mut selected = None;
     probe.observe(|data, time| {
-        if !data.owner.as_ref().is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice))) {
+        if !data
+            .owner
+            .as_ref()
+            .is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice)))
+        {
             return;
         }
         if let Some(slot) = data
@@ -302,7 +321,9 @@ impl Drop for Guard {
             Err(TryLockError::Poisoned(_)) => None,
         };
         let mut loss = old & !FROZEN;
-        if snapshot.as_ref().is_some_and(|row| !row.4) { loss |= ARM_UNAVAILABLE; }
+        if snapshot.as_ref().is_some_and(|row| !row.4) {
+            loss |= ARM_UNAVAILABLE;
+        }
         if snapshot.is_none() {
             // Snapshot failure is explicitly unknown; never a partial zero matrix.
             loss |= LOCK_BUSY;
