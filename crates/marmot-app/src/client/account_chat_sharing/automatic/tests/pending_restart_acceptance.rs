@@ -108,6 +108,7 @@ impl AppClient {
             let mut probe_count = 0_u32;
             let mut probe_millis = 0_u128;
             let delivery_started = std::time::Instant::now();
+            let sync_frontiers = require_higher_source.then(|| clients.each_mut().map(|client| client.as_mut().unwrap().test_observe_explicit_sync(delivery_started)));
             let delivery = {
             let original_delivery = tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
@@ -174,6 +175,7 @@ impl AppClient {
                 }
             }
             };
+            let sync_frontier_rows = if delivery.is_err() { sync_frontiers.as_ref().map(|probes| probes.each_ref().map(|probe| probe.snapshot())) } else { None };
             let observation = || {
                 let observations = [lower, higher].map(|i| clients[i].as_ref().unwrap().account_sharing_owner.automatic.get(&ids[i]).map(|entry| (
                     entry.ready, entry.recipient, entry.channel.scope().nonce == original_x,
@@ -191,6 +193,9 @@ impl AppClient {
             eprintln!("pending_restart_predeadline_sql_observation catalog_first_millis={first_catalog_millis:?} record_first_millis={first_record_millis:?} scope_unchanged={probe_scope_unchanged:?} sample_count={probe_count} read_millis={probe_millis}");
             observation();
             if delivery.is_err() {
+                if let Some(rows) = sync_frontier_rows {
+                    for (slot, row) in rows.into_iter().enumerate() { eprintln!("pending_restart_sync_frontier slot={slot} row={row:?}"); }
+                }
                 // Post-timeout observations only. Failed reads stay unknown and
                 // never replace the original recovery-deadline failure.
                 let projection = (|| {

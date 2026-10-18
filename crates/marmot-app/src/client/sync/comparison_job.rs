@@ -507,6 +507,9 @@ impl ComparisonAdmission {
     }
 }
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+use crate::client::explicit_sync_frontier::Phase as SyncPhase;
+
 impl AppClient {
     /// Whether recovery has any work a grant could select, asked without
     /// spending a reservation: a direct caller asks before it waits for a
@@ -829,7 +832,11 @@ impl AppClient {
         credit: OwnedSemaphorePermit,
         control: Option<&FullHistoryRepairControl<'_>>,
     ) -> Result<EpochBackfillRunOutcome, AppError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier_previous = self.test_sync_phase(SyncPhase::SubscriptionRefresh);
         let execution = self.begin_comparison_grant(&grant).await?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_restore_sync_phase(sync_frontier_previous);
         let deadline = control.map_or_else(
             ComparisonNetworkJob::automatic_deadline,
             FullHistoryRepairControl::network_deadline,
@@ -848,6 +855,8 @@ impl AppClient {
                 return Err(error);
             }
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier_previous = self.test_sync_phase(SyncPhase::RecoveryNetwork);
         let completed = loop {
             tokio::select! {
                 completed = network.wait() => break completed.ok(),
@@ -864,6 +873,8 @@ impl AppClient {
                 }
             }
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_restore_sync_phase(sync_frontier_previous);
         let Some((credit, result)) = completed else {
             return self.abandon_comparison_grant(grant, execution);
         };
@@ -878,9 +889,13 @@ impl AppClient {
             });
         // The job counts against the process pool until admission and its
         // checkpoint finish, not only while the network request runs.
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sync_frontier_previous = self.test_sync_phase(SyncPhase::RecoveryAdmission);
         let settled = self
             .admit_comparison_until(grant, execution, result, control)
             .await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_restore_sync_phase(sync_frontier_previous);
         drop(credit);
         settled
     }
