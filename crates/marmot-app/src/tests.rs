@@ -528,6 +528,7 @@ pub(crate) struct ScriptedPushRelayClient {
     fail_next_subscribe: std::sync::atomic::AtomicBool,
     block_next_unsubscribe: std::sync::atomic::AtomicBool,
     block_next_publish: std::sync::atomic::AtomicBool,
+    block_next_publish_kind: std::sync::Mutex<Option<u64>>,
     blocked_publish_kind: std::sync::Mutex<Option<u64>>,
     block_publish_count: std::sync::atomic::AtomicUsize,
     blocked_publish_count: std::sync::atomic::AtomicUsize,
@@ -835,6 +836,10 @@ impl ScriptedPushRelayClient {
     pub(crate) fn block_next_publish(&self) {
         self.block_next_publish
             .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn block_next_publish_of_kind(&self, kind: u64) {
+        *self.block_next_publish_kind.lock().unwrap() = Some(kind);
     }
 
     fn block_account_inbox_subscribe(&self, account_id: Vec<u8>) {
@@ -1305,7 +1310,17 @@ impl NostrRelayClient for ScriptedPushRelayClient {
                 |remaining| remaining.checked_sub(1),
             )
             .is_ok();
+        let block_matching_publish = {
+            let mut selected = self.block_next_publish_kind.lock().unwrap();
+            if *selected == Some(event.kind) {
+                selected.take();
+                true
+            } else {
+                false
+            }
+        };
         if block_counted_publish
+            || block_matching_publish
             || self
                 .block_next_publish
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -7055,7 +7070,8 @@ async fn initial_profile_retry_returns_the_profile_a_running_bootstrap_publishes
 async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     let directory = tempfile::tempdir().unwrap();
     let relay = Arc::new(ScriptedPushRelayClient::default());
-    relay.block_next_publish();
+    // Hold bootstrap metadata, after the worker has published its priority KeyPackage.
+    relay.block_next_publish_of_kind(0);
     let app = MarmotApp::with_relay(directory.path(), "wss://relay.example")
         .with_test_relay_client(relay.clone());
     let runtime = MarmotAppRuntime::new(app.clone());
@@ -7088,6 +7104,7 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
         .account_setup_readiness(&result.account.account_id_hex)
         .unwrap();
     let held_kind = *relay.blocked_publish_kind.lock().unwrap();
+    assert_eq!(held_kind, Some(0), "the held event must be bootstrap metadata");
     let readiness_code = |value| match value {
         AccountSetupReadiness::Initializing => 0,
         AccountSetupReadiness::LocalReady => 1,
