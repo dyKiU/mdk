@@ -8,15 +8,15 @@ import qualify_upstream_automatic_body as held
 import qualify_upstream_body_late_ack as late
 import upstream_completion_ci as completion
 ensure=bounded.ensure
-BASE='4408cfd961567059ac313350fc1ab76cd8ddfc88'
+BASE='3f6eb7c6023f42e17c771295b706913ca3c2d81c'
 OWNER_SOURCE='11eb96f4f72d17d0b40136bdfb6749acf6b676c4'
 FRONTIER_PARENT='288544fe2d9dc3323cb1df3b99f35cc017375e13'
 FRONTIER_SOURCE='adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8'
 PRE_BODY_SOURCE='79d04efe4957ec2db2f3f02ef9ce6f97292ef869'
 RAW_SOURCE='4408cfd961567059ac313350fc1ab76cd8ddfc88'
 FRONTIER_PATHS={'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': {'before': 'b69632ce6c94e18e7ebf02b518d2eaed50c83bd1c87be15ab12ea7ca90ed8c0c', 'after': '0b58fde3834d61a21f22afb34f4a9ac23fadf8c42a1b0a0fdca520ff9718068c', 'mode': '100644'}, 'crates/marmot-app/src/client/explicit_sync_frontier.rs': {'before': None, 'after': 'f4a73ac1995134480f6398006ad3af4ddeb2f4a48cce37109df4b18356349dd7', 'mode': '100644'}, 'crates/marmot-app/src/client/mod.rs': {'before': '434a971bf57ed402253cad7cf58c76f5be66ba46f28892bcf5a6456a978c5e7e', 'after': '3eb116d2771a0aa8827dd78f44ac4d4ab806eb397265748cd83192d353836686', 'mode': '100644'}, 'crates/marmot-app/src/client/sync.rs': {'before': '2491c5c9a56de4034bf88de33083cebb13e65e05147ae6aff2a102d5f0a2dc96', 'after': '04b5c0360ff97151ee7882100d0b9eae6d10951916cd6907672347f23f1907ce', 'mode': '100644'}, 'crates/marmot-app/src/client/sync/comparison_job.rs': {'before': '44a286cd7e1721ba3483c44742161a8cbe24c0063bcad02b632330e3e6e564bd', 'after': 'e99ce8660c45a26efb515107606ebe4b8d040ec4924c1ab17fe5b933bbf6e6b9', 'mode': '100644'}, 'crates/marmot-app/src/lib.rs': {'before': '37b1567aec1b88e484b2093108ff420e16afe326126f460be4a52d67dff35113', 'after': 'c68c15414ccdfffd9f5576f5334a876f8b01af19dae193ff844f41cccb2f221c', 'mode': '100644'}}
-BODY_STATE_PATHS={'crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs': {'before': 'f433c23c32115850168fac6ee682992aa359da145655facec08e20a833c9b6d8', 'raw': 'acf29d2b57289ce1f4b4a486e9a7e415333cb86c3d266bffc01c4c5140171578', 'canonical': 'acf29d2b57289ce1f4b4a486e9a7e415333cb86c3d266bffc01c4c5140171578', 'mode': '100644'}, 'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': {'before': '0b58fde3834d61a21f22afb34f4a9ac23fadf8c42a1b0a0fdca520ff9718068c', 'raw': 'fbe456a032b4c8ff7fe5b83af0d97b24e5adaa089b4e7dd2b3be598edee4ba0b', 'canonical': 'fbe456a032b4c8ff7fe5b83af0d97b24e5adaa089b4e7dd2b3be598edee4ba0b', 'mode': '100644'}}
-WORKFLOW_SHA='0954c3a35a338c1c0936c97cf9f3cb139ed5da90f411585c71d2e5d317689ae8'
+BODY_STATE_PATHS={'crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs': {'before': 'f433c23c32115850168fac6ee682992aa359da145655facec08e20a833c9b6d8', 'raw': 'acf29d2b57289ce1f4b4a486e9a7e415333cb86c3d266bffc01c4c5140171578', 'canonical': 'ebebbb7ec835b9f4a7c83cc2cd8160fe050ab079599bb749a61fb90a493c23b6', 'mode': '100644'}, 'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': {'before': '0b58fde3834d61a21f22afb34f4a9ac23fadf8c42a1b0a0fdca520ff9718068c', 'raw': 'fbe456a032b4c8ff7fe5b83af0d97b24e5adaa089b4e7dd2b3be598edee4ba0b', 'canonical': 'fbe456a032b4c8ff7fe5b83af0d97b24e5adaa089b4e7dd2b3be598edee4ba0b', 'mode': '100644'}}
+WORKFLOW_SHA='7b0c56ee854533801194168d3de90ca7f24258e33a8005f848583d6e05453420'
 SELF='scripts/qualify_upstream_c1_body_restart.py'
 WORKFLOW='.github/workflows/c1-body-restart.yml'
 REF='refs/heads/ci/upstream-c1-body-restart-20261018'
