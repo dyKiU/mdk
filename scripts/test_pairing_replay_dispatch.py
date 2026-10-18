@@ -17,6 +17,12 @@ CONSENT = PREFIX + "blocked_sibling_consent_does_not_starve_another_approved_pee
 EXPECTED = {
     "pairing-diagnostic": {FOURTH},
     "pairing-consent-fairness": {CONSENT},
+    "pairing-restart-diagnostic": {
+        "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent"
+    },
+    "pairing-restart-higher-source": {
+        "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record"
+    },
     "pairing-regression": {
         FOURTH,
         CONSENT,
@@ -39,8 +45,20 @@ class PairingReplayDispatchTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         start = text.index("  pairing-replay:\n")
         replay = text[start:text.index("  archive-recovery-plan:\n", start)]
-        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness"]', replay)
+        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source"]', replay)
         self.assertEqual(replay.count("REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}"), 1)
+
+    def test_every_scope_is_offered_and_routes_to_pairing_job(self):
+        text = WORKFLOW.read_text()
+        options = re.search(r"options: \[(.*?)\]", text).group(1).split(", ")
+        job = text.split("  pairing-replay:\n", 1)[1].split("    name:", 1)[0]
+        routed = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
+        self.assertTrue(set(EXPECTED) <= set(options))
+        self.assertTrue(set(ALIASES) <= set(options))
+        self.assertTrue(set(EXPECTED) <= {ALIASES.get(scope, scope) for scope in routed})
+        preflight = text.split("  workflow-union-preflight:\n", 1)[1].split("    name:", 1)[0]
+        supported = json.loads(re.search(r"fromJSON\('([^']+)'\)", preflight).group(1))
+        self.assertTrue(set(routed) <= set(supported))
 
     def test_every_scope_executes_its_exact_inventory_and_bounded_command(self):
         script = replay_script()

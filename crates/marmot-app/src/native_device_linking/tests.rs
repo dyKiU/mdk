@@ -339,6 +339,7 @@ pub(super) mod actual {
         AutomaticTwoLegitimateSources,
         AutomaticDelayedRequestCollision,
         AutomaticPendingRequestRestart,
+        AutomaticPendingRequestRestartHigherSource,
         AutomaticRecordsCutConsent,
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
@@ -404,6 +405,7 @@ pub(super) mod actual {
             scenario,
             ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticPendingRequestRestartHigherSource
                 | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
@@ -436,6 +438,7 @@ pub(super) mod actual {
             scenario,
             ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticPendingRequestRestartHigherSource
                 | ApprovalScenario::AutomaticRecordsCutConsent
         ) {
             assert!(
@@ -548,6 +551,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
                 | ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticPendingRequestRestartHigherSource
                 | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
@@ -898,6 +902,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticPendingRequestRestartHigherSource
                 | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
@@ -1019,6 +1024,7 @@ pub(super) mod actual {
                         | ApprovalScenario::AutomaticHeldThreeCInitiates
                         | ApprovalScenario::AutomaticDelayedRequestCollision
                         | ApprovalScenario::AutomaticPendingRequestRestart
+                        | ApprovalScenario::AutomaticPendingRequestRestartHigherSource
                         | ApprovalScenario::AutomaticRecordsCutConsent
                         | ApprovalScenario::AutomaticTwoLegitimateSources
                         | ApprovalScenario::AutomaticDepartureFfiFixture
@@ -1227,6 +1233,7 @@ pub(super) mod actual {
                 scenario,
                 ApprovalScenario::AutomaticDelayedRequestCollision
                     | ApprovalScenario::AutomaticPendingRequestRestart
+                    | ApprovalScenario::AutomaticPendingRequestRestartHigherSource
                     | ApprovalScenario::AutomaticRecordsCutConsent
             ) {
                 use futures::FutureExt;
@@ -1239,13 +1246,19 @@ pub(super) mod actual {
                         runtime.shutdown_and_close().await.unwrap();
                         assert!(runtime.storage_is_closed());
                     }
-                    if scenario == ApprovalScenario::AutomaticPendingRequestRestart {
+                    if matches!(
+                        scenario,
+                        ApprovalScenario::AutomaticPendingRequestRestart
+                            | ApprovalScenario::AutomaticPendingRequestRestartHigherSource
+                    ) {
                         Box::pin(
                             crate::AppClient::test_pending_lower_request_survives_higher_restart(
                                 [dirs[0].path(), dirs[1].path()],
                                 &url,
                                 &peer.group,
                                 &peer.initial_ids[0],
+                                scenario
+                                    == ApprovalScenario::AutomaticPendingRequestRestartHigherSource,
                             ),
                         )
                         .await;
@@ -2771,6 +2784,20 @@ fn pending_lower_request_recovers_after_higher_restarts_before_consent() {
     crate::tests::run_composed_app_runtime_test("pending-real-lower-request", || async {
         Box::pin(actual::run_native_public_three_device_enrollment(
             actual::ApprovalScenario::AutomaticPendingRequestRestart,
+        ))
+        .await;
+    });
+}
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[test]
+fn pending_restart_higher_source_delivers_catalog_and_record() {
+    crate::tests::run_composed_app_runtime_test("pending-restart-higher-source", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticPendingRequestRestartHigherSource,
         ))
         .await;
     });
