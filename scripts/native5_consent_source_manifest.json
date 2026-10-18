@@ -1,7 +1,7 @@
 {
-  "reviewed_source": "0aeb969a5c17102c00945b1c856fdc59983e2718",
-  "formatted_pure_baseline": "0aeb969a5c17102c00945b1c856fdc59983e2718",
-  "construction": "Exact hosted-formatted passive observation reversal to pure worker-turn checkpoint candidate 0aeb969a5c17102c00945b1c856fdc59983e2718; the actual checkpoint is retained in the reconstructed product baseline. No local target parser, formatter, sourceguard or test executed; hosted preflight must establish full inverse.",
+  "reviewed_source": "739a04761c593ee2ecbf94df90c783c4f5c4da11",
+  "formatted_pure_baseline": "739a04761c593ee2ecbf94df90c783c4f5c4da11",
+  "construction": "Direct immutable pure739a (0aeb checkpoint plus incoming5247) to reviewed1b793 passive observer source text groups. Checkpoint and upstream incoming source remain in every reconstructed before image. No local parser/formatter/sourceguard/test execution; hosted preflight must establish full whole-tree/mode inverse.",
   "paths": {
     "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
       "draft_file": "sibling_sharing.rs",
