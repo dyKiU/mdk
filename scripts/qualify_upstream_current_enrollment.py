@@ -8,12 +8,13 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='d50c3b93915bd2e63cfdbdc12038394363afa5e8'
-SOURCE_PARENT='11eb96f4f72d17d0b40136bdfb6749acf6b676c4'
-RAW_SOURCE='b41b55a4cc0c4479fbc7248ff0d77f27ffcde81f'
-RESULT_SOURCE_PATHS={'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before': 'a5bd3b37d749ac3ca186db601c1eb181b50bf1b524aaf593222fdbda970c2542', 'raw': '10878f748eccfaa8d13993aa283701c77eb7d02c9a6fde428b204c15ece3f5bc', 'canonical': 'c64c9aab4e601480a61c1f2b15e9273b745c600cb91af98051400328844ad6b9', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/setup.rs': {'before': 'e39b0995598e1e4282d19a9d6d44525bcb67249acaf484aad0a80e1319b2cb48', 'raw': 'd1a9c8bc9c32d82b01aacabe20995197270aaf9c0db81277a91d4a2d1dc0fd5e', 'canonical': 'd1a9c8bc9c32d82b01aacabe20995197270aaf9c0db81277a91d4a2d1dc0fd5e', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking.rs': {'before': 'cdbf436572af474205ba6eb770cfa2ada705a74f433fb763f69be8af53b7fbf4', 'raw': 'd8fe4e03929c7c462ca7b0efdbafce07628858b2bdc01b323360a8152b928948', 'canonical': 'b03e129bba59d4fcd8cb89c091174eaccd13613ba666b7885b54173317050349', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before': 'e0b1126b4e90d35bd681e9474184dbdd6d73a14acce27a013a094a7a5a44df52', 'raw': 'fe7416043f2c3eda3fa76979509a206cbc38f710cc52159117a5d77b964a0634', 'canonical': 'cbd7723fc00b3eb3c0a6b20f2ffced3a3d8c0acead72b89f466c767d102e984d', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before': '49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa', 'raw': '13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2', 'canonical': '13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2', 'mode': '100644'}}
+BASE='677b70886fec5dafa766b6b223e0413a2a9c0a1f'
+SOURCE_PARENT='d50c3b93915bd2e63cfdbdc12038394363afa5e8'
+RAW_SOURCE='677b70886fec5dafa766b6b223e0413a2a9c0a1f'
+RESULT_SOURCE_PATHS={'crates/marmot-app/src/client/device_linking/native_enrollment.rs': {'before': '9cc281b78bf61b137f8809fc4eeaeb6b3a0bf736b8ff8400c9f7cb270b4d9470', 'raw': '8b63c7a121b6a0f3dd843c36003e557aa2ad7690893c188dbd4099d1be19ec8d', 'canonical': '8b63c7a121b6a0f3dd843c36003e557aa2ad7690893c188dbd4099d1be19ec8d', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before': 'c64c9aab4e601480a61c1f2b15e9273b745c600cb91af98051400328844ad6b9', 'raw': 'cea6e20dd859fa082e390794214c33c867e744f46f5bf1527b4c55ab1a092cd1', 'canonical': 'cea6e20dd859fa082e390794214c33c867e744f46f5bf1527b4c55ab1a092cd1', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before': 'cbd7723fc00b3eb3c0a6b20f2ffced3a3d8c0acead72b89f466c767d102e984d', 'raw': 'dce5231dc86d7eb00b2093ace62e3e0bd27bf69b32b6b3084d55bb714e7ffba2', 'canonical': 'dce5231dc86d7eb00b2093ace62e3e0bd27bf69b32b6b3084d55bb714e7ffba2', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before': '13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2', 'raw': 'bd3d6fc39f5578d3f1eeec05dc6238e30bb74217f7cfd8e9ee840577599669ad', 'canonical': 'bd3d6fc39f5578d3f1eeec05dc6238e30bb74217f7cfd8e9ee840577599669ad', 'mode': '100644'}}
 FAILURE_LABELS=('original_2','stress_0','stress_1','stress_2')
-WORKFLOW_SHA='7169e2b8fc8b4a7de1ebfc4f807a88ab09dfa02353e157f4cd2333b4cbde9cb6'
+HANDOFF_LABELS=('original_2','stress_1')
+WORKFLOW_SHA='eb668b5b2555ec463258a736ea92da57e1064597f8b63849313efcecd5339c4d'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261018'
@@ -22,8 +23,8 @@ OUT=Path('current-enrollment-evidence')
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 FIXTURE_SHA='a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca'
-PARENT_SHA='13ff960e536f39aafd88dd3b62125cf579aa6034954a2d56b4cdb598fc0c4ed2'
-STRICT_HELPER_SHA='18f35458f2b9d280211d12ac58fd59d18c970512f90bfc1f59bf110502ab5618'
+PARENT_SHA='bd3d6fc39f5578d3f1eeec05dc6238e30bb74217f7cfd8e9ee840577599669ad'
+STRICT_HELPER_SHA='aca824bd363e1e5de3da7536aaf20df89b70b3dc5fffd8ab6f40580a06aa2a9e'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
 NATIVE_HELPER='scripts/qualify_upstream_pure_native5.py'
 ACK_HELPER='scripts/qualify_upstream_request_retry_ack.py'
@@ -65,7 +66,7 @@ def source_guard(preflight=False):
     ensure(type(RAW_SOURCE)is str and re.fullmatch('[0-9a-f]{40}',RAW_SOURCE),'root-reviewed-raw-result-source-required')
     ensure(all(subprocess.run(['git','merge-base','--is-ancestor',a,b]).returncode==0 for a,b in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,BASE)]),'latest-owner-then-result-source-ancestry')
     ensure(set(git('diff','--name-only',SOURCE_PARENT,RAW_SOURCE).decode().splitlines())==set(RESULT_SOURCE_PATHS)
-        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<=set(RESULT_SOURCE_PATHS),'exact-five-result-paths-then-format-only')
+        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<=set(RESULT_SOURCE_PATHS),'exact-four-persist-error-paths-then-format-only')
     for path,pins in RESULT_SOURCE_PATHS.items():
         for ref,key in [(SOURCE_PARENT,'before'),(RAW_SOURCE,'raw'),(BASE,'canonical')]:
             ensure(layout(ref)[path][0]==pins['mode'] and digest(git('show',ref+':'+path))==pins[key],'reviewed-result-path-full-source-and-mode')
@@ -137,9 +138,10 @@ def selected_cases(mode):
         and all(len({row[i] for row in rows})==16 for i in [0,1,2])
         and {'policy','stress_0','stress_1','stress_2','paused_clock'}<={row[0] for row in rows},'original-exact-sixteen-inventory')
     ensure(all(type(label) is str and type(suffix) is str and type(name) is str and name.endswith(suffix) for label,suffix,name,_ in rows),'exact-source-case-names')
-    if mode=='failures':
-        selected=[next(row for row in rows if row[0]==label) for label in FAILURE_LABELS]
-        ensure(tuple(row[0] for row in selected)==FAILURE_LABELS,'exact-four-original-failure-labels')
+    if mode in ('failures','handoff-diagnostic'):
+        labels=HANDOFF_LABELS if mode=='handoff-diagnostic' else FAILURE_LABELS
+        selected=[next(row for row in rows if row[0]==label) for label in labels]
+        ensure(tuple(row[0] for row in selected)==labels,'exact-original-diagnostic-labels')
         return selected
     return rows
 
@@ -328,6 +330,51 @@ def native_result_controls():
         bad=closed_native_results(text);ensure(not bad['schema_known'] and 'PRIVATE' not in json.dumps(bad),'closed-result-schema-privacy-bound')
     return {'positive':4,'negative':10,'runtime_bodies':0}
 
+PERSIST_SITES=('InitialCoreRoster','LocalRole','ContextDigest','AccountStorage','LegacyCapture','PolicyCommit')
+ENGINE_KINDS=('unknown_group','group_not_hydrated','unknown_pending','not_a_member','not_group_admin','unknown_member','invalid_credential_identity','admin_cannot_self_remove','leave_already_requested','admin_depletion','missing_required_capabilities','disbanding_unsupported_members','disbanding_not_enabled','unsupported_ciphersuite','invalid_app_message_payload','invalid_account_identity_proof','invalid_key_package_lifetime','invalid_key_package_capabilities','app_message_epoch_mismatch','app_message_epoch_unsettled','forked_epoch','queued_outbound_at_capacity','group_unrecoverable_repair_required','invalid_transition','storage','peeler','serialize','invalid_welcome','linking_welcome_denied','selected_chat_welcome_denied','missing_welcome_key_package','welcome_already_processed','private_enrollment_intake_at_capacity','backend','other')
+STORAGE_KINDS=('storage_not_found','storage_already_exists','storage_record_denied_by_departure','storage_snapshot_missing','storage_timeline_cursor_expired','storage_busy','storage_corruption','storage_capacity','storage_closed','storage_unsupported_schema_version','storage_invalid_attachment_body','storage_backend','storage_serialization')
+def closed_persist_errors(raw):
+    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    lines=[line for line in text.splitlines() if line.startswith('native-persist-errors')]
+    n=PROGRESS_UINT;array=r'\['+', '.join([n]*6)+r'\]'
+    kinds='|'.join(ENGINE_KINDS+STORAGE_KINDS)
+    last=r'(None|Some\(\(('+'|'.join(PERSIST_SITES)+r'), (None|Some\("('+kinds+r')"\))\)\))'
+    pattern=r'native-persist-errors stage=(PhaseWait|AutomaticPublicationHold|SiblingConsentPeerProgress) side=(left|right|source|recipient) snapshot=(None|Some\(\(('+array+r'), (true|false), '+last+r'\)\))'
+    result={'schema_known':True,'records':[],'candidate_count':len(lines),'counter_order':list(PERSIST_SITES),'cumulative_per_original':True,'last_error_only_no_history':True,'per_pass_or_deadline_attribution':False,'all_zero_means_no_recorded_error_only':True,'missing_or_None_is_unknown':True,'raw_errors_exported':False}
+    seen=set();stages=set()
+    if len(lines)>2 or sum(len(line.encode())+1 for line in lines)>1024:result['schema_known']=False;return result
+    for line in lines:
+        match=re.fullmatch(pattern,line)
+        if match is None:result['schema_known']=False;continue
+        stage,side=match[1],match[2]
+        if side not in (('left','right') if stage=='PhaseWait' else ('source','recipient')) or (stage,side) in seen:
+            result['schema_known']=False;continue
+        values=None if match[3]=='None' else [int(v) for v in match[4][1:-1].split(', ')]
+        last_value=None if values is None or match[6]=='None' else {'stage':match[7],'kind':None if match[8]=='None' else match[9]}
+        if values is not None:
+            if any(v>2**64-1 for v in values) or (match[5]=='true' and 2**64-1 not in values) or ((last_value is None)!= (not any(values))):result['schema_known']=False;continue
+            if last_value is not None:
+                site=last_value['stage'];kind=last_value['kind']
+                valid_kind=(kind in ENGINE_KINDS if site=='InitialCoreRoster' else kind in STORAGE_KINDS if site=='PolicyCommit' else kind is None)
+                if not valid_kind or values[PERSIST_SITES.index(site)]==0:result['schema_known']=False;continue
+        seen.add((stage,side));stages.add(stage)
+        result['records'].append({'stage':stage,'side':side,'counts':values,'overflow':None if values is None else match[5]=='true','last_error':last_value,'any_recorded_error':None if values is None else any(values)})
+    if lines and (len(stages)!=1 or len(seen)!=2):result['schema_known']=False
+    return result
+
+def persist_error_controls():
+    pair=lambda value:'native-persist-errors stage=PhaseWait side=left snapshot='+value+'\n'+'native-persist-errors stage=PhaseWait side=right snapshot=None'
+    zero='Some(([0, 0, 0, 0, 0, 0], false, None))'
+    engine='Some(([1, 0, 0, 0, 0, 0], false, Some((InitialCoreRoster, Some("backend")))))'
+    policy='Some(([0, 0, 0, 0, 0, 1], false, Some((PolicyCommit, Some("storage_busy")))))'
+    positives=[pair(zero),pair(engine),pair(policy),pair('Some(([0, 1, 0, 0, 0, 0], false, Some((LocalRole, None))))'),pair(engine.replace('[1,','[18446744073709551615,').replace('false','true')),pair('None'),'']
+    for text in positives:ensure(closed_persist_errors(text)['schema_known'],'persist-closed-actual-shape-positive')
+    ensure(closed_persist_errors(pair(zero))['records'][0]['any_recorded_error']is False and closed_persist_errors(pair('None'))['records'][0]['counts']is None,'persist-zero-not-unavailable')
+    bad=[pair(engine.replace('false','true')),pair(engine.replace('backend','PRIVATE')),pair(engine.replace('Some("backend")','None')),pair(policy.replace('storage_busy','backend')),pair(engine.replace('[1,','[0,')),pair(zero.replace('false, None','false, Some((LocalRole, None))')),pair(engine.replace('18446744073709551615','18446744073709551616').replace('[1,','[18446744073709551616,')),pair(engine.replace('[1,','[-1,')),pair(engine.replace('Some((InitialCoreRoster','Some(InitialCoreRoster')),pair(engine)+' PRIVATE',pair(engine)+'\n'+pair(engine),pair(engine).split('\n')[0],pair(engine).replace('side=right','side=left'),pair(engine).replace('side=right','side=recipient'),pair(engine).replace('stage=PhaseWait','stage=PRIVATE'),pair(engine.replace('[1, 0, 0, 0, 0, 0]','[1, 0, 0, 0, 0]')),pair('Some(([0, 1, 0, 0, 0, 0], false, Some((LocalRole, Some("backend")))))')]
+    for text in bad:
+        row=closed_persist_errors(text);ensure(not row['schema_known'] and 'PRIVATE' not in json.dumps(row),'persist-malformed-private-or-incoherent-rejected')
+    return {'positive':7,'negative':17,'runtime_bodies':0}
+
 def execute_case(report,row,binary,before,mode,inputs,label,name,five):
     row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
     save(report)
@@ -354,6 +401,7 @@ def execute_case(report,row,binary,before,mode,inputs,label,name,five):
         row['timeout_progress']=closed_timeout_progress(raw);save(report)
         if label in FAILURE_LABELS:row['hold_timeout']=closed_hold_timeout(raw);save(report)
         row['native_results']=closed_native_results(raw);save(report)
+        row['persist_errors']=closed_persist_errors(raw);save(report)
     ensure(row['source_after_body_pristine'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
     parsed=native.parse(raw,code) if five else ack.parse_case(label,raw,code)
     row['original_oracle']=closed_oracle(parsed)
@@ -363,7 +411,7 @@ def execute_case(report,row,binary,before,mode,inputs,label,name,five):
 def parser_controls(mode):
     inherited=native.parser_controls() if mode=='five' else ack.parser_controls()
     names=selected_cases(mode)
-    ensure(len(names)==(1 if mode=='five' else 4 if mode=='failures' else 16),'exact-selected-case-count')
+    ensure(len(names)==(1 if mode=='five' else 2 if mode=='handoff-diagnostic' else 4 if mode=='failures' else 16),'exact-selected-case-count')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
     complete={'basic_counts':{'passed':1,'failed':0,'ignored':0,'executed_nonignored':1,'actual_counts_complete':True}}
     observed_ignored={'basic_counts':{'passed':0,'failed':0,'ignored':1,'executed_nonignored':0,'actual_counts_complete':False}}
@@ -397,14 +445,14 @@ def parser_controls(mode):
     for text in [phase_header+phase_payload+' PRIVATE',phase_header+phase_payload.replace('VerificationCompleteEnrollmentPending','PRIVATE'),phase_header.replace(':'+str(phase_column)+':',':999:')+phase_payload,(phase_header+phase_payload+'\n')*2,phase_payload+'\n',phase_header+phase_payload.replace('Some((', '('),phase_header.replace('(123)','(PRIVATE)')+phase_payload]:
         row=closed_phase_timeout(text,native.NAME)
         ensure(not row['closed_phase_record_available'] and 'PRIVATE' not in json.dumps(row),'no-foreign-or-malformed-phase-payload-export')
-    return {'native_result_controls':native_result_controls(),'hold_timeout_controls':hold_timeout_controls(),'timeout_progress_controls':timeout_progress_controls(),'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
+    return {'persist_error_controls':persist_error_controls(),'native_result_controls':native_result_controls(),'hold_timeout_controls':hold_timeout_controls(),'timeout_progress_controls':timeout_progress_controls(),'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'phase_positive':2,'phase_negative':7,'actual_runtime_bodies':0}
 
 def main(args):
     os.umask(0o077)
     report={'expected_case_mode':args.mode,'preflight_only':args.preflight,'actual_test_qualification':False,'global_qualification':False,
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'automatic_retries':0,'raw_runtime_output_exported':False,
         'requested_features':FEATURES,'environment_stack_bytes':4194304,'Tokio_workers':2 if args.mode=='five' else None,
-        'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else 'original-source-defined-four-failures' if args.mode=='failures' else 'original-source-defined-mixed-sixteen',
+        'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else 'original-two-handoff-frontiers-diagnostic-only' if args.mode=='handoff-diagnostic' else 'original-source-defined-four-failures' if args.mode=='failures' else 'original-source-defined-mixed-sixteen',
         'actual_runtime_attempts':0,'actual_executed_nonignored':0,'original_join_deadline_seconds':15,'body_watchdog_seconds':900 if args.mode=='five' else 300,'output_limit_bytes':8*1024*1024,'cases':[]}
     save(report);inputs=None;binary=None;before=None;mode=None
     try:
@@ -424,23 +472,25 @@ def main(args):
             except Exception as error:row['controller_failure_type']=type(error).__name__;save(report)
         report.update(aggregate(report['cases'],len(selected)));save(report)
         report['all_original_cases_green']=len(report['cases'])==len(selected) and all(row.get('oracle_green') is True for row in report['cases'])
-        report['actual_test_qualification']=report['all_original_cases_green']
-        save(report);ensure(report['actual_test_qualification'],'original-current-enrollment-cases-not-all-GREEN')
+        report['actual_test_qualification']=report['all_original_cases_green'] and args.mode!='handoff-diagnostic'
+        report['handoff_diagnostic_completed']=args.mode=='handoff-diagnostic' and report['all_original_cases_green'] and all(row.get('persist_errors',{}).get('schema_known')is True for row in report['cases'])
+        save(report);ensure(report['handoff_diagnostic_completed'] if args.mode=='handoff-diagnostic' else report['actual_test_qualification'],'original-current-enrollment-cases-not-all-GREEN')
     finally:
         report['actual_runtime_attempts']=sum(row.get('runtime_attempted') is True for row in report['cases'])
         if not args.preflight:
-            report.update(aggregate(report['cases'],1 if args.mode=='five' else 4 if args.mode=='failures' else 16))
+            report.update(aggregate(report['cases'],1 if args.mode=='five' else 2 if args.mode=='handoff-diagnostic' else 4 if args.mode=='failures' else 16))
             if report['actual_runtime_attempts']==0:report['actual_executed_nonignored']=0
         report['final_source_pristine']=inputs is not None and physical()==inputs
         regular=binary is not None and binary.is_file() and not binary.is_symlink()
         report['final_binary_sha256']=digest(binary.read_bytes()) if regular else None
         report['final_binary_mode']=stat.S_IMODE(binary.stat().st_mode) if regular else None
         report['final_binary_pristine']=None if binary is None else regular and report['final_binary_sha256']==before and report['final_binary_mode']==mode
-        if not report['final_source_pristine'] or report['final_binary_pristine'] is False:report['actual_test_qualification']=False
+        if not report['final_source_pristine'] or report['final_binary_pristine'] is False:
+            report['actual_test_qualification']=False;report['handoff_diagnostic_completed']=False
         save(report)
         ensure(report['final_source_pristine'] and report['final_binary_pristine'] is not False,'final-source-binary-mode-closure')
-    ensure(report['actual_test_qualification'],'actual-current-native-qualification-required')
+    ensure(report.get('handoff_diagnostic_completed')is True if args.mode=='handoff-diagnostic' else report['actual_test_qualification'],'actual-current-native-qualification-required')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','failures'],default='five')
+    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','failures','handoff-diagnostic'],default='five')
     main(parser.parse_args())
