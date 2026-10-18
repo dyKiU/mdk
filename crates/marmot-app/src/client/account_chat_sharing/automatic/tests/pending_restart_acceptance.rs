@@ -95,8 +95,14 @@ impl AppClient {
             let mut tick_millis = [0_u128; 2];
             let mut waiting_at = (0, "before_delivery");
             let mut waiting_since = std::time::Instant::now();
+            let probe_scope = clients[1].as_ref().and_then(|client| client.presentation_scope(&pair[1]).ok());
+            let mut first_catalog_millis = None;
+            let mut first_record_millis = None;
+            let mut probe_count = 0_u32;
+            let mut probe_millis = 0_u128;
             let delivery_started = std::time::Instant::now();
-            let delivery = tokio::time::timeout(Duration::from_secs(30), async {
+            let delivery = {
+            let original_delivery = tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
                     for (i, client) in clients.iter_mut().enumerate() {
                         waiting_at = (i, "sync");
@@ -133,7 +139,31 @@ impl AppClient {
                     waiting_since = std::time::Instant::now();
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-            }).await;
+            });
+            tokio::pin!(original_delivery);
+            let mut probe_tick = tokio::time::interval(Duration::from_millis(100));
+            probe_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! { biased;
+                    result = &mut original_delivery => break result,
+                    _ = probe_tick.tick(), if probe_scope.is_some()
+                        && (first_catalog_millis.is_none() || first_record_millis.is_none()) => {
+                        let started = std::time::Instant::now();
+                        let sample = probe_scope.as_ref().and_then(|scope|
+                            probe_mirrored_witness(&apps[1], scope, ordinary_group, witness));
+                        probe_count += 1;
+                        probe_millis += started.elapsed().as_millis();
+                        // A completed read before the unchanged deadline is an
+                        // observation only. It never completes the original wait.
+                        let elapsed = delivery_started.elapsed().as_millis();
+                        if elapsed < 30_000 && let Some((catalog, record)) = sample {
+                            if catalog && first_catalog_millis.is_none() { first_catalog_millis = Some(elapsed); }
+                            if record && first_record_millis.is_none() { first_record_millis = Some(elapsed); }
+                        }
+                    }
+                }
+            }
+            };
             let observation = || {
                 let observations = [lower, higher].map(|i| clients[i].as_ref().unwrap().account_sharing_owner.automatic.get(&ids[i]).map(|entry| (
                     entry.ready, entry.recipient, entry.channel.scope().nonce == original_x,
@@ -145,6 +175,10 @@ impl AppClient {
                 eprintln!("pending_restart_ready_role_original_nonce_live_core_valid={observations:?} same_nonce={same_nonce:?}");
             };
             eprintln!("pending_restart_delivery_observation recovered={} source_is_lower={} elapsed_millis={} completed_syncs={completed_syncs:?} sync_millis={sync_millis:?} completed_ticks={completed_ticks:?} tick_millis={tick_millis:?} waiting_at={waiting_at:?} waiting_millis={}", delivery.is_ok(), lower == 0, delivery_started.elapsed().as_millis(), waiting_since.elapsed().as_millis());
+            let probe_scope_unchanged = probe_scope.as_ref().zip(clients[1].as_ref()
+                .and_then(|client| client.presentation_scope(&pair[1]).ok()).as_ref())
+                .map(|(before, after)| before == after);
+            eprintln!("pending_restart_predeadline_sql_observation catalog_first_millis={first_catalog_millis:?} record_first_millis={first_record_millis:?} scope_unchanged={probe_scope_unchanged:?} sample_count={probe_count} read_millis={probe_millis}");
             observation();
             if delivery.is_err() {
                 // Post-timeout observations only. Failed reads stay unknown and
@@ -191,6 +225,34 @@ impl AppClient {
         }
         assert!(all_closed, "all fixture owners must positively close");
     }
+}
+
+// Passive diagnostic reads while the unchanged serial driver is awaiting work.
+// SQL visibility alone is never a live policy/owner grant or the success oracle.
+fn probe_mirrored_witness(
+    app: &crate::MarmotApp,
+    scope: &MirroredChatScope,
+    group: &crate::GroupId,
+    witness: &str,
+) -> Option<(bool, bool)> {
+    let storage = app.account_storage("test").ok()?;
+    let catalog = storage
+        .mirrored_chat_catalog_storage()?
+        .mirrored_chat_catalog_page(scope, None, 128)
+        .ok()?
+        .iter()
+        .any(|row| row.group_id == *group && row.state == MirroredChatState::Active);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let record = storage
+        .mirrored_chat_message_storage()?
+        .mirrored_chat_message_page(scope, group, None, 128, now)
+        .ok()?
+        .iter()
+        .any(|row| hex::encode(row.event_id) == witness && !row.deleted && !row.payload.is_empty());
+    Some((catalog, record))
 }
 
 async fn tick(client: &mut AppClient, id: [u8; 32]) {
