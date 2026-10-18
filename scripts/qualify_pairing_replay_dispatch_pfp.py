@@ -13,7 +13,7 @@ import qualify_upstream_storage_boundary as bounded
 
 SELF='scripts/qualify_pairing_replay_dispatch_pfp.py'
 TEST='scripts/test_pairing_replay_dispatch.py'
-TEST_SHA='02b01173117287b04fbe76a0632a9bc2f4912bd5adae07b97ff24b74cde94bee'  # Exact unchanged b3a6 metadata fixture.
+TEST_SHA='901e69af1475a8d01e995fd9bbf2d015cd2c8774d683922febc2bfba5e69d257'  # Exact reviewed a839 + c1 selector union.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 OUT=Path('pairing-dispatch-pfp-evidence')
 NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',
@@ -21,7 +21,7 @@ NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',
        'test_explicit_replay_alias_preserves_the_existing_one_case_scope']
 TARGET=NAMES[1]
 RESTART=['pairing-restart-diagnostic','pairing-restart-higher-source']
-REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART}
+REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART,'automatic-body-regression'}
 ASSERTION='self.assertTrue(set(routed) <= set(supported))'
 ensure=bounded.ensure
 
@@ -66,7 +66,7 @@ def condition(text,job):
 def mutant(text):
     line,found,values=condition(text,'workflow-union-preflight')
     ensure(all(values.count(scope)==1 for scope in RESTART),'both-new-dependency-scopes-required')
-    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'unchanged-exact-five-replay-routes')
+    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'unchanged-exact-six-replay-routes')
     replacement=line[:found.start(1)]+json.dumps([v for v in values if v not in RESTART],separators=(',',':'))+line[found.end(1):]
     ensure(text.count(line)==1 and replacement!=line,'one-narrow-dependency-list-mutation')
     changed=text.replace(line,replacement,1)

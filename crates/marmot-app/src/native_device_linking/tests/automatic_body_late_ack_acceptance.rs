@@ -180,7 +180,9 @@ async fn late_ack_trial(hold_receipt: bool) {
         managers[0].device_linking_targets("test"),
     )
     .await
-    .is_ok_and(|result| result.is_ok());
+    .is_ok_and(|result| {
+        result.is_ok_and(|targets| targets.len() == 1 && targets[0].device_count == 2)
+    });
     let before_receipt_release = probe.observed();
     probe.release_receipt();
     let receipt_finished = wait_for(|| probe.observed().receipt_accepted > 0).await;

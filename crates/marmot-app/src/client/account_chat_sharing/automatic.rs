@@ -4,13 +4,13 @@ use super::*;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 mod body_late_ack_probe;
 // BODY_LATE_ACK_TEST_END
-#[cfg(all(test, feature = "test-policy-overrides"))]
-pub(super) mod consent_delivery_probe;
-mod departure;
 // BODY_NEGATIVE_TEST_BEGIN
 #[cfg(all(test, feature = "test-policy-overrides"))]
 mod body_negative_probe;
 // BODY_NEGATIVE_TEST_END
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod consent_delivery_probe;
+mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod departure_replay_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -106,6 +106,7 @@ struct AutomaticPublication {
     payload_digest: [u8; 32],
     body_context: Option<BodyPublicationContext>,
     task: tokio::task::JoinHandle<Result<cgka_traits::TransportPublishReport, AccountSharingError>>,
+    outcome: Option<Result<cgka_traits::TransportPublishReport, AccountSharingError>>,
 }
 impl Drop for AutomaticPublication {
     fn drop(&mut self) {
@@ -183,14 +184,14 @@ impl Drop for AutomaticChannel {
     fn drop(&mut self) {
         self.original.cancel();
         self.channel.retire();
-        // BODY_NEGATIVE_TEST_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        body_negative_probe::retired(self);
-        // BODY_NEGATIVE_TEST_END
         // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::retired(self);
         // BODY_LATE_ACK_TEST_END
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        body_negative_probe::retired(self);
+        // BODY_NEGATIVE_TEST_END
     }
 }
 // Test-only compatibility encoding keeps the actual eligibility, digest and
@@ -661,6 +662,29 @@ impl AppClient {
                         let _ = error;
                         AccountSharingError::NotReady
                     })?;
+                if matches!(
+                    kind,
+                    AccountSharedBodyKind::CatalogReceipt | AccountSharedBodyKind::RecordReceipt
+                ) {
+                    // Only authenticated positive receipts may collect an ACK
+                    // before mutating its queue context. Incoming negative
+                    // intents must reach their normal admission barrier first.
+                    if entry
+                        .publication
+                        .as_ref()
+                        .is_some_and(|publication| publication.body_context.is_some())
+                    {
+                        self.guard_automatic_body_departure(&mut entry)?;
+                    }
+                    self.collect_finished_automatic_publication(&mut entry);
+                    if entry.publication.as_ref().is_some_and(|publication| {
+                        publication.body_context.is_some()
+                            && publication.outcome.as_ref().is_some_and(Result::is_ok)
+                    }) && self.harvest_automatic_publication(&mut entry)?
+                    {
+                        self.finish_automatic_body_effects(&mut entry)?;
+                    }
+                }
                 match kind {
                     AccountSharedBodyKind::Catalog => {
                         self.accept_automatic_catalog(&mut entry, &body)?
@@ -1352,27 +1376,23 @@ impl AppClient {
             }
             return Err(error);
         }
-        if entry
+        let publishing_body = entry
             .publication
             .as_ref()
-            .is_some_and(|publication| publication.body_context.is_some())
-        {
-            if let Err(error) = self.retry_automatic_departure(entry) {
-                // BODY_NEGATIVE_TEST_BEGIN
-                #[cfg(all(test, feature = "test-policy-overrides"))]
-                body_negative_probe::barrier(self.app.account_home().root(), entry);
-                // BODY_NEGATIVE_TEST_END
-                // Retain the owned slot as a barrier until this authenticated
-                // negative assembly commits. Renewal would discard its retry.
-                if let Some(publication) = entry.publication.as_ref() {
-                    publication.task.abort();
-                }
-                return Err(error);
+            .is_some_and(|publication| publication.body_context.is_some());
+        if publishing_body {
+            self.guard_automatic_body_departure(entry)?;
+            if !self.harvest_automatic_publication(entry)? {
+                return Ok(());
             }
-            if self.harvest_automatic_publication(entry).await? {
-                self.finish_automatic_body_effects(entry)?;
+            self.finish_automatic_body_effects(entry)?;
+            if entry.next_body >= CHANNEL_BODY_BUDGET {
+                entry.renew = true;
+                return Ok(());
             }
-            return Ok(());
+            // Harvest does no network wait. After applying its freshly guarded
+            // result, prepare at most one next Body in this same worker turn
+            // rather than spending a whole maintenance interval doing nothing.
         }
         if !entry.handshake_published {
             let kind = if entry.recipient {
@@ -1393,7 +1413,9 @@ impl AppClient {
         if !entry.ready {
             return Ok(());
         }
-        self.retry_automatic_departure(entry)?;
+        if !publishing_body {
+            self.retry_automatic_departure(entry)?;
+        }
         if entry.renew {
             return Ok(());
         }
@@ -1483,14 +1505,14 @@ impl AppClient {
         &self,
         entry: &mut AutomaticChannel,
     ) -> Result<(), AccountSharingError> {
-        // BODY_NEGATIVE_TEST_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        body_negative_probe::effects(self.app.account_home().root(), entry);
-        // BODY_NEGATIVE_TEST_END
         // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::effects(self.app.account_home().root(), entry);
         // BODY_LATE_ACK_TEST_END
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        body_negative_probe::effects(self.app.account_home().root(), entry);
+        // BODY_NEGATIVE_TEST_END
         entry.pending.pop_front();
         entry.next_body += 1;
         if entry.pending.is_empty()
@@ -1743,22 +1765,40 @@ impl AppClient {
         });
         Ok(())
     }
-    async fn harvest_automatic_publication(
-        &self,
+    fn guard_automatic_body_departure(
+        &mut self,
         entry: &mut AutomaticChannel,
-    ) -> Result<bool, AccountSharingError> {
-        let Some(publication) = entry.publication.as_ref() else {
-            return Ok(false);
+    ) -> Result<(), AccountSharingError> {
+        if let Err(error) = self.retry_automatic_departure(entry) {
+            // BODY_NEGATIVE_TEST_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            body_negative_probe::barrier(self.app.account_home().root(), entry);
+            // BODY_NEGATIVE_TEST_END
+            // Retain the owned slot as a barrier until this authenticated
+            // negative assembly commits. Renewal would discard its retry.
+            if let Some(publication) = entry.publication.as_ref() {
+                publication.task.abort();
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+    fn collect_finished_automatic_publication(&self, entry: &mut AutomaticChannel) {
+        use futures::FutureExt;
+        let Some(publication) = entry.publication.as_mut() else {
+            return;
         };
-        let body = publication.body_context.is_some();
-        let mut completed = if publication.task.is_finished() {
-            entry.publication.take()
-        } else {
-            None
+        if publication.outcome.is_some() || !publication.task.is_finished() {
+            return;
+        }
+        // Poll once, never block the account owner. Retain the exact task if its
+        // result is not observable yet, and retain failures for maintenance so
+        // an unrelated transport error cannot discard an incoming peer control.
+        let Some(result) = (&mut publication.task).now_or_never() else {
+            return;
         };
-        let report = if let Some(publication) = completed.as_mut() {
-            let result = (&mut publication.task)
-                .await
+        publication.outcome = Some(
+            result
                 // BODY_NEGATIVE_TEST_BEGIN
                 .inspect_err(|_error| {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1798,8 +1838,29 @@ impl AppClient {
                 })
                 // BODY_LATE_ACK_TEST_END
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)
-                .and_then(|result| result);
-            match result {
+                .and_then(|result| result),
+        );
+    }
+    fn harvest_automatic_publication(
+        &self,
+        entry: &mut AutomaticChannel,
+    ) -> Result<bool, AccountSharingError> {
+        self.collect_finished_automatic_publication(entry);
+        let Some(publication) = entry.publication.as_ref() else {
+            return Ok(false);
+        };
+        let body = publication.body_context.is_some();
+        let mut completed = if publication.outcome.is_some() {
+            entry.publication.take()
+        } else {
+            None
+        };
+        let report = if let Some(publication) = completed.as_mut() {
+            match publication
+                .outcome
+                .take()
+                .expect("collected publication result")
+            {
                 Ok(report) => Some(report),
                 Err(error) => {
                     if body
@@ -1822,11 +1883,9 @@ impl AppClient {
                 .or(entry.publication.as_ref())
                 .expect("owned automatic publication");
             let context_matches = publication.body_context == entry.body_publication_context();
-            if !context_matches
-                || entry.renew
-                || !entry.original.live()
-                || std::time::Instant::now() >= publication.deadline
-            {
+            let original_closed =
+                !entry.original.live() || std::time::Instant::now() >= publication.deadline;
+            if !context_matches || entry.renew || original_closed {
                 // BODY_LATE_ACK_TEST_BEGIN
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 if !context_matches {
@@ -1839,7 +1898,16 @@ impl AppClient {
                 // BODY_LATE_ACK_TEST_END
                 entry.publication.take();
                 entry.renew = true;
-                return Err(AccountSharingError::Closed);
+                // An authenticated receipt may supersede this exact pending
+                // Body while its relay ACK is in flight. That is negative
+                // retirement, not runtime closure or successful publication.
+                // Leave all queue effects untouched; the next maintenance turn
+                // must derive a fresh channel from the current approved policy.
+                return if original_closed {
+                    Err(AccountSharingError::Closed)
+                } else {
+                    Ok(false)
+                };
             }
             let fresh = (|| {
                 self.automatic_policy_current(&entry.policy)?;
@@ -1885,7 +1953,7 @@ impl AppClient {
             if publication.kind != kind {
                 return Err(AccountSharingError::NotReady);
             }
-            return self.harvest_automatic_publication(entry).await;
+            return self.harvest_automatic_publication(entry);
         }
         let body_context = if matches!(kind, AccountSharingControl::Body(_)) {
             Some(
@@ -1983,15 +2051,6 @@ impl AppClient {
             None
         };
         // AUTOMATIC_BODY_TEST_END
-        // BODY_NEGATIVE_TEST_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        let negative_intent_gate = body_negative_probe::peer_gate(
-            self.app.account_home().root(),
-            entry,
-            kind,
-            input_payload_digest,
-        );
-        // BODY_NEGATIVE_TEST_END
         // Core has prepared actual consent under the live durable policy.
         // Bodies retain their original queue context until actor-side ACK harvest.
         if kind == AccountSharingControl::Consent {
@@ -2015,6 +2074,15 @@ impl AppClient {
         let late_ack_receipt_gate =
             body_late_ack_probe::receipt_gate(self.app.account_home().root(), entry, kind);
         // BODY_LATE_ACK_TEST_END
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let negative_intent_gate = body_negative_probe::peer_gate(
+            self.app.account_home().root(),
+            entry,
+            kind,
+            input_payload_digest,
+        );
+        // BODY_NEGATIVE_TEST_END
         let publication_future = async move {
             // BODY_LATE_ACK_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2043,30 +2111,31 @@ impl AppClient {
                 return Err(AccountSharingError::Closed);
             }
             let report = tokio::select! { biased;
-                                () = &mut stopping => return Err(AccountSharingError::Closed),
-                                () = &mut revoked => return Err(AccountSharingError::Closed),
-                                () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
-                                report =
-                        // AUTOMATIC_BODY_TEST_BEGIN
-                        async {
-                            #[cfg(all(test, feature = "test-policy-overrides"))]
-                            adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
-                        // AUTOMATIC_BODY_TEST_END
-                        // BODY_NEGATIVE_TEST_BEGIN
-                        #[cfg(all(test, feature = "test-policy-overrides"))]
-                        if let Some(gate) = &negative_intent_gate { gate.wait(input_payload_digest).await; }
-                        // BODY_NEGATIVE_TEST_END
-            // BODY_LATE_ACK_TEST_BEGIN
-                        #[cfg(all(test, feature = "test-policy-overrides"))]
-                        if let Some(gate) = &late_ack_receipt_gate { body_late_ack_probe::wait_receipt(gate).await; }
-            // BODY_LATE_ACK_TEST_END
-                        adapter.publish_automatic_control(request)
-                        // AUTOMATIC_BODY_TEST_BEGIN
-                        .await
-                        }
-                        // AUTOMATIC_BODY_TEST_END
-                                => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
-                            };
+                    () = &mut stopping => return Err(AccountSharingError::Closed),
+                    () = &mut revoked => return Err(AccountSharingError::Closed),
+                    () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
+                    report =
+            // AUTOMATIC_BODY_TEST_BEGIN
+            async {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
+            // AUTOMATIC_BODY_TEST_END
+
+                // BODY_NEGATIVE_TEST_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if let Some(gate) = &negative_intent_gate { gate.wait(input_payload_digest).await; }
+                // BODY_NEGATIVE_TEST_END
+                // BODY_LATE_ACK_TEST_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if let Some(gate) = &late_ack_receipt_gate { body_late_ack_probe::wait_receipt(gate).await; }
+                // BODY_LATE_ACK_TEST_END
+                adapter.publish_automatic_control(request)
+            // AUTOMATIC_BODY_TEST_BEGIN
+            .await
+            }
+            // AUTOMATIC_BODY_TEST_END
+                    => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
+                };
             if !original.live() {
                 return Err(AccountSharingError::Closed);
             }
@@ -2088,15 +2157,16 @@ impl AppClient {
             payload_digest: input_payload_digest,
             body_context,
             task,
+            outcome: None,
         });
-        // BODY_NEGATIVE_TEST_BEGIN
-        #[cfg(all(test, feature = "test-policy-overrides"))]
-        body_negative_probe::capture(self.app.account_home().root(), entry);
-        // BODY_NEGATIVE_TEST_END
         // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::capture(self.app.account_home().root(), entry);
         // BODY_LATE_ACK_TEST_END
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        body_negative_probe::capture(self.app.account_home().root(), entry);
+        // BODY_NEGATIVE_TEST_END
         if let Some(id) = body_id {
             self.account_sharing_owner.automatic_body_after = Some(id);
         }
