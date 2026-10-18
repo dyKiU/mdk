@@ -1962,6 +1962,8 @@ async fn run_app_runtime_account_worker(
     let mut sibling_completions = client.sibling_publication_completions();
     #[cfg(feature = "experimental-device-sync")]
     let mut sibling_completions_open = true;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut sibling_completion_input_service_owed = false;
     // One original envelope, never serialized/reconstructed or clock-renewed.
     let mut enrollment_capacity_retry: Option<
         Box<transport_nostr_adapter::ObservedTransportDelivery>,
@@ -2659,7 +2661,14 @@ async fn run_app_runtime_account_worker(
                             }
                             result = async {
                                 #[cfg(feature = "experimental-device-sync")]
-                                { sibling_completions.changed().await }
+                                {
+                                    if sibling_completion_input_service_owed {
+                                        // Offer other ready input without consuming a watch version.
+                                        sibling_completion_input_service_owed = false;
+                                        tokio::task::yield_now().await;
+                                    }
+                                    sibling_completions.changed().await
+                                }
                                 #[cfg(not(feature = "experimental-device-sync"))]
                                 std::future::pending::<Result<(), tokio::sync::watch::error::RecvError>>().await
                             }, if {
@@ -2679,6 +2688,7 @@ async fn run_app_runtime_account_worker(
                                         if client.service_sibling_publication_completions().await.is_err() {
                                             tracing::debug!(target: "marmot_app::device_linking", method = "worker_sibling_completion", "sibling publication completion deferred");
                                         }
+                                        sibling_completion_input_service_owed = true;
                                     }
                                     Ok(()) => {}
                                 }
