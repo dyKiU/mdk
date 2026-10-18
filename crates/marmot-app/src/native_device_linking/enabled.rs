@@ -132,6 +132,16 @@ impl SessionState {
                 crate::client::device_linking::sibling_sharing::NativeObservationStage::FacadeReturned,
             );
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let (Ok((phase, _)), Some(observer)) = (&observation, &observer) {
+            crate::client::device_linking::sibling_sharing::broad_trace::choice(
+                observer,
+                49,
+                u64::from(*phase == DeviceLinkingPhase::EnrollmentComplete),
+            );
+        }
+        // BROAD_TRACE_END
         match observation {
             Ok((phase, decimals)) => Ok(self.update(phase, decimals)),
             Err(ClientLinkingError::Runtime(error))
@@ -140,6 +150,14 @@ impl SessionState {
                     crate::AppError::AccountWorkerResponseTimedOut
                 ) =>
             {
+                // BROAD_TRACE_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if let Some(observer) = &observer {
+                    crate::client::device_linking::sibling_sharing::broad_trace::choice(
+                        observer, 29, 0,
+                    );
+                }
+                // BROAD_TRACE_END
                 // A bounded observation wait grants no authority and does not
                 // revoke the original actor. Retain its last observation while
                 // publication is blocked; later polling rechecks the same owner.
