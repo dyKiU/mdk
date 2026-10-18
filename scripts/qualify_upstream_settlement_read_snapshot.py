@@ -13,7 +13,7 @@ import qualify_upstream_storage_app_handles as common
 from upstream_extraction_cohort import frozen_inputs
 old=common.old
 ensure=old.ensure
-BASE='c3215b2a5f8a9dfe6c8a0628e99f8ab13a771084' # Root pins the exact reviewed test-bearing RED or subsequent pure FIX baseline.
+BASE='0e6441b7b372bc3ce63c64e2af58b85ea71bd611' # Root pins the exact reviewed test-bearing RED or subsequent pure FIX baseline.
 FIXTURE='crates/storage-sqlite/src/private_roster_settlement/tests.rs'
 FIXTURE_SHA='32726730a2ea73101f771e11c5709dc8ff525ae58acbdec7d11762c9e25d8594'
 CASES={
@@ -21,13 +21,13 @@ CASES={
     'facts':{'name':'private_roster_settlement::tests::private_settlement_read_facts_pins_foreign_wal_replacement','line':793,'message':'public settlement facts snapshot must preserve coherent committed state and facts'},
     'control':{'name':'private_roster_settlement::tests::private_settlement_snapshot_reads_reject_persisted_foreign_generation_fact'},
 } # Root fills exact final assertion locations/payloads after source review.
-MUTATIONS={'round': {'path': 'crates/storage-sqlite/src/private_roster_settlement.rs', 'old': '    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        self.connection.with_deferred_read(read)\n    }\n', 'new': '    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        {\n            let conn = self.lock()?;\n            read(&conn)\n        }\n    }\n'}, 'facts': {'path': 'crates/storage-sqlite/src/private_roster_settlement.rs', 'old': '    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        self.connection.with_deferred_read(|conn| match read(conn)? {\n            Some(state) => facts(conn, &state),\n            None => Ok(vec![]),\n        })\n    }\n', 'new': '    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        let conn = self.lock()?;\n        match read(&conn)? {\n            Some(s) => facts(&conn, &s),\n            None => Ok(vec![]),\n        }\n    }\n'}}
+MUTATIONS={'round': {'path': 'crates/storage-sqlite/src/private_roster_settlement.rs', 'old': '    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        self.connection.with_deferred_read(read)\n    }\n', 'new': '    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        {\n            let conn = self.lock()?;\n            read(&conn)\n        }\n    }\n'}, 'facts': {'path': 'crates/storage-sqlite/src/private_roster_settlement.rs', 'old': '    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        self.connection\n            .with_deferred_read(|conn| match read(conn)? {\n                Some(state) => facts(conn, &state),\n                None => Ok(vec![]),\n            })\n    }\n', 'new': '    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        let conn = self.lock()?;\n        match read(&conn)? {\n            Some(s) => facts(&conn, &s),\n            None => Ok(vec![]),\n        }\n    }\n'}}
 SELF='scripts/qualify_upstream_settlement_read_snapshot.py'
 WORKFLOW='.github/workflows/upstream-boundary-regressions.yml'
 REF='refs/heads/ci/upstream-settlement-read-snapshot-20261018'
 BEGIN='  # SNAPSHOT_READ_JOBS_BEGIN\n'
 END='  # SNAPSHOT_READ_JOBS_END\n'
-OPTIONS='options: [settlement-read-preflight, settlement-read-red, settlement-read-green, settlement-read-mutations, '
+OPTIONS='options: [settlement-read-preflight, settlement-read-red, settlement-read-green, settlement-read-full-green, settlement-read-mutations, '
 OUT=Path('settlement-read-snapshot-evidence')
 
 def source_guard(mutation):
@@ -156,18 +156,100 @@ def run_phase(expected,keys,phase,save):
     phase['inputs_pristine']=frozen_inputs()==expected;phase['binary_pristine']=old.digest(binary.read_bytes())==sha;save()
 
 
+
+MODULE='private_roster_settlement::tests::'
+MODULE_NAMES=[MODULE+name for name in [
+    'private_settlement_deferred_ack_does_not_bind_nonce_or_count_confirmation',
+    'private_settlement_deferred_ack_rejects_wrong_generation_role_and_roster',
+    'private_settlement_deferred_ack_rollback_retirement_and_replacement',
+    'private_settlement_legacy_json_without_deferred_ack_field_remains_readable',
+    'private_settlement_deferred_ack_storage_is_bounded_by_actual_remote_slots',
+    'private_settlement_all_leaf_completion_and_exact_completed_retries',
+    'private_settlement_nonce_role_and_generation_fences',
+    'private_settlement_denial_blocks_all_positive_data_and_restart_preserves_completed',
+    'private_settlement_canonical_owner_and_origin_bounds',
+    'private_settlement_limits_and_checked_replacement_do_not_have_lifetime_cap',
+    'private_settlement_last_fact_write_failure_rolls_back_and_reopens_exact_retry',
+    'private_settlement_outer_crypto_unit_rollback_and_replacement_are_atomic',
+    'private_settlement_encrypted_pending_restart_denial_survives_reopen',
+    'private_settlement_all_128_occupied_slots_complete_without_account_deduplication',
+    'private_settlement_read_round_pins_foreign_wal_replacement',
+    'private_settlement_read_facts_pins_foreign_wal_replacement',
+    'private_settlement_snapshot_reads_reject_persisted_foreign_generation_fact']]
+BASE_NAMES=['base::connection::tests::read_snapshot_pins_foreign_writes_and_mls_generation',
+    'base::connection::tests::read_snapshot_restores_mode_and_preserves_outer_transaction_on_all_exits']
+FULL_NAMES=MODULE_NAMES+BASE_NAMES
+
+def full_inventory(raw,ignored=False):
+    lines=raw.splitlines();names=[];unknown=0;summaries=0
+    for line in lines:
+        if not line:continue
+        if line==('0 tests, 0 benchmarks' if ignored else '17 tests, 0 benchmarks'):summaries+=1;continue
+        if line.endswith(': test') and re.fullmatch('[A-Za-z_][A-Za-z0-9_:]+: test',line):names.append(line[:-6])
+        else:unknown+=1
+    return {'names':names,'summary_line_count':summaries,'unknown_line_count':unknown,'ignored_inventory':ignored,
+        'passed':unknown==0 and summaries<=1 and len(names)==(0 if ignored else 17)
+            and len(set(names))==len(names) and set(names)==(set() if ignored else set(MODULE_NAMES))
+            and all(name.startswith(MODULE) for name in names)}
+
+def full_inventory_controls():
+    text=''.join(name+': test\n' for name in MODULE_NAMES)
+    ensure(full_inventory(text)['passed'] and full_inventory(text+'\n17 tests, 0 benchmarks\n')['passed'],'exact-seventeen-inventory-positive')
+    ensure(full_inventory('',True)['passed'] and full_inventory('0 tests, 0 benchmarks\n',True)['passed'],'no-ignored-module-positive')
+    bad=[text+MODULE_NAMES[0]+': test\n',text.replace(MODULE_NAMES[0]+': test\n',''),
+        text.replace(MODULE_NAMES[0],'foreign::'+MODULE_NAMES[0]),text.replace(MODULE_NAMES[0],BASE_NAMES[0]),
+        text+'private payload\n',text+'16 tests, 0 benchmarks\n',text+'17 tests, 0 benchmarks\n17 tests, 0 benchmarks\n']
+    for value in bad:ensure(not full_inventory(value)['passed'],'no-loose-module-inventory')
+    ensure(not full_inventory(text,True)['passed'],'ignored-module-cannot-run')
+    return {'positive':4,'negative':len(bad)+1,'runtime_bodies':0}
+
+def run_full_green(expected,phase,save):
+    ensure(len(FULL_NAMES)==len(set(FULL_NAMES))==19,'exact-nineteen-required-names')
+    binary=common.compile_storage('experimental',expected,phase,save);sha=old.digest(binary.read_bytes())
+    phase.update(binary_sha256=sha,source_manifest_sha256=old.digest(json.dumps(expected,sort_keys=True).encode()),cases={});save()
+    for ignored in [False,True]:
+        code,raw,_=old.capture([str(binary),MODULE]+(['--ignored'] if ignored else [])+['--list','--format','terse'],60)
+        value=full_inventory(raw,ignored);phase.setdefault('module_inventory',{})['ignored' if ignored else 'normal']=value;save()
+        ensure(code==0 and value['passed'],'all-seventeen-module-names-nonignored')
+    inverse={spec['name']:key for key,spec in CASES.items()}
+    for name in FULL_NAMES:
+        for ignored in [False,True]:
+            code,raw,_=old.capture([str(binary),'--exact',name]+(['--ignored'] if ignored else [])+['--list','--format','terse'],60)
+            inv=common.parse_inventory(raw,name,ignored);phase.setdefault('exact_inventory',{}).setdefault(name,{})['ignored' if ignored else 'normal']=inv;save()
+            ensure(code==0 and inv['passed'],'each-required-case-selected-nonignored')
+        ensure(frozen_inputs()==expected and old.digest(binary.read_bytes())==sha,'before-full-body-pristine')
+        try:
+            code,raw,seconds=old.capture([str(binary),'--exact',name,'--nocapture','--test-threads=1'],300,limit=8*1024*1024)
+            row=common.parse_body(raw,code,name);row['wall_seconds']=seconds;phase['cases'][name]=row;save()
+            key=inverse.get(name)
+            if key in {'round','facts'}:
+                row['closed_snapshot_facts']=marker(raw,key)
+                row['component_GREEN']=row['passed_gate'] and marker_oracle(row['closed_snapshot_facts'],key,False)
+            else:row['component_GREEN']=row['passed_gate']
+        except old.GateFailure as error:
+            phase['cases'][name]={'actual_counts_complete':False,'component_GREEN':False,
+                'watchdog_triggered':str(error)=='bounded-command-timeout','output_limit_triggered':str(error)=='bounded-command-output-limit'}
+        ensure(frozen_inputs()==expected and old.digest(binary.read_bytes())==sha,'after-full-body-pristine');save()
+    phase['inputs_pristine']=frozen_inputs()==expected;phase['binary_pristine']=old.digest(binary.read_bytes())==sha;save()
+    ensure(set(phase['cases'])==set(FULL_NAMES) and all(row.get('component_GREEN') for row in phase['cases'].values()),'all-nineteen-runtime-GREEN-required')
+
+
 def main(args):
     os.umask(0o077);OUT.mkdir(exist_ok=True)
     report={'scope':'two-deterministic-Protocol-read-snapshot-cases-plus-corruption-denial-control','mode':args.mode,'mutation':args.mutation,'phases':{},
-        'initial_behavioral_RED_verified':False,'component_GREEN':False,'component_mutation_qualified':False,
+        'initial_behavioral_RED_verified':False,'component_GREEN':False,'full_module_component_GREEN':False,'component_mutation_qualified':False,
         'full_qualification':False,'native_acceptance_claim':False,'promotion_eligible':False}
     before=None;target=None;original=None;original_mode=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
         ensure((args.mode=='mutation')==(args.mutation is not None),'explicit-independent-mutation-mode')
-        report['source_guard']=source_guard(args.mutation);report['parser_controls']=parser_controls();save()
+        report['source_guard']=source_guard(args.mutation);report['parser_controls']=parser_controls();report['full_inventory_controls']=full_inventory_controls();save()
         if args.preflight:report['preflight_passed']=True;save();return
         before=frozen_inputs();keys=['round','facts','control']
+        if args.mode=='full-green':
+            report.update(scope='seventeen-private-settlement-module-plus-two-base-snapshot-controls',required_nonignored_cases=19,component_mutation_qualified=False)
+            phase={};report['phases']['full-green']=phase;run_full_green(before,phase,save)
+            report['full_module_component_GREEN']=True;save();return
         if args.mutation:
             spec=MUTATIONS[args.mutation];target=Path(spec['path']);original=target.read_bytes();original_mode=target.stat().st_mode
         for label in (['baseline','mutant','restored'] if args.mutation else [args.mode]):
@@ -195,15 +277,17 @@ def main(args):
         if target is not None:target.write_bytes(original);target.chmod(original_mode)
         if before is not None:report['inputs_pristine']=frozen_inputs()==before
         rows=[row for phase in report['phases'].values() for row in phase.get('cases',{}).values()]
-        required=9 if args.mutation else 3
+        required=19 if args.mode=='full-green' else 9 if args.mutation else 3
         complete=len(rows)==required and all(row.get('actual_counts_complete') is True for row in rows)
         report['actual_counts_complete']=complete
         for key in ['passed','failed','ignored','executed_nonignored']:
             report['known_partial_'+key]=sum(row[key] for row in rows if type(row.get(key)) is int)
             report['actual_'+key]=sum(row[key] for row in rows) if complete and all(type(row.get(key)) is int for row in rows) else None
-        if report.get('inputs_pristine') is False:report['initial_behavioral_RED_verified']=report['component_GREEN']=report['component_mutation_qualified']=False
+        if report.get('inputs_pristine') is False:
+            report['initial_behavioral_RED_verified']=report['component_GREEN']=report['component_mutation_qualified']=False
+            report['full_module_component_GREEN']=False
         save()
         if not active_error and before is not None:ensure(report['inputs_pristine'],'final-original-source-modes-restored')
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true');p.add_argument('--mode',choices=['red','green','mutation'],default='red');p.add_argument('--mutation',choices=['round','facts']);main(p.parse_args())
+    p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true');p.add_argument('--mode',choices=['red','green','full-green','mutation'],default='red');p.add_argument('--mutation',choices=['round','facts']);main(p.parse_args())
