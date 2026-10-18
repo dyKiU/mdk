@@ -1,0 +1,101 @@
+name: Original CLI selected-account replay
+on:
+  push:
+    branches: [ci/upstream-cli-selected-account-20261018]
+  workflow_dispatch:
+    inputs:
+      scope:
+        type: choice
+        options: [preflight, runtime]
+        default: preflight
+      cohort:
+        type: choice
+        options: [default, experimental]
+        default: default
+permissions:
+  contents: read
+concurrency:
+  group: cli-selected-account-${{ github.ref }}-${{ inputs.cohort || 'preflight' }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/ci/upstream-cli-selected-account-20261018'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UPSTREAM_CLI_SELECTED_ACCOUNT_BASELINE: 3c40ff3cfefcd225062cc4e3c9dea789c9ffa190
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Whole source and closed controls; no runtime bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/diagnose_upstream_cli_selected_account.py --preflight
+      - name: Hosted formatting; exact patch only on failure
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" cargo fmt --all
+          git diff --binary > "$RUNNER_TEMP/cli-selected-account-format.patch"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: cli-selected-account-preflight
+          path: |
+            cli-selected-account-evidence/result.json
+            ${{ runner.temp }}/cli-selected-account-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  runtime:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-cli-selected-account-20261018'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      UPSTREAM_CLI_SELECTED_ACCOUNT_BASELINE: 3c40ff3cfefcd225062cc4e3c9dea789c9ffa190
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - name: Actual pinned runner version
+        run: cargo-nextest nextest --version
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: cli-e2e
+          cache-on-failure: true
+      - name: One unchanged full original CLI case; no retry
+        env:
+          CARGO_INCREMENTAL: '1'
+          CASE_COHORT: ${{ inputs.cohort }}
+        run: python3 scripts/diagnose_upstream_cli_selected_account.py --cohort "$CASE_COHORT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: cli-selected-account-${{ inputs.cohort }}
+          path: cli-selected-account-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
