@@ -109,17 +109,11 @@ impl Probe {
         payload_digest: [u8; 32],
     ) -> bool {
         let progress = self.progress.lock().expect("negative probe");
-        eprintln!(
-            "body-negative-match captured={} intent_gate={}",
-            progress.captured.is_some(),
-            progress.intent_gate.is_some()
-        );
         progress
             .captured
             .as_ref()
             .zip(progress.intent_gate.as_ref())
             .is_some_and(|(captured, gate)| {
-                eprintln!("body-negative-match group={} payload={} nonce={} account={} protected={} local_reverse={} peer_reverse={} entered={} receiver={} original_live={}", &captured.catalog_group == group, captured.payload_digest == payload_digest, captured.nonce == gate.binding.nonce, captured.account == gate.binding.account, captured.protected_group == gate.binding.protected_group, captured.local_device == gate.binding.peer_device, captured.peer_device == gate.binding.local_device, gate.entered.load(std::sync::atomic::Ordering::Acquire), gate.release.receiver_count() > 0, captured.original.upgrade().is_some_and(|original| original.live()));
                 &captured.catalog_group == group
                     && captured.payload_digest == payload_digest
                     && captured.nonce == gate.binding.nonce

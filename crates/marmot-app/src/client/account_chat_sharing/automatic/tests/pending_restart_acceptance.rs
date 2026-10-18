@@ -225,6 +225,33 @@ impl AppClient {
                         entry.pending.back().map(|body| body.kind),
                         entry.publication.as_ref().is_some_and(|publication| matches!(publication.kind, AccountSharingControl::Request | AccountSharingControl::Consent)))));
                 eprintln!("pending_restart_post_timeout_next_body_front_back_handshake_task={body_progress:?}");
+                if require_higher_source {
+                    for slot in [0, 1] {
+                        // This exact fixture policy's current channel only. A
+                        // ready task does not reveal its uncollected Result.
+                        let row = clients[slot].as_ref()
+                            .and_then(|client| client.account_sharing_owner.automatic.get(&ids[slot]))
+                            .map(|entry| {
+                                let publication = entry.publication.as_ref().map(|publication| (
+                                    match publication.kind {
+                                        AccountSharingControl::Request => 1_u8,
+                                        AccountSharingControl::Consent => 2_u8,
+                                        AccountSharingControl::Body(_) => 3_u8,
+                                    },
+                                    publication.body_context.is_some(),
+                                    publication.task.is_finished(),
+                                    match publication.outcome.as_ref() {
+                                        None => 0_u8,
+                                        Some(Ok(_)) => 1_u8,
+                                        Some(Err(_)) => 2_u8,
+                                    },
+                                ));
+                                let (record_clock, assembly) = entry.records.test_body_state();
+                                (publication, record_clock, assembly)
+                            });
+                        eprintln!("pending_restart_body_state slot={slot} row={row:?}");
+                    }
+                }
             }
             delivery.expect("actual restarted peers must deliver genuine ordinary catalog and canonical record within the unchanged recovery deadline");
             eprintln!("pending_restart_functional_catalog_and_new_record_delivered=true");
