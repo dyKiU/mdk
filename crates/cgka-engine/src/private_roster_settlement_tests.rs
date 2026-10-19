@@ -3042,11 +3042,41 @@ async fn foreign_negative_guard_cannot_cancel_real_same_group_admission() {
     // Existing real MLS successor and real SQL round, without manufacturing an
     // SDK permission. The supplied foreign guard can never authorize anything.
     responder.select_private_roster_settlement(&group).unwrap();
-    let admission = responder.settlement_admission.lock().unwrap().clone().unwrap();
-    let before = responder.storage.private_roster_settlement_storage().unwrap().read_round().unwrap();
+    let admission = responder
+        .settlement_admission
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap();
+    let before = responder
+        .storage
+        .private_roster_settlement_storage()
+        .unwrap()
+        .read_round()
+        .unwrap();
     let foreign: Arc<dyn TrustedPrivateSettlementGuard> = Arc::new(NeverAuthorizes);
-    assert!(responder.cancel_owned_private_roster_settlement(&group, &foreign).is_err());
+    assert!(
+        responder
+            .cancel_owned_private_roster_settlement(&group, &foreign)
+            .is_err()
+    );
     assert!(!admission.cancelled.load(Ordering::Acquire));
-    assert!(Arc::ptr_eq(&admission, &responder.settlement_admission.lock().unwrap().clone().unwrap()));
-    assert!(responder.storage.private_roster_settlement_storage().unwrap().read_round().unwrap() == before);
+    assert!(Arc::ptr_eq(
+        &admission,
+        &responder
+            .settlement_admission
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap()
+    ));
+    assert!(
+        responder
+            .storage
+            .private_roster_settlement_storage()
+            .unwrap()
+            .read_round()
+            .unwrap()
+            == before
+    );
 }

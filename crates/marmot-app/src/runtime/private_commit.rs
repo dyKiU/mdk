@@ -592,7 +592,11 @@ async fn publish_operation(
 mod negative_cancel_tests {
     use super::*;
     fn scope(generation: u64) -> PurposeAttemptScope {
-        PurposeAttemptScope { account: [1; 32], local_device: [2; 32], generation }
+        PurposeAttemptScope {
+            account: [1; 32],
+            local_device: [2; 32],
+            generation,
+        }
     }
     // These exercise only negative slot custody, never SDK consent or enrollment.
     #[test]
