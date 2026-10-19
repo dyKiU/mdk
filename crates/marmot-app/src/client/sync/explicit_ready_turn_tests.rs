@@ -124,9 +124,9 @@ async fn one_ready_turn_advances_only_one_real_retained_group() {
     let (_dir, app, mut client, _relay, groups) = fixture().await;
     let ids = retain_both(&mut client, &app, &groups).await;
     let before = rows(&app, &ids);
-    eprintln!(
+    crate::test_support::emit_line(format_args!(
         "explicit-ready-selection-prerequisites {{\"both_ready\":true,\"rows_captured\":true}}"
-    );
+    ));
     client
         .advance_one_ready_explicit_sync_group()
         .await
@@ -136,7 +136,9 @@ async fn one_ready_turn_advances_only_one_real_retained_group() {
         actual_attempt(&after[0]),
         "selected real retained row was not retried"
     );
-    eprintln!("explicit-ready-selection-progress {{\"first_real_attempt\":true}}");
+    crate::test_support::emit_line(format_args!(
+        "explicit-ready-selection-progress {{\"first_real_attempt\":true}}"
+    ));
     assert!(
         after[1] == before[1],
         "one owner turn must not retry the second group"

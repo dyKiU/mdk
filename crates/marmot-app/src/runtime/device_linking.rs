@@ -4109,9 +4109,9 @@ mod tests {
                                 .unrevoked_invite_revision_for_test(&a_scope)
                                 .unwrap()
                         };
-                        eprintln!(
+                        crate::test_support::emit_line(format_args!(
                             "cancel-late-first-prerequisites {{\"successful_reply_abandoned\":true,\"same_owned_retired\":true,\"old_slot_unrevoked\":true,\"newer_reservation_terminal\":true}}"
-                        );
+                        ));
                         let old_result = workers.a.cancel_device_linking("test", &a_scope).await;
                         let old_acknowledged = old_result.is_ok();
                         let old_stale_rejected = matches!(
@@ -4149,10 +4149,10 @@ mod tests {
                         workers.runtime_a.shutdown_and_close().await.unwrap();
                         workers.runtime_b.shutdown_and_close().await.unwrap();
                         relay.shutdown();
-                        eprintln!(
+                        crate::test_support::emit_line(format_args!(
                             "cancel-late-first-result {{\"old_acknowledged\":{},\"old_stale_rejected\":{},\"current_revision_unchanged\":{},\"owned_runtimes_closed\":true}}",
                             old_acknowledged, old_stale_rejected, current_revision_unchanged
-                        );
+                        ));
                         assert!(
                             old_stale_rejected && current_revision_unchanged,
                             "late first cancellation must reject old scope without touching the newer gate"
@@ -4194,9 +4194,9 @@ mod tests {
                             .unwrap()
                                 == c_purpose
                         );
-                        eprintln!(
+                        crate::test_support::emit_line(format_args!(
                             "cancel-maintenance-control {{\"wrapped_owned\":true,\"same_retired_owned\":true,\"recipient_purpose_unchanged\":true,\"real_maintenance_completed\":true}}"
-                        );
+                        ));
                     }
                     if newer_terminal_after_maintenance {
                         // A real reservation must invalidate the old revision,

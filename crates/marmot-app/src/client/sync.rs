@@ -835,13 +835,13 @@ fn observe_avatar_ingest_for_test(
         AvatarIngestOutcomeForTest::Error => "error",
         AvatarIngestOutcomeForTest::CachedReceipt => "cached_receipt",
     };
-    eprintln!(
+    crate::test_support::emit_line(format_args!(
         "avatar-ingest-control {}",
         serde_json::json!({
             "boundary": boundary, "outcome": outcome,
             "left_object_unpersisted": left_object_unpersisted,
         })
-    );
+    ));
 }
 
 impl AppClient {

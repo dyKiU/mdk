@@ -1115,6 +1115,8 @@ jobs:
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Focused workspace static checks' --output formatting/static-capacity.json
           just fast-ci
+          python3 scripts/qualification_build_preflight.py --label 'Focused direct-output source audit' --output formatting/direct-output-capacity.json
+          cargo test --locked -p cgka-conformance-simulator --test tracing_audit production_library_sources_do_not_write_direct_output -- --exact --test-threads=1
           git diff --exit-code HEAD
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

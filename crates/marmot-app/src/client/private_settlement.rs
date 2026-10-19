@@ -254,17 +254,17 @@ impl AppClient {
         {
             return Err(denied());
         }
-        eprintln!(
+        crate::test_support::emit_line(format_args!(
             "cancel-real-guard-control {{\"selected_original\":true,\"current_guard_pointer\":true,\"original_live\":true,\"actual_round_present\":true}}"
-        );
+        ));
         let foreign: Arc<dyn TrustedPrivateSettlementGuard> = Arc::new(NeverAuthorizes);
         // Both operations target exactly the SAME actual group. The foreign
         // guard never authorizes anything and is never installed in the Engine.
         let foreign_result = session.cancel_owned_private_roster_settlement(&group, &foreign);
-        eprintln!(
+        crate::test_support::emit_line(format_args!(
             "cancel-real-guard-result {{\"foreign_cancel_returned_ok\":{}}}",
             foreign_result.is_ok()
-        );
+        ));
         if foreign_result.is_ok()
             || !attempt.guard.is_live()
             || !session

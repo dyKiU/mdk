@@ -16,3 +16,8 @@ impl MarmotApp {
         Ok(self.account_storage(label)?.convergence_pass(group_id)?)
     }
 }
+
+/// Emit aggregate fixture evidence only in the explicit test-policy build.
+pub(crate) fn emit_line(arguments: std::fmt::Arguments<'_>) {
+    eprintln!("{arguments}");
+}

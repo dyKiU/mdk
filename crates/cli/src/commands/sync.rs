@@ -66,7 +66,7 @@ fn observe_avatar_sync_for_test(app: &MarmotApp, client: &marmot_app::AppClient,
         .ok()
         .flatten()
         .map(|group| group.avatar_url.present);
-    eprintln!(
+    crate::test_support::emit_line(format_args!(
         "avatar-core-control {}",
         json!({
             "core_avatar_present": core_present,
@@ -74,7 +74,7 @@ fn observe_avatar_sync_for_test(app: &MarmotApp, client: &marmot_app::AppClient,
             "core_epoch": core_epoch,
             "clear_receipt_cached": clear_receipt_cached,
         })
-    );
+    ));
 }
 
 fn sync_failure_error(

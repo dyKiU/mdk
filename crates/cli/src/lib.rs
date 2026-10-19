@@ -26,6 +26,8 @@ pub mod daemon;
 mod error;
 mod secret;
 mod terminal;
+#[cfg(feature = "test-policy-overrides")]
+mod test_support;
 pub mod tui;
 
 pub(crate) use terminal::{terminal_safe_json_display, terminal_safe_text};
