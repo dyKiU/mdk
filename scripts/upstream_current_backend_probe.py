@@ -140,6 +140,73 @@ def native_fixture():
     return value
 
 
+def closed_native_early(value, verdict_elapsed_ms):
+    fields = {'requested_offset_ms', 'status', 'sample_started_ms', 'sample_completed_ms',
+              'sample_delay_ms', 'before_verdict', 'late_for_verdict', 'native'}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError('native-early-keys')
+    if type(value['requested_offset_ms']) is not int or value['requested_offset_ms'] != 5000:
+        raise ValueError('native-early-requested-offset')
+    status = value['status']
+    if status not in {'sampled', 'cancelled_unavailable', 'unavailable'}:
+        raise ValueError('native-early-status')
+    if status != 'sampled':
+        if any(value[key] is not None for key in fields - {'requested_offset_ms', 'status'}):
+            raise ValueError('native-early-unavailable-has-no-observation')
+        return value
+    if (not all(uint(value[key]) for key in ['sample_started_ms', 'sample_completed_ms', 'sample_delay_ms'])
+            or any(type(value[key]) is not bool for key in ['before_verdict', 'late_for_verdict'])):
+        raise ValueError('native-early-sample-types')
+    start, end = value['sample_started_ms'], value['sample_completed_ms']
+    if (start < 5000 or end < start or value['sample_delay_ms'] != start - 5000
+            or value['before_verdict'] == value['late_for_verdict']):
+        raise ValueError('native-early-sample-order')
+    if verdict_elapsed_ms is not None and (
+            (value['before_verdict'] and end > verdict_elapsed_ms)
+            or (value['late_for_verdict'] and end < verdict_elapsed_ms)):
+        raise ValueError('native-early-verdict-order')
+    closed_native_summary(value['native'])
+    return value
+
+
+def native_early_controls():
+    valid = {'requested_offset_ms': 5000, 'status': 'sampled', 'sample_started_ms': 5001,
+             'sample_completed_ms': 5002, 'sample_delay_ms': 1, 'before_verdict': True,
+             'late_for_verdict': False, 'native': native_fixture()}
+    samples = [valid, dict(valid, sample_completed_ms=10001, before_verdict=False, late_for_verdict=True)]
+    for status in ['cancelled_unavailable', 'unavailable']:
+        samples.append(dict.fromkeys(valid, None) | {'requested_offset_ms': 5000, 'status': status})
+    legacy = {'observed': False, 'elapsed_ms': 10000, 'setup_finished': False,
+              'journal_read_ok': True, 'journal_phase': 'local_state_created',
+              'telemetry': telemetry_fixture(), 'native': native_fixture()}
+    assert closed_marker('key-package', legacy) == legacy
+    for sample in samples:
+        marker = dict(legacy, native_early=sample)
+        assert closed_marker('key-package', marker) == marker
+        assert 'PRIVATE' not in json.dumps(marker)
+        assert len(json.dumps(marker)) < 16384
+    bad = []
+    for key, replacement in [('requested_offset_ms', True), ('requested_offset_ms', 5001),
+                             ('status', 'PRIVATE'), ('sample_started_ms', True),
+                             ('sample_started_ms', 4999), ('sample_completed_ms', 5000),
+                             ('sample_delay_ms', 0), ('before_verdict', None),
+                             ('late_for_verdict', True), ('native', None)]:
+        bad.append(dict(valid, **{key: replacement}))
+    bad += [dict(valid, private='PRIVATE'), {key: item for key, item in valid.items() if key != 'native'},
+            dict(samples[2], native=native_fixture()), dict(samples[3], sample_started_ms=5000),
+            dict(valid, sample_completed_ms=10001),
+            dict(valid, sample_completed_ms=5002, before_verdict=False, late_for_verdict=True)]
+    for sample in bad:
+        try:
+            closed_marker('key-package', dict(legacy, native_early=sample))
+        except (ValueError, TypeError):
+            pass
+        else:
+            raise AssertionError('native-early-negative-accepted')
+    return {'positive': len(samples) + 1, 'negative': len(bad), 'metadata_only': True,
+            'product_bodies': 0, 'legacy_schema_preserved': True, 'early_rows_not_additive_with_final_rows': True}
+
+
 def native_controls():
     valid = native_fixture()
     assert closed_native_summary(valid) == valid
@@ -261,7 +328,8 @@ def closed_marker(case, value):
     if not isinstance(value, dict):
         raise ValueError('marker-shape')
     if case == 'key-package':
-        if set(value) != {'observed', 'elapsed_ms', 'setup_finished', 'journal_read_ok', 'journal_phase', 'telemetry', 'native'}:
+        legacy = {'observed', 'elapsed_ms', 'setup_finished', 'journal_read_ok', 'journal_phase', 'telemetry', 'native'}
+        if set(value) not in (legacy, legacy | {'native_early'}):
             raise ValueError('marker-keys')
         if any(type(value[k]) is not bool for k in ('observed', 'setup_finished', 'journal_read_ok')):
             raise ValueError('marker-bool')
@@ -271,6 +339,8 @@ def closed_marker(case, value):
             raise ValueError('marker-phase')
         closed_key_package_telemetry(value['telemetry'])
         closed_native_summary(value['native'])
+        if 'native_early' in value:
+            closed_native_early(value['native_early'], value['elapsed_ms'])
     else:
         if set(value) != AVATAR:
             raise ValueError('marker-keys')
@@ -465,6 +535,7 @@ def parser_controls():
             'historical_collector': PRIOR_COLLECTOR,
             'key_package_telemetry_controls': telemetry_controls(),
             'key_package_native_controls': native_controls(),
+            'key_package_early_native_controls': native_early_controls(),
             'avatar_ingest_controls': avatar_ingest_controls()}
 
 

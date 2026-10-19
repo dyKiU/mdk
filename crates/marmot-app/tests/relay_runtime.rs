@@ -2468,9 +2468,61 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     let attempt =
         tokio::spawn(async move { attempt_runtime.create_or_import_account(first_setup).await });
     let gate_started = std::time::Instant::now();
-    let gate_result = timeout(Duration::from_secs(10), entered.notified()).await;
-    let gate_elapsed_ms = u64::try_from(gate_started.elapsed().as_millis()).ok();
+    // Freeze the original absolute ten-second deadline before scheduling an
+    // independent memory-only observer. The observer never touches SQL.
+    let gate_wait = timeout(Duration::from_secs(10), entered.notified());
+    struct EarlyNativeSampler(
+        tokio::task::JoinHandle<(
+            std::time::Instant,
+            std::time::Instant,
+            marmot_app::NativeStartupSnapshot,
+        )>,
+    );
+    impl Drop for EarlyNativeSampler {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let sample_app = first_app.clone();
+    let sample_target = gate_started + Duration::from_secs(5);
+    let mut early_sampler = EarlyNativeSampler(tokio::spawn(async move {
+        tokio::time::sleep_until(tokio::time::Instant::from_std(sample_target)).await;
+        let started = std::time::Instant::now();
+        let snapshot = sample_app.startup_diagnostics_snapshot();
+        (started, std::time::Instant::now(), snapshot)
+    }));
+    let gate_result = gate_wait.await;
+    let gate_finished = std::time::Instant::now();
+    let gate_elapsed_ms = u64::try_from(gate_finished.duration_since(gate_started).as_millis()).ok();
     let setup_finished = attempt.is_finished();
+    // Abort and join only after the frozen verdict, including a failed attempt.
+    // Drop also aborts on unwind. Cancellation makes the capture unavailable; it
+    // never proves whether snapshot work raced abort or result publication.
+    if !early_sampler.0.is_finished() {
+        early_sampler.0.abort();
+    }
+    let native_early = match (&mut early_sampler.0).await {
+        Ok((started, finished, snapshot)) => serde_json::json!({
+            "requested_offset_ms": 5000,
+            "status": "sampled",
+            "sample_started_ms": u64::try_from(started.duration_since(gate_started).as_millis()).ok(),
+            "sample_completed_ms": u64::try_from(finished.duration_since(gate_started).as_millis()).ok(),
+            "sample_delay_ms": u64::try_from(started.saturating_duration_since(sample_target).as_millis()).ok(),
+            "before_verdict": finished <= gate_finished,
+            "late_for_verdict": finished > gate_finished,
+            "native": native_summary(&snapshot),
+        }),
+        Err(error) => serde_json::json!({
+            "requested_offset_ms": 5000,
+            "status": if error.is_cancelled() { "cancelled_unavailable" } else { "unavailable" },
+            "sample_started_ms": null,
+            "sample_completed_ms": null,
+            "sample_delay_ms": null,
+            "before_verdict": null,
+            "late_for_verdict": null,
+            "native": null,
+        }),
+    };
     // One read-only process-wide snapshot after the frozen verdict. Rows are
     // sampled sequentially; none identifies the exact stage at the deadline.
     let telemetry = first_runtime.app_performance_snapshot();
@@ -2552,6 +2604,7 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
             "journal_phase": journal_phase,
             "telemetry": setup_telemetry,
             "native": native,
+            "native_early": native_early,
         })
     );
     gate_result.expect("KeyPackage publication must reach the blocking relay");
