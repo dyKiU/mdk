@@ -617,7 +617,8 @@ fn mirrored_edits_update_the_original_message_without_creating_activity() {
         .apply_mirrored_chat_messages(&scope, &group, &[original.clone(), edit], 0, &|| Ok(()))
         .unwrap();
     let page = storage
-        .app_storage().mirrored_message_observation_page(std::slice::from_ref(&scope), &group, None, 128, 0)
+        .app_storage()
+        .mirrored_message_observation_page(std::slice::from_ref(&scope), &group, None, 128, 0)
         .unwrap();
     assert_eq!(
         page.len(),
@@ -635,7 +636,8 @@ fn mirrored_edits_update_the_original_message_without_creating_activity() {
     assert_eq!(accepted.summary.edit_count, 1);
     assert_eq!(accepted.summary.edited_at, 20);
     let activity = storage
-        .app_storage().mirrored_catalog_activity_page(&[scope], None, 1, 0)
+        .app_storage()
+        .mirrored_catalog_activity_page(&[scope], None, 1, 0)
         .unwrap();
     assert_eq!(
         activity[0].latest_message.as_ref().unwrap().record.event_id,
@@ -677,7 +679,8 @@ fn mirrored_edits_require_author_and_exact_target_and_survive_out_of_order_arriv
         .unwrap();
     assert!(
         storage
-            .app_storage().mirrored_message_observation_page(std::slice::from_ref(&scope), &group, None, 1, 0)
+            .app_storage()
+            .mirrored_message_observation_page(std::slice::from_ref(&scope), &group, None, 1, 0)
             .unwrap()
             .is_empty()
     );
@@ -685,7 +688,8 @@ fn mirrored_edits_require_author_and_exact_target_and_survive_out_of_order_arriv
         .apply_mirrored_chat_messages(&scope, &group, &[original], 0, &|| Ok(()))
         .unwrap();
     let page = storage
-        .app_storage().mirrored_message_observation_window(&[scope], &group, None, 1, 0)
+        .app_storage()
+        .mirrored_message_observation_window(&[scope], &group, None, 1, 0)
         .unwrap();
     assert_eq!(page.len(), 1);
     let edit = page[0].edit.as_ref().unwrap();
@@ -720,7 +724,8 @@ fn mirrored_edits_deduplicate_sources_and_honor_global_retraction_and_expiry() {
     let scopes = [a.clone(), b.clone()];
     let read = |now| {
         storage
-            .app_storage().mirrored_message_observation_page(&scopes, &group, None, 1, now)
+            .app_storage()
+            .mirrored_message_observation_page(&scopes, &group, None, 1, now)
             .unwrap()
             .remove(0)
     };

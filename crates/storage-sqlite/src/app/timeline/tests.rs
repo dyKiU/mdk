@@ -4567,66 +4567,52 @@ fn edit_source_export_defers_missing_target_and_uses_native_authorship_and_retra
     let app = store.app_storage();
     let group = "11".repeat(32);
     assert_eq!(
-        app
-            .message_edit_source_is_active(&group, "missing")
+        app.message_edit_source_is_active(&group, "missing")
             .unwrap(),
         None
     );
-    app
-        .record_app_event(&edit("edit", "alice", "target", 2, "corrected"))
+    app.record_app_event(&edit("edit", "alice", "target", 2, "corrected"))
         .unwrap();
     assert_eq!(
         app.message_edit_source_is_active(&group, "edit").unwrap(),
         None
     );
-    app
-        .record_app_event(&chat("target", "alice", 1, "original"))
+    app.record_app_event(&chat("target", "alice", 1, "original"))
         .unwrap();
     assert_eq!(
         app.message_edit_source_is_active(&group, "edit").unwrap(),
         Some(true)
     );
-    app
-        .record_app_event(&edit("forged", "bob", "target", 3, "forged"))
+    app.record_app_event(&edit("forged", "bob", "target", 3, "forged"))
         .unwrap();
     assert_eq!(
-        app
-            .message_edit_source_is_active(&group, "forged")
-            .unwrap(),
+        app.message_edit_source_is_active(&group, "forged").unwrap(),
         Some(false)
     );
     let mut ambiguous = edit("ambiguous", "alice", "target", 4, "ambiguous");
     ambiguous.tags.push(vec!["e".into(), "second".into()]);
     app.record_app_event(&ambiguous).unwrap();
     assert_eq!(
-        app
-            .message_edit_source_is_active(&group, "ambiguous")
+        app.message_edit_source_is_active(&group, "ambiguous")
             .unwrap(),
         Some(false)
     );
-    app
-        .record_app_event(&delete("retract", "alice", "edit", 5))
+    app.record_app_event(&delete("retract", "alice", "edit", 5))
         .unwrap();
     assert_eq!(
         app.message_edit_source_is_active(&group, "edit").unwrap(),
         Some(false)
     );
-    app
-        .record_app_event(&edit("later", "alice", "target", 6, "later"))
+    app.record_app_event(&edit("later", "alice", "target", 6, "later"))
         .unwrap();
     assert_eq!(
-        app
-            .message_edit_source_is_active(&group, "later")
-            .unwrap(),
+        app.message_edit_source_is_active(&group, "later").unwrap(),
         Some(true)
     );
-    app
-        .record_app_event(&delete("delete-target", "alice", "target", 7))
+    app.record_app_event(&delete("delete-target", "alice", "target", 7))
         .unwrap();
     assert_eq!(
-        app
-            .message_edit_source_is_active(&group, "later")
-            .unwrap(),
+        app.message_edit_source_is_active(&group, "later").unwrap(),
         Some(false)
     );
 }
