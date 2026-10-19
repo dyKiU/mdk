@@ -9,10 +9,10 @@ import re
 import subprocess
 from upstream_avatar_ready_turn_chain import compiler_diagnostics
 from upstream_secondary_cutoff import runtime_panic_coordinates
-from upstream_publication_mutation_anchors import PROPOSAL_ORIGINAL_NAME, proposal_original_positive_oracle, PROPOSAL_CANCEL_GREEN, PROPOSAL_CANCEL_PFP, PROPOSAL_RECEIPT_PATH, PROPOSAL_RECEIPT_CONDITION, PROPOSAL_RECEIPT_INVERSE, proposal_retirement_inverse, PROPOSAL_CANCEL_CASE, PROPOSAL_CANCEL_NAME, PROPOSAL_CANCEL_FILE, proposal_only_cancel_oracle, EXPLICIT_LIFECYCLE_CASES, EXPLICIT_PROGRESS_CASES, EXPLICIT_LIFECYCLE_NAME, EXPLICIT_LIFECYCLE_FIXTURE, EXPLICIT_ELIGIBILITY, EXPLICIT_INVERSE, EXPLICIT_PROGRESS_NAMES, explicit_sync_lifecycle_oracle, explicit_sync_progress_oracle, explicit_sync_original_relay_positive_oracle, AUTOMATIC_BODY_CASE, automatic_body_pfp_oracle, PEER_TIMER_CASES, PEER_TIMER_NAMES, peer_leave_timer_control_oracle, CANONICAL_CASES, CANONICAL_FIXTURE, CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_CLEANUP, CANONICAL_EMPTY, canonical_leaf_oracle, publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
+from upstream_publication_mutation_anchors import PROPOSAL_HANDOFF_CASE, PROPOSAL_HANDOFF_NAME, proposal_handoff_control_oracle, PROPOSAL_ORIGINAL_NAME, proposal_original_positive_oracle, PROPOSAL_CANCEL_GREEN, PROPOSAL_CANCEL_PFP, PROPOSAL_RECEIPT_PATH, PROPOSAL_RECEIPT_CONDITION, PROPOSAL_RECEIPT_INVERSE, proposal_retirement_inverse, PROPOSAL_CANCEL_CASE, PROPOSAL_CANCEL_NAME, PROPOSAL_CANCEL_FILE, proposal_only_cancel_oracle, EXPLICIT_LIFECYCLE_CASES, EXPLICIT_PROGRESS_CASES, EXPLICIT_LIFECYCLE_NAME, EXPLICIT_LIFECYCLE_FIXTURE, EXPLICIT_ELIGIBILITY, EXPLICIT_INVERSE, EXPLICIT_PROGRESS_NAMES, explicit_sync_lifecycle_oracle, explicit_sync_progress_oracle, explicit_sync_original_relay_positive_oracle, AUTOMATIC_BODY_CASE, automatic_body_pfp_oracle, PEER_TIMER_CASES, PEER_TIMER_NAMES, peer_leave_timer_control_oracle, CANONICAL_CASES, CANONICAL_FIXTURE, CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_CLEANUP, CANONICAL_EMPTY, canonical_leaf_oracle, publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['proposal-only-cancel-green', 'proposal-only-cancel-pfp', 'proposal-only-cancel-red', 'explicit-sync-lifecycle-default', 'explicit-sync-lifecycle-experimental', 'explicit-sync-progress-default', 'explicit-sync-progress-experimental', 'automatic-body-publication-pfp', 'peer-leave-timer-default', 'peer-leave-timer-experimental', 'canonical-leaf-cleanup-default', 'canonical-leaf-cleanup-experimental', 'departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red', 'cancel-late-first-pfp', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'], required=True)
+parser.add_argument('--case', choices=['proposal-failed-handoff-control', 'proposal-only-cancel-green', 'proposal-only-cancel-pfp', 'proposal-only-cancel-red', 'explicit-sync-lifecycle-default', 'explicit-sync-lifecycle-experimental', 'explicit-sync-progress-default', 'explicit-sync-progress-experimental', 'automatic-body-publication-pfp', 'peer-leave-timer-default', 'peer-leave-timer-experimental', 'canonical-leaf-cleanup-default', 'canonical-leaf-cleanup-experimental', 'departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red', 'cancel-late-first-pfp', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 parser.add_argument('--secondary-stage', choices=['red', 'green'], default='red')
@@ -29,19 +29,21 @@ failure_marker = None
 cancellation_pfp_cases = {'cancel-maintenance-pfp', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-pfp'}
 cancellation_cases = cancellation_pfp_cases | {'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'}
 body_pfp_cases = {AUTOMATIC_BODY_CASE}
+proposal_safety_cases = {PROPOSAL_HANDOFF_CASE}
 proposal_cancel_positive_cases = {PROPOSAL_CANCEL_GREEN, PROPOSAL_CANCEL_PFP}
 proposal_cancel_pfp_cases = {PROPOSAL_CANCEL_PFP}
-if args.case in {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases:
+if args.case in {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases | proposal_safety_cases:
     if not cohort or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('Proposal-only RED requires exact reviewed manual source and original stack')
     source = Path(PROPOSAL_CANCEL_FILE)
-    old = 'async fn ' + PROPOSAL_CANCEL_NAME.rsplit('::',1)[1] + '('
+    selected_proposal_name = PROPOSAL_HANDOFF_NAME if args.case == PROPOSAL_HANDOFF_CASE else PROPOSAL_CANCEL_NAME
+    old = 'async fn ' + selected_proposal_name.rsplit('::',1)[1] + '('
     new = old
     if args.case in proposal_cancel_positive_cases:
         source=Path(PROPOSAL_RECEIPT_PATH)
         old,new=PROPOSAL_RECEIPT_CONDITION,PROPOSAL_RECEIPT_INVERSE
         proposal_retirement_inverse(source.read_text())
-    test = PROPOSAL_CANCEL_NAME
+    test = selected_proposal_name
     expected = 1
     command = ['cargo','test','--locked','-p','marmot-app','--lib','--features',
         'marmot-app/experimental-device-sync,marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks',
@@ -306,8 +308,8 @@ if args.case == 'outbound-mailbox-kind':
         raise ValueError('Exact generic mailbox own assertion must remain unchanged')
     mailbox_assertion_line = text[:text.index(assertion)].count('\n') + 1
 cancellation_leaf = ExactCancellationMutation(source) if args.case in proposal_cancel_pfp_cases | cancellation_pfp_cases | CANONICAL_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES else None
-cancellation_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES | {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases else None
-cancellation_index = hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES | {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases else None
+cancellation_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES | {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases | proposal_safety_cases else None
+cancellation_index = hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES | {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases | proposal_safety_cases else None
 args.output.mkdir(parents=True, exist_ok=False)
 proof = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
          'case': args.case, 'source_path': str(source),
@@ -364,6 +366,9 @@ def execute(phase):
         row['runtime_panic_coordinates'] = runtime_panic_coordinates(output.encode())
     proof['runs'].append(row)
     save()  # Preserve actual counts before supplementary oracle/physical checks.
+    if args.case in proposal_safety_cases:
+        row['actual_command'] = phase_command
+        row.update(proposal_handoff_control_oracle(output))
     if args.case in {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases:
         row['actual_command'] = phase_command
         row.update(proposal_original_positive_oracle(output) if phase == 'original-proposal-control'
@@ -434,7 +439,7 @@ def execute(phase):
             and "assertion `left == right` failed" in output
             and re.search(r'(?m)^\s*left: Ok\(\(\)\)\s*$', output) is not None
             and re.search(r'(?m)^\s*right: Err\(Invalid\)\s*$', output) is not None)
-    if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES | {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases:
+    if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES | {PROPOSAL_CANCEL_CASE} | proposal_cancel_positive_cases | proposal_safety_cases:
         row['head_and_index_unchanged'] = (subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == cancellation_head and hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() == cancellation_index)
         if not row['head_and_index_unchanged']:
             row['evidence_passed'] = False
@@ -491,7 +496,7 @@ if args.case == 'cancel-late-first-red':
     proof['completed'] = proof['baseline_behavioral_red'] and proof['source_unchanged'] and proof['all_inputs_restored']
     save()
     raise SystemExit(0 if proof['completed'] else 1)
-if args.case == PROPOSAL_CANCEL_GREEN:
+if args.case in {PROPOSAL_CANCEL_GREEN} | proposal_safety_cases:
     proof.update(control_only=True, product_mutation_attempted=False, runtime_mutation_qualification=False,
                  control_passed=False, completed=False)
     try:

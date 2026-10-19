@@ -818,5 +818,48 @@ class ProposalOnlyCancellationPositiveAndInverse(unittest.TestCase):
         for oracle in [real_guard_oracle, late_first_revoke_oracle, late_first_fixed_oracle]:
             self.assertNotIn('require_no_fact_route', inspect.getsource(oracle))
 
+
+
+class ProposalFailedHandoffSafetyObservation(unittest.TestCase):
+    def shape(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_HANDOFF_EXPECTED, PROPOSAL_HANDOFF_NAME
+        marker = 'proposal-failed-handoff-control ' + json.dumps(PROPOSAL_HANDOFF_EXPECTED, separators=(',', ':')) + '\n'
+        raw = ('running 1 test\ntest ' + PROPOSAL_HANDOFF_NAME + ' ... ok\n'
+            'proposal-failed-handoff-close index=0\nproposal-failed-handoff-close index=1\n'
+            'proposal-failed-handoff-close index=2\n' + marker
+            + 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.00s\n')
+        return marker, raw
+
+    def test_real_handoff_control_exact_positive_only(self):
+        from upstream_publication_mutation_anchors import proposal_handoff_control_oracle
+        _, raw = self.shape()
+        row = proposal_handoff_control_oracle(raw)
+        self.assertTrue(row['evidence_passed'])
+        self.assertFalse(row['runtime_mutation_qualification'])
+        self.assertTrue(proposal_handoff_control_oracle(raw.replace('\nproposal-', '\n   proposal-'))['evidence_passed'])
+
+    def test_handoff_control_rejects_every_changed_fact_and_unknown_payload(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_HANDOFF_EXPECTED, proposal_handoff_control_oracle
+        marker, raw = self.shape()
+        for key, value in PROPOSAL_HANDOFF_EXPECTED.items():
+            changed = dict(PROPOSAL_HANDOFF_EXPECTED)
+            changed[key] = not value if type(value) is bool else 'PRIVATE_VALUE'
+            row = proposal_handoff_control_oracle(raw.replace(marker, 'proposal-failed-handoff-control ' + json.dumps(changed) + '\n'))
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        bads = [raw + raw, raw.replace(marker, ''), raw + marker,
+            raw.replace(' ... ok', ' ... FAILED'), raw.replace('1 passed', '0 passed'), raw.replace('0 ignored', '1 ignored'),
+            raw.replace('index=1', 'index=0'), raw.replace('index=1', 'index=PRIVATE_VALUE'),
+            raw + 'proposal-failed-handoff-close index=PRIVATE_VALUE\n', raw + 'proposal-failed-handoff-controlPRIVATE_VALUE\n',
+            raw.replace(marker, marker.replace('{', '{"PRIVATE_VALUE":true,', 1)),
+            raw.replace(marker, marker.replace('{', '{"actual_handoff":true,', 1)),
+            raw.replace('"actual_handoff":true', '"actual_handoff":1'), raw.replace('"exact_retired":false', '"exact_retired":null'),
+            raw.replace('proposal-failed-handoff-close index=0\n', '').replace(marker, marker + 'proposal-failed-handoff-close index=0\n'),
+            raw + 'error[E0308]: PRIVATE_VALUE\n', raw + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n"]
+        for bad in bads:
+            row = proposal_handoff_control_oracle(bad)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
 if __name__ == '__main__':
     unittest.main()

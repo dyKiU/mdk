@@ -862,6 +862,62 @@ def explicit_sync_original_relay_positive_oracle(output):
                 and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0 and text.count('panicked at ') == 0)}
 
 
+
+PROPOSAL_HANDOFF_CASE = 'proposal-failed-handoff-control'
+PROPOSAL_HANDOFF_NAME = 'runtime::device_linking::tests::device_linking_failed_add_handoff_cannot_reinstall_proposal_cancel_receipt'
+PROPOSAL_HANDOFF_EXPECTED = {
+    'actual_handoff': True, 'app_for_add': False, 'app_prepared': False,
+    'cached_same_receipt': True, 'retry_same_receipt': True, 'retry_failed': True,
+    'locally_retired': True, 'no_fact_after_cleanup': True, 'receipt_still_invalid': True,
+    'cancel_stale': True, 'anchors_unchanged': True, 'fallback_entered': True,
+    'context_rejected': False, 'scope_check_passed': True, 'durable_query_completed': True,
+    'durable_phase': None, 'exact_retired': False,
+}
+
+
+def proposal_handoff_control_oracle(output):
+    import json
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    control_prefix = 'proposal-failed-handoff-control'
+    close_prefix = 'proposal-failed-handoff-close'
+    controls = [line for line in text.splitlines() if control_prefix in line]
+    closes = [line for line in text.splitlines() if close_prefix in line]
+    marker = None
+    if len(controls) == 1 and len(controls[0]) <= 4096:
+        match = re.fullmatch(r'[ \t]*proposal-failed-handoff-control (\{.*\})[ \t]*', controls[0])
+        if match:
+            try:
+                pairs = json.loads(match[1], object_pairs_hook=list)
+                if (isinstance(pairs, list) and all(isinstance(pair, tuple) and len(pair) == 2 for pair in pairs)
+                        and len(pairs) == len(PROPOSAL_HANDOFF_EXPECTED)
+                        and len({key for key, _ in pairs}) == len(pairs)):
+                    candidate = dict(pairs)
+                    if (set(candidate) == set(PROPOSAL_HANDOFF_EXPECTED)
+                            and all(type(candidate[key]) is bool for key in candidate if key != 'durable_phase')
+                            and candidate['durable_phase'] is None):
+                        marker = candidate
+            except (ValueError, TypeError, KeyError):
+                pass
+    close_matches = [re.fullmatch(r'[ \t]*proposal-failed-handoff-close index=([012])[ \t]*', line) for line in closes]
+    close_valid = len(close_matches) == 3 and all(close_matches) and [match[1] for match in close_matches] == ['0', '1', '2']
+    ordered = bool(close_valid and marker is not None
+        and text.index(closes[0]) < text.index(closes[1]) < text.index(closes[2]) < text.index(controls[0]))
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode())
+    named = statuses == [(PROPOSAL_HANDOFF_NAME, 'ok')]
+    return {'expected_test': PROPOSAL_HANDOFF_NAME, 'positive_safety_control_only': True,
+            'runtime_mutation_qualification': False, 'closed_marker_valid': marker is not None,
+            'observation': marker, 'three_positive_closes_before_verdict': ordered,
+            'actual_exact_named_body': named, 'compiler_diagnostics': diagnostics,
+            'compiler_error_count': diagnostics['compiler_header_count'], 'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and marker == PROPOSAL_HANDOFF_EXPECTED
+                and ordered and named and running == ['1'] and len(summaries) == 1
+                and summaries[0][:5] == ('ok', '1', '0', '0', '0')
+                and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0 and text.count('panicked at ') == 0)}
+
 PROPOSAL_CANCEL_CASE = 'proposal-only-cancel-red'
 PROPOSAL_CANCEL_GREEN = 'proposal-only-cancel-green'
 PROPOSAL_CANCEL_PFP = 'proposal-only-cancel-pfp'
