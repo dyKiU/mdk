@@ -212,6 +212,11 @@ pub(crate) enum VerifierCommand {
         respond: Reply<()>,
     },
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    CaptureProposalOnlyCancelForTest {
+        scope: PurposeAttemptScope,
+        respond: Reply<crate::client::device_linking::ProposalOnlyCancelObservationHandleForTest>,
+    },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     CheckOwnedPermissionForTest {
         respond: Reply<()>,
     },
@@ -386,6 +391,10 @@ pub(super) async fn handle_verifier_command(
         #[cfg(all(test, feature = "test-policy-overrides"))]
         VerifierCommand::RejectForeignSettlementGuardForTest { respond } => {
             let _ = respond.send(client.reject_foreign_guard_against_real_settlement_for_test());
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        VerifierCommand::CaptureProposalOnlyCancelForTest { scope, respond } => {
+            let _ = respond.send(client.capture_proposal_only_cancel_for_test(&scope));
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         VerifierCommand::CheckOwnedPermissionForTest { respond } => {
@@ -3290,6 +3299,11 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_proposal_only_cancel_after_real_maintenance_reports_success() {
+        exercise_third_device_invite(ThirdDeviceCheck::UnapprovedPublicationCancelMaintenance).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_received_proposal_requires_explicit_b_owner() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalEndorsement).await;
     }
@@ -3384,10 +3398,16 @@ mod tests {
         RetainedScope,
         Settlement,
         UnapprovedPublication,
+        UnapprovedPublicationCancelMaintenance,
         ArtifactPreparation,
     }
 
     async fn exercise_third_device_invite(check: ThirdDeviceCheck) {
+        let proposal_only_cancel_maintenance =
+            check == ThirdDeviceCheck::UnapprovedPublicationCancelMaintenance;
+        let check = if proposal_only_cancel_maintenance {
+            ThirdDeviceCheck::UnapprovedPublication
+        } else { check };
         // The new race case reuses every real original setup/approval step.
         let newer_terminal_after_maintenance =
             check == ThirdDeviceCheck::LocalProposalCancelMaintenanceNewerTerminal;
@@ -3690,6 +3710,43 @@ mod tests {
                     .unwrap(),
                 0
             );
+            if proposal_only_cancel_maintenance {
+                let probe = workers.a.verifier_command("test", |respond| {
+                    VerifierCommand::CaptureProposalOnlyCancelForTest { scope: a_scope.clone(), respond }
+                }).await.unwrap();
+                let account = workers.a.resolve("test").unwrap();
+                {
+                    let active = workers.a.workers.lock().await;
+                    active.get(&account.account_id_hex).unwrap().publication_control.revoke(&a_scope);
+                }
+                workers.a.maintain_device_linking_at_for_test("test", std::time::Instant::now())
+                    .await.unwrap();
+                let retired = probe.lock().unwrap_or_else(|error| error.into_inner()).retired_proposal;
+                assert!(retired, "the real proposal-only original must retire before cancellation");
+                let cancel_result = workers.a.cancel_device_linking("test", &a_scope).await;
+                let cancel_ok = cancel_result.is_ok();
+                let cancel_stale = matches!(cancel_result,
+                    Err(ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
+                        crate::device_linking::LinkError::StaleFlow))));
+                let observed = probe.lock().unwrap_or_else(|error| error.into_inner()).clone();
+                runtime_c.shutdown_and_close().await.unwrap();
+                crate::test_support::emit_line(format_args!("proposal-only-cancel-close index=0"));
+                workers.runtime_a.shutdown_and_close().await.unwrap();
+                crate::test_support::emit_line(format_args!("proposal-only-cancel-close index=1"));
+                workers.runtime_b.shutdown_and_close().await.unwrap();
+                crate::test_support::emit_line(format_args!("proposal-only-cancel-close index=2"));
+                relay.shutdown();
+                crate::test_support::emit_line(format_args!("proposal-only-cancel-control {}", serde_json::json!({
+                    "owned_proposal": observed.owned_proposal, "retired_proposal": observed.retired_proposal,
+                    "fallback_entered": observed.fallback_entered, "context_rejected": observed.context_rejected,
+                    "scope_check_entered": observed.scope_check_entered, "scope_check_passed": observed.scope_check_passed,
+                    "durable_query_completed": observed.durable_query_completed,
+                    "durable_phase": observed.durable_phase, "exact_retired": observed.exact_retired,
+                    "cancel_ok": cancel_ok, "cancel_stale": cancel_stale,
+                })));
+                assert!(cancel_ok, "proposal-only cancellation must acknowledge the exact original after real maintenance");
+                return;
+            }
             workers
                 .a
                 .cancel_device_linking("test", &a_scope)

@@ -736,5 +736,29 @@ class OriginalRelayPositiveControl(unittest.TestCase):
             self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
 
 
+
+class ProposalOnlyCancellationObservation(unittest.TestCase):
+    def shape(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_CANCEL_NAME as name, PROPOSAL_CANCEL_FILE as file, PROPOSAL_CANCEL_MESSAGE as message, proposal_only_cancel_assertion_line
+        fixture=Path(file).read_text();site=proposal_only_cancel_assertion_line(fixture)
+        row={'owned_proposal':True,'retired_proposal':True,'fallback_entered':True,'context_rejected':False,'scope_check_entered':True,'scope_check_passed':False,'durable_query_completed':False,'durable_phase':None,'exact_retired':None,'cancel_ok':False,'cancel_stale':True}
+        raw='running 1 test\ntest '+name+' ... FAILED\n'+''.join('proposal-only-cancel-close index='+str(i)+'\n'for i in range(3))+'proposal-only-cancel-control '+json.dumps(row,separators=(',',':'))+'\n'+"thread '"+name+"' panicked at "+file+':'+str(site)+':5:\n'+message+'\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out;\n'
+        return fixture,raw
+    def test_exact_proposal_only_runtime_red_and_unknowns_rejected(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_oracle
+        fixture,raw=self.shape();self.assertTrue(proposal_only_cancel_oracle(raw,fixture)['evidence_passed'])
+        for good in [raw+"error: test failed, to rerun pass `-p marmot-app --lib`\n",raw.replace("' panicked at ","' (123) panicked at ")]:
+            self.assertTrue(proposal_only_cancel_oracle(good,fixture)['evidence_passed'])
+        for bad in [raw+'proposal-only-cancel-close index=PRIVATE_VALUE\n',raw+'proposal-only-cancel-controlPRIVATE_VALUE\n',raw.replace("thread '","thread 'private::",1),raw.replace('proposal-only-cancel-control ', 'PRIVATE_VALUE '),raw.replace('"owned_proposal":true','"owned_proposal":true,"owned_proposal":true'),raw+raw,raw.replace('"retired_proposal":true','"retired_proposal":false'),raw.replace('"cancel_stale":true','"cancel_stale":false'),raw.replace('"durable_phase":null','"durable_phase":"PRIVATE_VALUE"'),raw.replace('"scope_check_passed":false','"scope_check_passed":true'),raw.replace('proposal-only-cancel-close index=2','proposal-only-cancel-close index=1'),raw.replace('0 ignored;','1 ignored;'),raw.replace('running 1 test','running 0 tests'),raw+'error[E0308]: PRIVATE_VALUE\n',raw.replace('1 failed;','0 failed;'),raw.replace('"cancel_ok":false','"cancel_ok":true')]:
+            row=proposal_only_cancel_oracle(bad,fixture);self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE',json.dumps(row))
+
+    def test_assertion_locator_accepts_rustfmt_and_rejects_changed_condition(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_assertion_line, PROPOSAL_CANCEL_MESSAGE
+        for prefix in ['assert!(cancel_ok, "','assert!(\n    cancel_ok,\n    "']:
+            self.assertEqual(proposal_only_cancel_assertion_line(prefix+PROPOSAL_CANCEL_MESSAGE+'"\n);'),1)
+        for prefix in ['assert!(cancel_ok && true, "','assert!(!cancel_ok, "']:
+            with self.assertRaises(ValueError):
+                proposal_only_cancel_assertion_line(prefix+PROPOSAL_CANCEL_MESSAGE+'"\n);')
+
 if __name__ == '__main__':
     unittest.main()

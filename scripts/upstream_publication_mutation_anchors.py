@@ -860,3 +860,80 @@ def explicit_sync_original_relay_positive_oracle(output):
             'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and running == ['1']
                 and len(summaries) == 1 and summaries[0][:5] == ('ok', '1', '0', '0', '0')
                 and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0 and text.count('panicked at ') == 0)}
+
+
+PROPOSAL_CANCEL_CASE = 'proposal-only-cancel-red'
+PROPOSAL_CANCEL_NAME = 'runtime::device_linking::tests::device_linking_proposal_only_cancel_after_real_maintenance_reports_success'
+PROPOSAL_CANCEL_FILE = 'crates/marmot-app/src/runtime/device_linking.rs'
+PROPOSAL_CANCEL_MESSAGE = 'proposal-only cancellation must acknowledge the exact original after real maintenance'
+PROPOSAL_CANCEL_BOOLS = {'owned_proposal','retired_proposal','fallback_entered','context_rejected','scope_check_entered','scope_check_passed','durable_query_completed','cancel_ok','cancel_stale'}
+
+
+def proposal_only_cancel_assertion_line(fixture):
+    if fixture.count(PROPOSAL_CANCEL_MESSAGE) != 1:
+        raise ValueError('proposal-only-owned-assertion')
+    message_at = fixture.index(PROPOSAL_CANCEL_MESSAGE)
+    assertion_at = fixture.rfind('assert!(', 0, message_at)
+    if (assertion_at < 0 or message_at - assertion_at > 256
+            or re.sub(r'\s+', '', fixture[assertion_at:message_at]) != 'assert!(cancel_ok,"'):
+        raise ValueError('proposal-only-owned-assertion-shape')
+    return fixture[:assertion_at].count('\n') + 1
+
+
+def proposal_only_cancel_oracle(output, fixture):
+    import json
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    site = proposal_only_cancel_assertion_line(fixture)
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured;', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    def unique(pairs):
+        value = {}
+        for key,item in pairs:
+            if key in value: raise ValueError('duplicate-proposal-observation-key')
+            value[key] = item
+        return value
+    rows = []
+    for line in text.splitlines():
+        if 'proposal-only-cancel-control' not in line: continue
+        match = re.fullmatch(r'proposal-only-cancel-control (\{[^\r\n]{1,2048}\})', line)
+        if match is None: return {'evidence_passed':False,'closed_marker_valid':False}
+        try: value=json.loads(match[1],object_pairs_hook=unique)
+        except (ValueError,TypeError): return {'evidence_passed':False,'closed_marker_valid':False}
+        phases={'raw_staged','wrapped','dispatching','publication_unknown','retired','confirmed'}
+        if (type(value)is not dict or set(value)!=PROPOSAL_CANCEL_BOOLS|{'durable_phase','exact_retired'}
+            or any(type(value[key])is not bool for key in PROPOSAL_CANCEL_BOOLS)
+            or value['durable_phase']is not None and (type(value['durable_phase'])is not str or value['durable_phase']not in phases)
+            or value['exact_retired']is not None and type(value['exact_retired'])is not bool):
+            return {'evidence_passed':False,'closed_marker_valid':False}
+        rows.append(value)
+    marker = rows[0] if len(rows)==1 else None
+    consistent = bool(marker and (not marker['scope_check_passed'] or marker['scope_check_entered'])
+        and (not marker['context_rejected'] or not marker['scope_check_entered'])
+        and (not marker['durable_query_completed'] or marker['scope_check_passed'])
+        and ((marker['exact_retired']is not None)==marker['durable_query_completed'])
+        and (marker['durable_query_completed'] or marker['durable_phase']is None)
+        and (marker['exact_retired']is not True or marker['durable_phase']=='retired'))
+    denial='unknown'
+    if marker:
+        if marker['context_rejected']: denial='owner_context'
+        elif marker['scope_check_entered'] and not marker['scope_check_passed']: denial='verifier_scope'
+        elif marker['durable_query_completed'] and marker['exact_retired']is False: denial='durable_not_exact_retired'
+        elif marker['durable_query_completed'] and marker['exact_retired']is True: denial='after_exact_candidate'
+    pattern=(r"(?m)^[ \t]{0,8}thread '"+PROPOSAL_CANCEL_NAME+r"'(?: \([0-9]+\))? panicked at "+re.escape(PROPOSAL_CANCEL_FILE)+':'+str(site)+r':\d+:\r?\n(?:[ \t]{0,8}\r?\n){0,2}[ \t]{0,8}'+re.escape(PROPOSAL_CANCEL_MESSAGE)+r'[ \t]*\r?$')
+    own=list(re.finditer(pattern,text));close_lines=[line for line in text.splitlines() if 'proposal-only-cancel-close' in line]
+    close_matches=[re.fullmatch(r'proposal-only-cancel-close index=([0-9]+)[ \t]*',line)for line in close_lines]
+    closes=[match[1]for match in close_matches if match is not None]
+    closes_valid=all(match is not None for match in close_matches)
+    ordered=closes_valid and closes==['0','1','2'] and len(own)==1 and marker is not None and text.index('proposal-only-cancel-close index=0')<text.index('proposal-only-cancel-close index=1')<text.index('proposal-only-cancel-close index=2')<text.index('proposal-only-cancel-control ')<own[0].start()
+    diagnostics=compiler_diagnostics(text.encode(),cargo_test_context=('marmot-app','--lib'))
+    intended=bool(marker and marker['owned_proposal'] and marker['retired_proposal'] and marker['fallback_entered'] and marker['cancel_stale'] and not marker['cancel_ok'] and denial!='unknown')
+    return {'expected_test':PROPOSAL_CANCEL_NAME,'expected_source':PROPOSAL_CANCEL_FILE,'expected_assertion_line':site,
+        'closed_marker_valid':marker is not None,'observation':marker,'observed_fallback_denial':denial,
+        'observation_consistent':consistent,'three_positive_closes_before_own_assertion':bool(ordered),
+        'compiler_diagnostics':diagnostics,'panic_header_count':text.count('panicked at '),
+        'evidence_passed':bool(len(text)<=16*1024*1024 and statuses==[(PROPOSAL_CANCEL_NAME,'FAILED')]
+            and running==['1'] and len(summaries)==1 and summaries[0]==('FAILED','0','1','0','0')
+            and intended and consistent and ordered and text.count('panicked at ')==1
+            and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count']==0)}
