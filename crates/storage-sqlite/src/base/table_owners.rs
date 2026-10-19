@@ -61,6 +61,7 @@ pub(crate) const TABLE_OWNERS: &[(&str, Side)] = &[
     ("account_sharing_source_counters", Side::App),
     ("account_sharing_source_journal", Side::App),
     ("mirrored_chat_messages", Side::App),
+    ("mirrored_chat_edit_targets", Side::App),
     ("account_chat_send_intents", Side::App),
     ("account_chat_send_routes", Side::App),
     ("account_chat_send_receipts", Side::App),

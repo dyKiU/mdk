@@ -175,6 +175,7 @@ fn private_root_side(root: &str) -> Option<Side> {
         | "approved_account_sharing_policy"
         | "mirrored_chat_catalog"
         | "mirrored_chat_messages"
+        | "mirrored_chat_edits"
         | "mirrored_chat_presentation" => Some(Side::App),
         _ => None,
     }
