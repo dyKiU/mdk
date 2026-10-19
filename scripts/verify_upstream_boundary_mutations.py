@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 from upstream_avatar_ready_turn_chain import compiler_diagnostics
+from upstream_secondary_cutoff import runtime_panic_coordinates
 from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -271,6 +272,8 @@ def execute(phase):
                           and 'running 1 test' in output and test in output)
     row = {'phase': phase, 'exit_code': result.returncode, 'counts': counts, 'log': path.name}
     row['compiler_diagnostics'] = compiler_diagnostics(output.encode())
+    if args.case in SECONDARY_CASES:
+        row['runtime_panic_coordinates'] = runtime_panic_coordinates(output.encode())
     proof['runs'].append(row)
     save()  # Preserve actual counts before supplementary oracle/physical checks.
     if cohort:
