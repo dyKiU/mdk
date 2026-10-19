@@ -18,10 +18,10 @@ import qualify_upstream_pure_native5 as native
 import qualify_upstream_current_enrollment as enrollment
 import qualify_upstream_storage_app_handles as body_counts
 
-BASE = 'c4a2d9f2dcb5b414611c1b11342eb8510985954d'
+BASE = '4d8f104131eb6efd6fc994172e42ac0c3ab6d635'
 HISTORICAL_SOURCE = 'ec0b2d8cf0cacedf27fa814188e2ef9673e5bd0f'
 HISTORICAL_APP_SHA = '92283dd81781035bc8615d6098bc03a254adae0921eb702724454124d3a65fbc'
-BASE_TREE = 'e44557afa59059b8cf3f5f3cd48d01217460e1bf'
+BASE_TREE = '5bea7506b2312e3d1a2747573433bbece72420a7'
 SELF = 'scripts/qualify_upstream_ec0b_cpu.py'
 WORKFLOW = '.github/workflows/ec0b-cpu-diagnostic.yml'
 OWNED = {SELF, WORKFLOW, 'scripts/ec0b_cpu_sampler.py'}
@@ -1324,7 +1324,7 @@ def run_sampled_five(report, inventory, save, state, sampler_mode):
         'historical_source': HISTORICAL_SOURCE,
         'historical_app_sha256': HISTORICAL_APP_SHA,
         'same_app_binary_bytes_as_ec0b': report['compilations'][-1]['bins']['marmot_app']['sha256'] == HISTORICAL_APP_SHA,
-        'source_change_scope': 'current reviewed c4 source; simulator fixture only Rust delta from ec0b',
+        'source_change_scope': 'current reviewed 4d8f source; owner simulator fixture and upstream wiring-test cleanup are the Rust deltas from ec0b',
         'historical_compile_credit_reused': False, 'fresh_compile_all_three_required': True}
     source_guard(inventory)
     row['all_executables_precheck'] = check_executables(state['latest'])
@@ -1382,6 +1382,8 @@ def main():
     save()
     try:
         report['source_before'], inventory = source_guard()
+        report['tool_inventory'] = sampler.tool_inventory()
+        save()
         report['sampler_controls'] = sampler.controls()
         report['parser_controls'] = parser_preflight()
         report['ownership_driver_controls'] = ownership_driver_preflight()

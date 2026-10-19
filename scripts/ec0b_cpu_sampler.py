@@ -8,6 +8,7 @@ import resource
 import selectors
 import select
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -452,6 +453,130 @@ def ownership_controls():
             'actual_trampoline_and_ordered_exit_helpers': True}
 
 
+TOOL_PATHS = {'gdb': '/usr/bin/gdb', 'perf': '/usr/bin/perf'}
+TOOL_BOOLEAN_FIELDS = (
+    'path_exists', 'is_file', 'is_symlink', 'executable',
+    'canonical_target_regular', 'canonical_target_root_owned',
+    'canonical_target_not_group_world_writable',
+)
+
+
+def inventory_path(path):
+    """stat/access only; never execute a tool or expose its resolved path."""
+    row = {'inventory_known': False, **dict.fromkeys(TOOL_BOOLEAN_FIELDS, None)}
+    try:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return {'inventory_known': True, **dict.fromkeys(TOOL_BOOLEAN_FIELDS, False)}
+        row.update(path_exists=True, is_file=path.is_file(), is_symlink=path.is_symlink(),
+                   executable=os.access(path, os.X_OK))
+        try:
+            canonical = path.resolve(strict=True)
+        except FileNotFoundError:
+            row.update(canonical_target_regular=False, canonical_target_root_owned=False,
+                       canonical_target_not_group_world_writable=False, inventory_known=True)
+            return row
+        info = canonical.lstat()
+        row.update(canonical_target_regular=stat.S_ISREG(info.st_mode),
+                   canonical_target_root_owned=info.st_uid == 0,
+                   canonical_target_not_group_world_writable=not bool(info.st_mode & 0o022),
+                   inventory_known=True)
+    except (OSError, RuntimeError, ValueError):
+        pass
+    return row
+
+
+def tool_inventory():
+    rows = {name: inventory_path(Path(path)) for name, path in TOOL_PATHS.items()}
+    return {name: dict(row, admission_category=tool_admission_category(row)) for name, row in rows.items()}
+
+
+def tool_admission_category(row):
+    if (type(row) is not dict or row.get('inventory_known') is not True
+            or any(type(row.get(key)) is not bool for key in TOOL_BOOLEAN_FIELDS)):
+        return 'tool_inventory_unknown'
+    for key, wanted, category in [
+        ('path_exists', True, 'tool_missing'),
+        ('is_symlink', False, 'tool_symlink_unsupported'),
+        ('is_file', True, 'tool_not_regular'),
+        ('executable', True, 'tool_not_executable'),
+        ('canonical_target_regular', True, 'canonical_target_not_regular'),
+        ('canonical_target_root_owned', True, 'canonical_target_not_root_owned'),
+        ('canonical_target_not_group_world_writable', True, 'canonical_target_writable'),
+    ]:
+        if row[key] is not wanted:
+            return category
+    return 'tool_path_admitted'
+
+
+def setup_exception_kind(error):
+    for kind in (SamplerFailure, FileNotFoundError, PermissionError, OSError, ValueError, TypeError):
+        if isinstance(error, kind): return kind.__name__
+    return 'OtherException'
+
+
+def inventory_controls():
+    import tempfile
+    positive = negative = 0
+    good = {'inventory_known': True, **dict.fromkeys(TOOL_BOOLEAN_FIELDS, True)}
+    good['is_symlink'] = False
+    require(tool_admission_category(good) == 'tool_path_admitted'); positive += 1
+    for key, value, expected in [
+        ('path_exists', False, 'tool_missing'),
+        ('is_symlink', True, 'tool_symlink_unsupported'),
+        ('is_file', False, 'tool_not_regular'),
+        ('executable', False, 'tool_not_executable'),
+        ('canonical_target_regular', False, 'canonical_target_not_regular'),
+        ('canonical_target_root_owned', False, 'canonical_target_not_root_owned'),
+        ('canonical_target_not_group_world_writable', False, 'canonical_target_writable'),
+        ('inventory_known', False, 'tool_inventory_unknown'),
+        ('is_file', 1, 'tool_inventory_unknown'),
+    ]:
+        changed = dict(good); changed[key] = value
+        require(tool_admission_category(changed) == expected); negative += 1
+    missing = dict(good); missing.pop('executable')
+    require(tool_admission_category(missing) == 'tool_inventory_unknown'); negative += 1
+    # Actual stat/symlink logic, synthetic owned files only; no tool workload.
+    with tempfile.TemporaryDirectory(prefix='sampler-tool-inventory-', dir=os.environ['RUNNER_TEMP']) as directory:
+        base = Path(directory)
+        require(tool_admission_category(inventory_path(base / 'missing')) == 'tool_missing'); negative += 1
+        executable = base / 'owned-synthetic'
+        executable.write_bytes(b'synthetic, never executed\n'); executable.chmod(0o700)
+        link = base / 'link'; link.symlink_to(executable)
+        require(tool_admission_category(inventory_path(link)) == 'tool_symlink_unsupported'); negative += 1
+        link.unlink(); link.symlink_to(base / 'missing')
+        require(tool_admission_category(inventory_path(link)) == 'tool_symlink_unsupported'); negative += 1
+        row = inventory_path(executable)
+        require(row['inventory_known'] and row['path_exists'] and row['is_file']
+                and row['executable'] and row['canonical_target_regular']
+                and row['canonical_target_not_group_world_writable']); positive += 1
+    calls = []
+    def no_capture(*args):
+        calls.append(True)
+        raise SamplerFailure('PRIVATE: must not export exception text')
+    for changed, expected in [(dict(good, path_exists=False), 'tool_missing'),
+                              (dict(good, is_symlink=True), 'tool_symlink_unsupported')]:
+        result = mode_probe('gdb', inventory={'gdb': changed}, capture=no_capture)
+        require(result['setup_category'] == expected and result['admitted'] is False
+                and result['capture_invoked'] is False and calls == []); negative += 1
+    result = mode_probe('gdb', inventory={'gdb': good}, capture=no_capture)
+    require(result['setup_category'] == 'tool_capture_exception' and result['setup_exception'] == 'SamplerFailure'
+            and result['admitted'] is False and 'PRIVATE' not in json.dumps(result)); negative += 1
+    unsupported = lambda *args: ({'completed': False, 'internal_failure': True}, '')
+    result = mode_probe('gdb', inventory={'gdb': good}, capture=unsupported)
+    require(result['setup_category'] == 'tool_probe_unsupported' and result['admitted'] is False); negative += 1
+    admitted = {'completed': True, 'cleanup_complete': True, 'target_eof_verified': True,
+                'target_exit': 0, 'reduction': {'complete': True, 'frames': 1}}
+    result = mode_probe('gdb', inventory={'gdb': good}, capture=lambda *args: (dict(admitted), 'sampler-synthetic-ok\n'))
+    require(result['setup_category'] == 'admitted' and result['admitted'] is True); positive += 1
+    result = mode_probe('gdb', inventory={'gdb': good}, capture=lambda *args: (dict(admitted), 'PRIVATE_OUTPUT'))
+    require(result['setup_category'] == 'synthetic_output_mismatch' and not result['admitted']
+            and 'PRIVATE_OUTPUT' not in json.dumps(result)); negative += 1
+    return {'positive': positive, 'negative': negative, 'rust_bodies': 0,
+            'tool_workloads': 0, 'stat_and_synthetic_only': True}
+
+
 def controls():
     # Hosted preflight only. Pure reduction plus owned synthetic Python processes;
     # no perf permission dependency, Cargo, Rust bodies, protocol, or account data.
@@ -532,7 +657,7 @@ def controls():
     require(not mode_accepted('unrecognized', good_gdb, probe=True))
     negative += 1
     return {'positive': positive, 'negative': negative, 'actual_rust_bodies': 0,
-            'raw_private_export': False, 'owned_synthetic_processes_only': True, 'embedded_gdb': gdb_controls(), 'ownership_eof': ownership_controls()}
+            'raw_private_export': False, 'owned_synthetic_processes_only': True, 'embedded_gdb': gdb_controls(), 'ownership_eof': ownership_controls(), 'tool_inventory': inventory_controls()}
 
 
 STAGE_RULES = (
@@ -869,13 +994,39 @@ def mode_accepted(mode, stats, *, probe=False):
             and (not probe or stats.get('target_exit') == 0))
 
 
-def mode_probe(mode):
-    command = [sys.executable, '-c',
-        'import time; stop=time.monotonic()+1\nwhile time.monotonic()<stop: pass\nprint("sampler-synthetic-ok")']
-    stats, text = mode_capture(mode, command, 15)
-    stats['synthetic_output_verified'] = text == 'sampler-synthetic-ok\n'
-    stats['admitted'] = mode_accepted(mode, stats, probe=True) and stats['synthetic_output_verified']
-    return stats
+def mode_probe(mode, *, inventory=None, capture=None):
+    result = {'selected_tool': mode if mode in TOOL_PATHS else None,
+              'admitted': False, 'capture_invoked': False, 'rust_bodies': 0,
+              'setup_category': 'unsupported_selected_tool', 'setup_exception': None}
+    if mode not in TOOL_PATHS:
+        return result
+    try:
+        inventory = tool_inventory() if inventory is None else inventory
+        row = inventory.get(mode) if type(inventory) is dict else None
+        result['tool_inventory'] = {
+            key: row.get(key) if type(row) is dict and type(row.get(key)) is bool else None
+            for key in ('inventory_known', *TOOL_BOOLEAN_FIELDS)}
+        result['setup_category'] = tool_admission_category(row)
+        if result['setup_category'] != 'tool_path_admitted':
+            return result
+        command = [sys.executable, '-c',
+            'import time; stop=time.monotonic()+1\nwhile time.monotonic()<stop: pass\nprint("sampler-synthetic-ok")']
+        result['capture_invoked'] = True
+        capture = mode_capture if capture is None else capture
+        stats, text = capture(mode, command, 15)
+        result['capture'] = stats
+        result['synthetic_output_verified'] = text == 'sampler-synthetic-ok\n'
+        if not mode_accepted(mode, stats, probe=True):
+            result['setup_category'] = 'tool_probe_unsupported'
+        elif not result['synthetic_output_verified']:
+            result['setup_category'] = 'synthetic_output_mismatch'
+        else:
+            result['setup_category'] = 'admitted'
+            result['admitted'] = True
+    except Exception as error:
+        result['setup_category'] = 'tool_capture_exception'
+        result['setup_exception'] = setup_exception_kind(error)
+    return result
 
 
 
