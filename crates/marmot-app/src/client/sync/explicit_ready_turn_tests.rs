@@ -124,7 +124,9 @@ async fn one_ready_turn_advances_only_one_real_retained_group() {
     let (_dir, app, mut client, _relay, groups) = fixture().await;
     let ids = retain_both(&mut client, &app, &groups).await;
     let before = rows(&app, &ids);
-    eprintln!("explicit-ready-selection-prerequisites {{\"both_ready\":true,\"rows_captured\":true}}");
+    eprintln!(
+        "explicit-ready-selection-prerequisites {{\"both_ready\":true,\"rows_captured\":true}}"
+    );
     client
         .advance_one_ready_explicit_sync_group()
         .await
