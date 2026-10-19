@@ -8,7 +8,12 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='88437c2e0ed3b8ae7e48d3c8143dc1ce9df7773d'
+BASE='bd4c5fb5b5c52b6af8888e340b1346e056661c04'
+RETRY_CANONICAL_BASE='88437c2e0ed3b8ae7e48d3c8143dc1ce9df7773d'
+RECEIVE_SOURCE_PARENT='bdd35a6ae1586585e8d7ed85ac017c61e7774593'
+RECEIVE_SOURCE_RAW='bd4c5fb5b5c52b6af8888e340b1346e056661c04'
+RECEIVE_PARENT_METADATA_PINS={'scripts/qualify_upstream_current_enrollment.py': {'sha256': '9410eb436a2282e22393bc077218db7e3aa02c6f26813931da6ef22886597354', 'mode': '100644'}, '.github/workflows/current-enrollment.yml': {'sha256': '934d56ac759ab6fb7a11308e4821c28a2d1d9652410e7262b9ca4e838d2e852a', 'mode': '100644'}}
+RECEIVE_SOURCE_PINS={'crates/transport-nostr/src/lib.rs': {'before_sha256': 'df51ec80f3659d94dc4fb7aca1ecda78622e114b8e84c95977f07994aafaae41', 'raw_sha256': '8c1d3f9bee84992fb21c467a47922c3f7f8a2685d6c793adfa9bbcc896c5c0b7', 'canonical_sha256': '8c1d3f9bee84992fb21c467a47922c3f7f8a2685d6c793adfa9bbcc896c5c0b7', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before_sha256': '7e8cf0618cb46302ea59c5f169ea8a0196960a9457eec13d573c81552fe86884', 'raw_sha256': '627613dd1ef52ecb330b952745a1bfbc38aa67dc7715d167f2c57af66921a2fd', 'canonical_sha256': '627613dd1ef52ecb330b952745a1bfbc38aa67dc7715d167f2c57af66921a2fd', 'mode': '100644'}, 'crates/marmot-app/src/client/sync.rs': {'before_sha256': '2491c5c9a56de4034bf88de33083cebb13e65e05147ae6aff2a102d5f0a2dc96', 'raw_sha256': 'cba1f5f212312c9f8283a8ba52ab57e0923a160b18011c893a965a2e276a18ff', 'canonical_sha256': 'cba1f5f212312c9f8283a8ba52ab57e0923a160b18011c893a965a2e276a18ff', 'mode': '100644'}, 'crates/marmot-app/src/runtime/account_worker.rs': {'before_sha256': 'ce17ec071444e12ce64e87643284a68ba6b13aaf50e3774743f2cc4d770c8397', 'raw_sha256': '95d3516d3c7bc1c6c6221436f63d93da3ac61e312101e897156b3d5f3a5e6a1b', 'canonical_sha256': '95d3516d3c7bc1c6c6221436f63d93da3ac61e312101e897156b3d5f3a5e6a1b', 'mode': '100644'}, 'crates/marmot-app/src/runtime/device_linking/setup.rs': {'before_sha256': '351780e43db921299397457f7fa5c50fc1d9b033547a8a96ad18266aa2e358a7', 'raw_sha256': 'f9a18b59334e3805db15efcbc2f4153232e1b1e5fa177b94622aa98e0b567d27', 'canonical_sha256': 'f9a18b59334e3805db15efcbc2f4153232e1b1e5fa177b94622aa98e0b567d27', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': '20c54a719c2edaaae65d3f836eb60caa78ac01329366d003e37c6a319432f4a8', 'raw_sha256': '377846c9be072c7d6ffc87a0382bc05d2027e630c64660ca2c2462dfed0b3b3c', 'canonical_sha256': '377846c9be072c7d6ffc87a0382bc05d2027e630c64660ca2c2462dfed0b3b3c', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': '123ee6f92715ee3b24a6b19e0131686b3efd8d7988c295ecd9f185a2ad999c2d', 'raw_sha256': '18917f3071d97a3ee8b2eea8f09d8cf10563b9a3413efe01002bcaae369a21cd', 'canonical_sha256': '18917f3071d97a3ee8b2eea8f09d8cf10563b9a3413efe01002bcaae369a21cd', 'mode': '100644'}}
 PRIOR_CANONICAL_BASE='8ad19bf93cac86b3c39b07b5b3b22c23308daff8'
 RETRY_SOURCE_PARENT='1dc9d1f6aaeca3b5ddc26cc732680cd62c6c34bc'
 RETRY_SOURCE_RAW='0149d2f4dc72dc3a123ff147f655ae9d1f4af8ba'
@@ -35,7 +40,7 @@ RETRY_HOSTED_FORMAT_PATCH_SHA='b4b9d254e368422f8d38492f7d65af1dc54e88104ca8ee62a
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
 APPROVED_BASE_TEST_DELTAS={'crates/marmot-app/src/native_device_linking/tests.rs': {'before': 'b50bb5dc83643286212e4edee84b91e0cf0ae3a210818bf07cf39617833a31a4', 'after': 'ef450d4a6e6de0d2989cce96ad87f550529282e433590629270bae25e0000168', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs': {'before': '1eeb59aff6dea7791d9970c68ef1227da9de678d05664fda4fc238a50c25e7e0', 'after': 'a6da36ab13def9b3c443bc3a55facd536fede8c3cdea4875d32d2888542d47ec', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs': {'before': '5a89b3cc3e70cb608b78546c993e332f30feb6ab59576195e6656323f161582c', 'after': '8706544aa426d6a945e880089c95d5a5ab6b4ef3d55ef9dbf7dc2d2487e2c1c5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before': 'a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca', 'after': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'mode': '100644'}}
-WORKFLOW_SHA='934d56ac759ab6fb7a11308e4821c28a2d1d9652410e7262b9ca4e838d2e852a'
+WORKFLOW_SHA='3c09a6eb77b58db5dfd164f79d7acd7e55c5029eaf04b5956b15077d15f215b5'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -45,9 +50,9 @@ OUT=Path(os.environ.get('RUNNER_TEMP','/tmp'))/'current-enrollment-evidence'
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 FIXTURE_SHA='61685e03fa5838da5c85d0aa3f1a959117d20d8b67a8e531eddc9f1d43eea35d'
-PARENT_SHA='123ee6f92715ee3b24a6b19e0131686b3efd8d7988c295ecd9f185a2ad999c2d'
+PARENT_SHA='18917f3071d97a3ee8b2eea8f09d8cf10563b9a3413efe01002bcaae369a21cd'
 STRICT_WAIT_LOOP_SHA='29255c02115551856e1c5f84bf9203e79818211564ac41cb1bb9804cc082e5ca'
-STRICT_HELPER_SHA='e1bc854d2333812fc6da49526c309f7c1ca2f4f313304bf53064ffac4be1a1f2'
+STRICT_HELPER_SHA='4c0eab7593833219a9561bab6fd2a14db8c03d34a5a0d2fa970bf47b178033d1'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
 NATIVE_HELPER='scripts/qualify_upstream_pure_native5.py'
 ACK_HELPER='scripts/qualify_upstream_request_retry_ack.py'
@@ -109,14 +114,14 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
-    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);intervening=layout(INTERVENING_METADATA_SOURCE);lifetime=layout(LIFETIME_SOURCE);witness_parent=layout(SOURCEWITNESS_PARENT);witness_raw=layout(SOURCEWITNESS_RAW);format_parent=layout(SOURCEWITNESS_FORMAT_PARENT);prior_canonical=layout(PRIOR_CANONICAL_BASE);retry_parent=layout(RETRY_SOURCE_PARENT);retry_raw=layout(RETRY_SOURCE_RAW);retry_format_parent=layout(RETRY_FORMAT_PARENT);baseline=layout(BASE);current=layout('HEAD')
+    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);intervening=layout(INTERVENING_METADATA_SOURCE);lifetime=layout(LIFETIME_SOURCE);witness_parent=layout(SOURCEWITNESS_PARENT);witness_raw=layout(SOURCEWITNESS_RAW);format_parent=layout(SOURCEWITNESS_FORMAT_PARENT);prior_canonical=layout(PRIOR_CANONICAL_BASE);retry_parent=layout(RETRY_SOURCE_PARENT);retry_raw=layout(RETRY_SOURCE_RAW);retry_format_parent=layout(RETRY_FORMAT_PARENT);retry_canonical=layout(RETRY_CANONICAL_BASE);receive_parent=layout(RECEIVE_SOURCE_PARENT);receive_raw=layout(RECEIVE_SOURCE_RAW);baseline=layout(BASE);current=layout('HEAD')
     differences={path for path in set(pure)|set(prior) if pure.get(path)!=prior.get(path)}
     ensure(differences==REVIEWED_PRODUCT_METADATA|set(APPROVED_BASE_TEST_DELTAS),'pure-to-source-parent-nine-metadata-four-reviewed-tests')
     for path,pin in APPROVED_BASE_TEST_DELTAS.items():
         ensure(pure[path][0]==prior[path][0]==pin['mode']=='100644' and digest(git('show',PURE_PRODUCT_BASE+':'+path))==pin['before'] and digest(git('show',SOURCE_PARENT+':'+path))==pin['after'],'exact-approved-source-parent-test-before-after-modes')
-    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,INTERVENING_METADATA_SOURCE),(INTERVENING_METADATA_SOURCE,LIFETIME_SOURCE),(LIFETIME_SOURCE,SOURCEWITNESS_PARENT),(SOURCEWITNESS_PARENT,SOURCEWITNESS_RAW),(SOURCEWITNESS_RAW,SOURCEWITNESS_FORMAT_PARENT),(SOURCEWITNESS_FORMAT_PARENT,PRIOR_CANONICAL_BASE),(PRIOR_CANONICAL_BASE,RETRY_SOURCE_PARENT),(RETRY_SOURCE_PARENT,RETRY_SOURCE_RAW),(RETRY_SOURCE_RAW,RETRY_FORMAT_PARENT),(RETRY_FORMAT_PARENT,BASE)]:
+    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,INTERVENING_METADATA_SOURCE),(INTERVENING_METADATA_SOURCE,LIFETIME_SOURCE),(LIFETIME_SOURCE,SOURCEWITNESS_PARENT),(SOURCEWITNESS_PARENT,SOURCEWITNESS_RAW),(SOURCEWITNESS_RAW,SOURCEWITNESS_FORMAT_PARENT),(SOURCEWITNESS_FORMAT_PARENT,PRIOR_CANONICAL_BASE),(PRIOR_CANONICAL_BASE,RETRY_SOURCE_PARENT),(RETRY_SOURCE_PARENT,RETRY_SOURCE_RAW),(RETRY_SOURCE_RAW,RETRY_FORMAT_PARENT),(RETRY_FORMAT_PARENT,RETRY_CANONICAL_BASE),(RETRY_CANONICAL_BASE,RECEIVE_SOURCE_PARENT),(RECEIVE_SOURCE_PARENT,RECEIVE_SOURCE_RAW),(RECEIVE_SOURCE_RAW,BASE)]:
         ensure(subprocess.run(['git','merge-base','--is-ancestor',ancestor,descendant]).returncode==0,'reviewed-diagnostic-source-ancestry')
-    ensure(set(prior)==set(raw_source)==set(intervening)==set(lifetime)==set(witness_parent)==set(witness_raw)==set(format_parent)==set(prior_canonical)==set(retry_parent)==set(retry_raw)==set(retry_format_parent)==set(baseline),'diagnostic-source-inventory-fixed')
+    ensure(set(prior)==set(raw_source)==set(intervening)==set(lifetime)==set(witness_parent)==set(witness_raw)==set(format_parent)==set(prior_canonical)==set(retry_parent)==set(retry_raw)==set(retry_format_parent)==set(retry_canonical)==set(receive_parent)==set(receive_raw)==set(baseline),'diagnostic-source-inventory-fixed')
     ensure({p for p in prior if prior[p]!=raw_source[p]}==set(DIAGNOSTIC_SOURCE_PINS),'exact-four-raw-diagnostic-source-paths')
     ensure({p for p in raw_source if raw_source[p]!=intervening[p]}==set(INTERVENING_METADATA_PINS),'raw-to-intervening-exact-two-metadata-same-Rust')
     for path,pin in INTERVENING_METADATA_PINS.items():
@@ -154,16 +159,26 @@ def source_guard(preflight=False):
     ensure({p for p in retry_raw if retry_raw[p]!=retry_format_parent[p]}==set(RETRY_FORMAT_METADATA_PINS),'raw-retry-to-format-parent-two-metadata-same-Rust')
     for path,pin in RETRY_FORMAT_METADATA_PINS.items():
         ensure(retry_raw[path][0]==retry_format_parent[path][0]==pin['mode']=='100644' and digest(git('show',RETRY_FORMAT_PARENT+':'+path))==pin['sha256'],'exact-retry-format-parent-metadata-pins-modes')
-    ensure({p for p in retry_format_parent if retry_format_parent[p]!=baseline[p]}==set(RETRY_FORMAT_PATHS),'exact-two-hosted-retry-format-source-paths')
+    ensure({p for p in retry_format_parent if retry_format_parent[p]!=retry_canonical[p]}==set(RETRY_FORMAT_PATHS),'exact-two-hosted-retry-format-source-paths')
     for path,pin in RETRY_SOURCE_PINS.items():
-        ensure(retry_parent[path][0]==retry_raw[path][0]==retry_format_parent[path][0]==baseline[path][0]==pin['mode']=='100644'
+        ensure(retry_parent[path][0]==retry_raw[path][0]==retry_format_parent[path][0]==retry_canonical[path][0]==pin['mode']=='100644'
             and digest(git('show',RETRY_SOURCE_PARENT+':'+path))==pin['before_sha256']
             and digest(git('show',RETRY_SOURCE_RAW+':'+path))==pin['raw_sha256']
             and digest(git('show',RETRY_FORMAT_PARENT+':'+path))==pin['raw_sha256']
-            and digest(git('show',BASE+':'+path))==pin['canonical_sha256'],'exact-retry-before-raw-canonical-full-hashes-modes')
+            and digest(git('show',RETRY_CANONICAL_BASE+':'+path))==pin['canonical_sha256'],'exact-retry-before-raw-canonical-full-hashes-modes')
+    ensure({p for p in retry_canonical if retry_canonical[p]!=receive_parent[p]}==set(RECEIVE_PARENT_METADATA_PINS),'retry-canonical-to-receive-parent-two-metadata-same-Rust')
+    for path,pin in RECEIVE_PARENT_METADATA_PINS.items():
+        ensure(retry_canonical[path][0]==receive_parent[path][0]==pin['mode']=='100644' and digest(git('show',RECEIVE_SOURCE_PARENT+':'+path))==pin['sha256'],'exact-receive-parent-metadata-pins-modes')
+    ensure({p for p in receive_parent if receive_parent[p]!=receive_raw[p]}==set(RECEIVE_SOURCE_PINS),'exact-seven-comprehensive-receive-source-paths')
+    ensure(receive_raw==baseline,'initial-raw-receive-BASE-exact-no-format-exception')
+    for path,pin in RECEIVE_SOURCE_PINS.items():
+        ensure(receive_parent[path][0]==receive_raw[path][0]==baseline[path][0]==pin['mode']=='100644'
+            and digest(git('show',RECEIVE_SOURCE_PARENT+':'+path))==pin['before_sha256']
+            and digest(git('show',RECEIVE_SOURCE_RAW+':'+path))==pin['raw_sha256']
+            and digest(git('show',BASE+':'+path))==pin['canonical_sha256'],'exact-comprehensive-receive-before-raw-canonical-modes')
     full_differences={path for path in set(pure)|set(baseline) if pure.get(path)!=baseline.get(path)}
-    reviewed_Rust=set(APPROVED_BASE_TEST_DELTAS)|set(DIAGNOSTIC_SOURCE_PINS)|set(SOURCEWITNESS_PINS)|set(RETRY_SOURCE_PINS)
-    ensure(len(reviewed_Rust)==11 and full_differences==REVIEWED_PRODUCT_METADATA|reviewed_Rust,'pure-to-BASE-nine-metadata-eleven-reviewed-Rust-deltas')
+    reviewed_Rust=set(APPROVED_BASE_TEST_DELTAS)|set(DIAGNOSTIC_SOURCE_PINS)|set(SOURCEWITNESS_PINS)|set(RETRY_SOURCE_PINS)|set(RECEIVE_SOURCE_PINS)
+    ensure(len(reviewed_Rust)==13 and full_differences==REVIEWED_PRODUCT_METADATA|reviewed_Rust,'pure-to-BASE-nine-metadata-13-reviewed-Rust-deltas')
     ensure(SELF in baseline and WORKFLOW in baseline and set(current)==set(baseline),'exact-BASE-inventory-two-existing-owned-metadata')
     ensure(all(baseline[path][0]=='100644' for path in [SELF,WORKFLOW]),'owned-existing-regular-metadata-modes')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -185,7 +200,7 @@ def source_guard(preflight=False):
     ensure(text.count(begin)==text.count(endmark)==1 and digest(text.split(begin,1)[1].split(endmark,1)[0].encode())==ORACLE_SHA,'immutable-five-oracle-region')
     ensure(git_closure()['verified'],'tracked-index-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
-        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'intervening_metadata_source':INTERVENING_METADATA_SOURCE,'intervening_metadata_pins':INTERVENING_METADATA_PINS,'cfg_test_diagnostic_lifetime_repair_source':LIFETIME_SOURCE,'sourcewitness_parent':SOURCEWITNESS_PARENT,'sourcewitness_raw':SOURCEWITNESS_RAW,'sourcewitness_format_parent':SOURCEWITNESS_FORMAT_PARENT,'sourcewitness_format_metadata_pins':SOURCEWITNESS_FORMAT_METADATA_PINS,'hosted_format_patch_sha256':'c0344c86bba885f32070f57427622e3c3aeb2a2c9718cfd8a499080f357e51c3','sourcewitness_pins':SOURCEWITNESS_PINS,'prior_canonical_source':PRIOR_CANONICAL_BASE,'retry_source_parent':RETRY_SOURCE_PARENT,'retry_source_raw':RETRY_SOURCE_RAW,'retry_source_pins':RETRY_SOURCE_PINS,'retry_format_parent':RETRY_FORMAT_PARENT,'retry_format_metadata_pins':RETRY_FORMAT_METADATA_PINS,'retry_hosted_format_patch_sha256':RETRY_HOSTED_FORMAT_PATCH_SHA,'canonical_source_pending_hosted_format':BASE==RETRY_SOURCE_RAW,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
+        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'intervening_metadata_source':INTERVENING_METADATA_SOURCE,'intervening_metadata_pins':INTERVENING_METADATA_PINS,'cfg_test_diagnostic_lifetime_repair_source':LIFETIME_SOURCE,'sourcewitness_parent':SOURCEWITNESS_PARENT,'sourcewitness_raw':SOURCEWITNESS_RAW,'sourcewitness_format_parent':SOURCEWITNESS_FORMAT_PARENT,'sourcewitness_format_metadata_pins':SOURCEWITNESS_FORMAT_METADATA_PINS,'hosted_format_patch_sha256':'c0344c86bba885f32070f57427622e3c3aeb2a2c9718cfd8a499080f357e51c3','sourcewitness_pins':SOURCEWITNESS_PINS,'prior_canonical_source':PRIOR_CANONICAL_BASE,'retry_source_parent':RETRY_SOURCE_PARENT,'retry_source_raw':RETRY_SOURCE_RAW,'retry_source_pins':RETRY_SOURCE_PINS,'retry_format_parent':RETRY_FORMAT_PARENT,'retry_format_metadata_pins':RETRY_FORMAT_METADATA_PINS,'retry_hosted_format_patch_sha256':RETRY_HOSTED_FORMAT_PATCH_SHA,'retry_canonical_source':RETRY_CANONICAL_BASE,'comprehensive_receive_source_parent':RECEIVE_SOURCE_PARENT,'comprehensive_receive_raw':RECEIVE_SOURCE_RAW,'comprehensive_receive_parent_metadata_pins':RECEIVE_PARENT_METADATA_PINS,'comprehensive_receive_source_pins':RECEIVE_SOURCE_PINS,'canonical_source_pending_hosted_format':BASE==RECEIVE_SOURCE_RAW,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
         'owned_existing_metadata_content_bound_to_HEAD':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
 
 def compile_app(report,cohort,tracked,save_report):
@@ -804,6 +819,132 @@ def retry_custody_controls():
         'raw_private_export':False,'controls_authored_unexecuted_until_remote_preflight':True}
 
 
+# Separate observational receive namespaces. Never used to change original verdicts.
+APP_RECEIVE_STAGES=('LoopEntry','EarlyOverflow','OverflowErr','BeforeSpillYield','AfterSpillYield','TakeReadyErr','TakeReadySome','BeforeAdapterAwait','SpillReady','Closed','ReceiptsErr','Duplicate','DeliveryReturn','OverflowReturn','WorkerSelected','IngestBegin','IngestEnd')
+ADAPTER_RECEIVE_STAGES=('AwaitEntry','RxMutexAcquired','SpillWake','QueueDelivery','QueueOverflow','QueueClosed')
+
+def comprehensive_receive_entry(value,kind):
+    ensure(kind in ('app','adapter'),'finite-comprehensive-receive-kind')
+    if value=='None':return None
+    size=17 if kind=='app' else 6
+    array=r'\['+', '.join([NUM]*size)+r'\]'
+    opt=r'(None|Some\(('+NUM+r')\))'
+    suffix='' if kind=='app' else ', '+opt+', '+opt
+    m=re.fullmatch(r'Some\(\(('+array+r'), (None|Some\(\(('+NUM+'), ('+NUM+r')\)\)), (true|false)'+suffix+r'\)\)',value)
+    ensure(m is not None,'closed-comprehensive-receive-tuple')
+    counts=observation_array(m[1],size)
+    last=None if m[2]=='None' else {'index':observation_uint(m[3]),'elapsed_ms':observation_uint(m[4])}
+    overflow=m[5]=='true'
+    ensure(last is None or (last['index']<size and counts[last['index']]>0),'receive-last-index-positive')
+    ensure(not overflow or (1<<64)-1 in counts,'receive-overflow-needs-saturated-counter')
+    result={'counts':counts,'last':last,'overflow':overflow,'numeric_progress_trusted':not overflow,
+        'stage_order':list(APP_RECEIVE_STAGES if kind=='app' else ADAPTER_RECEIVE_STAGES),
+        'last_is_historical_not_inflight':True,'missing_clock_is_unknown_not_zero':True,
+        'cross_stage_sum_or_order_claimed':False,'physical_SDK_poll_or_Core_acceptance_claimed':False}
+    if kind=='app':result.update(origin='existing-recipient-Choice',independent_current_choice_observations=True)
+    else:
+        queue=None if m[6]=='None' else observation_uint(m[7])
+        capture=None if m[8]=='None' else observation_uint(m[9])
+        ensure(queue is None or queue<=1025,'bounded-actual-adapter-queue-length')
+        ensure(last is None or capture is None or last['elapsed_ms']<=capture,'adapter-last-not-after-capture')
+        result.update(queue_len=queue,capture_elapsed_ms=capture,origin='adapter-lifetime-counts-Choice-relative-clock',
+            counts_may_predate_Choice=True,shared_clones_not_caller_attributed=True,
+            queue_and_counts_not_atomic=True,entry_is_async_first_body_or_immediate_try_receive=True)
+    return result
+
+def observed_comprehensive_receive(raw,kind):
+    ensure(kind in ('app','adapter'),'finite-comprehensive-receive-kind')
+    field='app_receive_counts/last/overflow' if kind=='app' else 'adapter_receive_counts/last/overflow/queue/capture'
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control side=' in line and ' '+field+'=' in line]
+    ensure(len(lines) in (0,2),'zero-or-two-comprehensive-receive-side-rows');rows=[]
+    for index,side in enumerate(('left','right')):
+        entry=None
+        if lines:
+            prefix='automatic-enrollment-control side='+side+' '+field+'='
+            ensure(lines[index].startswith(prefix) and len(lines[index].encode())<=2048,'ordered-bounded-comprehensive-receive-row')
+            entry=comprehensive_receive_entry(lines[index][len(prefix):],kind)
+        rows.append({'side':side,'record_present':bool(lines),'entry':entry})
+    return {'schema_known':True,'available':bool(lines),'rows':rows,'independent_post_timeout_snapshots':True,
+        'missing_is_unknown_not_zero':True,'continuous_or_causal_claimed':False,'raw_private_export':False}
+
+def observed_receiver_identity(raw):
+    field='first_queue_matches_last_observed_receiver'
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control existing_index=' in line and ' '+field+'=' in line]
+    ensure(len(lines) in (0,3),'zero-or-three-opaque-receiver-binding-rows');rows=[]
+    for index in range(3):
+        value=None
+        if lines:
+            prefix='automatic-enrollment-control existing_index='+str(index)+' '+field+'='
+            ensure(lines[index].startswith(prefix) and len(lines[index].encode())<=256,'ordered-bounded-opaque-receiver-binding-row')
+            token=lines[index][len(prefix):]
+            ensure(token in ('None','Some(true)','Some(false)'),'closed-optional-opaque-identity-bool')
+            value=None if token=='None' else token=='Some(true)'
+        rows.append({'existing_index':index,'record_present':bool(lines),'first_queue_matches_last_observed_receiver':value})
+    return {'schema_known':True,'available':bool(lines),'rows':rows,
+        'historical_first_placement_vs_last_observed_adapter_only':True,
+        'current_receiver_or_liveness_or_continuous_binding_claimed':False,
+        'publication_kind_known':False,'IDs_epochs_pointers_exported':False,'missing_is_unknown':True}
+
+def comprehensive_receive_controls():
+    app='Some((['+', '.join(['1']*17)+'], Some((16, 123)), false))'
+    rx='Some(([1, 1, 1, 1, 1, 1], Some((5, 123)), false, Some(1025), Some(124)))'
+    az='Some((['+', '.join(['0']*17)+'], None, false))'
+    rz='Some(([0, 0, 0, 0, 0, 0], None, false, None, None))'
+    maxu='18446744073709551615'
+    am='Some((['+maxu+', '+', '.join(['0']*16)+'], Some((0, '+maxu+')), true))'
+    rm='Some((['+maxu+', 0, 0, 0, 0, 0], None, true, None, None))'
+    aprefix='automatic-enrollment-control side='
+    pair=lambda field,value:aprefix+'left '+field+'='+value+'\n'+aprefix+'right '+field+'=None'
+    ap=pair('app_receive_counts/last/overflow',app)
+    rp=pair('adapter_receive_counts/last/overflow/queue/capture',rx)
+    ip='\n'.join('automatic-enrollment-control existing_index='+str(i)+' first_queue_matches_last_observed_receiver='+v for i,v in enumerate(('Some(true)','Some(false)','None')))
+    mixed=ap+'\n'+rp+'\n'+ip+'\nautomatic-enrollment-control existing_index=0 child_channel=PRIVATE\nautomatic-enrollment-control side=left retry_custody_counts/last/overflow=PRIVATE'
+    positive=[lambda:comprehensive_receive_entry('None','app') is None,
+        lambda:comprehensive_receive_entry(az,'app')['counts']==[0]*17,
+        lambda:all(comprehensive_receive_entry(app.replace('16, 123',str(i)+', 123'),'app')['last']['index']==i for i in range(17)),
+        lambda:comprehensive_receive_entry(app.replace('Some((16, 123))','None'),'app')['last'] is None,
+        lambda:comprehensive_receive_entry(am,'app')['numeric_progress_trusted'] is False,
+        lambda:comprehensive_receive_entry('None','adapter') is None,
+        lambda:comprehensive_receive_entry(rz,'adapter')['queue_len'] is None,
+        lambda:all(comprehensive_receive_entry(rx.replace('5, 123',str(i)+', 123'),'adapter')['last']['index']==i for i in range(6)),
+        lambda:comprehensive_receive_entry(rx.replace('Some((5, 123))','None'),'adapter')['last'] is None,
+        lambda:comprehensive_receive_entry(rx.replace('Some(124)','None'),'adapter')['capture_elapsed_ms'] is None,
+        lambda:comprehensive_receive_entry(rm,'adapter')['overflow'] is True,
+        lambda:comprehensive_receive_entry(rx.replace('Some(1025)','Some(0)'),'adapter')['queue_len']==0,
+        lambda:observed_comprehensive_receive(ap,'app')['rows'][1]['entry'] is None,
+        lambda:observed_comprehensive_receive(rp,'adapter')['rows'][0]['entry']['queue_len']==1025,
+        lambda:observed_receiver_identity(ip)['rows'][0]['first_queue_matches_last_observed_receiver'] is True,
+        lambda:observed_receiver_identity(ip)['rows'][1]['first_queue_matches_last_observed_receiver'] is False,
+        lambda:observed_receiver_identity(ip)['rows'][2]['first_queue_matches_last_observed_receiver'] is None,
+        lambda:observed_comprehensive_receive('','app')['available'] is False,
+        lambda:observed_receiver_identity('')['available'] is False,
+        lambda:observed_comprehensive_receive(mixed,'app')==observed_comprehensive_receive(ap,'app'),
+        lambda:observed_comprehensive_receive(mixed,'adapter')==observed_comprehensive_receive(rp,'adapter'),
+        lambda:observed_receiver_identity(mixed)==observed_receiver_identity(ip),
+        lambda:'PRIVATE' not in json.dumps([observed_comprehensive_receive(mixed,'app'),observed_comprehensive_receive(mixed,'adapter'),observed_receiver_identity(mixed)]),
+    ]
+    for check in positive:ensure(check(),'comprehensive-receive-positive')
+    app_bad=[app+' PRIVATE',app.replace('16, 123','17, 123'),app.replace('16, 123','-1, 123'),app.replace('16, 123','true, 123'),app.replace('123','0123'),app.replace('123',str(1<<64)),app.replace('false','true'),app.replace('false','PRIVATE'),app.replace('Some((16, 123))','Some(16, 123)'),app.replace('[1, 1','[0, 1').replace('16, 123','0, 123'),app.replace('[1, 1','[1')]
+    rx_bad=[rx+' PRIVATE',rx.replace('5, 123','6, 123'),rx.replace('Some(1025)','Some(1026)'),rx.replace('Some(1025)','Some(-1)'),rx.replace('Some(124)','Some(122)'),rx.replace('Some(124)','Some(true)'),rx.replace('Some(124)','Some(0124)'),rx.replace('Some(124)','Some('+str(1<<64)+')'),rx.replace('false','true'),rx.replace('false','True'),rx.replace('[1, 1, 1, 1, 1, 1]','[1, 1]'),rx.replace('[1, 1, 1, 1, 1, 1]','[1, 1, 1, 1, 1, 0]')]
+    for kind,values in [('app',app_bad),('adapter',rx_bad)]:
+        for value in values:
+            try:comprehensive_receive_entry(value,kind);accepted=True
+            except (ValueError,TypeError,OverflowError):accepted=False
+            ensure(not accepted,'comprehensive-receive-malformed-rejected')
+    row_bad=[ap.splitlines()[0],ap+'\n'+ap.splitlines()[0],ap.replace('side=right','side=left'),ap.replace('side=right','side=PRIVATE'),'\n'.join(reversed(ap.splitlines())),ap+' PRIVATE',ap.replace(' app_receive',' account=PRIVATE app_receive'),ap.replace(app,'PRIVATE'),ap.replace(app,'X'*2049)]
+    for raw in row_bad:
+        try:observed_comprehensive_receive(raw,'app');accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'comprehensive-receive-side-row-rejected')
+    identity_bad=[ip.splitlines()[0],ip+'\n'+ip.splitlines()[0],ip.replace('existing_index=2','existing_index=3'),ip.replace('existing_index=1','existing_index=0'),'\n'.join(reversed(ip.splitlines())),ip.replace('Some(true)','Some(1)'),ip.replace('Some(true)','true'),ip.replace('Some(true)','Some(True)'),ip+' PRIVATE',ip.replace('Some(true)','Some(PRIVATE)'),ip.replace(' first_queue',' account=PRIVATE first_queue')]
+    for raw in identity_bad:
+        try:observed_receiver_identity(raw);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'opaque-receiver-binding-row-rejected')
+    return {'positive':len(positive),'negative':len(app_bad)+len(rx_bad)+len(row_bad)+len(identity_bad),'runtime_bodies':0,
+        'parser_controls_do_not_validate_Rust_queue_or_clone_behavior':True,'controls_authored_unexecuted_until_remote_preflight':True,'raw_private_export':False}
+
+
 def finite_observations(raw,name,tracked,include_approvals=False):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     prefix=r'(?m)^test '+re.escape(name)+r' \.\.\. '
@@ -826,6 +967,9 @@ def finite_observations(raw,name,tracked,include_approvals=False):
         except (ValueError,TypeError,OverflowError):result['native_retry_custody']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
         try:result['native_receive_reached_stages']=observed_retry_probe(text,'receive')
         except (ValueError,TypeError,OverflowError):result['native_receive_reached_stages']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
+        for key,extract in [('app_receive_boundaries',lambda:observed_comprehensive_receive(text,'app')),('adapter_receive_observations',lambda:observed_comprehensive_receive(text,'adapter')),('first_queue_vs_last_observed_receiver',lambda:observed_receiver_identity(text))]:
+            try:result[key]=extract()
+            except (ValueError,TypeError,OverflowError):result[key]={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
         try:result['recipient_ingress_trace']=observed_ingress_trace(text)
         except (ValueError,TypeError,OverflowError):result['recipient_ingress_trace']={'schema_known':False,'available':None,'records':None,'closed_schema_rejected':True}
     return result
@@ -910,7 +1054,7 @@ def parser_controls(mode):
         labels=OBSERVATION_FIVE_LABELS if mode=='observations-five' else OBSERVATION_LABELS
         ensure(tuple(row[0] for row in names)==labels,'fixed-original-observation-order')
         supplemental_controls=observation_controls()
-        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls(),'recipient_boundaries':boundary_controls(),'guard_timing':guard_timing_controls(),'retry_custody_and_receive_reached':retry_custody_controls()}
+        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls(),'recipient_boundaries':boundary_controls(),'guard_timing':guard_timing_controls(),'retry_custody_and_receive_reached':retry_custody_controls(),'comprehensive_receive':comprehensive_receive_controls()}
     ensure(len(names)==required_count(mode),'exact-selected-case-count')
     if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
