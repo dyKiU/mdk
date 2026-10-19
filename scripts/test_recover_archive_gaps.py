@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from recover_archive_gaps import (fetch, plan as write_plan, prepare_plan, validate_origin, validate_pr_checkout,
-                                  verify_selection, without_failure_recap)
+                                  verify_selection, without_failure_recap, workflow_partition_count, source_partition_count)
 from test_recover_experimental_coverage import inventory, line
 
 
@@ -40,6 +40,65 @@ def simulator_origin():
 
 
 class ArchiveGapTests(unittest.TestCase):
+    def test_real_current_source_workflows_bind_twelve_partitions(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        source = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+        # This draft is for Root's reviewed twelve-partition union, not the
+        # owner's historical five-partition checkout. Both objects are real Git.
+        for cohort in ("default", "experimental"):
+            self.assertEqual(source_partition_count(source, cohort), 12)
+
+    def test_current_twelve_partition_origin_exact_union(self):
+        run, jobs, artifact = origin()
+        jobs = [dict(jobs[0], id=i, name=f"Rust tests ({i}/12)") for i in range(1, 13)]
+        self.assertEqual(len(validate_origin(run, jobs, artifact, "default", 7, "a" * 40,
+                                             expected_partitions=12)), 12)
+        for count in (True, 0, 7, 13):
+            with self.assertRaises(ValueError):
+                validate_origin(run, jobs, artifact, "default", 7, "a" * 40,
+                                expected_partitions=count)
+
+    def test_current_twelve_partition_omission_is_refused(self):
+        run, jobs, artifact = origin()
+        jobs = [dict(jobs[0], id=i, name=f"Rust tests ({i}/12)") for i in range(1, 12)]
+        with self.assertRaisesRegex(ValueError, "Distinct terminal original cohort partitions"):
+            validate_origin(run, jobs, artifact, "default", 7, "a" * 40,
+                            expected_partitions=12)
+
+    def test_current_partition_extra_duplicate_mixed_and_foreign_roles_refused(self):
+        run, jobs, artifact = origin()
+        full = [dict(jobs[0], id=i, name=f"Rust tests ({i}/12)") for i in range(1, 13)]
+        variants = [full + [dict(full[0], id=13, name="Rust tests (13/12)")],
+                    full + [full[0]], full[:-1] + [dict(full[-1], name="Rust tests (12/5)")],
+                    full + [dict(full[0], id=13, name="Rust tests (1/5)")],
+                    full + [dict(full[0], id=13, name="Rust tests (foreign)")]]
+        for changed in variants:
+            with self.assertRaises(ValueError):
+                validate_origin(run, changed, artifact, "default", 7, "a" * 40,
+                                expected_partitions=12)
+
+    def test_workflow_literal_partition_contract_matches_archive_and_runtime(self):
+        def workflow(count):
+            return ("jobs:\n  rust-test-build:\n    steps:\n      - run: |\n"
+                + f"          bash scripts/check_ci_partitions.sh {count} --locked\n"
+                + "  rust-test:\n    name: Rust tests (${{ matrix.partition }}/" + str(count) + ")\n"
+                + "    strategy:\n      matrix:\n        partition: "
+                + json.dumps(list(range(1, count + 1))) + "\n"
+                + "    steps:\n      - run: cargo nextest run --partition count:${{ matrix.partition }}/" + str(count) + "\n")
+        for count in (5, 12):
+            self.assertEqual(workflow_partition_count(workflow(count), "default"), count)
+        good = workflow(12)
+        variants = [good.replace("[1, 2,", "[1, 1,"),
+                    good.replace(", 12]", "]"), good.replace(", 12]", ", 12, 13]"),
+                    good.replace("}/12", "}/5"), good.replace("}/12", "}/120"),
+                    good.replace("check_ci_partitions.sh 12", "check_ci_partitions.sh 5"),
+                    good + "  rust-test:\n", good.replace("partition: [1,", "partition: [true,"),
+                    good.replace("partition: [", "partition: ${{ inputs.parts }} # [")]
+        for changed in variants:
+            with self.assertRaises((ValueError, json.JSONDecodeError)):
+                workflow_partition_count(changed, "default")
+
     def test_aborted_original_body_is_a_retained_failure_not_missing_work(self):
         summary = "2026-10-18T21:59:35Z Summary [42.2s] 1/2 tests run: 0 passed, 1 failed\n"
         for status in ("SIGABRT", "SIGSEGV", "SIGKILL", "EXECFAIL", "SIGTERM"):
@@ -91,13 +150,15 @@ class ArchiveGapTests(unittest.TestCase):
                 (root / (name + ".log")).write_text(raw)
             args = SimpleNamespace(directory=root, inventory=root / "inventory.json", partitions=2,
                                    github_output=root / "output")
-            write_plan(args)
+            with patch("recover_archive_gaps.source_partition_count", return_value=5):
+                write_plan(args)
             summary = json.loads((root / "summary.json").read_text())
             self.assertEqual((summary["retained_passes"], summary["original_failures"], summary["missing"]), (1, 1, 0))
             self.assertFalse(summary["qualified"])
             jobs[1]["conclusion"] = "failure"
             (root / "original-jobs.json").write_text(json.dumps(jobs))
-            write_plan(args)
+            with patch("recover_archive_gaps.source_partition_count", return_value=5):
+                write_plan(args)
             summary = json.loads((root / "summary.json").read_text())
             self.assertEqual((summary["retained_passes"], summary["original_failures"], summary["missing"]), (1, 1, 0))
             self.assertEqual(json.loads((root / "retained-failures.json").read_text())[0]["status"], "SIGTERM")
@@ -205,6 +266,7 @@ class ArchiveGapTests(unittest.TestCase):
                 patch("recover_archive_gaps.gh_json", side_effect=[[run], [dict(jobs=jobs)],
                                                                    [dict(artifacts=[artifact])]]), \
                 patch("recover_archive_gaps.subprocess.run", side_effect=execute), \
+                patch("recover_archive_gaps.source_partition_count", return_value=5), \
                 patch("recover_archive_gaps.subprocess.check_output", return_value="b" * 40 + "\n"):
             args = SimpleNamespace(run=7, source="a" * 40, cohort="default",
                                    directory=Path(tmp) / "fresh")

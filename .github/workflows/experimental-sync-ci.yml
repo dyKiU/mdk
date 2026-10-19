@@ -354,6 +354,7 @@ jobs:
           python3 scripts/test_qualify_hot_checkpoints.py -v
           python3 scripts/qualify_pairing_replay_dispatch_pfp.py
           python3 -B scripts/qualify_owner64_routing_pfp.py
+          python3 -B scripts/qualify_archive_partition_origin_pfp.py
       - name: Format merged Rust source remotely and export exact patch
         if: always()
         run: |
@@ -370,6 +371,7 @@ jobs:
             ${{ runner.temp }}/reconcile-format.patch
             pairing-dispatch-pfp-evidence/result.json
             owner64-routing-pfp-evidence/result.json
+            archive-partition-origin-pfp-evidence/result.json
           if-no-files-found: error
           retention-days: 7
 

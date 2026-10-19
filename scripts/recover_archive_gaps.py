@@ -36,7 +36,55 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def validate_origin(run, jobs, artifact, cohort, run_id, source):
+def workflow_partition_count(text, cohort):
+    """Closed source syntax only; unknown future matrix shapes require review."""
+    if cohort not in {"default", "experimental"}:
+        raise ValueError("Workspace partition cohort required")
+    job, build = (("rust-test", "rust-test-build") if cohort == "default"
+                  else ("experimental-test", "experimental-test-build"))
+    def block(name):
+        starts = list(re.finditer(r"(?m)^  " + re.escape(name) + r":\n", text))
+        if len(starts) != 1:
+            raise ValueError("Unique source job required")
+        start = starts[0].end()
+        next_job = re.search(r"(?m)^  [A-Za-z0-9_-]+:\n", text[start:])
+        return text[start:start + next_job.start()] if next_job else text[start:]
+    runtime = block(job)
+    matrices = re.findall(r"(?m)^        partition: (\[[^\n]+\])$", runtime)
+    if len(matrices) != 1:
+        raise ValueError("Literal source partition matrix required")
+    parts = json.loads(matrices[0])
+    if (type(parts) is not list or len(parts) not in {5, 12}
+            or any(type(value) is not int for value in parts)
+            or parts != list(range(1, len(parts) + 1))):
+        raise ValueError("Reviewed contiguous five or twelve partitions required")
+    count = len(parts)
+    names = re.findall(r"(?m)^    name: (.+)$", runtime)
+    if names != [COHORTS[cohort][3] + " (${{ matrix.partition }}/" + str(count) + ")"]:
+        raise ValueError("Source job label/partition matrix disagree")
+    runners = re.findall(r"--partition count:\$\{\{ matrix.partition \}\}/([0-9]+)(?=\s|$)", runtime)
+    if runtime.count("--partition count:") != 1 or runners != [str(count)]:
+        raise ValueError("Source runtime partition denominator differs")
+    checks = re.findall(r"bash scripts/check_ci_partitions\.sh ([0-9]+)(?= )", block(build))
+    if checks != [str(count)]:
+        raise ValueError("Source archive coverage partition denominator differs")
+    return count
+
+
+def source_partition_count(source, cohort):
+    if cohort == "simulator":
+        return 2  # Existing exact two-smoke contract is unchanged.
+    if not re.fullmatch(r"[0-9a-f]{40}", source):
+        raise ValueError("Full immutable source SHA required")
+    repository = str(Path(__file__).resolve().parents[1])
+    resolved = subprocess.check_output(["git", "-C", repository, "rev-parse", source + "^{commit}"], text=True).strip()
+    if resolved != source:
+        raise ValueError("Original source must be the exact commit object")
+    text = subprocess.check_output(["git", "-C", repository, "show", source + ":" + COHORTS[cohort][0]], text=True)
+    return workflow_partition_count(text, cohort)
+
+
+def validate_origin(run, jobs, artifact, cohort, run_id, source, *, expected_partitions=5):
     workflow, name, _, label = COHORTS[cohort]
     if not re.fullmatch(r"[0-9a-f]{40}", source):
         raise ValueError("Full immutable source SHA required")
@@ -61,8 +109,11 @@ def validate_origin(run, jobs, artifact, cohort, run_id, source):
         expected = {f"{label} (smoke-{i})" for i in (1, 2)}
         selected = [job for job in jobs if job["name"].startswith(label + " (smoke-")]
     else:
-        expected = {f"{label} ({i}/5)" for i in range(1, 6)}
-        selected = [job for job in jobs if re.fullmatch(re.escape(label) + r" \([1-5]/5\)", job["name"])]
+        if type(expected_partitions) is not int or expected_partitions not in {5, 12}:
+            raise ValueError("Reviewed partition count required")
+        expected = {f"{label} ({i}/{expected_partitions})" for i in range(1, expected_partitions + 1)}
+        # Capture every related role so mixed/extra names cannot disappear.
+        selected = [job for job in jobs if job["name"].startswith(label + " (")]
     if ({job["name"] for job in selected} != expected
             or len(selected) != len(expected) or len({job["id"] for job in selected}) != len(expected)
             or (producer is not None and producer["id"] in {job["id"] for job in selected})
@@ -105,7 +156,9 @@ def fetch(args):
     if len(candidates) != 1:
         raise ValueError("One original artifact required")
     artifact = candidates[0]
-    selected = validate_origin(run, jobs, artifact, args.cohort, args.run, args.source)
+    original_partitions = source_partition_count(args.source, args.cohort)
+    selected = validate_origin(run, jobs, artifact, args.cohort, args.run, args.source,
+                               expected_partitions=original_partitions)
     subprocess.run(["git", "merge-base", "--is-ancestor", args.source, "HEAD"], check=True)
     for name, value in (("original-run", run), ("original-jobs", jobs), ("original-artifact", artifact)):
         write(args.directory / (name + ".json"), value)
@@ -141,6 +194,7 @@ def fetch(args):
             raise ValueError("Unexpected archive members or size")
         packed.extract(members[0], args.directory)
     write(args.directory / "provenance.json", dict(source=args.source, run=args.run, cohort=args.cohort,
+          original_partition_count=original_partitions,
           artifact_id=artifact["id"], zip_sha256=digest(archive), tar=tar,
           tar_sha256=digest(args.directory / tar), original_log_hashes=hashes, pr_checkout=pr_checkout))
     archive.unlink()
@@ -187,11 +241,15 @@ def prepare_plan(inventory, logs, partitions, *, interrupted_jobs=frozenset()):
 
 def plan(args):
     provenance = json.loads((args.directory / "provenance.json").read_text())
+    original_partitions = source_partition_count(provenance["source"], provenance["cohort"])
+    if provenance.get("original_partition_count", original_partitions) != original_partitions:
+        raise ValueError("Recorded original partition count differs from immutable source")
     original_jobs = validate_origin(
         json.loads((args.directory / "original-run.json").read_text()),
         json.loads((args.directory / "original-jobs.json").read_text()),
         json.loads((args.directory / "original-artifact.json").read_text()),
-        provenance["cohort"], provenance["run"], provenance["source"])
+        provenance["cohort"], provenance["run"], provenance["source"],
+        expected_partitions=original_partitions)
     if {str(job["id"]) for job in original_jobs} != provenance["original_log_hashes"].keys():
         raise ValueError("Original log inventory differs from validated jobs")
     interrupted = {str(job["id"]) for job in original_jobs if job["conclusion"] == "cancelled"}
