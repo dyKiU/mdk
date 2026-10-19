@@ -17,8 +17,8 @@ import qualify_upstream_pure_native5 as native
 import qualify_upstream_current_enrollment as enrollment
 import qualify_upstream_storage_app_handles as body_counts
 
-BASE = '21e725b69a7f8c97ca616c89e88feb2f7c9cdc0a'
-BASE_TREE = 'a056ae398ef345c9d23e7e24053b06007c7fb1ff'
+BASE = '53192a343d6810afdd6ba569aa06a98fa397e332'
+BASE_TREE = 'e3daf513711550f51dd04261b3b2fccb565567cf'
 SELF = 'scripts/qualify_upstream_merged_affected.py'
 WORKFLOW = '.github/workflows/merged-affected-controls.yml'
 OWNED = {SELF, WORKFLOW}
@@ -810,11 +810,161 @@ def recipient_runtime_controls():
     return {'positive': len(positives) + 1, 'negative': len(negatives), 'actual_rust_bodies': 0}
 
 
+# Authored source fragment for later insertion into the existing owned controller.
+# Never imported or executed locally. Uses existing controller `re` and `ensure`.
+HARVEST_COUNTS = ['ResultEmpty', 'ResultClosed', 'ResultOk', 'ResultErr',
+    'InitialErrShortCircuit', 'InitialValidationOk', 'InitialValidationErr',
+    'PeriodicValidationOk', 'PeriodicValidationErr', 'HarvestAcceptedOutcome']
+HARVEST_KINDS = ['Request', 'Consent', 'Body']
+HARVEST_FAILURES = ['Owner', 'Collection', 'Runtime', 'Engine', 'Genesis', 'Gate', 'PrivateInvite']
+
+
+def harvest_boundaries(raw, selected_name):
+    result = {'schema_known': True, 'available': None, 'side_rows': None, 'source_rows': None,
+        'counter_order': HARVEST_COUNTS, 'source_count': None, 'source_completeness_unknown': True, 'counts_are_cumulative_not_current_pending_state': True,
+        'last_kind_is_historical_not_latest_prepared_wire_proof': True,
+        'last_validation_failure_is_historical_not_current_result': True,
+        'last_kind_and_last_validation_failure_need_not_describe_the_same_event': True,
+        'child_vector_order_is_not_peer_identity': True, 'source_index_peer_mapping': None,
+        'snapshots_independent_not_joint': True, 'after_timeout_not_before_deadline_proof': True,
+        'HarvestAcceptedOutcome_is_not_durable_policy_or_proof_commit': True,
+        'raw_messages_IDs_or_errors_exported': False}
+    namespace = 'enrollment-harvest-boundary'
+    selected_prefix = r'(?m)^test ' + re.escape(selected_name) + r' \.\.\. '
+    if len(re.findall(selected_prefix, raw)) > 1:
+        return dict(result, schema_known=False, closed_schema_rejected=True)
+    text = re.sub(selected_prefix, lambda hit: hit[0] + '\n', raw, count=1)
+    lines = [line for line in text.splitlines() if namespace in line]
+    if not lines:
+        return result
+    if len(lines) > 130 or sum(len(line.encode()) for line in lines) > 262144:
+        return dict(result, schema_known=False, closed_schema_rejected=True)
+    decimal = r'(?:0|[1-9][0-9]{0,19})'
+    kind = r'(?:None|Some\((?:' + '|'.join(HARVEST_KINDS) + r')\))'
+    failure = r'(?:None|Some\((?:' + '|'.join(HARVEST_FAILURES) + r')\))'
+    atom = r'\(\[' + decimal + (r', ' + decimal) * 9 + r'\], (?:true|false), ' + kind + r', ' + failure + r'\)'
+    atom_parser = re.compile(r'\(\[(' + decimal + (r', ' + decimal) * 9 + r')\], (true|false), (None|Some\((' + '|'.join(HARVEST_KINDS) + r')\)), (None|Some\((' + '|'.join(HARVEST_FAILURES) + r')\))\)')
+    def decode(value):
+        match = atom_parser.fullmatch(value)
+        if match is None:
+            raise ValueError()
+        counts = [int(value) for value in match[1].split(', ')]
+        if len(counts) != 10 or any(value > 2 ** 64 - 1 for value in counts) or match[2] != 'false':
+            raise ValueError()
+        last_kind, last_failure = match[4], match[6]
+        if (any(counts) != (last_kind is not None)) or (bool(counts[6] or counts[8]) != (last_failure is not None)):
+            raise ValueError()
+        return {'counts': counts, 'overflow': False, 'last_observed_kind': last_kind,
+            'last_observed_validation_failure': last_failure}
+    sides, sources = {}, {}
+    try:
+        for line in lines:
+            if len(line.encode()) > 65536:
+                raise ValueError()
+            side = re.fullmatch(re.escape(namespace) + r' side=(left|right) children=(None|Some\(\[(?:' + atom + r'(?:, ' + atom + r')*)?\]\))', line)
+            source = re.fullmatch(re.escape(namespace) + r' existing_index=(' + decimal + r') source=(None|Some\(' + atom + r'\))', line)
+            if side is not None:
+                if side[1] in sides:
+                    raise ValueError()
+                if side[2] == 'None':
+                    sides[side[1]] = None
+                else:
+                    values = [decode(hit[0]) for hit in re.finditer(atom, side[2][6:-2])]
+                    if len(values) > 128:
+                        raise ValueError()
+                    sides[side[1]] = values
+            elif source is not None:
+                index = int(source[1])
+                if index > 127 or index in sources:
+                    raise ValueError()
+                sources[index] = None if source[2] == 'None' else decode(source[2][5:-1])
+            else:
+                raise ValueError()
+        if set(sides) != {'left', 'right'} or sorted(sources) != list(range(len(sources))):
+            raise ValueError()
+    except (ValueError, TypeError, KeyError, IndexError):
+        return dict(result, schema_known=False, closed_schema_rejected=True)
+    return dict(result, available=True, source_count=len(sources),
+        side_rows=[{'side': side, 'snapshots': sides[side]} for side in ['left', 'right']],
+        source_rows=[{'existing_index': index, 'snapshot': sources[index]} for index in sorted(sources)])
+
+
+
+def bind_harvest_fifth_sources(parsed, existing_approvals):
+    # Reporting-only binding uses the already-validated immutable fixture/oracle
+    # evidence. Neither current masks nor vector order grant a peer identity.
+    result = dict(parsed, source_index_peer_mapping=None, source_completeness_unknown=True)
+    if (parsed.get('schema_known') is True and parsed.get('available') is True
+            and type(existing_approvals) is dict
+            and existing_approvals.get('fifth_join_evidence_known') is True
+            and existing_approvals.get('fifth_A_C_D_mapping_available') is True
+            and existing_approvals.get('fixture_installations_by_index') == ['A', 'C', 'D']
+            and parsed.get('source_count') == 3
+            and [row.get('existing_index') for row in parsed.get('source_rows', [])] == [0, 1, 2]
+            and all(type(row.get('snapshot')) is dict for row in parsed['source_rows'])):
+        result['source_index_peer_mapping'] = ['A', 'C', 'D']
+        result['source_completeness_unknown'] = False
+    return result
+
+
+def harvest_boundary_controls():
+    name = 'source::selected_case'
+    empty = '([0, 0, 0, 0, 0, 0, 0, 0, 0, 0], false, None, None)'
+    observed = '([1, 0, 1, 0, 0, 1, 0, 1, 0, 1], false, Some(Consent), None)'
+    refused = '([0, 0, 1, 0, 0, 0, 1, 0, 0, 0], false, Some(Body), Some(Engine))'
+    prefix = 'enrollment-harvest-boundary '
+    def rows(value, source_value=None):
+        return (prefix + 'side=left children=Some([])\n' + prefix + 'side=right children=Some([' + value + '])\n'
+            + prefix + 'existing_index=0 source=' + ('Some(' + value + ')' if source_value is None else source_value))
+    maximum = '([' + ', '.join(['18446744073709551615'] * 10) + '], false, Some(Request), Some(Gate))'
+    positives = [rows(empty), rows(observed), rows(refused), rows(maximum),
+        rows(empty, 'None').replace('side=right children=Some([' + empty + '])', 'side=right children=None'),
+        'test ' + name + ' ... ' + rows(observed)]
+    for raw in positives:
+        ensure(harvest_boundaries(raw, name)['available'] is True, 'harvest-positive')
+    ensure(harvest_boundaries('', name)['available'] is None, 'harvest-missing-unknown')
+    # Full source-owned maximum vector and source index set, not an executed target.
+    bounded = prefix + 'side=left children=None\n' + prefix + 'side=right children=Some([' + ', '.join([observed] * 128) + '])\n'
+    bounded += '\n'.join(prefix + 'existing_index=' + str(index) + ' source=None' for index in range(128))
+    ensure(harvest_boundaries(bounded, name)['available'] is True, 'harvest-bound-positive')
+    good = rows(observed)
+    negatives = [good + '\n' + good, good.replace('false', 'true'),
+        good.replace('[1, 0, 1, 0, 0, 1, 0, 1, 0, 1]', '[1, 0]'),
+        good.replace('[1, 0, 1, 0, 0, 1, 0, 1, 0, 1]', '[1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0]'),
+        good.replace('[1, 0,', '[-1, 0,'), good.replace('[1, 0,', '[+1, 0,'), good.replace('[1, 0,', '[01, 0,'),
+        good.replace('[1, 0,', '[18446744073709551616, 0,'),
+        good.replace('Some(Consent)', 'Some(PRIVATE)'), good.replace(', None)', ', Some(PRIVATE))'),
+        good.replace('Some(Consent)', 'None'), rows(empty.replace('None, None', 'Some(Request), None')),
+        rows(refused.replace('Some(Engine)', 'None')), rows(observed.replace(', None)', ', Some(Engine))')),
+        good.replace('side=left', 'side=private'), good.replace('existing_index=0', 'existing_index=128'),
+        good.replace('existing_index=0', 'existing_index=1'), good.replace(prefix + 'side=left', 'PRIVATE ' + prefix + 'side=left'),
+        good + ' PRIVATE', good.replace('source=Some(', 'source=Some(Some('),
+        prefix + 'side=left children=None\n' + prefix + 'side=right children=Some([' + ', '.join([empty] * 129) + '])',
+        good + '\n' + prefix + 'other=PRIVATE']
+    for raw in negatives:
+        ensure(harvest_boundaries(raw, name)['schema_known'] is False, 'harvest-negative')
+    no_sources = prefix + 'side=left children=None\n' + prefix + 'side=right children=Some([])'
+    partial = harvest_boundaries(no_sources, name)
+    ensure(partial['source_count'] == 0 and partial['source_completeness_unknown'] is True, 'harvest-source-zero-not-complete')
+    complete_raw = good + '\n' + prefix + 'existing_index=1 source=Some(' + observed + ')\n' + prefix + 'existing_index=2 source=Some(' + observed + ')'
+    complete = harvest_boundaries(complete_raw, name)
+    old_bound = {'fifth_join_evidence_known': True, 'fifth_A_C_D_mapping_available': True, 'fixture_installations_by_index': ['A', 'C', 'D']}
+    ensure(bind_harvest_fifth_sources(complete, old_bound)['source_index_peer_mapping'] == ['A', 'C', 'D'], 'harvest-fifth-binding-positive')
+    binding_negatives = [(complete, dict(old_bound, fifth_join_evidence_known=False)),
+        (complete, dict(old_bound, fifth_A_C_D_mapping_available=False)),
+        (harvest_boundaries(good, name), old_bound),
+        (harvest_boundaries(complete_raw.replace('existing_index=2 source=Some(' + observed + ')', 'existing_index=2 source=None'), name), old_bound)]
+    for value, approvals in binding_negatives:
+        bound = bind_harvest_fifth_sources(value, approvals)
+        ensure(bound['source_index_peer_mapping'] is None and bound['source_completeness_unknown'] is True, 'harvest-fifth-binding-negative')
+    return {'positive': len(positives) + 4, 'negative': len(negatives) + len(binding_negatives), 'actual_rust_bodies': 0}
+
+
 def enrollment_parser_preflight():
     # Pure imported parser/data controls only: no legacy guard/main/global writes.
     ensure(native.NAME == 'native_device_linking::automatic_pairing_acceptance::sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing', 'exact-original-five-name')
     ensure(enrollment.POLICY_NAME == 'runtime::tests::async_suites_choose_their_tokio_flavor', 'exact-original-policy-name')
-    return {'recipient_runtime': recipient_runtime_controls(), 'inventory': body_counts.parser_controls(), 'native_original': native.parser_controls(), 'finite_observations': enrollment.observation_controls(),
+    return {'harvest_boundaries': harvest_boundary_controls(), 'recipient_runtime': recipient_runtime_controls(), 'inventory': body_counts.parser_controls(), 'native_original': native.parser_controls(), 'finite_observations': enrollment.observation_controls(),
         'approvals': enrollment.approval_controls(), 'children': enrollment.child_controls(),
         'notification_boundaries': enrollment.boundary_controls(), 'guard_timing': enrollment.guard_timing_controls(),
         'retry_custody': enrollment.retry_custody_controls(), 'inner_receive': enrollment.comprehensive_receive_controls(),
@@ -882,6 +1032,13 @@ def run_enrollment(report, inventory, save, state):
             finally:
                 checked_postchecks(row)
             if raw is not None:
+                try:
+                    row['harvest_boundaries'] = harvest_boundaries(raw, name)
+                except (ValueError, TypeError, KeyError, IndexError):
+                    row['harvest_boundaries'] = {'schema_known': False, 'available': None,
+                        'source_count': None, 'source_completeness_unknown': True,
+                        'source_index_peer_mapping': None, 'closed_schema_rejected': True}
+                save()
                 row['recipient_runtime_after_failed_attempt'] = recipient_runtime_rows(raw, name); save()
                 try:
                     row['finite_observations'] = enrollment.finite_observations(raw, name, set(inventory), include_approvals=five)
@@ -898,6 +1055,9 @@ def run_enrollment(report, inventory, save, state):
                             row['finite_observations']['existing_approvals'] = enrollment.bind_fifth_approvals(approvals, row['original_oracle'], row['finite_observations'].get('side_aggregates'))
                         except (ValueError, TypeError, KeyError):
                             row['finite_observations']['existing_approvals'] = {'schema_known': False, 'available': None, 'partial_or_unknown': True, 'fixture_installations_by_index': None}
+                    row['harvest_boundaries'] = bind_harvest_fifth_sources(
+                        row['harvest_boundaries'], row.get('finite_observations', {}).get('existing_approvals'))
+                    save()
                     row['original_oracle_green'] = native.green(parsed) is True
                 else:
                     row['original_oracle_green'] = row.get('actual_test_passed') is True

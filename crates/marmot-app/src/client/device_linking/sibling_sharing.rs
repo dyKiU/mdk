@@ -733,6 +733,23 @@ impl OriginalEnrollmentSharingChoice {
             .collect()
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn child_harvest_diagnostics_for_test(
+        &self,
+    ) -> Vec<crate::account_chat_sharing::enabled::SiblingHarvestSnapshot> {
+        self.children
+            .lock()
+            .expect("sibling children")
+            .iter()
+            .map(|state| {
+                state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("sibling diagnostics")
+                    .harvest_snapshot()
+            })
+            .collect()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn completion_aggregates_for_test(&self) -> (bool, Option<usize>, usize, usize) {
         let progress = self.progress.lock().expect("sharing choice");
         let children = self.children.lock().expect("sibling children");
@@ -2511,6 +2528,29 @@ impl AppClient {
         self.linking_owner.sibling_channels = channels;
         failure.map_or(Ok(()), Err)
     }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn observe_sibling_harvest_for_test(
+        state: &crate::account_chat_sharing::enabled::State,
+        event: crate::account_chat_sharing::enabled::SiblingHarvestEvent,
+        kind: crate::account_chat_sharing::enabled::SiblingHarvestKind,
+        error: Option<&ClientLinkingError>,
+    ) {
+        use crate::account_chat_sharing::enabled::SiblingMaintenanceFailure as Failure;
+        let failure = error.map(|error| match error {
+            ClientLinkingError::Owner(_) => Failure::Owner,
+            ClientLinkingError::Collection(_) => Failure::Collection,
+            ClientLinkingError::Runtime(_) => Failure::Runtime,
+            ClientLinkingError::Engine(_) => Failure::Engine,
+            ClientLinkingError::Genesis(_) => Failure::Genesis,
+            ClientLinkingError::Gate(_) => Failure::Gate,
+            ClientLinkingError::PrivateInvite(_) => Failure::PrivateInvite,
+        });
+        state
+            .sibling_diagnostics
+            .lock()
+            .expect("sibling diagnostics")
+            .observe_harvest(event, kind, failure);
+    }
     fn harvest_sibling_publication(
         &mut self,
         entry: &mut SiblingChannel,
@@ -2518,11 +2558,54 @@ impl AppClient {
         mode: SiblingAdvanceMode,
     ) -> Result<bool, ClientLinkingError> {
         if let Some(pending) = entry.publication.as_mut() {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            use crate::account_chat_sharing::enabled::{
+                SiblingHarvestEvent as Event, SiblingHarvestKind as Kind,
+            };
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let harvest_kind = if pending.proof {
+                Kind::Body
+            } else if entry.recipient {
+                Kind::Consent
+            } else {
+                Kind::Request
+            };
             if pending.outcome.is_none() {
                 pending.outcome = Some(match pending.result.try_recv() {
-                    Ok(result) => result,
-                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return Ok(false),
-                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(denied()),
+                    Ok(result) => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        Self::observe_sibling_harvest_for_test(
+                            &entry.state,
+                            if result.is_ok() {
+                                Event::ResultOk
+                            } else {
+                                Event::ResultErr
+                            },
+                            harvest_kind,
+                            None,
+                        );
+                        result
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        Self::observe_sibling_harvest_for_test(
+                            &entry.state,
+                            Event::ResultEmpty,
+                            harvest_kind,
+                            None,
+                        );
+                        return Ok(false);
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        Self::observe_sibling_harvest_for_test(
+                            &entry.state,
+                            Event::ResultClosed,
+                            harvest_kind,
+                            None,
+                        );
+                        Err(denied())
+                    }
                 });
             }
             if mode == SiblingAdvanceMode::Initial {
@@ -2530,9 +2613,29 @@ impl AppClient {
                 // let the next periodic turn retry it sooner. A failed fresh
                 // validation also retains the original Ok, not that transient
                 // error: the periodic turn performs its original fresh checks.
-                if pending.outcome.as_ref().is_some_and(Result::is_err)
-                    || self.validate_sibling_publication(entry).is_err()
-                {
+                if pending.outcome.as_ref().is_some_and(Result::is_err) {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    Self::observe_sibling_harvest_for_test(
+                        &entry.state,
+                        Event::InitialErrShortCircuit,
+                        harvest_kind,
+                        None,
+                    );
+                    return Ok(false);
+                }
+                let validation = self.validate_sibling_publication(entry);
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                Self::observe_sibling_harvest_for_test(
+                    &entry.state,
+                    if validation.is_ok() {
+                        Event::InitialValidationOk
+                    } else {
+                        Event::InitialValidationErr
+                    },
+                    harvest_kind,
+                    validation.as_ref().err(),
+                );
+                if validation.is_err() {
                     return Ok(false);
                 }
             }
@@ -2553,7 +2656,19 @@ impl AppClient {
                 probe.transport_counts[1].fetch_add(1, Ordering::AcqRel);
             }
             if mode == SiblingAdvanceMode::Periodic {
-                self.validate_sibling_publication(entry)?;
+                let validation = self.validate_sibling_publication(entry);
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                Self::observe_sibling_harvest_for_test(
+                    &entry.state,
+                    if validation.is_ok() {
+                        Event::PeriodicValidationOk
+                    } else {
+                        Event::PeriodicValidationErr
+                    },
+                    harvest_kind,
+                    validation.as_ref().err(),
+                );
+                validation?;
             }
             let retry_at = Some(Instant::now() + std::time::Duration::from_secs(1));
             if pending.proof {
@@ -2563,6 +2678,13 @@ impl AppClient {
                 entry.handshake_published = true;
                 entry.handshake_retry_at = retry_at;
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            Self::observe_sibling_harvest_for_test(
+                &entry.state,
+                Event::HarvestAcceptedOutcome,
+                harvest_kind,
+                None,
+            );
             return Ok(true);
         }
         Ok(false)
