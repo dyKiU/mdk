@@ -271,6 +271,7 @@ pub(crate) struct ObservedPublication {
 }
 #[derive(Default, Clone)]
 struct Evidence {
+    proof_queue: Option<ProofQueueFacts>,
     proof_stages: [usize; 3],
     raw_id_seen: bool,
     raw_payload_hash_matches: bool,
@@ -642,6 +643,8 @@ impl ConsentDeliveryProbe {
                 authentication: [0; 5],
                 dispatch: [0; 5],
                 owned: [0; 3],
+                queue: None,
+                queue_ambiguous: false,
                 incomplete: self.mode != Mode::PeerProof
                     || Instant::now() >= self.deadline
                     || progress.dropped[source] > 0
@@ -656,6 +659,7 @@ impl ConsentDeliveryProbe {
                 summary.prepared += 1;
                 summary.acknowledged += usize::from(record.outer_id.is_some());
                 let evidence = &record.evidence;
+                summary.queue = evidence.proof_queue;
                 summary.raw_id += usize::from(evidence.raw_id_seen);
                 summary.raw_payload_match += usize::from(evidence.raw_payload_hash_matches);
                 summary.event += usize::from(evidence.event_seen);
@@ -671,7 +675,13 @@ impl ConsentDeliveryProbe {
                     *total = total.saturating_add(count);
                 }
             }
-            summary.incomplete |= summary.prepared == 0 || summary.acknowledged != summary.prepared;
+            summary.queue_ambiguous = summary.prepared > 1;
+            if summary.prepared != 1 { summary.queue = None; }
+            summary.incomplete |= summary.prepared == 0 || summary.acknowledged != summary.prepared
+                || summary.queue_ambiguous
+                || summary.queue.is_none_or(|queue| queue.capture_ms.is_none()
+                    || queue.same_receiver.is_none()
+                    || queue.outer.is_none_or(|outer| outer.invalid));
             summary
         })
     }
@@ -687,6 +697,8 @@ pub(crate) struct ProofSummary {
     authentication: [usize; 5],
     dispatch: [usize; 5],
     owned: [usize; 3],
+    queue: Option<ProofQueueFacts>,
+    queue_ambiguous: bool,
     incomplete: bool,
 }
 pub(crate) fn proof_enabled(root: &Path) -> bool {
@@ -747,5 +759,56 @@ pub(crate) fn proof_stage(
             root,
             Observation::Proof(owned_nonce, received.signer.clone(), digest, stage),
         );
+    }
+}
+
+
+/// Closed copied observations only: never an ID, path, pointer or raw Instant.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ProofQueueObservation {
+    pub(crate) disposition: [u64; 8],
+    pub(crate) placement: [u64; 6],
+    pub(crate) depths: Option<(usize, usize)>,
+    pub(crate) dequeued: u64,
+    pub(crate) accepted_ms: Option<u64>,
+    pub(crate) dequeued_ms: Option<u64>,
+    pub(crate) invalid: bool,
+}
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ProofQueueFacts {
+    pub(crate) capture_ms: Option<u64>,
+    pub(crate) outer: Option<ProofQueueObservation>,
+    pub(crate) content: Option<ProofQueueObservation>,
+    pub(crate) same_receiver: Option<bool>,
+    pub(crate) outer_equals_content: bool,
+}
+/// Borrow the actual worker adapter identity only inside the synchronous query.
+/// Source identities are transient lookup keys, never part of stored queue facts.
+pub(crate) fn capture_proof_queue<F>(root: &Path, account: &cgka_traits::MemberId, mut query: F)
+where F: FnMut(&MessageId, &MessageId, Instant) -> ProofQueueFacts,
+{
+    let Some(probe) = current(root).filter(|probe| probe.mode == Mode::PeerProof
+        && probe.index(root) == Some(2) && account.as_slice() == probe.account) else { return };
+    let Some(origin) = probe.deadline.checked_sub(Duration::from_secs(600)) else { return };
+    // Never hold the probe mutex while reading the relay-plane observer locks.
+    let targets: Vec<_> = {
+        let progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+        (0..2).filter_map(|source| {
+            let mut records = progress.records.iter().enumerate().filter(|(_, record)|
+                record.prepared.local_device == probe.peers[source].device
+                    && record.receiver_root == probe.peers[2].root);
+            let (index, record) = records.next()?;
+            if records.next().is_some() { return None; }
+            Some((index, record.outer_id.clone()?, record.prepared.content_id.clone()))
+        }).collect()
+    };
+    for (index, outer, content) in targets {
+        let facts = query(&outer, &content, origin);
+        let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(record) = progress.records.get_mut(index)
+            && record.outer_id.as_ref() == Some(&outer)
+            && record.prepared.content_id == content {
+            record.evidence.proof_queue = Some(facts);
+        }
     }
 }
