@@ -12,6 +12,8 @@ UPSTREAM = '3aec65433eb84f0882430d000b2d31dabf987c24'
 OWNER = '1168b00d1ad275eac925965d8ab505e7c05a452e'
 REPOSITORY = 'dyKiU/mdk'
 OVERLAYS = {
+    '.github/workflows/upstream-avatar-ready-turn.yml',
+    'scripts/upstream_avatar_ready_turn_chain.py',
     '.github/workflows/upstream-backend-probes.yml',
     'scripts/upstream_current_backend_probe.py',
     'scripts/upstream_extraction_cohort.py',

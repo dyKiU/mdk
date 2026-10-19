@@ -15,7 +15,9 @@ SOURCE = 'crates/marmot-app/src/client/sync.rs'
 TEST = 'crates/cli/tests/cli.rs'
 NAME = 'groups_set_avatar_url_round_trips_through_sync_and_show'
 TOOLS = {'scripts/upstream_avatar_ready_turn_chain.py',
-         '.github/workflows/upstream-avatar-ready-turn.yml'}
+         '.github/workflows/upstream-avatar-ready-turn.yml',
+         '.github/workflows/upstream-boundary-regressions.yml',
+         'scripts/upstream_extraction_cohort.py'}
 HOOK = '''        if explicit {
             // A directly owned client has no account worker to consume the
             // pending convergence edges produced by the input just ingested.
