@@ -1734,6 +1734,7 @@ async fn wait_for_automatic_phase_with_approvals(
                 "automatic-enrollment-control side={side} child_channels={:?}",
                 original.sibling_child_diagnostics_for_test(),
             );
+            eprintln!("enrollment-harvest-boundary side={side} children={:?}", original.sibling_child_harvest_diagnostics_for_test());
             eprintln!(
                 "automatic-enrollment-control side={side} native_rpc_counts/elapsed_ms/branch={:?}",
                 original.native_observation_snapshot_for_test(),
@@ -1761,6 +1762,7 @@ async fn wait_for_automatic_phase_with_approvals(
                     .sharing_original_for_test()
                     .map(|original| original.channel_diagnostics_for_test()),
             );
+            eprintln!("enrollment-harvest-boundary existing_index={index} source={:?}", approval.sharing_original_for_test().map(|original| original.harvest_diagnostics_for_test()));
             // The temporary borrowed original is dropped before recipient lookup.
             // Only its existing last prepared key is copied; no identity is printed.
             let publication = approval

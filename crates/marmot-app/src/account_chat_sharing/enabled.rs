@@ -33,6 +33,34 @@ pub(crate) enum SiblingPublicationStage {
     AfterRelayPublication,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SiblingHarvestKind {
+    Request,
+    Consent,
+    Body,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy)]
+pub(crate) enum SiblingHarvestEvent {
+    ResultEmpty = 0,
+    ResultClosed = 1,
+    ResultOk = 2,
+    ResultErr = 3,
+    InitialErrShortCircuit = 4,
+    InitialValidationOk = 5,
+    InitialValidationErr = 6,
+    PeriodicValidationOk = 7,
+    PeriodicValidationErr = 8,
+    HarvestAcceptedOutcome = 9,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type SiblingHarvestSnapshot = (
+    [u64; 10],
+    bool,
+    Option<SiblingHarvestKind>,
+    Option<SiblingMaintenanceFailure>,
+);
+#[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
     // COMPLETION_TEST_BEGIN
@@ -47,6 +75,11 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) failures: usize,
     pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
     pub(crate) publication_stage: Option<SiblingPublicationStage>,
+    // Separate cumulative harvest observations; the original five-field tuple stays unchanged.
+    harvest_counts: [u64; 10],
+    harvest_overflow: bool,
+    harvest_last_kind: Option<SiblingHarvestKind>,
+    harvest_last_validation_failure: Option<SiblingMaintenanceFailure>,
 }
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -59,6 +92,31 @@ pub(crate) type SiblingMaintenanceSnapshot = (
 );
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
+    pub(crate) fn observe_harvest(
+        &mut self,
+        event: SiblingHarvestEvent,
+        kind: SiblingHarvestKind,
+        failure: Option<SiblingMaintenanceFailure>,
+    ) {
+        let counter = &mut self.harvest_counts[event as usize];
+        if let Some(next) = counter.checked_add(1) {
+            *counter = next;
+        } else {
+            self.harvest_overflow = true;
+        }
+        self.harvest_last_kind = Some(kind);
+        if failure.is_some() {
+            self.harvest_last_validation_failure = failure;
+        }
+    }
+    pub(crate) fn harvest_snapshot(&self) -> SiblingHarvestSnapshot {
+        (
+            self.harvest_counts,
+            self.harvest_overflow,
+            self.harvest_last_kind,
+            self.harvest_last_validation_failure,
+        )
+    }
     pub(crate) fn snapshot(&self) -> SiblingMaintenanceSnapshot {
         (
             self.channel_bits,
