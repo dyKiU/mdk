@@ -225,11 +225,17 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     let mut completed_steps = 0usize;
     let mut public_cancels = 0usize;
     let mut final_roster_and_policies = false;
+    #[cfg(feature = "test-policy-overrides")]
+    let mut attempted_newcomer: Option<usize> = None;
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         // New installations B,C,D,E join through already-authorized A,B,C,B.
         for (newcomer, sponsor) in [(1usize, 0usize), (2, 1), (3, 2), (4, 1)] {
+            #[cfg(feature = "test-policy-overrides")]
+            {
+                attempted_newcomer = Some(newcomer);
+            }
             #[cfg(feature = "test-policy-overrides")]
             let recipient_trace_root =
                 (newcomer == 4).then(|| apps[newcomer].account_home().root().to_path_buf());
@@ -263,31 +269,41 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     #[cfg(feature = "test-policy-overrides")]
     if attempt.is_err() {
         use crate::RuntimePerformanceOperation as Op;
-        let snapshot = runtimes[4].app_performance_snapshot();
-        let rows = [
-            Op::WorkerReceive,
-            Op::Ingest,
-            Op::IngestEngine,
-            Op::IngestEffectPublish,
-            Op::ProjectionCheckpoint,
-        ]
-        .map(|operation| {
-            snapshot
-                .runtime_operations
-                .iter()
-                .find(|row| row.operation == operation)
-                .map(|row| {
-                    [
-                        row.started,
-                        row.completed,
-                        row.in_flight,
-                        row.duration_ms.sum_ms,
-                        row.oldest_tracked_in_flight_ms,
-                        row.untracked_in_flight,
-                    ]
-                })
-        });
-        eprintln!("enrollment-runtime-timing recipient_after_failed_attempt={rows:?}");
+        for (index, runtime) in runtimes.iter().enumerate() {
+            let snapshot = runtime.app_performance_snapshot();
+            let rows = [
+                Op::WorkerReceive,
+                Op::Ingest,
+                Op::IngestEngine,
+                Op::IngestEffectPublish,
+                Op::ProjectionCheckpoint,
+                Op::WorkerMaintenance,
+                Op::WorkerConvergence,
+                Op::WorkerCatchUp,
+                Op::StorageConnectionWait,
+                Op::StorageTransaction,
+                Op::StorageWriteBegin,
+            ]
+            .map(|operation| {
+                snapshot
+                    .runtime_operations
+                    .iter()
+                    .find(|row| row.operation == operation)
+                    .map(|row| {
+                        [
+                            row.started,
+                            row.completed,
+                            row.in_flight,
+                            row.duration_ms.sum_ms,
+                            row.oldest_tracked_in_flight_ms,
+                            row.untracked_in_flight,
+                        ]
+                    })
+            });
+            eprintln!(
+                "enrollment-runtime-timing runtime_index={index} attempted_newcomer={attempted_newcomer:?} after_failed_attempt={rows:?}"
+            );
+        }
     }
     let mut runtime_closes = 0usize;
     for runtime in &runtimes {
