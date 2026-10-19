@@ -231,7 +231,7 @@ async fn cancellation_at_real_ready_finalizer_await_keeps_both_edges() {
     assert!(client.has_pending_runtime_group_subscription_refresh());
     relay.release_subscribe();
     assert!(
-        tokio::time::timeout(
+        !tokio::time::timeout(
             Duration::from_secs(5),
             client.retry_pending_runtime_group_subscription_refresh()
         )
