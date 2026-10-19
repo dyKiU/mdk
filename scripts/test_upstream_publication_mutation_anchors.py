@@ -197,7 +197,7 @@ class PublicationAnchors(unittest.TestCase):
         if phase == 'mutant':
             output += indent + f"thread '{PRIORITY_NAME}' (17) panicked at {PRIORITY_FIXTURE}:{line}:5:" + newline
             output += indent + PRIORITY_MESSAGE + newline
-        output += indent + status + ' [1.0s] (1/1) marmot-app::marmot_app ' + PRIORITY_NAME + newline
+        output += indent + status + ' [1.0s] (1/1) marmot-app ' + PRIORITY_NAME + newline
         output += 'Summary [1.0s] 1 test run: ' + summary + ', 103 skipped' + newline
         return fixture, output
 

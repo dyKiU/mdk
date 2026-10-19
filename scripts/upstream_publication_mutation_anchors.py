@@ -172,7 +172,7 @@ def retry_priority_oracle(output, phase, fixture, capture_complete=False):
                        and panics[0][1] == PRIORITY_NAME and panics[0][2] == PRIORITY_FIXTURE
                        and panics[0][3] == str(line) and panics[0][5] == PRIORITY_MESSAGE
                        and match and output.index(marker) < panics[0].start())
-    named = re.findall(r'(?m)^[ \t]{0,8}(PASS|FAIL)[ \t]+\[[^\]\r\n]+\][ \t]+(?:\([ \t]{0,8}1/1\)[ \t]+)?(?:marmot-app::)?marmot_app[ \t]+' + re.escape(PRIORITY_NAME) + r'[ \t]{0,8}\r?$', output)
+    named = re.findall(r'(?m)^[ \t]{0,8}(PASS|FAIL)[ \t]+\[[^\]\r\n]+\][ \t]+(?:\([ \t]{0,8}1/1\)[ \t]+)?marmot-app[ \t]+' + re.escape(PRIORITY_NAME) + r'[ \t]{0,8}\r?$', output)
     named_exact = len(named) == 1 and named[0] == ('FAIL' if phase == 'mutant' else 'PASS')
     good = bool(named_exact and capture_complete and prerequisites and not compiler and (
         (phase == 'mutant' and selected is False and counts == [1, 0, 1] and exact_panic)
