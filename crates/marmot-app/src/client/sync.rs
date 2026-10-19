@@ -891,18 +891,34 @@ impl AppClient {
         &mut self,
         group_id: &cgka_traits::GroupId,
     ) -> Result<ConvergenceScheduleState, AppError> {
+        self.convergence_schedule_state_with_sync_eligibility(group_id)
+            .map(|(state, _)| state)
+    }
+
+    /// Derive worker scheduling and explicit-sync eligibility in one pass.
+    /// A due lifecycle timer alone remains owned by the scheduled convergence
+    /// action; retained convergence and deferred-peel work may advance on sync.
+    fn convergence_schedule_state_with_sync_eligibility(
+        &mut self,
+        group_id: &cgka_traits::GroupId,
+    ) -> Result<(ConvergenceScheduleState, bool), AppError> {
         if self.is_group_forgotten(group_id)? {
-            return Ok(ConvergenceScheduleState::Idle);
+            return Ok((ConvergenceScheduleState::Idle, false));
         }
         let convergence_delay = self.runtime.prepare_convergence_cutoff_delay_ms(group_id)?;
-        match convergence_delay {
-            Some(0) => Ok(ConvergenceScheduleState::Ready),
+        let mut explicit_sync_ready = false;
+        let state: Result<ConvergenceScheduleState, AppError> = match convergence_delay {
+            Some(0) => {
+                explicit_sync_ready = true;
+                Ok(ConvergenceScheduleState::Ready)
+            }
             Some(remaining_ms) => {
                 let remaining_ms = self
                     .runtime
                     .deferred_peel_cutoff_delay_ms(group_id)?
                     .map_or(remaining_ms, |deferred| remaining_ms.min(deferred));
                 if remaining_ms == 0 {
+                    explicit_sync_ready = true;
                     Ok(ConvergenceScheduleState::Ready)
                 } else {
                     Ok(ConvergenceScheduleState::Collecting { remaining_ms })
@@ -957,7 +973,10 @@ impl AppClient {
                         .scheduled_self_remove_auto_commit_delay_ms(group_id)?;
                     let deferred_delay = self.runtime.deferred_peel_cutoff_delay_ms(group_id)?;
                     match lifecycle_delay.into_iter().chain(deferred_delay).min() {
-                        Some(0) => Ok(ConvergenceScheduleState::Ready),
+                        Some(0) => {
+                            explicit_sync_ready = deferred_delay == Some(0);
+                            Ok(ConvergenceScheduleState::Ready)
+                        }
                         Some(remaining_ms) => {
                             Ok(ConvergenceScheduleState::Collecting { remaining_ms })
                         }
@@ -965,7 +984,8 @@ impl AppClient {
                     }
                 }
             }
-        }
+        };
+        Ok((state?, explicit_sync_ready))
     }
 
     fn stale_own_leave_needs_wake(
@@ -1860,11 +1880,18 @@ impl AppClient {
             .collect::<Vec<_>>();
         groups.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         for group_id in groups {
-            match self.convergence_schedule_state(&group_id)? {
+            let (state, explicit_sync_ready) =
+                self.convergence_schedule_state_with_sync_eligibility(&group_id)?;
+            match state {
                 ConvergenceScheduleState::Idle => {
                     self.pending_convergence_groups.remove(&group_id);
                 }
                 ConvergenceScheduleState::Ready => {
+                    if !explicit_sync_ready {
+                        // Preserve a lifecycle-only edge for its original
+                        // scheduled owner; sync must not publish a peer leave.
+                        continue;
+                    }
                     // Keep this edge present during the await: cancellation or
                     // an error must never consume the only future wakeup.
                     let summary = self

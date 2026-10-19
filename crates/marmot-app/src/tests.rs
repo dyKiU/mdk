@@ -23292,9 +23292,7 @@ async fn due_peer_leave_does_not_shorten_a_collecting_convergence_pass() {
             .contains(&group_id)
     );
     bob_client.leave_group(&group_id).await.unwrap();
-    // Observe the worker's inbound drain before an explicit sync can consume
-    // the due leave; the collecting-pass barrier below remains unchanged.
-    alice.sync_automatically_with_partial_progress().await.unwrap();
+    alice.sync().await.unwrap();
     let delay = alice
         .runtime
         .scheduled_self_remove_auto_commit_delay_ms(&group_id)
