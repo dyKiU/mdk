@@ -443,6 +443,13 @@ impl AppClient {
             &account,
             |outer, content, origin| queue_query(outer, content, origin, None).0,
         );
+        // At most three captured first proofs: two copied observer reads and
+        // one actual receiver comparison each (at most nine additional reads).
+        request_lineage_probe::source_proof::capture_queue(
+            self.app.account_home().root(),
+            &account,
+            |outer, content, origin| queue_query(outer, content, origin, None).0,
+        );
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_observe_automatic_consent_raw(

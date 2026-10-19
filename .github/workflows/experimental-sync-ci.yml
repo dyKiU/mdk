@@ -355,6 +355,9 @@ jobs:
           python3 scripts/qualify_pairing_replay_dispatch_pfp.py
           python3 -B scripts/qualify_owner64_routing_pfp.py
           python3 -B scripts/qualify_archive_partition_origin_pfp.py
+      - name: Validate closed source-proof evidence decoder
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pairing-five-devices'
+        run: python3 scripts/enrollment_proof_evidence/test-source-proof-decoder.py
       - name: Format merged Rust source remotely and export exact patch
         if: always()
         run: |

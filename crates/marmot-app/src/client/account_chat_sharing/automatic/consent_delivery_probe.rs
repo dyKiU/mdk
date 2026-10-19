@@ -762,6 +762,9 @@ pub(crate) fn proof_stage(
     if received.control != AccountSharingControl::Body(0) || received.nonce != owned_nonce {
         return;
     }
+    super::request_lineage_probe::source_proof::owned(
+        root, owned_group, received, owned_nonce, digest, stage,
+    );
     if let Some(probe) = current(root).filter(|probe| {
         probe.mode == Mode::PeerProof && probe.group == *owned_group && probe.index(root) == Some(2)
     }) {

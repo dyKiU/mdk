@@ -3252,7 +3252,8 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let proof_lineage_capture = if proof
             && !entry.recipient
-            && proof_lineage::proof_enabled(self.app.account_home().root())
+            && (proof_lineage::proof_enabled(self.app.account_home().root())
+                || request_lineage::enabled(self.app.account_home().root()))
         {
             let scope = entry.channel.scope();
             match (
@@ -3282,7 +3283,10 @@ impl AppClient {
                     };
                     let root = self.app.account_home().root().to_path_buf();
                     proof_lineage::proof_prepared(&root, &prepared);
-                    Some((root, prepared))
+                    let source_capture = request_lineage::source_proof::prepared(
+                        &root, &prepared, scope.approval_id,
+                    );
+                    Some((root, prepared, source_capture))
                 }
                 _ => None,
             }
@@ -3394,8 +3398,11 @@ impl AppClient {
             }
 
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some((root, prepared)) = &proof_lineage_capture {
+            if let Some((root, prepared, source_capture)) = &proof_lineage_capture {
                 proof_lineage::proof_acknowledged(root, prepared, &report.message_id);
+                if let Some(capture) = source_capture {
+                    request_lineage::source_proof::acknowledged(capture, &report.message_id);
+                }
             }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(capture) = &request_lineage_capture {

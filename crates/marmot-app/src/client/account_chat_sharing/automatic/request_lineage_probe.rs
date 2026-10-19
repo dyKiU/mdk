@@ -1,4 +1,5 @@
 //! Passive, opt-in exact sibling Request delivery; never an owner, hold or grant.
+pub(crate) mod source_proof;
 use super::consent_delivery_probe::{Outcome, PreparedConsent, ProofQueueFacts};
 use cgka_engine::account_chat_sharing::{
     AccountSharingControl, AccountSharingScope, ReceivedAccountSharingControl,
@@ -65,6 +66,7 @@ enum Observation {
 }
 #[derive(Default)]
 struct Progress {
+    source_proofs: source_proof::Progress,
     records: Vec<Record>,
     rolling: Vec<(usize, Observation)>,
     dropped: [usize; 6],
@@ -503,6 +505,7 @@ pub(crate) fn acknowledged(capture: &Capture, outer: &MessageId) {
     }
 }
 pub(crate) fn raw(root: &Path, id: &MessageId) {
+    source_proof::raw(root, id);
     if let Some(probe) = current(root) {
         probe.record(root, Observation::Raw(id.clone()));
     }
@@ -514,6 +517,7 @@ pub(crate) fn event(
     source: &SourceLeafProof,
     digest: [u8; 32],
 ) {
+    source_proof::event(root, group, content, source, digest);
     if let Some(probe) = current(root).filter(|probe| probe.group == *group) {
         probe.record(
             root,
@@ -534,6 +538,7 @@ pub(crate) fn authenticated(
     received: Option<&ReceivedAccountSharingControl>,
     outcome: Outcome,
 ) {
+    source_proof::authenticated(root, group, source, digest, received, outcome);
     if received.is_some_and(|received| {
         received.control != AccountSharingControl::Request
             || received.signer != source.signature_public_key
@@ -559,6 +564,7 @@ pub(crate) fn dispatched(
     digest: [u8; 32],
     outcome: Outcome,
 ) {
+    source_proof::dispatched(root, received, digest, outcome);
     if received.control == AccountSharingControl::Request
         && let Some(probe) = current(root)
     {
