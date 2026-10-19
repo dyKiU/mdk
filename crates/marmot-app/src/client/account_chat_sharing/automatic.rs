@@ -10,6 +10,8 @@ mod body_negative_probe;
 // BODY_NEGATIVE_TEST_END
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) mod consent_delivery_probe;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod request_lineage_probe;
 mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod departure_replay_probe;
@@ -363,15 +365,18 @@ impl AppClient {
         )
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_capture_sibling_request_delivery(
+        account: [u8; 32], group: crate::GroupId, roots: [&std::path::Path; 5], devices: [[u8; 32]; 5],
+    ) -> std::sync::Arc<request_lineage_probe::Probe> {
+        request_lineage_probe::arm(account, group, std::array::from_fn(|index| request_lineage_probe::Peer { root: roots[index].to_path_buf(), device: devices[index] }))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_capture_sibling_proof_queue_for_receiver(
         &self,
         receiver: &transport_nostr::AccountReceiverIdentityForTest,
     ) {
         let account = self.runtime.session().self_id();
-        consent_delivery_probe::capture_proof_queue(
-            self.app.account_home().root(),
-            &account,
-            |outer, content, origin| {
+        let mut queue_query = |outer: &cgka_traits::MessageId, content: &cgka_traits::MessageId, origin: std::time::Instant| {
                 let capture = std::time::Instant::now();
                 let elapsed = |instant: std::time::Instant| {
                     instant
@@ -403,8 +408,9 @@ impl AppClient {
                     ),
                     outer_equals_content: outer == content,
                 }
-            },
-        );
+            };
+        consent_delivery_probe::capture_proof_queue(self.app.account_home().root(), &account, &mut queue_query);
+        request_lineage_probe::capture_queue(self.app.account_home().root(), &account, &mut queue_query);
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_observe_automatic_consent_raw(
@@ -416,6 +422,7 @@ impl AppClient {
             &message.id,
             Sha256::digest(&message.payload).into(),
         );
+        request_lineage_probe::raw(self.app.account_home().root(), &message.id);
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn test_consent_outcome(

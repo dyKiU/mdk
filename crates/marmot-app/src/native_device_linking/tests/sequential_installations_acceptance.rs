@@ -229,6 +229,8 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     let mut attempted_newcomer: Option<usize> = None;
     #[cfg(feature = "test-policy-overrides")]
     let mut proof_lineage = None;
+    #[cfg(feature = "test-policy-overrides")]
+    let mut request_lineage = None;
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
@@ -237,6 +239,17 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             #[cfg(feature = "test-policy-overrides")]
             {
                 attempted_newcomer = Some(newcomer);
+            }
+            #[cfg(feature = "test-policy-overrides")]
+            if newcomer == 2 {
+                let storage = apps[0].account_storage("test").unwrap();
+                let round = storage.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
+                let request_roots: [std::path::PathBuf; 5] = std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
+                request_lineage = Some(crate::client::AppClient::test_capture_sibling_request_delivery(
+                    account.as_slice().try_into().unwrap(), round.anchor.group_id,
+                    request_roots.each_ref().map(|root| root.as_path()),
+                    std::array::from_fn(|index| installation_signer(&apps[index], &account).as_slice().try_into().unwrap()),
+                ));
             }
             #[cfg(feature = "test-policy-overrides")]
             if newcomer == 3 {
@@ -289,6 +302,11 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
         } else {
             eprintln!("enrollment-peer-proof-lineage unavailable=true");
         }
+        if let Some(probe) = &request_lineage {
+            for row in probe.summaries() {
+                eprintln!("enrollment-request-lineage attempted_newcomer={attempted_newcomer:?} summary={row:?}");
+            }
+        } else { eprintln!("enrollment-request-lineage unavailable=true"); }
         use crate::RuntimePerformanceOperation as Op;
         for (index, runtime) in runtimes.iter().enumerate() {
             let snapshot = runtime.app_performance_snapshot();
