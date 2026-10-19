@@ -225,6 +225,25 @@ impl PublicationControl {
             .map(|(_, succeeded)| (value.0, *succeeded))
     }
 
+    /// Test-only current revision snapshot of a genuine retired proposal slot.
+    /// This retains only existing cancellation counters, never a lease or grant.
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn current_retired_proposal_revision_for_test(
+        &self,
+        scope: &PurposeAttemptScope,
+    ) -> Option<crate::device_linking::settlement::SdkCancellationFence> {
+        let active = self.active.lock().unwrap_or_else(|error| error.into_inner());
+        let active = active.as_ref().filter(|active| {
+            active.identity == PublicationIdentity::Scoped(scope.clone())
+        })?;
+        let PublicationGate::Invite(gate) = &active.gate else {
+            return None;
+        };
+        active.proposal_retirement.as_ref()
+            .filter(|receipt| receipt.matches_retired(scope, gate))
+            .map(|_| gate.cancellation_fence())
+    }
+
     /// Opaque revision observation only; no SDK owner, epoch, or identity export.
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn unrevoked_invite_revision_for_test(

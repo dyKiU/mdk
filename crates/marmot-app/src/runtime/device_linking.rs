@@ -3318,6 +3318,16 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_retired_proposal_rejects_foreign_scopes_and_acknowledges_only_once() {
+        exercise_third_device_invite(ThirdDeviceCheck::UnapprovedPublicationForeignOnce).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_retired_proposal_cannot_ack_after_newer_terminal_reservation() {
+        exercise_third_device_invite(ThirdDeviceCheck::UnapprovedPublicationNewerTerminal).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_received_proposal_requires_explicit_b_owner() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalEndorsement).await;
     }
@@ -3397,6 +3407,11 @@ mod tests {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalFailedAddReceipt).await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_proposal_cancel_sql_read_error_preserves_exact_once_retry() {
+        exercise_third_device_invite(ThirdDeviceCheck::UnapprovedPublicationSqlReadError).await;
+    }
+
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ThirdDeviceCheck {
         LocalProposal,
@@ -3419,6 +3434,9 @@ mod tests {
         Settlement,
         UnapprovedPublication,
         UnapprovedPublicationCancelMaintenance,
+        UnapprovedPublicationSqlReadError,
+        UnapprovedPublicationForeignOnce,
+        UnapprovedPublicationNewerTerminal,
         ArtifactPreparation,
     }
 
@@ -3429,8 +3447,17 @@ mod tests {
         } else {
             check
         };
+        let proposal_receipt_foreign_once = check == ThirdDeviceCheck::UnapprovedPublicationForeignOnce;
+        let proposal_receipt_newer_terminal = check == ThirdDeviceCheck::UnapprovedPublicationNewerTerminal;
+        let proposal_receipt_safety = proposal_receipt_foreign_once || proposal_receipt_newer_terminal;
+        let check = if proposal_receipt_safety {
+            ThirdDeviceCheck::UnapprovedPublication
+        } else {
+            check
+        };
+        let proposal_cancel_sql_read_error = check == ThirdDeviceCheck::UnapprovedPublicationSqlReadError;
         let proposal_only_cancel_maintenance =
-            check == ThirdDeviceCheck::UnapprovedPublicationCancelMaintenance;
+            check == ThirdDeviceCheck::UnapprovedPublicationCancelMaintenance || proposal_cancel_sql_read_error;
         let check = if proposal_only_cancel_maintenance {
             ThirdDeviceCheck::UnapprovedPublication
         } else {
@@ -3738,6 +3765,161 @@ mod tests {
                     .unwrap(),
                 0
             );
+            if proposal_receipt_safety {
+                let probe = workers
+                    .a
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::CaptureProposalOnlyCancelForTest {
+                            scope: a_scope.clone(),
+                            respond,
+                        }
+                    })
+                    .await
+                    .unwrap();
+                let account = workers.a.resolve("test").unwrap();
+                {
+                    let active = workers.a.workers.lock().await;
+                    active.get(&account.account_id_hex).unwrap().publication_control.revoke(&a_scope);
+                }
+                workers.a.maintain_device_linking_at_for_test("test", std::time::Instant::now()).await.unwrap();
+                let observed = probe.lock().unwrap_or_else(|error| error.into_inner()).clone();
+                let durable_absent = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                    .unwrap().private_invite().unwrap().is_none();
+                assert!(observed.owned_proposal && observed.retired_proposal && durable_absent,
+                    "proposal receipt safety requires the actual retired proposal without an Add fact");
+                let c_storage = c.app.account_storage("test").unwrap();
+                if proposal_receipt_foreign_once {
+                    let revision = {
+                        let active = workers.a.workers.lock().await;
+                        active.get(&account.account_id_hex).unwrap().publication_control
+                            .current_retired_proposal_revision_for_test(&a_scope).unwrap()
+                    };
+                    let approver_purpose = cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                        .unwrap().purpose_key_package().unwrap();
+                    let recipient_purpose = cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                        .unwrap().purpose_key_package().unwrap();
+                    let mut foreign_account = a_scope.clone();
+                    foreign_account.account[0] ^= 1;
+                    let mut foreign_device = a_scope.clone();
+                    foreign_device.local_device[0] ^= 1;
+                    let mut foreign_generation = a_scope.clone();
+                    foreign_generation.generation = foreign_generation.generation.checked_add(1).unwrap();
+                    let mut foreign_denied = [false; 3];
+                    for (index, foreign) in [foreign_account, foreign_device, foreign_generation].iter().enumerate() {
+                        foreign_denied[index] = matches!(
+                            workers.a.cancel_device_linking("test", foreign).await,
+                            Err(ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
+                                crate::device_linking::LinkError::BindingMismatch
+                                | crate::device_linking::LinkError::StaleFlow
+                            )))
+                        );
+                    }
+                    let revision_unchanged = revision.revision_matches_for_negative_completion();
+                    drop(revision);
+                    let purposes_unchanged = cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                        .unwrap().purpose_key_package().unwrap() == approver_purpose
+                        && cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                            .unwrap().purpose_key_package().unwrap() == recipient_purpose;
+                    let exact_cancel_ok = workers.a.cancel_device_linking("test", &a_scope).await.is_ok();
+                    let repeated_cancel_stale = matches!(
+                        workers.a.cancel_device_linking("test", &a_scope).await,
+                        Err(ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
+                            crate::device_linking::LinkError::StaleFlow
+                        )))
+                    );
+                    runtime_c.shutdown_and_close().await.unwrap();
+                    crate::test_support::emit_line(format_args!("proposal-receipt-safety-close index=0"));
+                    workers.runtime_a.shutdown_and_close().await.unwrap();
+                    crate::test_support::emit_line(format_args!("proposal-receipt-safety-close index=1"));
+                    workers.runtime_b.shutdown_and_close().await.unwrap();
+                    crate::test_support::emit_line(format_args!("proposal-receipt-safety-close index=2"));
+                    relay.shutdown();
+                    crate::test_support::emit_line(format_args!(
+                        "proposal-receipt-foreign-once-control {}",
+                        serde_json::json!({
+                            "owned_proposal": observed.owned_proposal,
+                            "retired_proposal": observed.retired_proposal,
+                            "durable_absent": durable_absent,
+                            "foreign_account_denied": foreign_denied[0],
+                            "foreign_device_denied": foreign_denied[1],
+                            "foreign_generation_denied": foreign_denied[2],
+                            "revision_unchanged": revision_unchanged,
+                            "purposes_unchanged": purposes_unchanged,
+                            "exact_cancel_ok": exact_cancel_ok,
+                            "repeated_cancel_stale": repeated_cancel_stale,
+                            "runtime_closed": true,
+                        })
+                    ));
+                    assert!(foreign_denied.into_iter().all(|denied| denied)
+                        && revision_unchanged && purposes_unchanged && exact_cancel_ok && repeated_cancel_stale,
+                        "retired proposal foreign requests must preserve the original one-shot cancellation");
+                    return;
+                }
+                let newer = workers.a.reserve_device_linking_for_approver("test").await.unwrap();
+                let newer_reserved = newer.generation > a_scope.generation && newer != a_scope;
+                let newer_cancel_ok = workers.a.cancel_device_linking("test", &newer).await.is_ok();
+                let injector = private_commit_injector(&workers.a);
+                let before_terminal: (i64, i64) = injector.query_row(
+                    "SELECT generation,state FROM device_linking_attempt WHERE singleton=1",
+                    [], |row| Ok((row.get(0)?, row.get(1)?)),
+                ).unwrap();
+                let newer_terminal = newer_cancel_ok
+                    && before_terminal.0 == i64::try_from(newer.generation).unwrap()
+                    && before_terminal.1 == storage_sqlite::DeviceLinkingOutcome::Cancelled as i64;
+                let approver_purpose = cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                    .unwrap().purpose_key_package().unwrap();
+                let recipient_purpose = cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                    .unwrap().purpose_key_package().unwrap();
+                let revision = {
+                    let active = workers.a.workers.lock().await;
+                    active.get(&account.account_id_hex).unwrap().publication_control
+                        .current_retired_proposal_revision_for_test(&a_scope).unwrap()
+                };
+                let old_cancel_stale = matches!(
+                    workers.a.cancel_device_linking("test", &a_scope).await,
+                    Err(ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
+                        crate::device_linking::LinkError::StaleFlow
+                    )))
+                );
+                let newer_revision_unchanged = revision.revision_matches_for_negative_completion();
+                drop(revision);
+                let after_terminal: (i64, i64) = injector.query_row(
+                    "SELECT generation,state FROM device_linking_attempt WHERE singleton=1",
+                    [], |row| Ok((row.get(0)?, row.get(1)?)),
+                ).unwrap();
+                let newer_terminal_unchanged = before_terminal == after_terminal;
+                let purposes_unchanged = cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                    .unwrap().purpose_key_package().unwrap() == approver_purpose
+                    && cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                        .unwrap().purpose_key_package().unwrap() == recipient_purpose;
+                drop(injector);
+                runtime_c.shutdown_and_close().await.unwrap();
+                crate::test_support::emit_line(format_args!("proposal-receipt-safety-close index=0"));
+                workers.runtime_a.shutdown_and_close().await.unwrap();
+                crate::test_support::emit_line(format_args!("proposal-receipt-safety-close index=1"));
+                workers.runtime_b.shutdown_and_close().await.unwrap();
+                crate::test_support::emit_line(format_args!("proposal-receipt-safety-close index=2"));
+                relay.shutdown();
+                crate::test_support::emit_line(format_args!(
+                    "proposal-receipt-newer-terminal-control {}",
+                    serde_json::json!({
+                        "owned_proposal": observed.owned_proposal,
+                        "retired_proposal": observed.retired_proposal,
+                        "durable_absent": durable_absent,
+                        "newer_reserved": newer_reserved,
+                        "newer_terminal": newer_terminal,
+                        "old_cancel_stale": old_cancel_stale,
+                        "newer_revision_unchanged": newer_revision_unchanged,
+                        "newer_terminal_unchanged": newer_terminal_unchanged,
+                        "purposes_unchanged": purposes_unchanged,
+                        "runtime_closed": true,
+                    })
+                ));
+                assert!(newer_reserved && newer_terminal && old_cancel_stale
+                    && newer_revision_unchanged && newer_terminal_unchanged && purposes_unchanged,
+                    "retired proposal must not acknowledge or mutate a newer terminal reservation");
+                return;
+            }
             if proposal_only_cancel_maintenance {
                 let probe = workers
                     .a
@@ -3771,6 +3953,77 @@ mod tests {
                     retired,
                     "the real proposal-only original must retire before cancellation"
                 );
+                if proposal_cancel_sql_read_error {
+                    let a_anchor = cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&a_storage).unwrap().accepted_anchor().unwrap();
+                    let b_round = cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage).unwrap().read_round().unwrap();
+                    let c_purpose = cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage).unwrap().purpose_key_package().unwrap();
+                    let cap = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage).unwrap();
+                    assert!(cap.private_invite().unwrap().is_none());
+                    let injector = private_commit_injector(&workers.a);
+                    let empty: i64 = injector.query_row("SELECT count(*) FROM private_device_invite_staging", [], |row| row.get(0)).unwrap();
+                    assert_eq!(empty, 0, "the SQL read-error fixture must never drop actual invite data");
+                    let schema = |connection: &rusqlite::Connection| {
+                        let mut statement = connection.prepare("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name, tbl_name").unwrap();
+                        let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?))).unwrap();
+                        rows.collect::<Result<Vec<_>, _>>().unwrap()
+                    };
+                    let original_schema = schema(&injector);
+                    let table = original_schema.iter().filter(|row| row.0 == "table" && row.1 == "private_device_invite_staging")
+                        .map(|row| row.3.clone().expect("actual staging table has its original DDL")).collect::<Vec<_>>();
+                    assert_eq!(table.len(), 1);
+                    let attached = original_schema.iter().filter(|row| row.2 == "private_device_invite_staging" && (row.0 == "index" || row.0 == "trigger"))
+                        .filter_map(|row| row.3.clone()).collect::<Vec<_>>();
+                    // Only this isolated fixture's proven-empty table is removed. No rows,
+                    // permission, sqlite_master edits or migration-version changes are made.
+                    injector.execute_batch("DROP TABLE private_device_invite_staging;").unwrap();
+                    let first_result = workers.a.cancel_device_linking("test", &a_scope).await;
+                    let storage_error = matches!(first_result, Err(ClientLinkingError::PrivateInvite(
+                        cgka_engine::private_device_invite::PrivateInviteError::Storage(
+                            cgka_traits::private_device_invite::PrivateInviteStorageError::Storage(
+                                cgka_traits::storage::StorageError::Backend(_)
+                            )
+                        )
+                    )));
+                    let first_observed = probe.lock().unwrap_or_else(|error| error.into_inner()).clone();
+                    // Restore exact captured DDL even when the behavioral verdict was false.
+                    injector.execute_batch(&table[0]).unwrap();
+                    for sql in &attached { injector.execute_batch(sql).unwrap(); }
+                    let schema_restored = schema(&injector) == original_schema;
+                    assert!(schema_restored, "the isolated SQL fault must restore every original schema object exactly");
+                    drop(injector);
+                    let fact_still_absent = cap.private_invite().unwrap().is_none();
+                    let retry_ok = workers.a.cancel_device_linking("test", &a_scope).await.is_ok();
+                    let repeat_stale = matches!(workers.a.cancel_device_linking("test", &a_scope).await,
+                        Err(ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(crate::device_linking::LinkError::StaleFlow))));
+                    let anchors_unchanged = cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&a_storage).unwrap().accepted_anchor().unwrap() == a_anchor
+                        && cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage).unwrap().read_round().unwrap() == b_round
+                        && cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage).unwrap().purpose_key_package().unwrap() == c_purpose;
+                    let safe = storage_error && first_observed.owned_proposal && first_observed.retired_proposal
+                        && first_observed.fallback_entered && !first_observed.context_rejected
+                        && first_observed.scope_check_entered && first_observed.scope_check_passed
+                        && !first_observed.durable_query_completed && first_observed.durable_phase.is_none()
+                        && first_observed.exact_retired.is_none() && schema_restored && fact_still_absent
+                        && retry_ok && repeat_stale && anchors_unchanged;
+                    runtime_c.shutdown_and_close().await.unwrap();
+                    crate::test_support::emit_line(format_args!("proposal-sql-cancel-close index=0"));
+                    workers.runtime_a.shutdown_and_close().await.unwrap();
+                    crate::test_support::emit_line(format_args!("proposal-sql-cancel-close index=1"));
+                    workers.runtime_b.shutdown_and_close().await.unwrap();
+                    crate::test_support::emit_line(format_args!("proposal-sql-cancel-close index=2"));
+                    relay.shutdown();
+                    crate::test_support::emit_line(format_args!("proposal-sql-cancel-control {}", serde_json::json!({
+                        "storage_error": storage_error, "owned_proposal": first_observed.owned_proposal,
+                        "locally_retired": first_observed.retired_proposal, "fallback_entered": first_observed.fallback_entered,
+                        "context_rejected": first_observed.context_rejected, "scope_check_entered": first_observed.scope_check_entered,
+                        "scope_check_passed": first_observed.scope_check_passed, "durable_query_completed": first_observed.durable_query_completed,
+                        "durable_phase": first_observed.durable_phase, "exact_retired": first_observed.exact_retired,
+                        "schema_restored": schema_restored, "fact_still_absent": fact_still_absent,
+                        "retry_ok": retry_ok, "repeat_stale": repeat_stale, "anchors_unchanged": anchors_unchanged,
+                    })));
+                    assert!(safe, "a real proposal cancellation storage error must preserve exact once-only retry after schema restoration");
+                    return;
+                }
+
                 let cancel_result = workers.a.cancel_device_linking("test", &a_scope).await;
                 let cancel_ok = cancel_result.is_ok();
                 let cancel_stale = matches!(
