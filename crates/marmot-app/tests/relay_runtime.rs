@@ -2207,23 +2207,30 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     let setup_finished = attempt.is_finished();
     // Observe only after the original verdict. A later journal snapshot cannot
     // identify the setup phase at the deadline, and never changes that verdict.
-    let (journal_read_ok, journal_phase) =
-        match AccountHome::open(dir.path()).account_setup_state(&account_id) {
-            Ok(Some(state)) => (
-                true,
-                Some(match state.phase {
-                    AccountSetupPhase::LocalStateCreated => "local_state_created",
-                    AccountSetupPhase::LocalReady => "local_ready",
-                    AccountSetupPhase::BootstrapPublicationStarted => "bootstrap_publication_started",
-                    AccountSetupPhase::BootstrapPublicationConfirmed => "bootstrap_publication_confirmed",
-                    AccountSetupPhase::KeyPackagePublicationStarted => "key_package_publication_started",
-                    AccountSetupPhase::KeyPackagePublicationConfirmed => "key_package_publication_confirmed",
-                    AccountSetupPhase::CompanionReady => "companion_ready",
-                }),
-            ),
-            Ok(None) => (true, None),
-            Err(_) => (false, None),
-        };
+    let (journal_read_ok, journal_phase) = match AccountHome::open(dir.path())
+        .account_setup_state(&account_id)
+    {
+        Ok(Some(state)) => (
+            true,
+            Some(match state.phase {
+                AccountSetupPhase::LocalStateCreated => "local_state_created",
+                AccountSetupPhase::LocalReady => "local_ready",
+                AccountSetupPhase::BootstrapPublicationStarted => "bootstrap_publication_started",
+                AccountSetupPhase::BootstrapPublicationConfirmed => {
+                    "bootstrap_publication_confirmed"
+                }
+                AccountSetupPhase::KeyPackagePublicationStarted => {
+                    "key_package_publication_started"
+                }
+                AccountSetupPhase::KeyPackagePublicationConfirmed => {
+                    "key_package_publication_confirmed"
+                }
+                AccountSetupPhase::CompanionReady => "companion_ready",
+            }),
+        ),
+        Ok(None) => (true, None),
+        Err(_) => (false, None),
+    };
     eprintln!(
         "key-package-cancel-control {}",
         serde_json::json!({
