@@ -399,10 +399,12 @@ async fn runtime_gate_original_expiry_revokes_a_held_lease_and_cancel_is_serial(
     let gate = RuntimeWelcomeGate::with_clock(clock.clone());
     gate.arm(token).unwrap();
     let mut lease = gate.begin_join(&expected).unwrap();
+    assert!(gate.has_retained_token_for_negative_completion(), "busy real join lease must deny negative completion");
     assert!(
         gate.cancel().is_err(),
         "busy cancellation must not mutate the lease"
     );
+    assert!(gate.has_retained_token_for_negative_completion());
     lease
         .check_transport_context(&transport_context(&context))
         .unwrap();

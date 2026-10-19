@@ -288,6 +288,18 @@ impl<S: StorageProvider> Engine<S> {
     }
 }
 impl<S: StorageProvider> Engine<S> {
+    /// Test-only observation of an already-installed real original admission.
+    /// This does not select, revoke, extend, or create any admission.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn owned_settlement_guard_is_current_and_live_for_test(
+        &self, group: &GroupId, expected: &Arc<dyn TrustedPrivateSettlementGuard>,
+    ) -> Result<bool, EngineError> {
+        let admission = self.settlement_admission.lock().map_err(|_| unavailable())?.clone();
+        Ok(admission.is_some_and(|admission|
+            admission.anchor.group_id == *group && admission.is_live()
+                && admission.guard.as_ref().is_some_and(|guard| Arc::ptr_eq(guard, expected))))
+    }
+
     /// Negative-only cancellation of the exact original memory guard. A different
     /// admission, even in the same group, must remain untouched.
     pub fn cancel_owned_private_roster_settlement(
