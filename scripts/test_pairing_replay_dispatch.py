@@ -115,7 +115,18 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 '''))
                 cargo.chmod(0o700)
                 sleep = root / "sleep"
-                sleep.write_text("#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$PAIRING_DELAY\"\n")
+                sleep.write_text("#!" + sys.executable + "\n" + textwrap.dedent(r'''
+                    import os, sys, time
+                    from pathlib import Path
+                    Path(os.environ['PAIRING_DELAY']).write_text(sys.argv[1] + '\n')
+                    Path(os.environ['PAIRING_MOCK_SLEEP_READY']).touch()
+                    command = Path(os.environ['PAIRING_COMMAND'])
+                    deadline = time.monotonic() + 5
+                    while not (command.is_file() and command.read_bytes().endswith(b'\n')):
+                        if time.monotonic() >= deadline:
+                            raise SystemExit(98)
+                        time.sleep(0.001)
+                '''))
                 sleep.chmod(0o700)
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
