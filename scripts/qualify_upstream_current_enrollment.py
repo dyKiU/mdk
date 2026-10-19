@@ -8,11 +8,11 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='13dcc02eb1abeda0fc7e04a4d059429bbe3e1062'
+BASE='4c0810c6f512eb8df672d7b4340f823a5a470eaf'
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
 APPROVED_BASE_TEST_DELTAS={'crates/marmot-app/src/native_device_linking/tests.rs': {'before': 'b50bb5dc83643286212e4edee84b91e0cf0ae3a210818bf07cf39617833a31a4', 'after': 'ef450d4a6e6de0d2989cce96ad87f550529282e433590629270bae25e0000168', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs': {'before': '1eeb59aff6dea7791d9970c68ef1227da9de678d05664fda4fc238a50c25e7e0', 'after': 'a6da36ab13def9b3c443bc3a55facd536fede8c3cdea4875d32d2888542d47ec', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs': {'before': '5a89b3cc3e70cb608b78546c993e332f30feb6ab59576195e6656323f161582c', 'after': '8706544aa426d6a945e880089c95d5a5ab6b4ef3d55ef9dbf7dc2d2487e2c1c5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before': 'a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca', 'after': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'mode': '100644'}}
-WORKFLOW_SHA='59ca1a6b8c4e10dfb96f423c30a140822f5f3fa561e94ca6c0081eaa1861bd01'
+WORKFLOW_SHA='f5a381a71ea33dce6f4bfc4f295cea6e19880d17119691b93bc192925ac52aa9'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -405,6 +405,65 @@ def approval_controls():
         ensure(bind_fifth_approvals(observed_approvals(raw),facts,sample)['fixture_installations_by_index'] is None,'bool-not-fifth-count')
     return {'positive':10,'negative':len(invalid)+len(bad_rows)+2,'runtime_bodies':0,'raw_private_export':False}
 
+# Exact already-printed Option<Vec<SiblingMaintenanceSnapshot>> only.
+# Vector iteration order is not a source-peer identity or transport FIFO.
+def child_snapshots(value):
+    ensure(len(value.encode())<=32768,'bounded-child-vector-Debug-value')
+    if value=='None':return None
+    failure='|'.join(MAINTENANCE_FAILURES);stage='|'.join(PUBLICATION_STAGES)
+    item=r'\('+NUM+', '+NUM+', '+NUM+r', (?:None|Some\((?:'+failure+r')\)), (?:None|Some\((?:'+stage+r')\))\)'
+    ensure(re.fullmatch(r'Some\(\[(?:'+item+r'(?:, '+item+r')*)?\]\)',value) is not None,'exact-optional-vector-of-five-field-tuples')
+    inner=value[6:-2];tuples=list(re.finditer(item,inner))
+    ensure(len(tuples)<=128,'maximum-128-child-snapshots')
+    return [{'vector_index':index,**approval_snapshot('Some('+match[0]+')')} for index,match in enumerate(tuples)]
+
+def observed_children(raw):
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control side=' in line and ' child_channels=' in line]
+    ensure(len(lines) in (0,2),'zero-or-exactly-two-child-vector-records')
+    rows=[]
+    for index,side in enumerate(('left','right')):
+        snapshots=None
+        if lines:
+            prefix='automatic-enrollment-control side='+side+' child_channels='
+            ensure(lines[index].startswith(prefix) and len(lines[index].encode())<=32896,'ordered-bounded-child-vector-record')
+            snapshots=child_snapshots(lines[index][len(prefix):])
+        rows.append({'side':side,'record_present':bool(lines),'snapshots':snapshots,'snapshot_count':None if snapshots is None else len(snapshots)})
+    return {'schema_known':True,'available':bool(lines),'rows':rows,
+        'vector_order_is_not_peer_identity_or_transport_FIFO':True,
+        'peer_labels_available':False,'last_periodic_masks_not_current_state':True,
+        'publication_stage_not_result_success':True,'independent_from_side_aggregate_and_other_getters':True,
+        'after_timeout_not_before_deadline_proof':True,'raw_State_or_Channel_Debug_exported':False}
+
+def child_controls():
+    item='(11, 4, 0, None, Some(AfterRelayPublication))'
+    vector=lambda values:'Some(['+', '.join(values)+'])'
+    ensure(child_snapshots('None') is None,'child-outer-None-unknown-positive')
+    ensure(child_snapshots('Some([])')==[],'actual-empty-child-vector-positive')
+    ensure(child_snapshots(vector([item]))[0]['last_periodic_mask']==11,'one-actual-child-tuple-positive')
+    ensure([v['vector_index'] for v in child_snapshots(vector([item]*3))]==[0,1,2],'three-unlabeled-child-tuples-positive')
+    maximum='(255, 18446744073709551615, 18446744073709551615, Some(PrivateInvite), Some(BeforeRelayPublication))'
+    cap=vector([maximum]*128)
+    ensure(len(child_snapshots(cap))==128 and len(cap.encode())<=32768,'128-maxwidth-child-tuples-positive')
+    pair='automatic-enrollment-control side=left child_channels=Some([])\nautomatic-enrollment-control side=right child_channels='+vector([item]*3)
+    result=observed_children(pair)
+    ensure(result['rows'][0]['snapshot_count']==0 and result['rows'][1]['snapshot_count']==3 and result['peer_labels_available'] is False,'ordered-two-source-side-vectors-positive')
+    unavailable=observed_children(pair.replace('Some([])','None'))
+    ensure(unavailable['rows'][0]['snapshot_count'] is None and unavailable['rows'][1]['snapshot_count']==3,'None-side-keeps-other-side-positive')
+    ensure(observed_children('')['available'] is False,'absent-records-unknown-positive')
+    ensure('PRIVATE' not in json.dumps(result) and not result['peer_labels_available'],'closed-unlabeled-child-output-positive')
+    bad_values=[vector([maximum]*129),vector([item.replace('11','256')]),vector([item.replace('4, 0','0, 1')]),vector([item.replace('4, 0','18446744073709551616, 0')]),vector([item.replace('AfterRelayPublication','PRIVATE')]),vector([item.replace('None','Some(PRIVATE)')]),vector(['None']),vector(['Some('+item+')']),vector([item])+', PRIVATE',vector([item])+')',vector([item]).replace(', None',', None, None'),vector([item]).replace('11','-1'),vector([item]).replace('11','true'),'Some([PRIVATE])','Some([[11, 4, 0, None, None]])','Some(['+item+',])','Some(['+item+' '+item+'])']
+    for value in bad_values:
+        try:child_snapshots(value);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'private-malformed-overbound-child-vector-rejected')
+    bad_rows=[pair+'\n'+pair.splitlines()[0],pair.splitlines()[0],pair.replace('side=right','side=left'),pair.replace('side=right','side=PRIVATE'),pair.replace(' child_channels=',' scope=PRIVATE child_channels='),pair+' PRIVATE','\n'.join(reversed(pair.splitlines()))]
+    for raw in bad_rows:
+        try:observed_children(raw);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'foreign-duplicate-partial-trailing-child-record-rejected')
+    ensure(child_snapshots('None') is None and child_snapshots('Some([])') is not None,'outerNone-not-empty-vector')
+    return {'positive':10,'negative':len(bad_values)+len(bad_rows),'runtime_bodies':0,'raw_private_export':False,'max_vector_entries':128,'max_value_bytes':32768}
+
 def finite_observations(raw,name,tracked,include_approvals=False):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     prefix=r'(?m)^test '+re.escape(name)+r' \.\.\. '
@@ -417,6 +476,8 @@ def finite_observations(raw,name,tracked,include_approvals=False):
     if include_approvals:
         try:result['existing_approvals']=observed_approvals(text)
         except (ValueError,TypeError,OverflowError):result['existing_approvals']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
+        try:result['recipient_child_snapshots']=observed_children(text)
+        except (ValueError,TypeError,OverflowError):result['recipient_child_snapshots']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True,'peer_labels_available':False}
     return result
 
 def observation_controls():
@@ -499,7 +560,7 @@ def parser_controls(mode):
         labels=OBSERVATION_FIVE_LABELS if mode=='observations-five' else OBSERVATION_LABELS
         ensure(tuple(row[0] for row in names)==labels,'fixed-original-observation-order')
         supplemental_controls=observation_controls()
-        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls()}
+        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls()}
     ensure(len(names)==required_count(mode),'exact-selected-case-count')
     if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
