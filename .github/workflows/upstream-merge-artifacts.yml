@@ -235,6 +235,8 @@ jobs:
           shared-key: upstream-merge-artifact-repair
           cache-on-failure: true
       - name: Existing read-only capacity preflight and actual tool versions
+        env:
+          CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Canonical source regeneration only' --output "$RUNNER_TEMP/source-regeneration-capacity.json"
           python3 - <<'PY_TOOLS'
@@ -251,14 +253,20 @@ jobs:
           PY_TOOLS
       - name: Generate exact formatting patch with the repository formatter
         id: formatting
+        env:
+          CARGO_INCREMENTAL: '1'
         run: |
           cargo fmt --all
           git diff --binary -- '*.rs' > "$RUNNER_TEMP/source-regeneration-evidence/formatting.patch"
       - name: Canonical C header recipe (macro expansion only; no test body)
         id: header
+        env:
+          CARGO_INCREMENTAL: '1'
         run: just c-header
       - name: Canonical binding signature/source-anchor update (authored prose preserved)
         id: references
+        env:
+          CARGO_INCREMENTAL: '1'
         run: just binding-docs-update
       - name: Export only exact patches and compact immutable-source receipt
         if: always() && steps.admit.outcome == 'success'
