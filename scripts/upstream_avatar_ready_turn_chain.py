@@ -55,6 +55,7 @@ FAILURE_CATEGORIES = frozenset({
 COMPILER_SOURCES = frozenset({
     SOURCE, TEST,
     'crates/marmot-app/src/client/sync/explicit_ready_turn_tests.rs',
+    'crates/marmot-app/src/runtime/account_worker/tests/secondary_retry_scheduler_tests.rs',
     'crates/marmot-app/src/client/device_linking.rs',
     'crates/marmot-app/src/device_linking/settlement.rs',
     'crates/marmot-app/src/device_linking/invite_gate.rs',

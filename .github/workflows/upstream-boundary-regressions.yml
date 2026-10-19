@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [publication-preflight, publication-controls, storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-stack-regression, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind, secondary-deferred, secondary-buffered, cancel-maintenance-red, cancel-maintenance-controls, cancel-maintenance-pfp, cancel-maintenance-newer-owner, cancel-maintenance-slot-controls, cancel-maintenance-guard-control, cancel-maintenance-real-guard-pfp, avatar-ready-turn-pfp, explicit-ready-selection-pfp, explicit-ready-tail-controls, cancel-late-first-red, cancel-late-first-controls, cancel-late-first-pfp, cancel-late-first-slot-controls, cancel-invite-cas-controls, cancel-invite-cleanup-control]
+        options: [publication-preflight, publication-controls, storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-stack-regression, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind, secondary-deferred, secondary-buffered, secondary-cutoff-pfp, secondary-cutoff-deferred-pfp, secondary-cutoff-buffered-pfp, cancel-maintenance-red, cancel-maintenance-controls, cancel-maintenance-pfp, cancel-maintenance-newer-owner, cancel-maintenance-slot-controls, cancel-maintenance-guard-control, cancel-maintenance-real-guard-pfp, avatar-ready-turn-pfp, explicit-ready-selection-pfp, explicit-ready-tail-controls, cancel-late-first-red, cancel-late-first-controls, cancel-late-first-pfp, cancel-late-first-slot-controls, cancel-invite-cas-controls, cancel-invite-cleanup-control]
         default: all
       secondary_scheduler_stage:
         description: Explicit expected baseline RED or fixed-source omission/restoration
@@ -498,6 +498,20 @@ jobs:
           path: ${{ runner.temp }}/cargo-lib-wrapper-metadata.json
           if-no-files-found: error
           retention-days: 7
+      - name: Exact post-capture cutoff metadata boundaries only
+        if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["secondary-cutoff-pfp","secondary-cutoff-deferred-pfp","secondary-cutoff-buffered-pfp"]'), inputs.case)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -m py_compile scripts/upstream_secondary_cutoff.py
+          python3 scripts/upstream_secondary_cutoff.py --case deferred --cohort default --preflight --source "$UPSTREAM_EXTRACTION_COHORT_BASELINE" --output "$RUNNER_TEMP/secondary-cutoff-metadata.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && github.event_name == 'workflow_dispatch' && contains(fromJSON('["secondary-cutoff-pfp","secondary-cutoff-deferred-pfp","secondary-cutoff-buffered-pfp"]'), inputs.case)
+        with:
+          name: secondary-cutoff-metadata
+          path: ${{ runner.temp }}/secondary-cutoff-metadata.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify historical reporter regressions and restored controls
         run: |
           python3 - <<'PY'
@@ -672,9 +686,68 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  secondary-cutoff-pfp:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["secondary-cutoff-pfp","secondary-cutoff-deferred-pfp","secondary-cutoff-buffered-pfp"]'), inputs.case) && startsWith(github.ref_name, 'ci/upstream-develop-dy-')
+    needs: cohort-preflight
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cutoff_case: ${{ fromJSON(inputs.case == 'secondary-cutoff-deferred-pfp' && '["deferred"]' || inputs.case == 'secondary-cutoff-buffered-pfp' && '["buffered"]' || '["deferred","buffered"]') }}
+        cohort: [default, experimental]
+    runs-on: ubuntu-latest
+    # Three inventory + three body captures, each bounded to30 minutes, plus setup.
+    timeout-minutes: 240
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+      RUST_MIN_STACK: '4194304'
+      SOURCE_SHA: ${{ inputs.extraction_cohort_baseline }}
+      CUTOFF_CASE: ${{ matrix.cutoff_case }}
+      CUTOFF_COHORT: ${{ matrix.cohort }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact repository toolchain
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: explicit-ready-selection-${{ matrix.cohort }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+      - name: Read-only capacity guard
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label secondary-cutoff-pfp
+          --output "$RUNNER_TEMP/secondary-cutoff-capacity.json"
+      - name: Real post-capture arrivals, sole fence omission, exact restored control
+        run: >-
+          python3 scripts/upstream_secondary_cutoff.py --case "$CUTOFF_CASE"
+          --cohort "$CUTOFF_COHORT" --source "$SOURCE_SHA" --output "$RUNNER_TEMP/secondary-cutoff-result.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: secondary-cutoff-${{ matrix.cutoff_case }}-${{ matrix.cohort }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/secondary-cutoff-capacity.json
+            ${{ runner.temp }}/secondary-cutoff-result.json
+          if-no-files-found: error
+          retention-days: 7
+
   mutation:
     needs: cohort-preflight
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'publication-preflight' && inputs.case != 'avatar-ready-turn-pfp' && inputs.case != 'explicit-ready-selection-pfp' && inputs.case != 'explicit-ready-tail-controls' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'publication-preflight' && inputs.case != 'avatar-ready-turn-pfp' && inputs.case != 'explicit-ready-selection-pfp' && inputs.case != 'explicit-ready-tail-controls' && !contains(fromJSON('["secondary-cutoff-pfp","secondary-cutoff-deferred-pfp","secondary-cutoff-buffered-pfp"]'), inputs.case) && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
     runs-on: ubuntu-latest
     # Three bounded 30-minute command captures plus setup and exact restoration.
     timeout-minutes: 105

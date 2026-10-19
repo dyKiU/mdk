@@ -2619,7 +2619,21 @@ async fn run_app_runtime_account_worker(
                         #[cfg(test)]
                         tests::secondary_retry_scheduler_tests::pass_tail(&account_id_hex).await;
                         if local_submission_service_owed && local_submission_due {
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            let cutoff_before = tests::secondary_retry_scheduler_tests::before_prefix_capture(
+                                &account_id_hex, &pending,
+                            );
                             capture_local_submission_prefix(&mut pending, &mut commands);
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            if let Some(cutoff_before) = cutoff_before {
+                                let after_archives = pending.iter().filter(|command|
+                                    matches!(command, AccountWorkerCommand::SetGroupArchived { .. })).count();
+                                tests::secondary_retry_scheduler_tests::after_prefix_capture(
+                                    &account_id_hex, cutoff_before, after_archives,
+                                    local_submission_service_owed && local_submission_due
+                                        && TokioInstant::now() >= local_submission_retry_at,
+                                ).await;
+                            }
                         }
 
                         if let Some(phase) = phase {
@@ -6308,6 +6322,10 @@ fn account_worker_command_future<'a>(
             // the archive-specific trigger. Keep this worker handler
             // limited to mutating the authoritative in-memory state.
             let result = client.set_group_archived(&group_id, archived);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            tests::secondary_retry_scheduler_tests::record_cutoff_archive_result(
+                account_id_hex, archived, result.is_ok(),
+            );
             let _ = respond_diagnosed(shared, storage_permit.as_ref(), respond, result);
             true
         }),
