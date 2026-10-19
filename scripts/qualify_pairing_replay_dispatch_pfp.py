@@ -13,7 +13,7 @@ import qualify_upstream_storage_boundary as bounded
 
 SELF='scripts/qualify_pairing_replay_dispatch_pfp.py'
 TEST='scripts/test_pairing_replay_dispatch.py'
-TEST_SHA='cb062fbd91bf190378bdbae1198be93b380ec9492cd4fe67915436322abf842d'  # Exact controlled-mock four-method union; root aliases and fifteen routes retained.
+TEST_SHA='db18d9604254ffb97a89762b242e69a1a8079943ccb7474251d40aa94f7c31c8'  # Exact controlled-mock four-method union; root aliases and fifteen routes retained.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 OUT=Path('pairing-dispatch-pfp-evidence')
 NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',

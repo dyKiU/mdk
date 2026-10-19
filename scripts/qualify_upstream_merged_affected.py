@@ -13,9 +13,12 @@ import time
 
 import qualify_upstream_storage_boundary as bounded
 import upstream_completion_ci as cohort
+import qualify_upstream_pure_native5 as native
+import qualify_upstream_current_enrollment as enrollment
+import qualify_upstream_storage_app_handles as body_counts
 
-BASE = '8b41d8352ec1a1bc095f277f91c0d9f37ff381d0'
-BASE_TREE = '9a6365ab1f88e1e2d0cfe490c21210590ce84390'
+BASE = '4938026f686dc27a2a623ffafe4c882224aacea8'
+BASE_TREE = '2b4310d0598b41ea9b0bf037b4ed39ced5b5ed2f'
 SELF = 'scripts/qualify_upstream_merged_affected.py'
 WORKFLOW = '.github/workflows/merged-affected-controls.yml'
 OWNED = {SELF, WORKFLOW}
@@ -52,6 +55,7 @@ GROUPS = {
         'tests_file': 'crates/marmot-app/src/client/sync/queued_outbound_schedule_tests.rs',
         'names': ['client::sync::queued_outbound_schedule_tests::' + name for name in [
             'stale_own_leave_after_input_only_convergence_keeps_worker_wake',
+            'inline_epoch_change_keeps_stale_own_leave_worker_wake',
             'restarted_safe_queued_send_does_not_inherit_secondary_retry_cutoff',
             'restarted_below_quorum_send_keeps_required_retry_cutoff',
             'publication_barrier_rejects_unhydrated_inventory',
@@ -62,6 +66,15 @@ GROUPS = {
         'replacement': '|| (self.stale_own_leave_needs_wake(group_id)? && false)',
         'scope': 'fn convergence_schedule_state(',
         'assertion': 'a stale durable leave must retain a worker wake after input-only convergence'},
+}
+BASELINE_GROUPS = ('activity', 'held-scope', 'stale-leave')
+GROUPS['core-inline-wake'] = {
+    'bin': 'marmot_app', 'file': 'crates/cgka-engine/src/distributed_convergence.rs',
+    'tests_file': GROUPS['stale-leave']['tests_file'],
+    'names': list(GROUPS['stale-leave']['names']), 'target': 1,
+    'anchor': '                    self.schedule_pending_convergence_group(group_id);',
+    'replacement': '', 'scope': 'fn emit_convergence_events(',
+    'assertion': 'inline epoch-change effects must notify the worker about the stale original leave',
 }
 COMPILE_TIMEOUT = 1800
 BODY_TIMEOUT = 300
@@ -177,6 +190,16 @@ def expected_site(group):
     next_fn = re.search(r'\n(?:async\s+)?fn\s+\w+\s*\(', text[match[0].end():])
     end = match[0].end() + next_fn.start() if next_fn else len(text)
     part = text[start:end]
+    if group in ['stale-leave', 'core-inline-wake']:
+        # The selected original test owns its panic; only its source assertion moved.
+        argument = 'true' if group == 'core-inline-wake' else 'false'
+        ensure(re.match(r'async fn ' + re.escape(short) + r'\(\)\s*\{\s*assert_stale_own_leave_wake\(' + argument + r'\)\.await;\s*\}', part) is not None, 'exact-original-stale-wrapper')
+        helpers = list(re.finditer(r'(?m)^async fn assert_stale_own_leave_wake\(require_inline_ingest_wake: bool\) \{', text))
+        ensure(len(helpers) == 1, 'sole-stale-shared-helper')
+        start = helpers[0].start()
+        next_helper_fn = re.search(r'\n(?:async\s+)?fn\s+\w+\s*\(', text[helpers[0].end():])
+        end = helpers[0].end() + next_helper_fn.start() if next_helper_fn else len(text)
+        part = text[start:end]
     ensure(part.count(item['assertion']) == 1, 'sole-test-oracle')
     mark = part.index(item['assertion'])
     assertions = list(re.finditer(r'\bassert(?:_eq|_ne)?!\s*\(', part[:mark + len(item['assertion'])]))
@@ -192,6 +215,11 @@ def mutation_bytes(group, admitted_raw=None):
     start = text.index(item['scope'])
     # The exact anchor must be unique AFTER this function/branch boundary.
     tail = text[start:]
+    if group == 'core-inline-wake':
+        end = text.index('\n    pub(crate) fn application_replay_events(', start)
+        tail = text[start:end]
+        branch = list(re.finditer(r'if request\.last_proposed_epoch != Some\(selected_tip\) \{([^{}]*)\}', tail))
+        ensure(len(branch) == 1 and branch[0][1].count(item['anchor']) == 1, 'exact-core-stale-epoch-wake-branch')
     ensure(tail.count(item['anchor']) == 1, 'single-mutation-anchor')
     offset = start + tail.index(item['anchor'])
     changed = (text[:offset] + item['replacement'] + text[offset + len(item['anchor']):]).encode()
@@ -468,7 +496,106 @@ def capture_record(command, timeout, row, save, limit):
         save()
 
 
-def compile_all(report, inventory, mutant, save, state):
+def compiler_diagnostics(events, inventory, read_source=None):
+    """Only closed Rust codes and source-validated primary coordinates leave memory."""
+    if read_source is None:
+        read_source = lambda name: OwnedLeaf(Path(name).absolute()).read_identity(include_bytes=True)[1]
+    result = {'records': [], 'error_events': 0, 'unknown_code_count': 0,
+        'unknown_primary_count': 0, 'errors_without_known_primary': 0,
+        'truncated_error_events': 0, 'truncated_primary_count': 0,
+        'messages_labels_rendered_source_exported': False, 'maximum_records': 64, 'maximum_primary_sites': 64}
+    admitted_sites = 0
+    for event in events:
+        if not isinstance(event, dict) or event.get('reason') != 'compiler-message':
+            continue
+        message = event.get('message')
+        if not isinstance(message, dict) or message.get('level') != 'error':
+            continue
+        result['error_events'] += 1
+        if len(result['records']) == 64:
+            result['truncated_error_events'] += 1
+            continue
+        raw_code = message.get('code')
+        code = raw_code.get('code') if isinstance(raw_code, dict) else None
+        if raw_code is not None and (not isinstance(code, str) or re.fullmatch(r'E[0-9]{4}', code) is None):
+            code = None
+            result['unknown_code_count'] += 1
+        record = {'code': code, 'primary': []}
+        spans = message.get('spans')
+        if not isinstance(spans, list):
+            result['unknown_primary_count'] += 1
+            spans = []
+        for span in spans:
+            if not isinstance(span, dict) or span.get('is_primary') is not True:
+                continue
+            file = span.get('file_name')
+            line, column = span.get('line_start'), span.get('column_start')
+            if (not isinstance(file, str) or file not in inventory or not file.endswith('.rs')
+                    or type(line) is not int or type(column) is not int or line <= 0 or column <= 0):
+                result['unknown_primary_count'] += 1
+                continue
+            if admitted_sites == 64:
+                result['truncated_primary_count'] += 1
+                continue
+            try:
+                raw = read_source(file)
+                blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+                lines = raw.splitlines()
+                if blob != inventory[file]['blob'] or line > len(lines) or column > len(lines[line - 1]) + 1:
+                    result['unknown_primary_count'] += 1
+                    continue
+            except Exception:
+                result['unknown_primary_count'] += 1
+                continue
+            record['primary'].append({'file': file, 'line': line, 'column': column})
+            admitted_sites += 1
+        if not record['primary']:
+            result['errors_without_known_primary'] += 1
+        result['records'].append(record)
+    return result
+
+
+def compiler_diagnostic_controls():
+    file, raw = 'crates/cgka-engine/src/review_fixture.rs', b'fn fixed() {}\n'
+    blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+    inventory = {file: {'mode': '100644', 'blob': blob}}
+    span = {'is_primary': True, 'file_name': file, 'line_start': 1, 'column_start': 1}
+    def event(code, primary):
+        return {'reason': 'compiler-message', 'message': {'level': 'error', 'code': code,
+            'spans': primary, 'message': 'PRIVATE', 'rendered': 'PRIVATE'}}
+    valid_event = event({'code': 'E0308', 'explanation': 'PRIVATE'}, [span])
+    read = lambda name: raw
+    positive = negative = 0
+    for code in [{'code': 'E0308'}, None]:
+        value = compiler_diagnostics([event(code, [span])], inventory, read)
+        ensure(value['records'] == [{'code': code['code'] if code else None, 'primary': [{'file': file, 'line': 1, 'column': 1}]}], 'compiler-diagnostic-positive')
+        ensure('PRIVATE' not in json.dumps(value), 'compiler-no-raw-message')
+        positive += 1
+    for replacement in [dict(span, file_name='../outside.rs'), dict(span, file_name='/outside.rs'),
+            dict(span, line_start=0), dict(span, column_start=0), dict(span, line_start=True),
+            dict(span, column_start=True), dict(span, line_start=2), dict(span, column_start=1000)]:
+        value = compiler_diagnostics([event(None, [replacement])], inventory, read)
+        ensure(value['records'][0]['primary'] == [] and value['unknown_primary_count'] == 1, 'compiler-primary-negative')
+        negative += 1
+    for code in [{'code': 'PRIVATE'}, {'code': 'E12345'}, {'code': 1234}, 'PRIVATE']:
+        value = compiler_diagnostics([event(code, [span])], inventory, read)
+        ensure(value['records'][0]['code'] is None and value['unknown_code_count'] == 1 and 'PRIVATE' not in json.dumps(value), 'compiler-code-negative')
+        negative += 1
+    value = compiler_diagnostics([valid_event], inventory, lambda name: b'different')
+    ensure(value['unknown_primary_count'] == 1 and value['records'][0]['primary'] == [], 'compiler-source-drift-negative')
+    negative += 1
+    value = compiler_diagnostics([valid_event] * 65, inventory, read)
+    ensure(len(value['records']) == 64 and value['truncated_error_events'] == 1, 'compiler-error-cap-negative')
+    negative += 1
+    value = compiler_diagnostics([event(None, [span] * 65)], inventory, read)
+    ensure(len(value['records'][0]['primary']) == 64 and value['truncated_primary_count'] == 1, 'compiler-primary-cap-negative')
+    negative += 1
+    ensure(compiler_diagnostics([{'reason': 'compiler-message', 'message': {'level': 'warning', 'rendered': 'PRIVATE'}}], inventory, read)['records'] == [], 'compiler-nonerror-excluded')
+    positive += 1
+    return {'positive': positive, 'negative': negative, 'actual_rust_bodies': 0}
+
+
+def compile_all(report, inventory, mutant, save, state, extra_app_names=()):
     source_guard(inventory, mutant)
     # No package-only rebuild shortcut: exactly the same full workspace cohort.
     command = ['cargo', 'test', '--locked', '--workspace', '--no-run', '--message-format=json', '--features', FEATURES]
@@ -481,8 +608,8 @@ def compile_all(report, inventory, mutant, save, state):
     ensure(row['capacity_free_bytes_before_compile'] >= 48 * 1024 ** 3, 'per-compile-capacity')
     # Cargo may legitimately overwrite any prior test path. Retire that snapshot now.
     state['latest'] = None
-    for item in GROUPS.values():
-        Path(item['tests_file']).touch()
+    for path in dict.fromkeys(item['tests_file'] for item in GROUPS.values()):
+        Path(path).touch()
     try:
         code, raw, seconds = capture_record(command, COMPILE_TIMEOUT, row, save, 32 * 1024 * 1024)
         row.update(exit_code=code, seconds=seconds)
@@ -494,7 +621,13 @@ def compile_all(report, inventory, mutant, save, state):
                 except json.JSONDecodeError:
                     malformed += 1
         row['compiler_error_count'] = sum(event.get('reason') == 'compiler-message' and event.get('message', {}).get('level') == 'error' for event in events)
+        diagnostic_inventory = dict(inventory)
+        if mutant:
+            name, oid = mutant
+            diagnostic_inventory[name] = dict(diagnostic_inventory[name], blob=oid)
+        row['compiler_diagnostics'] = compiler_diagnostics(events, diagnostic_inventory)
         row['malformed_json_count'] = malformed
+        save()
         artifacts = [event for event in events if event.get('reason') == 'compiler-artifact']
         manifest = []
         for event in artifacts:
@@ -542,7 +675,9 @@ def compile_all(report, inventory, mutant, save, state):
             try:
                 list_code, listing, _ = capture_record([str(binary), '--list', '--format', 'terse'], 60, listing_row, save, 4 * 1024 * 1024)
                 available = re.findall(r'^([A-Za-z0-9_:]+): test$', listing, re.M)
-                required = [name for group in GROUPS.values() if group['bin'] == bin_name for name in group['names']]
+                required = list(dict.fromkeys(name for group in GROUPS.values() if group['bin'] == bin_name for name in group['names']))
+                if bin_name == 'marmot_app':
+                    required = list(dict.fromkeys(required + list(extra_app_names)))
                 listing_row['exact_inventory'] = list_code == 0 and all(available.count(name) == 1 for name in required)
                 row['bins'][bin_name]['selected_test_inventory'] = required
                 save()
@@ -572,6 +707,8 @@ def compile_all(report, inventory, mutant, save, state):
 
 
 def run_cases(report, label, groups, inventory, save, state, mutant=None, only_target=False):
+    selected = [name for group in groups for name in ([GROUPS[group]['names'][GROUPS[group]['target']]] if only_target else GROUPS[group]['names'])]
+    ensure(len(selected) == len(set(selected)), 'no-duplicate-case-executions')
     phase = {'label': label, 'rows': [], 'all_green': False}
     report.setdefault('phases', []).append(phase)
     save()
@@ -614,6 +751,165 @@ def run_cases(report, label, groups, inventory, save, state, mutant=None, only_t
         'full_artifact_manifest_sha256': compiled['full_artifact_manifest_sha256']})
     save()
     return phase
+
+
+RECIPIENT_RUNTIME_PREFIX = 'enrollment-runtime-timing recipient_after_failed_attempt='
+RECIPIENT_RUNTIME_OPS = ['WorkerReceive', 'Ingest', 'IngestEngine', 'IngestEffectPublish', 'ProjectionCheckpoint']
+RECIPIENT_RUNTIME_FIELDS = ['started', 'completed', 'in_flight', 'completed_wall_sum_ms', 'oldest_tracked_in_flight_ms', 'untracked_in_flight']
+
+
+def recipient_runtime_rows(raw, name):
+    result = {'available': None, 'schema_known': True, 'rows': None,
+        'operations': RECIPIENT_RUNTIME_OPS, 'fields': RECIPIENT_RUNTIME_FIELDS,
+        'scope': 'actual fifth runtime cumulative; one account in fixture',
+        'independent_nonatomic_snapshot': True, 'completed_wall_not_cpu': True,
+        'active_tracking_may_be_incomplete': True, 'absence_or_zero_not_no_work_proof': True,
+        'tracked_age_lower_bound_for_oldest_all_active': True, 'counts_not_attributable_to_this_join': True,
+        'captured_after_failed_attempt_before_cleanup': True, 'no_before_deadline_or_cause_claim': True}
+    prefix = r'(?m)^test ' + re.escape(name) + r' \.\.\. '
+    if len(re.findall(prefix, raw)) > 1:
+        return dict(result, schema_known=False, closed_schema_rejected=True)
+    text = re.sub(prefix, lambda hit: hit[0] + '\n', raw, count=1)
+    lines = [line for line in text.splitlines() if 'recipient_after_failed_attempt' in line]
+    if not lines:
+        return result
+    if len(lines) != 1 or len(lines[0].encode()) > 1024:
+        return dict(result, schema_known=False, closed_schema_rejected=True)
+    decimal = r'(?:0|[1-9][0-9]{0,19})'
+    token = r'(?:None|Some\(\[' + decimal + (r', ' + decimal) * 5 + r'\]\))'
+    line = lines[0]
+    match = re.fullmatch(re.escape(RECIPIENT_RUNTIME_PREFIX) + r'\[(' + token + (r', ' + token) * 4 + r')\]', line)
+    if match is None:
+        return dict(result, schema_known=False, closed_schema_rejected=True)
+    rows = []
+    for item in re.finditer(token, match[1]):
+        if item[0] == 'None':
+            rows.append(None)
+        else:
+            values = [int(value) for value in re.findall(decimal, item[0])]
+            if len(values) != 6 or any(value > 2 ** 64 - 1 for value in values):
+                return dict(result, schema_known=False, closed_schema_rejected=True)
+            rows.append(values)
+    if len(rows) != 5:
+        return dict(result, schema_known=False, closed_schema_rejected=True)
+    return dict(result, available=True, rows=rows)
+
+
+def recipient_runtime_controls():
+    name = 'source::selected_case'
+    some = 'Some([0, 1, 2, 3, 4, 5])'
+    line = RECIPIENT_RUNTIME_PREFIX + '[' + ', '.join([some, 'None', some, 'None', some]) + ']'
+    maximum = 'Some([' + ', '.join(['18446744073709551615'] * 6) + '])'
+    positives = [line, 'test ' + name + ' ... ' + line, RECIPIENT_RUNTIME_PREFIX + '[' + ', '.join([maximum] * 5) + ']', RECIPIENT_RUNTIME_PREFIX + '[' + ', '.join(['None'] * 5) + ']']
+    for raw in positives:
+        ensure(recipient_runtime_rows(raw, name)['available'] is True, 'recipient-runtime-positive')
+    ensure(recipient_runtime_rows('', name)['rows'] is None and recipient_runtime_rows('', name)['available'] is None, 'recipient-runtime-absent-unknown')
+    negatives = [line + '\n' + line, line.replace('[0, 1, 2, 3, 4, 5]', '[0, 1, 2, 3, 4]'), line.replace('[0, 1, 2, 3, 4, 5]', '[0, 1, 2, 3, 4, 5, 6]'), line.replace('0, 1', '-1, 1'), line.replace('0, 1', '+1, 1'), line.replace('0, 1', '00, 1'), line.replace('0, 1', '18446744073709551616, 1'), line.replace('0, 1', 'PRIVATE, 1'), 'PRIVATE ' + line, line + ' PRIVATE', line.replace('None', 'Some(None)'), line.replace(', None,', ','), line.replace('None', 'null'), line + ('X' * 1025)]
+    for raw in negatives:
+        ensure(recipient_runtime_rows(raw, name)['schema_known'] is False, 'recipient-runtime-negative')
+    return {'positive': len(positives) + 1, 'negative': len(negatives), 'actual_rust_bodies': 0}
+
+
+def enrollment_parser_preflight():
+    # Pure imported parser/data controls only: no legacy guard/main/global writes.
+    ensure(native.NAME == 'native_device_linking::automatic_pairing_acceptance::sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing', 'exact-original-five-name')
+    ensure(enrollment.POLICY_NAME == 'runtime::tests::async_suites_choose_their_tokio_flavor', 'exact-original-policy-name')
+    return {'recipient_runtime': recipient_runtime_controls(), 'inventory': body_counts.parser_controls(), 'native_original': native.parser_controls(), 'finite_observations': enrollment.observation_controls(),
+        'approvals': enrollment.approval_controls(), 'children': enrollment.child_controls(),
+        'notification_boundaries': enrollment.boundary_controls(), 'guard_timing': enrollment.guard_timing_controls(),
+        'retry_custody': enrollment.retry_custody_controls(), 'inner_receive': enrollment.comprehensive_receive_controls(),
+        'old_guards_or_main_called': False, 'old_globals_mutated': False, 'actual_rust_bodies': 0}
+
+
+def run_enrollment(report, inventory, save, state):
+    # Baseline only; original policy then original strict-five, no mutation.
+    outer_save = save
+    def save():
+        attempted = [row for phase in report.get('phases', []) for row in phase['rows'] if row.get('runtime_attempted') is True]
+        report['enrollment_runtime_attempts'] = len(attempted)
+        report['enrollment_actual_counts'] = {key: (sum(row[key] for row in attempted) if all(type(row.get(key)) is int for row in attempted) else None) for key in ['passed', 'failed', 'ignored', 'executed_nonignored']}
+        report['enrollment_known_partial_counts'] = {key: sum(row[key] for row in attempted if type(row.get(key)) is int) for key in ['passed', 'failed', 'ignored', 'executed_nonignored']}
+        outer_save()
+    class IntegrityFailure(RuntimeError):
+        pass
+    def integrity(action):
+        try:
+            return action()
+        except Exception as error:
+            report['enrollment_integrity_stop'] = True
+            report['enrollment_integrity_error'] = closed_error(error)
+            save()
+            raise IntegrityFailure() from None
+    def checked_postchecks(row):
+        row['postchecks_passed'] = postchecks(row, inventory, None, state, save)
+        save()
+        integrity(lambda: ensure(row['postchecks_passed'] is True, 'enrollment-postphysical-hard-stop'))
+    names = [enrollment.POLICY_NAME, native.NAME]
+    phase = {'label': 'merged-original-enrollment-baseline', 'rows': [], 'all_green': False,
+        'native_qualification': False, 'strict_five_join_deadline_seconds': 15}
+    report.setdefault('phases', []).append(phase); save()
+    binaries = compile_all(report, inventory, None, save, state, tuple(names))
+    integrity(lambda: ensure(report['compilations'][-1].get('source_postcheck_passed') is True, 'enrollment-compile-postsource-hard-stop'))
+    for name in names:
+        five = name == native.NAME
+        row = {'test': name, 'cohort': 'strict-five' if five else 'policy', 'runtime_attempted': False,
+            'summary_complete': False, 'passed': None, 'failed': None, 'ignored': None, 'executed_nonignored': None,
+            'original_oracle_green': False, 'green': False, 'compile_index': len(report['compilations']) - 1}
+        phase['rows'].append(row); save()
+        try:
+            # Positively enumerate selected normal/ignored status under all3-binary closure.
+            for ignored in [False, True]:
+                integrity(lambda: source_guard(inventory))
+                item = {'ignored': ignored, 'all_executables_precheck': integrity(lambda: check_executables(state['latest']))}
+                row.setdefault('inventories', []).append(item); save()
+                try:
+                    code, text, _ = integrity(lambda: capture_record([str(binaries['marmot_app']), '--exact', name] + (['--ignored'] if ignored else []) + ['--list', '--format', 'terse'], 60, item, save, 1024 * 1024))
+                    parsed_inventory = integrity(lambda: body_counts.parse_inventory(text, name, ignored))
+                    item['passed'] = code == 0 and parsed_inventory.get('passed') is True
+                    save()
+                finally:
+                    checked_postchecks(item)
+                integrity(lambda: ensure(item.get('passed') and item['postchecks_passed'], 'exact-selected-normal-nonignored-enrollment-inventory'))
+            integrity(lambda: source_guard(inventory))
+            row['all_executables_precheck'] = integrity(lambda: check_executables(state['latest']))
+            row['runtime_attempted'] = True; save()
+            raw = None
+            try:
+                code, raw, seconds = capture_record([str(binaries['marmot_app']), '--exact', name, '--nocapture', '--test-threads=1'], 900 if five else 300, row, save, 8 * 1024 * 1024)
+                # Actual numeric/name evidence before physical/strict diagnostics.
+                row.update(parse_body(raw, code, name, {'file': 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs', 'line': 0, 'column': 0}))
+                row['actual_test_passed'] = valid(row); save()
+            finally:
+                checked_postchecks(row)
+            if raw is not None:
+                row['recipient_runtime_after_failed_attempt'] = recipient_runtime_rows(raw, name); save()
+                try:
+                    row['finite_observations'] = enrollment.finite_observations(raw, name, set(inventory), include_approvals=five)
+                except Exception:
+                    row['finite_observations'] = {'schema_known': False, 'available': None, 'raw_private_export': False}
+                row['panic_locations'] = enrollment.closed_panic_sites(raw, name, set(inventory)); save()
+                # Original parse input remains raw; only supplemental function owns normalization.
+                if five:
+                    parsed = native.parse(raw, code)
+                    row['original_oracle'] = enrollment.closed_oracle(parsed); save()
+                    approvals = row.get('finite_observations', {}).get('existing_approvals')
+                    if type(approvals) is dict:
+                        try:
+                            row['finite_observations']['existing_approvals'] = enrollment.bind_fifth_approvals(approvals, row['original_oracle'], row['finite_observations'].get('side_aggregates'))
+                        except (ValueError, TypeError, KeyError):
+                            row['finite_observations']['existing_approvals'] = {'schema_known': False, 'available': None, 'partial_or_unknown': True, 'fixture_installations_by_index': None}
+                    row['original_oracle_green'] = native.green(parsed) is True
+                else:
+                    row['original_oracle_green'] = row.get('actual_test_passed') is True
+                row['green'] = row.get('postchecks_passed') is True and row.get('actual_test_passed') is True and row['original_oracle_green']; save()
+        except IntegrityFailure:
+            row['integrity_failure'] = True; save()
+            raise
+        except Exception as error:
+            row['body_exception'] = closed_error(error); save()
+        # Continue to the second original case even if policy/first body fails.
+    phase['all_green'] = len(phase['rows']) == 2 and all(row.get('green') is True for row in phase['rows'])
+    save(); return phase
 
 
 def chain_driver(baseline, prepare, mutate, restore):
@@ -746,14 +1042,14 @@ def ownership_driver_preflight():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', choices=['preflight', 'baseline', 'mutations'], required=True)
+    parser.add_argument('--mode', choices=['preflight', 'baseline', 'mutations', 'enrollment'], required=True)
     parser.add_argument('--chain', choices=list(GROUPS))
     parser.add_argument('--approved-source', default='')
     args = parser.parse_args()
-    report = {'mode': args.mode, 'chain': args.chain, 'qualification_passed': False, 'native_qualification': False,
+    report = {'cohort_contract': '4938-affected15-four-chain50-leave8-v3', 'mode': args.mode, 'chain': args.chain, 'qualification_passed': False, 'native_qualification': False,
         'collection_complete': False, 'gate_passed': False, 'inputs_pristine': False, 'source_after': None,
         'integrity_or_fallback_disqualified': False,
-        'expected_rust_bodies': 0 if args.mode == 'preflight' else (14 if args.mode == 'baseline' else (2 * len(GROUPS[args.chain]['names']) + 1 if args.chain else None))}
+        'expected_rust_bodies': 0 if args.mode == 'preflight' else (15 if args.mode == 'baseline' else (2 if args.mode == 'enrollment' else (2 * len(GROUPS[args.chain]['names']) + 1 if args.chain else None)))}
     # Output admission precedes even the first save; never follow a pre-existing directory.
     try:
         output = EvidenceOutput()
@@ -776,15 +1072,23 @@ def main():
         state['sites'] = {group: expected_site(group) for group in GROUPS}
         report['parser_controls'] = parser_preflight()
         report['ownership_driver_controls'] = ownership_driver_preflight()
+        report['enrollment_parser_controls'] = enrollment_parser_preflight()
+        report['compiler_diagnostic_controls'] = compiler_diagnostic_controls()
+        ensure(sum(len(GROUPS[group]['names']) for group in BASELINE_GROUPS) == 15 and len(set(name for group in BASELINE_GROUPS for name in GROUPS[group]['names'])) == 15, 'exact-fifteen-distinct-baseline')
+        ensure(sum(2 * len(item['names']) + 1 for item in GROUPS.values()) == 50, 'exact-four-chain-fifty-bodies')
         ast.parse(Path(SELF).read_text())
         if args.mode == 'preflight':
             report.update(collection_complete=True, gate_passed=True)
         else:
             ensure(args.approved_source == report['source_before']['head'], 'explicit-approved-final-source')
             report['environment'] = environment()
-            if args.mode == 'baseline':
-                baseline = run_cases(report, 'affected-baseline', list(GROUPS), inventory, save, state)
-                report.update(collection_complete=len(baseline['rows']) == 14 and all(row.get('summary_complete') for row in baseline['rows']), gate_passed=baseline['all_green'])
+            if args.mode == 'enrollment':
+                result = run_enrollment(report, inventory, save, state)
+                report.update(collection_complete=len(result['rows']) == 2 and all(row.get('summary_complete') for row in result['rows']), gate_passed=result['all_green'])
+                report['enrollment_baseline_only'] = True
+            elif args.mode == 'baseline':
+                baseline = run_cases(report, 'affected-baseline', BASELINE_GROUPS, inventory, save, state)
+                report.update(collection_complete=len(baseline['rows']) == 15 and all(row.get('summary_complete') for row in baseline['rows']), gate_passed=baseline['all_green'])
             else:
                 ensure(args.chain in GROUPS, 'one-independent-chain')
                 group = args.chain
