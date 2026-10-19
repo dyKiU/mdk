@@ -133,6 +133,15 @@ impl AppClient {
                 source,
                 sha2::Sha256::digest(wire).into(),
             );
+            if automatic::request_lineage_probe::enabled(self.app.account_home().root()) {
+                automatic::request_lineage_probe::event(
+                    self.app.account_home().root(),
+                    group_id,
+                    message_id,
+                    source,
+                    sha2::Sha256::digest(wire).into(),
+                );
+            }
         }
         let received = self.authenticate_sharing_control_intake(group_id, source, wire);
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -156,6 +165,26 @@ impl AppClient {
                 Err(_) => automatic::consent_delivery_probe::Outcome::Refused,
             },
         );
+
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if automatic::request_lineage_probe::enabled(self.app.account_home().root()) {
+            use automatic::consent_delivery_probe::Outcome;
+            let outcome = match &received {
+                Ok(_) => Outcome::Success,
+                Err(AccountSharingError::NotReady) => Outcome::NotReady,
+                Err(AccountSharingError::Closed) => Outcome::Closed,
+                Err(AccountSharingError::RuntimeUnavailable) => Outcome::RuntimeUnavailable,
+                Err(_) => Outcome::Refused,
+            };
+            automatic::request_lineage_probe::authenticated(
+                self.app.account_home().root(),
+                group_id,
+                source,
+                sha2::Sha256::digest(wire).into(),
+                received.as_ref().ok(),
+                outcome,
+            );
+        }
 
         let received = match received {
             Ok(received) => received,
@@ -192,6 +221,15 @@ impl AppClient {
             sha2::Sha256::digest(wire).into(),
             Self::test_consent_outcome(&result),
         );
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if automatic::request_lineage_probe::enabled(self.app.account_home().root()) {
+            automatic::request_lineage_probe::dispatched(
+                self.app.account_home().root(),
+                &received,
+                sha2::Sha256::digest(wire).into(),
+                Self::test_consent_outcome(&result),
+            );
+        }
         if result.is_err() && self.retain_pending_sibling_control(group_id, source, wire) {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             self.test_trace_catalog_stage("outer_retention", "dispatch_failure_retained", None);

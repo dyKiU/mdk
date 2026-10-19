@@ -7,8 +7,14 @@ pub(crate) mod peer_proof_probe;
 mod tests;
 use super::*;
 use crate::account_chat_sharing::enabled::State;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+use crate::client::account_chat_sharing::automatic::consent_delivery_probe as proof_lineage;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+use crate::client::account_chat_sharing::automatic::request_lineage_probe as request_lineage;
 use crate::device_linking::settlement::SettlementGuard;
 use cgka_engine::account_chat_sharing::{AccountSharingScope, TrustedAccountSharingLease};
+#[cfg(all(test, feature = "test-policy-overrides"))]
+use sha2::Digest as _;
 use std::sync::{
     Mutex,
     atomic::{AtomicBool, Ordering},
@@ -2304,6 +2310,24 @@ impl AppClient {
                     .expect("just admitted recipient channel"),
             );
             // RECIPIENT_ADMISSION_TEST_END
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if request_lineage::enabled(self.app.account_home().root())
+                && let Some(entry) = self.linking_owner.sibling_channels.last()
+            {
+                request_lineage::admitted(
+                    self.app.account_home().root(),
+                    &entry.channel.scope().protected.group_id,
+                    received,
+                    entry.channel.scope().nonce,
+                    sha2::Sha256::digest(wire).into(),
+                    [
+                        entry.original.live(),
+                        entry.state.live(),
+                        entry.recipient,
+                        entry.ready,
+                    ],
+                );
+            }
             // Core approved this exact owned channel. Wake its first Consent;
             // the completion service still freshly validates before publishing.
             self.linking_owner
@@ -2323,6 +2347,17 @@ impl AppClient {
         // PEER_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         peer_proof_probe::negative::routed(&entry, received, wire);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if entry.recipient {
+            proof_lineage::proof_stage(
+                self.app.account_home().root(),
+                received,
+                &entry.channel.scope().protected.group_id,
+                entry.channel.scope().nonce,
+                sha2::Sha256::digest(wire).into(),
+                proof_lineage::ProofStage::Routed,
+            );
+        }
         // PEER_NEGATIVE_TEST_END
         let result = (|| {
             if !entry.original.live() || !entry.state.live() {
@@ -2362,6 +2397,17 @@ impl AppClient {
                     // PEER_NEGATIVE_TEST_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     peer_proof_probe::negative::opened(&entry);
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if entry.recipient {
+                        proof_lineage::proof_stage(
+                            self.app.account_home().root(),
+                            received,
+                            &entry.channel.scope().protected.group_id,
+                            entry.channel.scope().nonce,
+                            sha2::Sha256::digest(wire).into(),
+                            proof_lineage::ProofStage::Open,
+                        );
+                    }
                     // PEER_NEGATIVE_TEST_END
                     let (kind, _, body) = self
                         .runtime
@@ -2401,6 +2447,17 @@ impl AppClient {
                     // PEER_NEGATIVE_TEST_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     peer_proof_probe::negative::accepted(&entry);
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if entry.recipient {
+                        proof_lineage::proof_stage(
+                            self.app.account_home().root(),
+                            received,
+                            &entry.channel.scope().protected.group_id,
+                            entry.channel.scope().nonce,
+                            sha2::Sha256::digest(wire).into(),
+                            proof_lineage::ProofStage::Accepted,
+                        );
+                    }
                     // PEER_NEGATIVE_TEST_END
                     // The peer proof can arrive after our own ACK was harvested.
                     // Keep its authenticated fact on this original if fresh parent
@@ -3192,7 +3249,78 @@ impl AppClient {
             );
         }
         // PEER_NEGATIVE_TEST_END
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let proof_lineage_capture = if proof
+            && !entry.recipient
+            && (proof_lineage::proof_enabled(self.app.account_home().root())
+                || request_lineage::enabled(self.app.account_home().root()))
+        {
+            let scope = entry.channel.scope();
+            match (
+                self.runtime.session().self_id().as_slice().try_into(),
+                scope.source.as_slice().try_into(),
+                scope.recipient.as_slice().try_into(),
+                entry.channel.outbound_content_id_for_test(kind),
+                entry.channel.outbound_control_wire_digest_for_test(kind),
+            ) {
+                (
+                    Ok(account),
+                    Ok(local_device),
+                    Ok(peer_device),
+                    Some(content_id),
+                    Some(inner_wire_sha256),
+                ) => {
+                    let prepared = proof_lineage::PreparedConsent {
+                        account,
+                        protected_group: scope.protected.group_id.clone(),
+                        local_device,
+                        peer_device,
+                        nonce: scope.nonce,
+                        content_id,
+                        input_outer_payload_sha256: sha2::Sha256::digest(&request.message.payload)
+                            .into(),
+                        inner_wire_sha256,
+                    };
+                    let root = self.app.account_home().root().to_path_buf();
+                    proof_lineage::proof_prepared(&root, &prepared);
+                    let source_capture = request_lineage::source_proof::prepared(
+                        &root,
+                        &prepared,
+                        scope.approval_id,
+                    );
+                    Some((root, prepared, source_capture))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let request_lineage_capture = if !proof
+            && !entry.recipient
+            && kind == AccountSharingControl::Request
+            && request_lineage::enabled(self.app.account_home().root())
+        {
+            request_lineage::prepared(
+                self.app.account_home().root(),
+                &self.runtime.session().self_id(),
+                entry.channel.scope(),
+                entry.channel.outbound_content_id_for_test(kind),
+                entry.channel.outbound_control_wire_digest_for_test(kind),
+                &request.message.payload,
+            )
+        } else {
+            None
+        };
         let consent = entry.recipient && !proof;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let request_consent_capture = if consent
+            && request_lineage::enabled(self.app.account_home().root())
+        {
+            request_lineage::consent_prepared(self.app.account_home().root(), entry.channel.scope())
+        } else {
+            None
+        };
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
             *entry
@@ -3250,7 +3378,11 @@ impl AppClient {
                         peer_proof_probe::recipient_admission::hold_request(&original, peer_proof_nonce, &request).await;
                     }
 // RECIPIENT_ADMISSION_TEST_END
-                    if consent { adapter.publish_sibling_consent(request).await }
+                    if consent {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(capture) = &request_consent_capture { request_lineage::consent_phase(capture, 1); }
+                        adapter.publish_sibling_consent(request).await
+                    }
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
             };
@@ -3267,6 +3399,19 @@ impl AppClient {
                     .publication_stage = Some(Stage::AfterRelayPublication);
             }
 
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some((root, prepared, source_capture)) = &proof_lineage_capture {
+                proof_lineage::proof_acknowledged(root, prepared, &report.message_id);
+                if let Some(capture) = source_capture {
+                    request_lineage::source_proof::acknowledged(capture, &report.message_id);
+                }
+            }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(capture) = &request_lineage_capture {
+                request_lineage::acknowledged(capture, &report.message_id);
+            }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(capture) = &request_consent_capture { request_lineage::consent_phase(capture, 2); }
             // COMPLETION_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {

@@ -225,11 +225,42 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     let mut completed_steps = 0usize;
     let mut public_cancels = 0usize;
     let mut final_roster_and_policies = false;
+    #[cfg(feature = "test-policy-overrides")]
+    let mut attempted_newcomer: Option<usize> = None;
+    #[cfg(feature = "test-policy-overrides")]
+    let mut proof_lineage = None;
+    #[cfg(feature = "test-policy-overrides")]
+    let mut request_lineage = None;
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         // New installations B,C,D,E join through already-authorized A,B,C,B.
         for (newcomer, sponsor) in [(1usize, 0usize), (2, 1), (3, 2), (4, 1)] {
+            #[cfg(feature = "test-policy-overrides")]
+            {
+                attempted_newcomer = Some(newcomer);
+            }
+            #[cfg(feature = "test-policy-overrides")]
+            if newcomer == 2 {
+                let storage = apps[0].account_storage("test").unwrap();
+                let round = storage.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
+                let request_roots: [std::path::PathBuf; 5] = std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
+                request_lineage = Some(crate::client::AppClient::test_capture_sibling_request_delivery(
+                    account.as_slice().try_into().unwrap(), round.anchor.group_id,
+                    request_roots.each_ref().map(|root| root.as_path()),
+                    std::array::from_fn(|index| installation_signer(&apps[index], &account).as_slice().try_into().unwrap()),
+                ));
+            }
+            #[cfg(feature = "test-policy-overrides")]
+            if newcomer == 3 {
+                let storage = apps[0].account_storage("test").unwrap();
+                let round = storage.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
+                proof_lineage = Some(crate::client::AppClient::test_capture_sibling_peer_proof_delivery(
+                    account.as_slice().try_into().unwrap(), round.anchor.group_id,
+                    [apps[0].account_home().root(), apps[1].account_home().root(), apps[3].account_home().root()],
+                    [0usize, 1, 3].map(|index| installation_signer(&apps[index], &account).as_slice().try_into().unwrap()),
+                ));
+            }
             #[cfg(feature = "test-policy-overrides")]
             let recipient_trace_root =
                 (newcomer == 4).then(|| apps[newcomer].account_home().root().to_path_buf());
@@ -238,9 +269,13 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                 crate::client::AppClient::test_capture_account_chat_progress(root, "recipient")
             });
             let (source, recipient, approvals) = join_installation(&apps, &managers, &account, sponsor, newcomer).await;
-            // Reuse the integration helper:15s for every phase;
+            // Reuse the owner helper:90s enrollment,15s earlier phases;
             // no deadline override, packets or extra host finalization calls.
-            wait_for_automatic_phase_with_approvals(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete, &approvals).await;
+            {
+                #[cfg(feature = "test-policy-overrides")]
+                let _recipient_wait = request_lineage.as_ref().and_then(|probe| probe.recipient_wait(newcomer));
+                wait_for_automatic_phase_with_approvals(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete, &approvals).await;
+            }
             tokio::time::timeout(Duration::from_secs(20), async {
                 loop {
                     if complete_roster_and_bilateral_policies(&apps[..=newcomer], &account) { break; }
@@ -262,32 +297,66 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     }).catch_unwind().await;
     #[cfg(feature = "test-policy-overrides")]
     if attempt.is_err() {
+        if let Some(probe) = &proof_lineage {
+            for (source_slot, row) in probe.proof_summary().iter().enumerate() {
+                eprintln!(
+                    "enrollment-peer-proof-lineage source_slot={source_slot} recipient_slot=3 attempted_newcomer={attempted_newcomer:?} summary={row:?}"
+                );
+            }
+        } else {
+            eprintln!("enrollment-peer-proof-lineage unavailable=true");
+        }
+        if let Some(probe) = &request_lineage {
+            for row in probe.summaries() {
+                eprintln!(
+                    "enrollment-request-lineage attempted_newcomer={attempted_newcomer:?} summary={row:?}"
+                );
+            }
+            for row in probe.source_proof_summaries() {
+                eprintln!(
+                    "enrollment-source-proof-lineage attempted_newcomer={attempted_newcomer:?} summary={row:?}"
+                );
+            }
+        } else {
+            eprintln!("enrollment-request-lineage unavailable=true");
+            eprintln!("enrollment-source-proof-lineage unavailable=true");
+        }
         use crate::RuntimePerformanceOperation as Op;
-        let snapshot = runtimes[4].app_performance_snapshot();
-        let rows = [
-            Op::WorkerReceive,
-            Op::Ingest,
-            Op::IngestEngine,
-            Op::IngestEffectPublish,
-            Op::ProjectionCheckpoint,
-        ]
-        .map(|operation| {
-            snapshot
-                .runtime_operations
-                .iter()
-                .find(|row| row.operation == operation)
-                .map(|row| {
-                    [
-                        row.started,
-                        row.completed,
-                        row.in_flight,
-                        row.duration_ms.sum_ms,
-                        row.oldest_tracked_in_flight_ms,
-                        row.untracked_in_flight,
-                    ]
-                })
-        });
-        eprintln!("enrollment-runtime-timing recipient_after_failed_attempt={rows:?}");
+        for (index, runtime) in runtimes.iter().enumerate() {
+            let snapshot = runtime.app_performance_snapshot();
+            let rows = [
+                Op::WorkerReceive,
+                Op::Ingest,
+                Op::IngestEngine,
+                Op::IngestEffectPublish,
+                Op::ProjectionCheckpoint,
+                Op::WorkerMaintenance,
+                Op::WorkerConvergence,
+                Op::WorkerCatchUp,
+                Op::StorageConnectionWait,
+                Op::StorageTransaction,
+                Op::StorageWriteBegin,
+            ]
+            .map(|operation| {
+                snapshot
+                    .runtime_operations
+                    .iter()
+                    .find(|row| row.operation == operation)
+                    .map(|row| {
+                        [
+                            row.started,
+                            row.completed,
+                            row.in_flight,
+                            row.duration_ms.sum_ms,
+                            row.oldest_tracked_in_flight_ms,
+                            row.untracked_in_flight,
+                        ]
+                    })
+            });
+            eprintln!(
+                "enrollment-runtime-timing runtime_index={index} attempted_newcomer={attempted_newcomer:?} after_failed_attempt={rows:?}"
+            );
+        }
     }
     let mut runtime_closes = 0usize;
     for runtime in &runtimes {

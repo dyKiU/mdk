@@ -283,6 +283,7 @@ pub(super) async fn handle(
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(observer) = &observer {
                 let (snapshot, identity) = client.adapter.receiver_snapshot_for_test();
+                client.test_capture_sibling_proof_queue_for_receiver(&identity);
                 let queue_len = client.adapter.account_delivery_queue_len_for_test();
                 observer.capture_adapter_receive_for_test(
                     snapshot,

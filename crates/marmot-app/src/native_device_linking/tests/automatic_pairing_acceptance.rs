@@ -1689,7 +1689,18 @@ async fn wait_for_automatic_phase_with_approvals(
     approvals: &[DeviceLinkingApproval],
 ) {
     let mut observed = None;
-    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+    // Enrollment includes protected-roster settlement and authenticated sharing
+    // with every already-approved device. Match the installed-app acceptance
+    // controller's bounded phase budget (one_scan.py::wait_phase), rather than
+    // imposing a fifteen-second contract on those real relay round trips.
+    // Earlier comparison phases keep their short budget; failures, expiry and
+    // cancellation remain immediate failures throughout the wait.
+    let budget = if phase == DeviceLinkingPhase::EnrollmentComplete {
+        std::time::Duration::from_secs(90)
+    } else {
+        std::time::Duration::from_secs(15)
+    };
+    tokio::time::timeout(budget, async {
         loop {
             let ap = a.snapshot().await.unwrap().phase;
             let bp = b.snapshot().await.unwrap().phase;
