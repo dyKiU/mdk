@@ -458,7 +458,7 @@ jobs:
           python3 scripts/test_upstream_extraction_cohort.py
           python3 scripts/test_upstream_publication_mutation_anchors.py
           python3 scripts/upstream_extraction_cohort.py > cohort-identity.json
-      - name: Verify historical terminal-wrapper regression and restored control
+      - name: Verify historical reporter regressions and restored controls
         run: |
           python3 - <<'PY'
           import hashlib,json,os,re,subprocess,tempfile
@@ -466,31 +466,38 @@ jobs:
           helper=Path('scripts/upstream_publication_mutation_anchors.py')
           test=Path('scripts/test_upstream_publication_mutation_anchors.py')
           original=helper.read_bytes(); tests=test.read_bytes()
-          historical=subprocess.check_output(['git','show','c91075e687594e1bedd045ad8cee7c16f6621203:'+str(helper)])
-          selected='PublicationAnchors.test_nextest_terminal_wrapper_is_not_a_rust_compiler_error'
+          regressions=[
+              ('terminal-wrapper','c91075e687594e1bedd045ad8cee7c16f6621203',
+               'PublicationAnchors.test_nextest_terminal_wrapper_is_not_a_rust_compiler_error',
+               'AssertionError: 1 != 0', "self.assertEqual(row['compiler_error_count'], 0)"),
+              ('runtime-envelope','b744c554ae9da5162ade4a282589b5c9449ad0ae',
+               'PublicationAnchors.test_bounded_runtime_envelope_preserves_exact_assertion_binding',
+               'AssertionError: False is not true', "self.assertTrue(row['intended_runtime_assertion'])"),
+          ]
           rows=[]
           env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1')
           with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as directory:
               directory=Path(directory)
               driver=directory/test.name; driver.write_bytes(tests)
               module=directory/helper.name
-              for phase,source,exit_code,verdict in [('control',original,0,'OK'),('historical-regression',historical,1,'FAILED (failures=1)'),('restored-control',original,0,'OK')]:
-                  module.write_bytes(source)
-                  result=subprocess.run(['python3',str(driver),selected],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
-                  text=result.stdout.decode('utf-8',errors='strict')
-                  assert len(result.stdout)<=16384
-                  assert result.returncode==exit_code
-                  assert len(re.findall(r'(?m)^Ran 1 test in [0-9.]+s$',text))==1
-                  assert re.search(r'(?m)^'+re.escape(verdict)+r'$',text)
-                  if phase=='historical-regression':
-                      assert text.count('AssertionError: 1 != 0')==1
-                      assert "self.assertEqual(row['compiler_error_count'], 0)" in text
-                      assert 'errors=' not in text and 'skipped=' not in text
-                  rows.append({'phase':phase,'executed':1,'passed':int(exit_code==0),'intended_failed':int(exit_code==1),'errors':0,'skips':0,'source_sha256':hashlib.sha256(source).hexdigest(),'output_sha256':hashlib.sha256(result.stdout).hexdigest()})
+              for name,commit,selected,failure,assertion in regressions:
+                  historical=subprocess.check_output(['git','show',commit+':'+str(helper)])
+                  for phase,source,exit_code,verdict in [('control',original,0,'OK'),('historical-regression',historical,1,'FAILED (failures=1)'),('restored-control',original,0,'OK')]:
+                      module.write_bytes(source)
+                      result=subprocess.run(['python3',str(driver),selected],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
+                      text=result.stdout.decode('utf-8',errors='strict')
+                      assert len(result.stdout)<=16384
+                      assert result.returncode==exit_code
+                      assert len(re.findall(r'(?m)^Ran 1 test in [0-9.]+s$',text))==1
+                      assert re.search(r'(?m)^'+re.escape(verdict)+r'$',text)
+                      if phase=='historical-regression':
+                          assert text.count(failure)==1 and assertion in text
+                          assert 'errors=' not in text and 'skipped=' not in text
+                      rows.append({'regression':name,'historical_source':commit,'phase':phase,'executed':1,'passed':int(exit_code==0),'intended_failed':int(exit_code==1),'errors':0,'skips':0,'source_sha256':hashlib.sha256(source).hexdigest(),'output_sha256':hashlib.sha256(result.stdout).hexdigest()})
           assert helper.read_bytes()==original and test.read_bytes()==tests
-          report={'historical_source':'c91075e687594e1bedd045ad8cee7c16f6621203','executions':rows,'tracked_sources_unchanged':True,'product_bodies':0,'runtime_mutation_qualification':False}
+          report={'historical_sources':[row[1] for row in regressions],'executions':rows,'tracked_sources_unchanged':True,'product_bodies':0,'runtime_mutation_qualification':False}
           Path('publication-classifier-regression.json').write_text(json.dumps(report,indent=2)+'\n')
-          print(json.dumps({'metadata_executed':3,'passed':2,'intended_failed':1,'product_bodies':0}))
+          print(json.dumps({'metadata_executed':6,'passed':4,'intended_failed':2,'product_bodies':0}))
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

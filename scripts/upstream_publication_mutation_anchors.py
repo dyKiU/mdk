@@ -21,18 +21,14 @@ SIBLING = '''        entry.publication = Some(SiblingPublication {
 
 def publication_mutation_anchor(case):
     if case == 'automatic-publication':
-        # Block only automatic handshakes AFTER installing their actual owned
-        # task. Keep both bounded permit pools, the exact publication future,
-        # cancellation/deadline select, ACK checks and actor harvest unchanged.
+        # The actual transport hold accepts any automatic control kind. Wait
+        # AFTER installing that owned task. Keep both bounded permit pools,
+        # the exact publication future, cancellation/deadline select, ACK checks
+        # and actor harvest unchanged.
         old = AUTOMATIC
         wait = '''
-        if matches!(
-            kind,
-            AccountSharingControl::Request | AccountSharingControl::Consent
-        ) {
-            while !entry.publication.as_ref().expect("owned automatic publication").task.is_finished() {
-                tokio::task::yield_now().await;
-            }
+        while !entry.publication.as_ref().expect("owned automatic publication").task.is_finished() {
+            tokio::task::yield_now().await;
         }'''
     elif case == 'sibling-publication':
         # Result-before-wake and the receiver stay exactly as constructed. The
@@ -105,7 +101,7 @@ def publication_runtime_oracle(output, case, test, fixture):
         raise ValueError('Unique original publication assertion required')
     line = fixture[:matches[0].start()].count('\n') + 1
     panics = list(re.finditer(
-        r"(?m)^thread '([^']+)'(?: \(\d+\))? panicked at ([^\n]+):(\d+):(\d+):\n([^\n]+)",
+        r"(?m)^[ \t]{0,8}thread '([^'\r\n]+)'(?: \(\d+\))? panicked at ([^\r\n]+):(\d+):(\d+):\r?\n[ \t]{0,8}([^\r\n]+)",
         output,
     ))
     compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$)|test run failed\r?$)[^\n]*', output)
@@ -120,4 +116,6 @@ def publication_runtime_oracle(output, case, test, fixture):
             'expected_panic_file': FIXTURE, 'expected_panic_line': line,
             'compiler_error_count': len(compiler),
             'panic_header_count': output.count('panicked at '),
+            'parsed_panic_header_count': len(panics),
+            'unsupported_panic_format': output.count('panicked at ') != len(panics),
             **closed_panic_facts(panics, test)}

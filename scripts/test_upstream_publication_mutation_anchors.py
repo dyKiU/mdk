@@ -33,11 +33,40 @@ class PublicationAnchors(unittest.TestCase):
                 # Every original byte remains in its original order; no future,
                 # semaphore, retry, deadline, ACK or guard expression is removed.
 
-    def test_automatic_wait_is_handshake_only(self):
+    def test_automatic_wait_covers_the_generic_transport_hold(self):
         old, new = publication_mutation_anchor('automatic-publication')
         addition = new[len(old):]
-        self.assertIn('AccountSharingControl::Request | AccountSharingControl::Consent', addition)
-        self.assertNotIn('Body', addition)
+        self.assertNotIn('if ', addition)
+        self.assertNotIn('AccountSharingControl::', addition)
+        self.assertIn('.task.is_finished()', addition)
+
+    def test_bounded_runtime_envelope_preserves_exact_assertion_binding(self):
+        fixture = Path(FIXTURE).read_text()
+        case = 'sibling-publication'
+        test = 'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'
+        line = publication_runtime_oracle('', case, test, fixture)['expected_panic_line']
+        marker = 'automatic-enrollment-control stage=sibling-consent-held-before-peer-progress'
+        message = 'one blocked consent publication must not starve another approved sibling'
+        for indent in ['', '  ', '        ', '\t']:
+            for newline in ['\n', '\r\n']:
+                raw = (marker + newline + indent + f"thread '{test}' (17) panicked at {FIXTURE}:{line}:9:" + newline
+                       + indent + message + newline)
+                row = publication_runtime_oracle(raw, case, test, fixture)
+                self.assertTrue(row['intended_runtime_assertion'])
+                self.assertEqual(row['actual_panic_facts'][0]['message_kind'], 'held_fairness')
+        self.assertEqual(row['parsed_panic_header_count'], 1)
+        self.assertFalse(row['unsupported_panic_format'])
+        plain = marker + '\n' + f"thread '{test}' (17) panicked at {FIXTURE}:{line}:9:\n" + message + '\n'
+        for bad in [plain.replace('thread ', '         thread '),
+                    plain.replace('\n' + message, '\n         ' + message),
+                    plain.replace('thread ', 'untrusted-prefix thread '),
+                    plain.replace(test, 'unrelated_test'),
+                    plain.replace(FIXTURE, 'crates/unrelated.rs'),
+                    plain.replace(f':{line}:9:', f':{line + 1}:9:'),
+                    plain.replace(message, message + ' PRIVATE-PAYLOAD'),
+                    plain + plain,
+                    plain + 'error[E0308]: mismatched types\n']:
+            self.assertFalse(publication_runtime_oracle(bad, case, test, fixture)['intended_runtime_assertion'])
 
     def test_absent_duplicate_format_drift_and_already_mutated_refused(self):
         for case in CASES:
