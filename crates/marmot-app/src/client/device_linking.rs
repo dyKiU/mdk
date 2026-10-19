@@ -1427,14 +1427,18 @@ impl AppClient {
                     crate::device_linking::LinkError::StaleFlow,
                 )));
             }
-            // Exact original guard identity; never cancel a replacement by group.
-            let expected: Arc<
-                dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard,
-            > = attempt.guard.clone();
-            self.runtime
-                .session()
-                .cancel_owned_private_roster_settlement(&attempt.guard.group(), &expected)
-                .map_err(ClientLinkingError::Engine)?;
+            // A never-selected original installed no Core admission. In
+            // particular, it must not touch an earlier same-group admission.
+            if attempt.has_selected_admission() {
+                // Exact original guard identity; never cancel a replacement by group.
+                let expected: Arc<
+                    dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard,
+                > = attempt.guard.clone();
+                self.runtime
+                    .session()
+                    .cancel_owned_private_roster_settlement(&attempt.guard.group(), &expected)
+                    .map_err(ClientLinkingError::Engine)?;
+            }
             self.linking_owner.settlement_attempt = None;
         }
         Ok(())

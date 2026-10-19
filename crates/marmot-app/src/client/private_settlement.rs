@@ -12,6 +12,10 @@ pub(super) struct OwnedSettlementAttempt {
     published: bool,
 }
 impl OwnedSettlementAttempt {
+    /// Actual original selection custody, not a reconstructed durable fact.
+    pub(super) fn has_selected_admission(&self) -> bool {
+        self.selected
+    }
     pub(super) fn new(guard: Arc<SettlementGuard>) -> Self {
         Self {
             guard,
