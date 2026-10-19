@@ -66,8 +66,9 @@ elif args.case == 'upload-fixture':
     new = ''
     command = ['env', '-u', 'RUST_MIN_STACK', 'cargo', 'test', '--locked',
                '-p', 'marmot-app', '--lib',
-               'client::upload_cleanup_tests::outgoing_publication_', '--', '--test-threads=1']
-    expected = 2
+               'client::upload_cleanup_tests::outgoing_publication_ignores_empty_tcp_probes_and_rejects_truncation',
+               '--', '--exact', '--test-threads=1']
+    expected = 1
 elif args.case in {'worker-spawn-stack', 'worker-stack-regression'}:
     if os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('The original 4 MiB stack budget is required')
