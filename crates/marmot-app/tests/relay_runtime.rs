@@ -2493,7 +2493,8 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     }));
     let gate_result = gate_wait.await;
     let gate_finished = std::time::Instant::now();
-    let gate_elapsed_ms = u64::try_from(gate_finished.duration_since(gate_started).as_millis()).ok();
+    let gate_elapsed_ms =
+        u64::try_from(gate_finished.duration_since(gate_started).as_millis()).ok();
     let setup_finished = attempt.is_finished();
     // Abort and join only after the frozen verdict, including a failed attempt.
     // Drop also aborts on unwind. Cancellation makes the capture unavailable; it
