@@ -264,13 +264,30 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     if attempt.is_err() {
         use crate::RuntimePerformanceOperation as Op;
         let snapshot = runtimes[4].app_performance_snapshot();
-        let rows = [Op::WorkerReceive, Op::Ingest, Op::IngestEngine,
-            Op::IngestEffectPublish, Op::ProjectionCheckpoint].map(|operation| {
-            snapshot.runtime_operations.iter().find(|row| row.operation == operation)
-                .map(|row| [row.started, row.completed, row.in_flight, row.duration_ms.sum_ms,
-                    row.oldest_tracked_in_flight_ms, row.untracked_in_flight])
+        let rows = [
+            Op::WorkerReceive,
+            Op::Ingest,
+            Op::IngestEngine,
+            Op::IngestEffectPublish,
+            Op::ProjectionCheckpoint,
+        ]
+        .map(|operation| {
+            snapshot
+                .runtime_operations
+                .iter()
+                .find(|row| row.operation == operation)
+                .map(|row| {
+                    [
+                        row.started,
+                        row.completed,
+                        row.in_flight,
+                        row.duration_ms.sum_ms,
+                        row.oldest_tracked_in_flight_ms,
+                        row.untracked_in_flight,
+                    ]
+                })
         });
-        eprintln!("sequential-installations recipient_runtime_after_failed_attempt={rows:?}");
+        eprintln!("enrollment-runtime-timing recipient_after_failed_attempt={rows:?}");
     }
     let mut runtime_closes = 0usize;
     for runtime in &runtimes {
