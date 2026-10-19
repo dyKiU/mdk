@@ -84,6 +84,8 @@
 
 ### Added
 
+- `MarmotAppConfig::white_noise()` is today's default configuration with White Noise's deployment as this build compiled it. The CLI, `wn-agent`, the conformance simulator, the dev/test constructors and the tests now name it explicitly, so they keep White Noise's behaviour when `MarmotAppConfig::default()` turns neutral (host-configuration brief, PR 2). The CLI's default keychain service comes from `MarmotDeployment::white_noise()`; the name is unchanged.
+
 - Manage storage (mdk#2314 step 5): `attachment_storage_usage`,
   `attachment_storage_by_chat`, `largest_retained_attachments`,
   `remove_chat_attachments` and `remove_attachments_older_than` on
