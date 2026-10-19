@@ -236,6 +236,36 @@ The account's full relay-list state. Free with `marmot_account_relay_lists_free`
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotaccount_relay_lists) · [Header contract](include/marmot.h#L8341)
 
+### `marmot_attachment_storage_by_chat`
+
+```c
+MarmotStatus marmot_attachment_storage_by_chat(const struct MarmotClient *client, const char *account_ref, uint32_t limit, const struct MarmotChatStorageCursor *cursor, struct MarmotChatStoragePage **out);
+```
+
+Blocking largest-first chat listing, `limit` 1..=256. Pass NULL for the first page, then the previous page's `next_cursor`, keeping that page alive for the call; stop when it is NULL. Free each page with `marmot_chat_storage_page_free`, which frees its cursor too. See the [shared contract](../marmot-uniffi/API-REFERENCE.md#marmotattachment_storage_by_chat).
+
+[Header contract](include/marmot.h#L6320)
+
+### `marmot_attachment_storage_usage`
+
+```c
+MarmotStatus marmot_attachment_storage_usage(const struct MarmotClient *client, const char *account_ref, struct MarmotAttachmentStorageUsage **out);
+```
+
+Blocking account-wide storage summary; call off the UI thread. Free the result with `marmot_attachment_storage_usage_free`. See the [shared contract](../marmot-uniffi/API-REFERENCE.md#marmotattachment_storage_usage).
+
+[Header contract](include/marmot.h#L6309)
+
+### `marmot_attachment_storage_usage_free`
+
+```c
+void marmot_attachment_storage_usage_free(struct MarmotAttachmentStorageUsage *ptr);
+```
+
+Free a `MarmotAttachmentStorageUsage`. NULL is a no-op.
+
+[Header contract](include/marmot.h#L6287)
+
 ### `marmot_audit_log_settings`
 
 ```c
@@ -995,6 +1025,16 @@ Free a value of this type returned by this library. NULL is a no-op.
 
 <details>
 <summary>marmot_c…</summary>
+
+### `marmot_chat_storage_page_free`
+
+```c
+void marmot_chat_storage_page_free(struct MarmotChatStoragePage *value);
+```
+
+Deep-free a chat storage page, its rows and its borrowed cursor. NULL is a no-op.
+
+[Header contract](include/marmot.h#L6294)
 
 ### `marmot_client_new_with_options`
 
@@ -2526,6 +2566,16 @@ Free a value of this type returned by this library. NULL is a no-op.
 <details>
 <summary>marmot_l…</summary>
 
+### `marmot_largest_retained_attachments`
+
+```c
+MarmotStatus marmot_largest_retained_attachments(const struct MarmotClient *client, const char *account_ref, const char *group_id_hex, uint32_t limit, const struct MarmotRetainedAttachmentsCursor *cursor, struct MarmotRetainedAttachmentsPage **out);
+```
+
+Blocking largest-first attachment listing, `limit` 1..=256; `group_id_hex` NULL lists the whole account. Paging and cursor ownership as for `marmot_attachment_storage_by_chat`; free each page with `marmot_retained_attachments_page_free`. See the [shared contract](../marmot-uniffi/API-REFERENCE.md#marmotlargest_retained_attachments).
+
+[Header contract](include/marmot.h#L6334)
+
 ### `marmot_last_error_message`
 
 ```c
@@ -3557,6 +3607,26 @@ Blocking release of a handoff lease: deletes its copy. An unknown or already rel
 
 [Header contract](include/marmot.h#L6771)
 
+### `marmot_remove_attachments_older_than`
+
+```c
+MarmotStatus marmot_remove_attachments_older_than(const struct MarmotClient *client, const char *account_ref, uint64_t received_before, const char *group_id_hex, uint64_t *out_removed);
+```
+
+Blocking bulk removal of retained attachments received before `received_before` (Unix seconds), account-wide when `group_id_hex` is NULL, writing the count to `out_removed`. Same semantics as `marmot_remove_chat_attachments`.
+
+[Header contract](include/marmot.h#L6360)
+
+### `marmot_remove_chat_attachments`
+
+```c
+MarmotStatus marmot_remove_chat_attachments(const struct MarmotClient *client, const char *account_ref, const char *group_id_hex, uint64_t *out_removed);
+```
+
+Blocking bulk removal of one chat's retained attachments, writing the count to `out_removed`. Each is a Remove (shown as removed, download-again allowed); released media-store files are deleted before the call returns. See the [shared contract](../marmot-uniffi/API-REFERENCE.md#marmotremove_chat_attachments).
+
+[Header contract](include/marmot.h#L6348)
+
 ### `marmot_request_avatar_assets`
 
 ```c
@@ -3616,6 +3686,16 @@ MarmotStatus marmot_republish_key_package(const struct MarmotClient *client, con
 Re-publish the latest cached KeyPackage when possible, otherwise publish a fresh one. Writes the accepting-relay count.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotrepublish_key_package) · [Header contract](include/marmot.h#L7282)
+
+### `marmot_retained_attachments_page_free`
+
+```c
+void marmot_retained_attachments_page_free(struct MarmotRetainedAttachmentsPage *value);
+```
+
+Deep-free a retained attachments page, its rows and its borrowed cursor. NULL is a no-op.
+
+[Header contract](include/marmot.h#L6302)
 
 ### `marmot_rotate_key_package`
 
