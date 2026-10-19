@@ -15,6 +15,8 @@ OVERLAYS = {
     'scripts/upstream_extraction_cohort.py',
     'scripts/qualify_upstream_private_fixes.py',
     'scripts/verify_upstream_boundary_mutations.py',
+    'scripts/upstream_publication_mutation_anchors.py',
+    'scripts/test_upstream_publication_mutation_anchors.py',
     'scripts/qualify_upstream_automatic_body.py',
     'scripts/upstream_completion_ci.py',
     'scripts/verify_upstream_body_negative_source.py',
