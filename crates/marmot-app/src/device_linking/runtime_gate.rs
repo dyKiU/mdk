@@ -113,6 +113,10 @@ impl RuntimeWelcomeGate {
     }
     /// Prune expired approval and report only whether the sealed token is live.
     /// A busy join lease refuses maintenance; it checks the same deadline itself.
+    /// Conservative negative check. A busy original join cannot be bypassed.
+    pub(crate) fn has_retained_token_for_negative_completion(&self) -> bool {
+        self.state.try_lock().map_or(true, |state| state.token.is_some())
+    }
     pub(crate) fn maintain(&self) -> GateResult<bool> {
         let mut state = self
             .state

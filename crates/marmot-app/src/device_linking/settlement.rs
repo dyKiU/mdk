@@ -26,6 +26,10 @@ impl SdkCancellationFence {
             closed,
         }
     }
+    /// Negative completion only: unchanged revocation revision, never consent.
+    pub(crate) fn revision_matches_for_negative_completion(&self) -> bool {
+        !self.is_revoked()
+    }
     fn is_revoked(&self) -> bool {
         self.closed.load(Ordering::Acquire)
             || self.current.load(Ordering::Acquire) != self.generation

@@ -54,6 +54,11 @@ impl LinkingOwner {
             pending_terminal: None,
         }
     }
+    pub(crate) fn has_retained_attempt_for_negative_completion(&self) -> bool {
+        self.generation.is_some() || self.binding.is_some()
+            || self.reservation_deadline.is_some() || self.pending_terminal.is_some()
+            || self.linker.attempt.is_some()
+    }
     pub(crate) fn reserve_scope(
         &mut self,
     ) -> OwnerResult<cgka_traits::device_linking_key_package::PurposeAttemptScope> {
