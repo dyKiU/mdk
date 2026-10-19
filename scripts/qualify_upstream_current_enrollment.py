@@ -8,7 +8,12 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='8ad19bf93cac86b3c39b07b5b3b22c23308daff8'
+BASE='0149d2f4dc72dc3a123ff147f655ae9d1f4af8ba'
+PRIOR_CANONICAL_BASE='8ad19bf93cac86b3c39b07b5b3b22c23308daff8'
+RETRY_SOURCE_PARENT='1dc9d1f6aaeca3b5ddc26cc732680cd62c6c34bc'
+RETRY_SOURCE_RAW='0149d2f4dc72dc3a123ff147f655ae9d1f4af8ba'
+RETRY_METADATA_PINS={'scripts/qualify_upstream_current_enrollment.py': {'sha256': '6206212d8b5a7db7d3626176d37b3f920ae44ec2313b2696d2b389063b0622b3', 'mode': '100644'}, '.github/workflows/current-enrollment.yml': {'sha256': 'c2686b12e387b36a2bbca4a21811f94e7eab832dc648d4cd5dd5e1dbd7b8abfd', 'mode': '100644'}}
+RETRY_SOURCE_PINS={'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before_sha256': 'f20df65945e4835a45cd4f6933d8ab4eff2b45432c67f2daf06787ac9d7de207', 'raw_sha256': '62b18393b328378806533cc7ae105b8dc5e7c7475eb522bb9534761f92000155', 'canonical_sha256': '62b18393b328378806533cc7ae105b8dc5e7c7475eb522bb9534761f92000155', 'mode': '100644'}, 'crates/marmot-app/src/runtime/device_linking.rs': {'before_sha256': 'dae2d10cd57fbaf14ad0d366d2d8e71b2beb1786f8c601a9793fedda9f820fcc', 'raw_sha256': '0797c7977d7bf2bfe78eec30d5c42ce620587104378f911077ab167f4ce62e3b', 'canonical_sha256': '0797c7977d7bf2bfe78eec30d5c42ce620587104378f911077ab167f4ce62e3b', 'mode': '100644'}, 'crates/marmot-app/src/runtime/account_worker.rs': {'before_sha256': '3c2d1f25bae154ff1fdb8c15cbe26a15dfd3791421c66c152129e1a040b11719', 'raw_sha256': 'ce17ec071444e12ce64e87643284a68ba6b13aaf50e3774743f2cc4d770c8397', 'canonical_sha256': 'ce17ec071444e12ce64e87643284a68ba6b13aaf50e3774743f2cc4d770c8397', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': 'c5f1bd875409d3b908a8fea05bd26115bcb658c261fd3233a48f2da621103c8a', 'raw_sha256': '3cde56df755e20d8ad49a6ddf24cc23d261e0248c0965b861cba454957d78d59', 'canonical_sha256': '3cde56df755e20d8ad49a6ddf24cc23d261e0248c0965b861cba454957d78d59', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': '9aeee9b761dfce8d3d31789793cb6b94e05e07bccc5d61c0b1b58316f1722701', 'raw_sha256': '123ee6f92715ee3b24a6b19e0131686b3efd8d7988c295ecd9f185a2ad999c2d', 'canonical_sha256': '123ee6f92715ee3b24a6b19e0131686b3efd8d7988c295ecd9f185a2ad999c2d', 'mode': '100644'}}
 RAW_SOURCE='0b1481fe25ee68fb201ff1a3beb95f73dcc4e52f'
 SOURCE_PARENT='0cae96b7a44858b213a2ae1e2703893ff998a945'
 DIAGNOSTIC_SOURCE_PINS={'crates/marmot-app/src/client/private_enrollment_proposal.rs': {'before_sha256': 'caf4a6946bf91094db597f4c326df4fc497813b6bdf6a3f358752e0eb9b290e8', 'raw_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'canonical_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': 'e41d1015ef565db7d79df7438ffa92d83a888f45a98dc0b73641c69dd3a3db0d', 'raw_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'canonical_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': '674912b2606b11ab735b947fdab2b8f9e28597f07f406ab8cff8b6e7c8733fe9', 'raw_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'canonical_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before_sha256': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'raw_sha256': '9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7', 'canonical_sha256': '61685e03fa5838da5c85d0aa3f1a959117d20d8b67a8e531eddc9f1d43eea35d', 'mode': '100644'}}
@@ -26,7 +31,7 @@ SOURCEWITNESS_FORMAT_PATHS=['crates/marmot-app/src/client/device_linking/sibling
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
 APPROVED_BASE_TEST_DELTAS={'crates/marmot-app/src/native_device_linking/tests.rs': {'before': 'b50bb5dc83643286212e4edee84b91e0cf0ae3a210818bf07cf39617833a31a4', 'after': 'ef450d4a6e6de0d2989cce96ad87f550529282e433590629270bae25e0000168', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs': {'before': '1eeb59aff6dea7791d9970c68ef1227da9de678d05664fda4fc238a50c25e7e0', 'after': 'a6da36ab13def9b3c443bc3a55facd536fede8c3cdea4875d32d2888542d47ec', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs': {'before': '5a89b3cc3e70cb608b78546c993e332f30feb6ab59576195e6656323f161582c', 'after': '8706544aa426d6a945e880089c95d5a5ab6b4ef3d55ef9dbf7dc2d2487e2c1c5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before': 'a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca', 'after': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'mode': '100644'}}
-WORKFLOW_SHA='c2686b12e387b36a2bbca4a21811f94e7eab832dc648d4cd5dd5e1dbd7b8abfd'
+WORKFLOW_SHA='35f53695d384aaa80aaf1612e04b2585dd45f8b49399a2579c918dc06b3e38c3'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -36,9 +41,9 @@ OUT=Path(os.environ.get('RUNNER_TEMP','/tmp'))/'current-enrollment-evidence'
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 FIXTURE_SHA='61685e03fa5838da5c85d0aa3f1a959117d20d8b67a8e531eddc9f1d43eea35d'
-PARENT_SHA='9aeee9b761dfce8d3d31789793cb6b94e05e07bccc5d61c0b1b58316f1722701'
+PARENT_SHA='123ee6f92715ee3b24a6b19e0131686b3efd8d7988c295ecd9f185a2ad999c2d'
 STRICT_WAIT_LOOP_SHA='29255c02115551856e1c5f84bf9203e79818211564ac41cb1bb9804cc082e5ca'
-STRICT_HELPER_SHA='049ee9def31b9bc6ff72ac44941e64049b7227c88584cf573693c14f3abac22b'
+STRICT_HELPER_SHA='e1bc854d2333812fc6da49526c309f7c1ca2f4f313304bf53064ffac4be1a1f2'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
 NATIVE_HELPER='scripts/qualify_upstream_pure_native5.py'
 ACK_HELPER='scripts/qualify_upstream_request_retry_ack.py'
@@ -100,14 +105,14 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
-    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);intervening=layout(INTERVENING_METADATA_SOURCE);lifetime=layout(LIFETIME_SOURCE);witness_parent=layout(SOURCEWITNESS_PARENT);witness_raw=layout(SOURCEWITNESS_RAW);format_parent=layout(SOURCEWITNESS_FORMAT_PARENT);baseline=layout(BASE);current=layout('HEAD')
+    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);intervening=layout(INTERVENING_METADATA_SOURCE);lifetime=layout(LIFETIME_SOURCE);witness_parent=layout(SOURCEWITNESS_PARENT);witness_raw=layout(SOURCEWITNESS_RAW);format_parent=layout(SOURCEWITNESS_FORMAT_PARENT);prior_canonical=layout(PRIOR_CANONICAL_BASE);retry_parent=layout(RETRY_SOURCE_PARENT);retry_raw=layout(RETRY_SOURCE_RAW);baseline=layout(BASE);current=layout('HEAD')
     differences={path for path in set(pure)|set(prior) if pure.get(path)!=prior.get(path)}
     ensure(differences==REVIEWED_PRODUCT_METADATA|set(APPROVED_BASE_TEST_DELTAS),'pure-to-source-parent-nine-metadata-four-reviewed-tests')
     for path,pin in APPROVED_BASE_TEST_DELTAS.items():
         ensure(pure[path][0]==prior[path][0]==pin['mode']=='100644' and digest(git('show',PURE_PRODUCT_BASE+':'+path))==pin['before'] and digest(git('show',SOURCE_PARENT+':'+path))==pin['after'],'exact-approved-source-parent-test-before-after-modes')
-    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,INTERVENING_METADATA_SOURCE),(INTERVENING_METADATA_SOURCE,LIFETIME_SOURCE),(LIFETIME_SOURCE,SOURCEWITNESS_PARENT),(SOURCEWITNESS_PARENT,SOURCEWITNESS_RAW),(SOURCEWITNESS_RAW,SOURCEWITNESS_FORMAT_PARENT),(SOURCEWITNESS_FORMAT_PARENT,BASE)]:
+    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,INTERVENING_METADATA_SOURCE),(INTERVENING_METADATA_SOURCE,LIFETIME_SOURCE),(LIFETIME_SOURCE,SOURCEWITNESS_PARENT),(SOURCEWITNESS_PARENT,SOURCEWITNESS_RAW),(SOURCEWITNESS_RAW,SOURCEWITNESS_FORMAT_PARENT),(SOURCEWITNESS_FORMAT_PARENT,PRIOR_CANONICAL_BASE),(PRIOR_CANONICAL_BASE,RETRY_SOURCE_PARENT),(RETRY_SOURCE_PARENT,RETRY_SOURCE_RAW),(RETRY_SOURCE_RAW,BASE)]:
         ensure(subprocess.run(['git','merge-base','--is-ancestor',ancestor,descendant]).returncode==0,'reviewed-diagnostic-source-ancestry')
-    ensure(set(prior)==set(raw_source)==set(intervening)==set(lifetime)==set(witness_parent)==set(witness_raw)==set(format_parent)==set(baseline),'diagnostic-source-inventory-fixed')
+    ensure(set(prior)==set(raw_source)==set(intervening)==set(lifetime)==set(witness_parent)==set(witness_raw)==set(format_parent)==set(prior_canonical)==set(retry_parent)==set(retry_raw)==set(baseline),'diagnostic-source-inventory-fixed')
     ensure({p for p in prior if prior[p]!=raw_source[p]}==set(DIAGNOSTIC_SOURCE_PINS),'exact-four-raw-diagnostic-source-paths')
     ensure({p for p in raw_source if raw_source[p]!=intervening[p]}==set(INTERVENING_METADATA_PINS),'raw-to-intervening-exact-two-metadata-same-Rust')
     for path,pin in INTERVENING_METADATA_PINS.items():
@@ -131,16 +136,26 @@ def source_guard(preflight=False):
     for path,pin in SOURCEWITNESS_FORMAT_METADATA_PINS.items():
         ensure(witness_raw[path][0]==format_parent[path][0]==pin['mode']=='100644'
             and digest(git('show',SOURCEWITNESS_FORMAT_PARENT+':'+path))==pin['sha256'],'exact-format-parent-metadata-pins-modes')
-    ensure({p for p in format_parent if format_parent[p]!=baseline[p]}==set(SOURCEWITNESS_FORMAT_PATHS),'exact-two-hosted-format-witness-source-paths')
+    ensure({p for p in format_parent if format_parent[p]!=prior_canonical[p]}==set(SOURCEWITNESS_FORMAT_PATHS),'exact-two-hosted-format-witness-source-paths')
     for path,pin in SOURCEWITNESS_PINS.items():
-        ensure(witness_parent[path][0]==witness_raw[path][0]==format_parent[path][0]==baseline[path][0]==pin['mode']=='100644'
+        ensure(witness_parent[path][0]==witness_raw[path][0]==format_parent[path][0]==prior_canonical[path][0]==pin['mode']=='100644'
             and digest(git('show',SOURCEWITNESS_PARENT+':'+path))==pin['before_sha256']
             and digest(git('show',SOURCEWITNESS_RAW+':'+path))==pin['raw_sha256']
             and digest(git('show',SOURCEWITNESS_FORMAT_PARENT+':'+path))==pin['raw_sha256']
-            and digest(git('show',BASE+':'+path))==pin['canonical_sha256'],'exact-witness-before-raw-canonical-full-hashes-modes')
+            and digest(git('show',PRIOR_CANONICAL_BASE+':'+path))==pin['canonical_sha256'],'exact-witness-before-raw-canonical-full-hashes-modes')
+    ensure({p for p in prior_canonical if prior_canonical[p]!=retry_parent[p]}==set(RETRY_METADATA_PINS),'prior-canonical-to-retry-parent-two-metadata-same-Rust')
+    for path,pin in RETRY_METADATA_PINS.items():
+        ensure(prior_canonical[path][0]==retry_parent[path][0]==pin['mode']=='100644' and digest(git('show',RETRY_SOURCE_PARENT+':'+path))==pin['sha256'],'exact-retry-parent-metadata-pins-modes')
+    ensure({p for p in retry_parent if retry_parent[p]!=retry_raw[p]}==set(RETRY_SOURCE_PINS),'exact-five-raw-retry-custody-source-paths')
+    ensure({p for p in retry_raw if retry_raw[p]!=baseline[p]}<=set(RETRY_SOURCE_PINS),'canonical-retry-source-owned-five-paths-only')
+    for path,pin in RETRY_SOURCE_PINS.items():
+        ensure(retry_parent[path][0]==retry_raw[path][0]==baseline[path][0]==pin['mode']=='100644'
+            and digest(git('show',RETRY_SOURCE_PARENT+':'+path))==pin['before_sha256']
+            and digest(git('show',RETRY_SOURCE_RAW+':'+path))==pin['raw_sha256']
+            and digest(git('show',BASE+':'+path))==pin['canonical_sha256'],'exact-retry-before-raw-canonical-full-hashes-modes')
     full_differences={path for path in set(pure)|set(baseline) if pure.get(path)!=baseline.get(path)}
-    reviewed_Rust=set(APPROVED_BASE_TEST_DELTAS)|set(DIAGNOSTIC_SOURCE_PINS)|set(SOURCEWITNESS_PINS)
-    ensure(len(reviewed_Rust)==9 and full_differences==REVIEWED_PRODUCT_METADATA|reviewed_Rust,'pure-to-BASE-nine-metadata-nine-reviewed-Rust-deltas')
+    reviewed_Rust=set(APPROVED_BASE_TEST_DELTAS)|set(DIAGNOSTIC_SOURCE_PINS)|set(SOURCEWITNESS_PINS)|set(RETRY_SOURCE_PINS)
+    ensure(len(reviewed_Rust)==11 and full_differences==REVIEWED_PRODUCT_METADATA|reviewed_Rust,'pure-to-BASE-nine-metadata-eleven-reviewed-Rust-deltas')
     ensure(SELF in baseline and WORKFLOW in baseline and set(current)==set(baseline),'exact-BASE-inventory-two-existing-owned-metadata')
     ensure(all(baseline[path][0]=='100644' for path in [SELF,WORKFLOW]),'owned-existing-regular-metadata-modes')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -162,7 +177,7 @@ def source_guard(preflight=False):
     ensure(text.count(begin)==text.count(endmark)==1 and digest(text.split(begin,1)[1].split(endmark,1)[0].encode())==ORACLE_SHA,'immutable-five-oracle-region')
     ensure(git_closure()['verified'],'tracked-index-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
-        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'intervening_metadata_source':INTERVENING_METADATA_SOURCE,'intervening_metadata_pins':INTERVENING_METADATA_PINS,'cfg_test_diagnostic_lifetime_repair_source':LIFETIME_SOURCE,'sourcewitness_parent':SOURCEWITNESS_PARENT,'sourcewitness_raw':SOURCEWITNESS_RAW,'sourcewitness_format_parent':SOURCEWITNESS_FORMAT_PARENT,'sourcewitness_format_metadata_pins':SOURCEWITNESS_FORMAT_METADATA_PINS,'hosted_format_patch_sha256':'c0344c86bba885f32070f57427622e3c3aeb2a2c9718cfd8a499080f357e51c3','sourcewitness_pins':SOURCEWITNESS_PINS,'canonical_source_pending_hosted_format':BASE==SOURCEWITNESS_RAW,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
+        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'intervening_metadata_source':INTERVENING_METADATA_SOURCE,'intervening_metadata_pins':INTERVENING_METADATA_PINS,'cfg_test_diagnostic_lifetime_repair_source':LIFETIME_SOURCE,'sourcewitness_parent':SOURCEWITNESS_PARENT,'sourcewitness_raw':SOURCEWITNESS_RAW,'sourcewitness_format_parent':SOURCEWITNESS_FORMAT_PARENT,'sourcewitness_format_metadata_pins':SOURCEWITNESS_FORMAT_METADATA_PINS,'hosted_format_patch_sha256':'c0344c86bba885f32070f57427622e3c3aeb2a2c9718cfd8a499080f357e51c3','sourcewitness_pins':SOURCEWITNESS_PINS,'prior_canonical_source':PRIOR_CANONICAL_BASE,'retry_source_parent':RETRY_SOURCE_PARENT,'retry_source_raw':RETRY_SOURCE_RAW,'retry_source_pins':RETRY_SOURCE_PINS,'canonical_source_pending_hosted_format':BASE==RETRY_SOURCE_RAW,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
         'owned_existing_metadata_content_bound_to_HEAD':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
 
 def compile_app(report,cohort,tracked,save_report):
@@ -688,6 +703,99 @@ def guard_timing_controls():
         ensure(not accepted,'unknown-private-malformed-notification-time-rejected')
     return {'positive':13,'negative':len(bad_full)+len(bad_g)+len(bad_rows)+len(bad_times),'authored_only_until_remote_preflight':True,'runtime_bodies':0,'raw_private_export':False}
 
+# Independent Choice-probe snapshots; no IDs, admission grants or continuous state.
+CUSTODY_MASK_BITS=('selected_welcome_retry','revoked_confirmation_retry','enrollment_capacity_retry')
+RECEIVE_REACHED_STAGES=('ArmPolled','BeforeWelcomeSleep','BeforeRevokedSleep','BeforeCapacitySleep','BeforeOrdinaryReceive')
+
+def retry_probe_entry(value,kind):
+    ensure(kind in ('custody','receive'),'finite-retry-probe-kind')
+    if value=='None':return None
+    size=8 if kind=='custody' else 5
+    array=r'\['+', '.join([NUM]*size)+r'\]'
+    m=re.fullmatch(r'Some\(\(('+array+r'), (None|Some\(\(('+NUM+'), ('+NUM+r')\)\)), (true|false)\)\)',value)
+    ensure(m is not None,'closed-retry-probe-tuple')
+    values=observation_array(m[1],size)
+    last=None if m[2]=='None' else {'index':observation_uint(m[3]),'elapsed_ms':observation_uint(m[4])}
+    overflow=m[5]=='true'
+    ensure(last is None or (last['index']<size and values[last['index']]>0),'retry-probe-last-index-has-actual-count')
+    ensure(not overflow or (1<<64)-1 in values,'retry-probe-checked-overflow-needs-saturated-counter')
+    if kind=='receive' and not overflow:
+        ensure(all(count<=values[0] for count in values[1:]),'each-reached-stage-not-more-than-first-future-entry')
+    result={'counts':values,'last':last,'overflow':overflow,'numeric_progress_trusted':not overflow,
+        'origin':'existing-Choice-probe','last_None_with_positive_counts_is_clock_unknown':True,
+        'separate_from_RPC_guards_notifications_and_other_getters':True,
+        'continuous_state_or_complete_receive_eligibility_proven':False}
+    if kind=='custody':
+        result.update(mask_bit_order=list(CUSTODY_MASK_BITS),sample_at_admitted_Observe_before_command_handling=True,
+            mask_zero_is_not_full_receive_eligibility=True)
+    else:
+        result.update(stage_order=list(RECEIVE_REACHED_STAGES),first_polled_future_entries=values[0],
+            reached_before_await_not_selected_completed_or_physical_SDK_poll=True,
+            ArmPolled_is_first_async_body_entry_not_every_repoll=True,
+            stages_not_mutually_exclusive_no_sum_bound=True)
+    return result
+
+def observed_retry_probe(raw,kind):
+    ensure(kind in ('custody','receive'),'finite-retry-probe-kind')
+    field='retry_custody_counts/last/overflow' if kind=='custody' else 'receive_poll_counts/last/overflow'
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control side=' in line and ' '+field+'=' in line]
+    ensure(len(lines) in (0,2),'zero-or-two-retry-probe-side-records');rows=[]
+    for index,side in enumerate(('left','right')):
+        entry=None
+        if lines:
+            prefix='automatic-enrollment-control side='+side+' '+field+'='
+            ensure(lines[index].startswith(prefix) and len(lines[index].encode())<=1024,'ordered-bounded-retry-probe-side-record')
+            entry=retry_probe_entry(lines[index][len(prefix):],kind)
+        rows.append({'side':side,'record_present':bool(lines),'entry':entry})
+    return {'schema_known':True,'available':bool(lines),'rows':rows,
+        'post_timeout_independent_snapshots':True,'cross_getter_time_order_or_cause_claimed':False,
+        'missing_is_unknown_not_zero':True,'IDs_or_raw_state_exported':False}
+
+def retry_custody_controls():
+    c='Some(([1, 1, 1, 1, 1, 1, 1, 1], Some((7, 123)), false))'
+    r='Some(([1, 1, 1, 1, 1], Some((4, 123)), false))'
+    cz='Some(([0, 0, 0, 0, 0, 0, 0, 0], None, false))'
+    rz='Some(([0, 0, 0, 0, 0], None, false))'
+    maxu='18446744073709551615'
+    cm='Some((['+maxu+', 0, 0, 0, 0, 0, 0, 0], Some((0, '+maxu+')), true))'
+    rm='Some((['+maxu+', 0, 0, 0, '+maxu+'], Some((4, '+maxu+')), true))'
+    field='automatic-enrollment-control side='
+    pair=lambda name,value:field+'left '+name+'='+value+'\n'+field+'right '+name+'=None'
+    cp=pair('retry_custody_counts/last/overflow',c);rp=pair('receive_poll_counts/last/overflow',r)
+    positives=[
+        lambda:retry_probe_entry('None','custody') is None,
+        lambda:retry_probe_entry(cz,'custody')['counts']==[0]*8,
+        lambda:all(retry_probe_entry(c.replace('7, 123',str(i)+', 123'),'custody')['last']['index']==i for i in range(8)),
+        lambda:retry_probe_entry(c.replace('Some((7, 123))','None'),'custody')['last'] is None,
+        lambda:retry_probe_entry(cm,'custody')['numeric_progress_trusted'] is False,
+        lambda:retry_probe_entry('None','receive') is None,
+        lambda:retry_probe_entry(rz,'receive')['first_polled_future_entries']==0,
+        lambda:retry_probe_entry(r,'receive')['counts']==[1]*5,
+        lambda:retry_probe_entry(r.replace('Some((4, 123))','None'),'receive')['last'] is None,
+        lambda:retry_probe_entry(rm,'receive')['overflow'] is True,
+        lambda:observed_retry_probe(cp,'custody')['rows'][1]['entry'] is None,
+        lambda:observed_retry_probe(rp,'receive')['rows'][0]['entry']['first_polled_future_entries']==1,
+        lambda:observed_retry_probe('','custody')['available'] is False,
+        lambda:observed_retry_probe(cp+'\n'+rp+'\nautomatic-enrollment-control existing_index=0 child_channel=PRIVATE','custody')==observed_retry_probe(cp,'custody'),
+        lambda:observed_retry_probe(cp+'\n'+rp,'receive')==observed_retry_probe(rp,'receive'),
+    ]
+    for check in positives:ensure(check(),'retry-custody-or-reached-stage-positive')
+    bad_c=[c+' PRIVATE',c.replace('7, 123','8, 123'),c.replace('7, 123','-1, 123'),c.replace('7, 123','true, 123'),c.replace('123','18446744073709551616'),c.replace('false','true'),c.replace('false','PRIVATE'),c.replace('[1, 1, 1, 1, 1, 1, 1, 1]','[1, 1]'),c.replace('Some((7, 123))','Some(7, 123)'),c.replace('7, 123','7, 0123'),c.replace('[1, 1, 1, 1, 1, 1, 1, 1]','[1, 1, 1, 1, 1, 1, 1, 0]')]
+    bad_r=[r.replace('4, 123','5, 123'),r.replace('[1, 1, 1, 1, 1]','[0, 1, 0, 0, 0]').replace('4, 123','1, 123'),r.replace('[1, 1, 1, 1, 1]','[1, 2, 0, 0, 0]').replace('4, 123','1, 123'),r.replace('[1, 1, 1, 1, 1]','[1, 0, 0, 0, 0]'),r.replace('false','true'),r.replace('false','True'),r.replace('[1, 1, 1, 1, 1]','[1, 1, 1, 1]'),r.replace('123','18446744073709551616')]
+    for kind,values in [('custody',bad_c),('receive',bad_r)]:
+        for value in values:
+            try:retry_probe_entry(value,kind);accepted=True
+            except (ValueError,TypeError,OverflowError):accepted=False
+            ensure(not accepted,'malformed-private-incoherent-retry-probe-rejected')
+    bad_rows=[cp+'\n'+cp.splitlines()[0],cp.splitlines()[0],cp.replace('side=right','side=left'),cp.replace('side=right','side=PRIVATE'),cp+' PRIVATE','\n'.join(reversed(cp.splitlines())),cp.replace(' retry_custody_counts',' account=PRIVATE retry_custody_counts'),cp.replace(c,'PRIVATE')]
+    for raw in bad_rows:
+        try:observed_retry_probe(raw,'custody');accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'duplicate-partial-foreign-retry-probe-record-rejected')
+    return {'positive':len(positives),'negative':len(bad_c)+len(bad_r)+len(bad_rows),'runtime_bodies':0,
+        'raw_private_export':False,'controls_authored_unexecuted_until_remote_preflight':True}
+
+
 def finite_observations(raw,name,tracked,include_approvals=False):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     prefix=r'(?m)^test '+re.escape(name)+r' \.\.\. '
@@ -706,6 +814,10 @@ def finite_observations(raw,name,tracked,include_approvals=False):
         except (ValueError,TypeError,OverflowError):result['source_publication_notifications']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
         try:result['native_post_observe_guards']=observed_guards(text)
         except (ValueError,TypeError,OverflowError):result['native_post_observe_guards']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
+        try:result['native_retry_custody']=observed_retry_probe(text,'custody')
+        except (ValueError,TypeError,OverflowError):result['native_retry_custody']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
+        try:result['native_receive_reached_stages']=observed_retry_probe(text,'receive')
+        except (ValueError,TypeError,OverflowError):result['native_receive_reached_stages']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
         try:result['recipient_ingress_trace']=observed_ingress_trace(text)
         except (ValueError,TypeError,OverflowError):result['recipient_ingress_trace']={'schema_known':False,'available':None,'records':None,'closed_schema_rejected':True}
     return result
@@ -790,7 +902,7 @@ def parser_controls(mode):
         labels=OBSERVATION_FIVE_LABELS if mode=='observations-five' else OBSERVATION_LABELS
         ensure(tuple(row[0] for row in names)==labels,'fixed-original-observation-order')
         supplemental_controls=observation_controls()
-        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls(),'recipient_boundaries':boundary_controls(),'guard_timing':guard_timing_controls()}
+        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls(),'recipient_boundaries':boundary_controls(),'guard_timing':guard_timing_controls(),'retry_custody_and_receive_reached':retry_custody_controls()}
     ensure(len(names)==required_count(mode),'exact-selected-case-count')
     if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
