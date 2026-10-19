@@ -276,7 +276,12 @@ pub(super) async fn handle(
             if let Some(observer) = &observer {
                 let (snapshot, identity) = client.adapter.receiver_snapshot_for_test();
                 let queue_len = client.adapter.account_delivery_queue_len_for_test();
-                observer.capture_adapter_receive_for_test(snapshot, identity, queue_len, std::time::Instant::now());
+                observer.capture_adapter_receive_for_test(
+                    snapshot,
+                    identity,
+                    queue_len,
+                    std::time::Instant::now(),
+                );
                 observer.record_receive_guards_for_test(
                     client.has_pending_effect_projections(),
                     client.has_pending_runtime_group_subscription_refresh(),

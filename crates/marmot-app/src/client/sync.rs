@@ -2782,8 +2782,14 @@ impl AppClient {
     ) -> Result<transport_nostr::AccountDeliveryReceive, AppError> {
         use transport_nostr::AccountDeliveryWait;
         loop {
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-            self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::LoopEntry);
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            self.record_native_app_receive_for_test(
+                crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::LoopEntry,
+            );
             // A consumer lag charges notification loss before any control
             // record reaches this queue, and a record may never come: its
             // queue can close during a reopen. Persist the loss now. Without
@@ -2831,7 +2837,6 @@ impl AppClient {
                 tokio::task::yield_now().await;
                 #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                 self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::AfterSpillYield);
-
             }
             let received = match self.take_ready_delivery().inspect_err(|_| {
                 #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
