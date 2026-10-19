@@ -33,6 +33,7 @@ struct ActiveControl {
     identity: PublicationIdentity,
     gate: PublicationGate,
     revoked: bool,
+    original_invite_revision: Option<crate::device_linking::settlement::SdkCancellationFence>,
     negative_invite_revision: Option<crate::device_linking::settlement::SdkCancellationFence>,
 }
 
@@ -62,10 +63,15 @@ impl PublicationControl {
         if revoked {
             gate.cancel();
         }
+        let original_invite_revision = match &gate {
+            PublicationGate::Invite(gate) if !revoked => Some(gate.cancellation_fence()),
+            _ => None,
+        };
         *active = Some(ActiveControl {
             identity,
             gate,
             revoked,
+            original_invite_revision,
             negative_invite_revision: None,
         });
     }
@@ -83,11 +89,14 @@ impl PublicationControl {
         {
             if !active.revoked {
                 active.revoked = true;
-                active.gate.cancel();
-                if let PublicationGate::Invite(gate) = &active.gate {
-                    // Capture after the actual first revocation. Inherited
-                    // installation/repeated revocation must never renew this.
-                    active.negative_invite_revision = Some(gate.cancellation_fence());
+                match &active.gate {
+                    PublicationGate::Invite(gate) => {
+                        // A stale first revoke still marks/wakes the old slot,
+                        // but cannot cancel or capture any later gate revision.
+                        active.negative_invite_revision = active.original_invite_revision.as_ref()
+                            .and_then(|original| gate.cancel_original_revision(original));
+                    }
+                    _ => active.gate.cancel(),
                 }
             }
             self.wake.notify_one();

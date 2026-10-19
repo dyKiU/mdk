@@ -233,6 +233,29 @@ impl RuntimeInviteGate {
         )
     }
 
+    /// Conditional caller revocation cannot touch a later reservation revision.
+    pub(crate) fn cancel_original_revision(
+        &self, original: &super::settlement::SdkCancellationFence,
+    ) -> Option<super::settlement::SdkCancellationFence> {
+        let after = original.advance_original_revision(&self.cancelled, &self.closed)?;
+        self.finish_original_revision_cancel(original, &after);
+        Some(after)
+    }
+    fn finish_original_revision_cancel(
+        &self, original: &super::settlement::SdkCancellationFence,
+        after: &super::settlement::SdkCancellationFence,
+    ) {
+        if let Ok(mut state) = self.state.clone().try_lock_owned()
+            && after.revision_matches_for_negative_completion()
+            && state.armed.as_ref().is_none_or(|armed| original.captured_revision_is(armed.cancel_epoch))
+        {
+            // A later arm requires this same mutex; neither a newer epoch nor
+            // any later armed token may be cleared by this old cancellation.
+            state.armed = None;
+            state.terminal = Some(LinkingWelcomeDenied::Cancelled);
+        }
+    }
+
     /// Revocation never waits for a held preparation/dispatch lease.
     pub(crate) fn cancel(&self) {
         if self

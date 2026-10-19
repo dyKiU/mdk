@@ -30,6 +30,26 @@ impl SdkCancellationFence {
     pub(crate) fn revision_matches_for_negative_completion(&self) -> bool {
         !self.is_revoked()
     }
+    /// Revoke only this exact captured negative revision. The returned fence
+    /// is bound to the CAS result, never a later observation of the counter.
+    pub(super) fn advance_original_revision(
+        &self, current: &Arc<AtomicU64>, closed: &Arc<AtomicBool>,
+    ) -> Option<Self> {
+        if !Arc::ptr_eq(&self.current, current) || !Arc::ptr_eq(&self.closed, closed)
+            || self.closed.load(Ordering::Acquire)
+        { return None; }
+        let Some(next) = self.generation.checked_add(1) else {
+            if current.compare_exchange(self.generation, self.generation, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                closed.store(true, Ordering::Release);
+            }
+            return None;
+        };
+        current.compare_exchange(self.generation, next, Ordering::AcqRel, Ordering::Acquire).ok()?;
+        Some(Self { current: current.clone(), generation: next, closed: closed.clone() })
+    }
+    pub(super) fn captured_revision_is(&self, revision: u64) -> bool {
+        self.generation == revision
+    }
     fn is_revoked(&self) -> bool {
         self.closed.load(Ordering::Acquire)
             || self.current.load(Ordering::Acquire) != self.generation
@@ -141,4 +161,37 @@ impl TrustedPrivateSettlementGuard for SettlementGuard {
 }
 fn unavailable() -> EngineError {
     EngineError::Other("private settlement owner unavailable".into())
+}
+
+#[cfg(test)]
+mod negative_revision_tests {
+    use super::*;
+    #[test]
+    fn cas_fence_is_exact_and_cannot_follow_a_later_revision() {
+        let current = Arc::new(AtomicU64::new(0));
+        let closed = Arc::new(AtomicBool::new(false));
+        let original = SdkCancellationFence::capture(current.clone(), closed.clone());
+        let after = original.advance_original_revision(&current, &closed).unwrap();
+        assert!(after.revision_matches_for_negative_completion());
+        current.fetch_add(1, Ordering::AcqRel); // Actual concurrent negative invalidation.
+        assert!(!after.revision_matches_for_negative_completion());
+        assert!(original.advance_original_revision(&current, &closed).is_none());
+        assert_eq!(current.load(Ordering::Acquire), 2);
+    }
+    #[test]
+    fn foreign_counter_closed_and_overflow_fail_without_witness() {
+        let current = Arc::new(AtomicU64::new(0));
+        let closed = Arc::new(AtomicBool::new(false));
+        let original = SdkCancellationFence::capture(current.clone(), closed.clone());
+        assert!(original.advance_original_revision(&Arc::new(AtomicU64::new(0)), &closed).is_none());
+        assert_eq!(current.load(Ordering::Acquire), 0);
+        closed.store(true, Ordering::Release);
+        assert!(original.advance_original_revision(&current, &closed).is_none());
+        let current = Arc::new(AtomicU64::new(u64::MAX));
+        let closed = Arc::new(AtomicBool::new(false));
+        let overflow = SdkCancellationFence::capture(current.clone(), closed.clone());
+        assert!(overflow.advance_original_revision(&current, &closed).is_none());
+        assert!(closed.load(Ordering::Acquire));
+        assert_eq!(current.load(Ordering::Acquire), u64::MAX);
+    }
 }

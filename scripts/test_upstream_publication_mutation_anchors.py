@@ -506,5 +506,45 @@ class LateFirstRevokeOracle(unittest.TestCase):
             self.assertFalse(row['evidence_passed'])
             self.assertNotIn('PRIVATE',json.dumps(row))
 
+
+    def test_fixed_late_first_counter_inverse_requires_rejection_and_exact_unchanged_revision(self):
+        from upstream_publication_mutation_anchors import LATE_FIRST_NAME, LATE_FIRST_ASSERT, LATE_FIRST_PREREQS, late_first_fixed_oracle, late_first_counter_inverse, CANCEL_MAINTENANCE_FIXTURE
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        literal = fixture.index('"' + LATE_FIRST_ASSERT + '"')
+        line = fixture[:fixture.rfind('assert!(', 0, literal)].count('\n') + 1
+        first = 'cancel-late-first-prerequisites ' + json.dumps({name: True for name in LATE_FIRST_PREREQS}) + '\n'
+        def sample(mutant):
+            second = 'cancel-late-first-result ' + json.dumps({'old_acknowledged':False,'old_stale_rejected':True,'current_revision_unchanged':not mutant,'owned_runtimes_closed':True}) + '\n'
+            return (f'test {LATE_FIRST_NAME} ... ' + ('FAILED' if mutant else 'ok') + '\n' + first + second
+                    + (f"thread '{LATE_FIRST_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n" + LATE_FIRST_ASSERT + '\n' if mutant else '')
+                    + ('test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n' if mutant else 'test result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'))
+        green, mutant = sample(False), sample(True)
+        self.assertTrue(late_first_fixed_oracle(green, fixture, False)['evidence_passed'])
+        self.assertTrue(late_first_fixed_oracle(mutant, fixture, True)['evidence_passed'])
+        for output, phase in [(green,True),(mutant,False),(mutant+mutant,True),(mutant.replace(first,''),True),
+                              (mutant.replace('"old_acknowledged": false','"old_acknowledged": true'),True),
+                              (mutant.replace('"old_stale_rejected": true','"old_stale_rejected": false'),True),
+                              (mutant.replace('"owned_runtimes_closed": true','"owned_runtimes_closed": false'),True),
+                              (mutant.replace(first,first.replace('true','1')),True),
+                              (mutant.replace(first,first.replace('}', ',"PRIVATE":true}')),True),
+                              (mutant.replace(first,first.replace('{','{"old_slot_unrevoked":true,')),True),
+                              (mutant.replace(first,'')+first,True),(mutant+'error[E0308]: PRIVATE\n',True),
+                              (mutant.replace(LATE_FIRST_NAME,'PRIVATE'),True),(mutant.replace(LATE_FIRST_ASSERT,'PRIVATE'),True),
+                              (mutant.replace(f':{line}:26:',f':{line+1}:26:'),True),
+                              (mutant.replace('0 passed; 1 failed','0 passed; 0 failed'),True)]:
+            row = late_first_fixed_oracle(output, fixture, phase)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE',json.dumps(row))
+        with self.assertRaises(ValueError): late_first_fixed_oracle(mutant, fixture, 'mutant')
+        # Exercise the actual pure transform on the admitted product source, not a toy anchor.
+        source = Path('crates/marmot-app/src/runtime/private_commit.rs').read_text()
+        old, new = late_first_counter_inverse(source)
+        self.assertEqual(new, old[:len(old)-len(old.lstrip(' '))] + 'gate.cancel();\n' + old)
+        self.assertEqual(source.replace(old,new,1).replace(new,old,1),source)
+        wrapped = old.replace('active.original_invite_revision', 'active\n' + ' ' * 20 + '.original_invite_revision')
+        wrapped_old, wrapped_new = late_first_counter_inverse(wrapped)
+        self.assertEqual(wrapped_new, wrapped_old[:len(wrapped_old)-len(wrapped_old.lstrip(' '))] + 'gate.cancel();\n' + wrapped_old)
+        with self.assertRaises(ValueError): late_first_counter_inverse(source + '\n' + old)
+
 if __name__ == '__main__':
     unittest.main()

@@ -631,3 +631,19 @@ async fn invite_gate_dispatch_sql_failure_preserves_original_sdk_lease_for_exact
         }
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn old_revision_cleanup_cannot_clear_a_fresh_real_sdk_arm() {
+    let (token, origin, input) = fixture().await;
+    let gate = RuntimeInviteGate::new();
+    let original = gate.cancellation_fence();
+    // Exercise the actual CAS and cleanup seams with a genuine later SDK arm
+    // between them; no synthetic positive token or writable deadline is used.
+    let after = original.advance_original_revision(&gate.cancelled, &gate.closed).unwrap();
+    gate.cancel();
+    gate.arm_genesis(token, &origin).unwrap();
+    gate.finish_original_revision_cancel(&original, &after);
+    assert!(gate.begin_prepare(&input).is_ok(), "old cleanup must preserve the fresh actual SDK arm");
+    assert!(gate.cancel_original_revision(&original).is_none());
+    assert!(gate.begin_prepare(&input).is_ok());
+}

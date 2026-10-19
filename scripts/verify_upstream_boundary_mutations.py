@@ -8,10 +8,10 @@ from pathlib import Path
 import re
 import subprocess
 from upstream_avatar_ready_turn_chain import compiler_diagnostics
-from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle
+from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red', 'cancel-late-first-pfp', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 parser.add_argument('--secondary-stage', choices=['red', 'green'], default='red')
@@ -25,8 +25,8 @@ publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-re
 nextest_cases = publication_cases | {'worker-spawn-stack', 'worker-stack-regression'}
 held_marker = None
 failure_marker = None
-cancellation_pfp_cases = {'cancel-maintenance-pfp', 'cancel-maintenance-real-guard-pfp'}
-cancellation_cases = cancellation_pfp_cases | {'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control'}
+cancellation_pfp_cases = {'cancel-maintenance-pfp', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-pfp'}
+cancellation_cases = cancellation_pfp_cases | {'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'}
 if args.case in cancellation_cases:
     if not cohort or os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('Cancellation controls require exact reviewed source and original stack')
@@ -36,7 +36,18 @@ if args.case in cancellation_cases:
     test = CANCEL_MAINTENANCE_NAME
     expected = 1
     package = 'marmot-app'
-    if args.case == 'cancel-maintenance-real-guard-pfp':
+    if args.case == 'cancel-late-first-pfp':
+        source = Path('crates/marmot-app/src/runtime/private_commit.rs')
+        old, new = late_first_counter_inverse(source.read_text())
+        test = LATE_FIRST_NAME
+    elif args.case == 'cancel-late-first-slot-controls':
+        test = 'runtime::private_commit::late_revoke_tests::'
+    elif args.case == 'cancel-invite-cas-controls':
+        test = 'device_linking::settlement::negative_revision_tests::'
+        expected = 2
+    elif args.case == 'cancel-invite-cleanup-control':
+        test = 'device_linking::invite_gate::tests::old_revision_cleanup_cannot_clear_a_fresh_real_sdk_arm'
+    elif args.case == 'cancel-maintenance-real-guard-pfp':
         source = Path('crates/cgka-engine/src/private_roster_settlement.rs')
         old, new = REAL_GUARD_CHECK, REAL_GUARD_OMISSION
         test = REAL_GUARD_NAME
@@ -52,7 +63,7 @@ if args.case in cancellation_cases:
                 'marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks')
     command = ['cargo', 'test', '--locked', '-p', package, '--lib', '--features', features,
                test, '--', '--test-threads=1', '--show-output']
-    if args.case != 'cancel-maintenance-slot-controls': command.append('--exact')
+    if args.case not in {'cancel-maintenance-slot-controls', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls'}: command.append('--exact')
 elif args.case == 'cancel-late-first-red':
     if not cohort or os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('Late first cancellation requires reviewed source and original stack')
@@ -293,6 +304,8 @@ def execute(phase):
         row.update(cancel_maintenance_oracle(output, source.read_text()))
     if args.case == 'cancel-late-first-red':
         row.update(late_first_revoke_oracle(output, source.read_text()))
+    if args.case == 'cancel-late-first-pfp':
+        row.update(late_first_fixed_oracle(output, Path(CANCEL_MAINTENANCE_FIXTURE).read_text(), phase == 'mutant'))
     if args.case == 'cancel-maintenance-pfp':
         row.update(cancel_maintenance_oracle(output, Path(CANCEL_MAINTENANCE_FIXTURE).read_text(), phase == 'mutant'))
     if args.case == 'cancel-maintenance-real-guard-pfp':
@@ -300,6 +313,10 @@ def execute(phase):
     if args.case in cancellation_cases - cancellation_pfp_cases:
         expected_names = ([test + name for name in ['first_revocation_is_not_renewed_by_repeats', 'foreign_gate_and_later_revision_cannot_acknowledge', 'shutdown_and_inherited_install_cannot_refresh_witness', 'exact_current_slot_is_consumed_only_once']]
                           if args.case == 'cancel-maintenance-slot-controls' else [test])
+        if args.case == 'cancel-late-first-slot-controls':
+            expected_names = [test + 'first_stale_revoke_cannot_cancel_a_later_gate_revision_or_create_ack_witness']
+        elif args.case == 'cancel-invite-cas-controls':
+            expected_names = [test + name for name in ['cas_fence_is_exact_and_cannot_follow_a_later_revision', 'foreign_counter_closed_and_overflow_fail_without_witness']]
         statuses = re.findall(r'(?m)^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', output)
         compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$)|test run failed\r?$)[^\n]*', output)
         row.update(actual_expected_names=(len(statuses) == expected and sorted(statuses) == sorted((name, 'ok') for name in expected_names)), compiler_error_count=len(compiler), panic_header_count=output.count('panicked at '))
@@ -441,6 +458,9 @@ if args.case in cancellation_pfp_cases:
     proof['restored_control_passed'] &= control['evidence_passed']
     if args.case == 'cancel-maintenance-pfp':
         proof['historical_real_red_run_id'] = 39313864372
+    elif args.case == 'cancel-late-first-pfp':
+        proof['counterfactual'] = 'add-only-unconditional-Invite-gate-cancel-before-existing-CAS'
+        proof['historical_late_first_red_run_id'] = 39321232775
     else:
         proof['counterfactual'] = 'omit-only-Core-owned-guard-pointer-check'
 if args.case in SECONDARY_CASES:
