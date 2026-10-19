@@ -281,9 +281,9 @@ async fn inline_epoch_change_keeps_stale_own_leave_worker_wake() {
 }
 
 async fn assert_stale_own_leave_wake(require_inline_ingest_wake: bool) {
-    use crate::relay_plane::{AccountDeliveryReceive, MarmotRelayPlane};
     use crate::tests::remember_test_member_inbox;
     use cgka_traits::storage::LeaveRequestStorage;
+    use transport_nostr::{AccountDeliveryReceive, MarmotRelayPlane};
 
     let dir = tempfile::tempdir().unwrap();
     let home = AccountHome::open(dir.path());

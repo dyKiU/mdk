@@ -17,8 +17,8 @@ import qualify_upstream_pure_native5 as native
 import qualify_upstream_current_enrollment as enrollment
 import qualify_upstream_storage_app_handles as body_counts
 
-BASE = '4938026f686dc27a2a623ffafe4c882224aacea8'
-BASE_TREE = '2b4310d0598b41ea9b0bf037b4ed39ced5b5ed2f'
+BASE = '21e725b69a7f8c97ca616c89e88feb2f7c9cdc0a'
+BASE_TREE = 'a056ae398ef345c9d23e7e24053b06007c7fb1ff'
 SELF = 'scripts/qualify_upstream_merged_affected.py'
 WORKFLOW = '.github/workflows/merged-affected-controls.yml'
 OWNED = {SELF, WORKFLOW}
