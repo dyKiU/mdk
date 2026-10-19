@@ -42,6 +42,9 @@ EXPECTED = {
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race",
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
     },
+    "pairing-leave-schedule": {
+        "client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake",
+    },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
         PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
