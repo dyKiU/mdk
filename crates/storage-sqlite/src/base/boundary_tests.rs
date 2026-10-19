@@ -825,7 +825,7 @@ fn unknown_production_roots_cannot_escape_boundary_scan() {
         .collect();
     assert_eq!(
         histories.len(),
-        19,
+        20,
         "exercise every declared private history alias"
     );
     assert!(
