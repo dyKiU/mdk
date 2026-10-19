@@ -361,12 +361,19 @@ pub(super) mod actual {
         OwnLeaveBeforeProposal,
     }
 
-    pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
-        run_native_public_three_device_enrollment_with_departure_order(
-            scenario,
-            DepartureArrangement::AsGenerated,
+    // Keep the composed fixture's debug future out of each test's poll frame.
+    // This bounds fixture nesting without enlarging the runner/thread stack or
+    // changing any real protocol operation, deadline or scenario assertion.
+    #[inline(never)]
+    pub(super) fn run_native_public_three_device_enrollment(
+        scenario: ApprovalScenario,
+    ) -> std::pin::Pin<Box<impl std::future::Future<Output = ()>>> {
+        Box::pin(
+            run_native_public_three_device_enrollment_with_departure_order(
+                scenario,
+                DepartureArrangement::AsGenerated,
+            ),
         )
-        .await;
     }
 
     pub(super) async fn run_departure_with_own_leave_first() {
@@ -438,10 +445,12 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticRecordsCutConsent
         ) {
-            super::automatic_held_three_original_acceptance::order_actual_signers(
-                &mut apps,
-                &keys,
-                scenario == ApprovalScenario::AutomaticHeldThreeBInitiates,
+            Box::pin(
+                super::automatic_held_three_original_acceptance::order_actual_signers(
+                    &mut apps,
+                    &keys,
+                    scenario == ApprovalScenario::AutomaticHeldThreeBInitiates,
+                ),
             )
             .await;
         }
@@ -2047,13 +2056,15 @@ pub(super) mod actual {
                         DeviceLinkingPhase::EnrollmentComplete
                     );
                 }
-                super::automatic_forwarding_acceptance::verify_offline_reopen(
-                    &apps,
-                    &runtimes,
-                    [dirs[0].path(), dirs[2].path()],
-                    &url,
-                    initial_shared_chat.as_ref().unwrap(),
-                    &mirror,
+                Box::pin(
+                    super::automatic_forwarding_acceptance::verify_offline_reopen(
+                        &apps,
+                        &runtimes,
+                        [dirs[0].path(), dirs[2].path()],
+                        &url,
+                        initial_shared_chat.as_ref().unwrap(),
+                        &mirror,
+                    ),
                 )
                 .await;
                 for runtime in runtimes {
