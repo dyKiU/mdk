@@ -31,6 +31,10 @@ on:
         description: Ownership source admission and metadata only; zero Rust bodies
         type: boolean
         default: false
+      source_static_checks:
+        description: Run required static gates and policy controls after source-format
+        type: boolean
+        default: false
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
         type: string
@@ -1058,7 +1062,13 @@ jobs:
   source-format:
     if: inputs.case == 'source-format' && startsWith(github.ref_name, 'ci/upstream-develop-dy-')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${{ inputs.source_static_checks && 45 || 10 }}
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUSTFLAGS: ${{ inputs.source_static_checks && '-D warnings' || '' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -1085,6 +1095,27 @@ jobs:
           sha256sum formatting/formatting.patch > formatting/formatting.patch.sha256
       - name: Require the original source to have been formatted
         run: test ! -s formatting/formatting.patch
+      - name: Install static-check tooling
+        if: inputs.source_static_checks
+        run: rustup component add clippy
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        if: inputs.source_static_checks
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        if: inputs.source_static_checks
+        with:
+          tool: just
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        if: inputs.source_static_checks
+        with:
+          cache-on-failure: true
+      - name: Required static gates and strict workspace Clippy for the reviewed source
+        if: inputs.source_static_checks
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Focused workspace static checks' --output formatting/static-capacity.json
+          just fast-ci
+          git diff --exit-code HEAD
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

@@ -365,7 +365,7 @@ fn snapshot(entry: &SiblingChannel, progress: &mut Progress) {
         invalid: progress.invalid,
     });
 }
-pub(crate) fn started(entry: &SiblingChannel) {
+pub(in crate::client::device_linking::sibling_sharing) fn started(entry: &SiblingChannel) {
     if let Some(probe) = current(entry) {
         snapshot(
             entry,
@@ -376,7 +376,10 @@ pub(crate) fn started(entry: &SiblingChannel) {
         );
     }
 }
-pub(crate) fn harvested(entry: &SiblingChannel, proof: bool) {
+pub(in crate::client::device_linking::sibling_sharing) fn harvested(
+    entry: &SiblingChannel,
+    proof: bool,
+) {
     if let Some(probe) = current(entry) {
         let mut progress = probe
             .progress
@@ -392,7 +395,7 @@ pub(crate) struct Capture {
     id: MessageId,
     kind: WireKind,
 }
-pub(crate) fn prepared(
+pub(in crate::client::device_linking::sibling_sharing) fn prepared(
     entry: &SiblingChannel,
     kind: AccountSharingControl,
     id: &MessageId,
@@ -452,7 +455,7 @@ pub(crate) fn acknowledged(capture: &Capture, id: &MessageId) {
 }
 
 // Called only after the existing Core open and all version/policy/digest/device checks.
-pub(crate) fn peer_authenticated(entry: &SiblingChannel) {
+pub(in crate::client::device_linking::sibling_sharing) fn peer_authenticated(entry: &SiblingChannel) {
     if entry.peer_committed
         && let Some(probe) = current(entry)
     {

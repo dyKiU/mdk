@@ -37,6 +37,9 @@ struct ActiveControl {
     negative_invite_revision: Option<crate::device_linking::settlement::SdkCancellationFence>,
 }
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+type PrepareReplyObservation = (u64, bool, Option<(PurposeAttemptScope, bool)>);
+
 /// One bounded negative slot, never a consent or transport inlet. Only the
 /// account actor installs an already-owned exact attempt; callers may revoke it.
 #[derive(Default)]
@@ -45,7 +48,7 @@ pub(super) struct PublicationControl {
     shutdown: AtomicBool,
     wake: Notify,
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    prepare_reply_observation: Mutex<(u64, bool, Option<(PurposeAttemptScope, bool)>)>,
+    prepare_reply_observation: Mutex<PrepareReplyObservation>,
 }
 impl PublicationControl {
     pub(super) fn install(&self, scope: PurposeAttemptScope, gate: Arc<RuntimeInviteGate>) {
