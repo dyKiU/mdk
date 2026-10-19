@@ -269,6 +269,18 @@ async fn publication_barrier_keeps_pending_mls_after_quorum() {
 /// engine drain that re-proposes the original durable leave in the new epoch.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stale_own_leave_after_input_only_convergence_keeps_worker_wake() {
+    assert_stale_own_leave_wake(false).await;
+}
+
+/// An epoch change completed inside live ingest has no scheduled-pass caller
+/// to re-arm it. Its effects must notify the worker about the stale leave.
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inline_epoch_change_keeps_stale_own_leave_worker_wake() {
+    assert_stale_own_leave_wake(true).await;
+}
+
+async fn assert_stale_own_leave_wake(require_inline_ingest_wake: bool) {
     use crate::relay_plane::{AccountDeliveryReceive, MarmotRelayPlane};
     use crate::tests::remember_test_member_inbox;
     use cgka_traits::storage::LeaveRequestStorage;
@@ -278,7 +290,14 @@ async fn stale_own_leave_after_input_only_convergence_keeps_worker_wake() {
     home.create_account("alice").unwrap();
     let bob_account = home.create_account("bob").unwrap();
     let relay = Arc::new(ScriptedPushRelayClient::default());
-    let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+    let config = crate::MarmotAppConfig::default();
+    #[cfg(feature = "test-policy-overrides")]
+    let config = if require_inline_ingest_wake {
+        config.with_dev_settlement_quiescence_ms(0)
+    } else {
+        config
+    };
+    let app = MarmotApp::with_relay_and_config(dir.path(), "wss://relay.example", config)
         .with_test_relay_client(relay.clone());
     remember_test_member_inbox(&app, &bob_account.account_id_hex, "wss://relay.example");
     let plane = MarmotRelayPlane::new(None, relay);
@@ -315,6 +334,11 @@ async fn stale_own_leave_after_input_only_convergence_keeps_worker_wake() {
         .unwrap();
     let expected = alice.runtime.group_record(&group).unwrap().epoch;
     assert_eq!(expected.0, prior.0 + 1);
+    let mut inline_epoch_change_observed = false;
+    let mut inline_epoch_change_wake_retained = true;
+    // Consume startup/send edges as the account worker does. They cannot
+    // substitute for a new edge from the actual inline epoch transition.
+    bob.take_pending_convergence_groups();
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             if let Ok(delivery) =
@@ -323,15 +347,27 @@ async fn stale_own_leave_after_input_only_convergence_keeps_worker_wake() {
                 let AccountDeliveryReceive::Delivery(delivery) = delivery.unwrap() else {
                     panic!("synthetic test must not overflow its delivery queue");
                 };
-                bob.ingest_received_delivery(*delivery).await.unwrap();
+                bob.take_pending_convergence_groups();
+                let summary = bob.ingest_received_delivery(*delivery).await.unwrap();
+                if summary.events.iter().any(|event| {
+                    matches!(event,
+                    cgka_traits::engine::GroupEvent::EpochChanged { group_id, .. }
+                        if group_id == &group)
+                }) {
+                    inline_epoch_change_observed = true;
+                    inline_epoch_change_wake_retained &=
+                        bob.take_pending_convergence_groups().contains(&group);
+                }
             }
             // This is the actual narrow session entry point used behind a
             // required publication barrier: no ordinary send/leave drain.
-            bob.runtime
-                .session_mut()
-                .advance_convergence_inputs(&group)
-                .await
-                .unwrap();
+            if !require_inline_ingest_wake {
+                bob.runtime
+                    .session_mut()
+                    .advance_convergence_inputs(&group)
+                    .await
+                    .unwrap();
+            }
             if bob.runtime.group_record(&group).unwrap().epoch == expected
                 && !bob.runtime.has_pending_convergence_inputs(&group).unwrap()
             {
@@ -375,4 +411,14 @@ async fn stale_own_leave_after_input_only_convergence_keeps_worker_wake() {
     drop(bob);
     drop(alice);
     storage.close().unwrap();
+    if require_inline_ingest_wake {
+        assert!(
+            inline_epoch_change_observed,
+            "the real commit must advance the epoch inside live ingest, without a scheduled pass"
+        );
+        assert!(
+            inline_epoch_change_wake_retained,
+            "inline epoch-change effects must notify the worker about the stale original leave"
+        );
+    }
 }

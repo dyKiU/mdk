@@ -46,6 +46,7 @@ EXPECTED = {
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
     },
     "pairing-leave-schedule": {
+        "client::sync::queued_outbound_schedule_tests::inline_epoch_change_keeps_stale_own_leave_worker_wake",
         "client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake",
         "client::sync::queued_outbound_schedule_tests::restarted_safe_queued_send_does_not_inherit_secondary_retry_cutoff",
         "client::sync::queued_outbound_schedule_tests::restarted_below_quorum_send_keeps_required_retry_cutoff",
