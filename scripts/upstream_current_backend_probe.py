@@ -24,7 +24,7 @@ PHASES = {'local_state_created', 'local_ready', 'bootstrap_publication_started',
           'key_package_publication_confirmed', 'companion_ready'}
 AVATAR = {'sender_clear_present', 'receiver_present', 'sync_events',
           'sync_projection_updates', 'sync_epoch_stall_escalations',
-          'clear_published', 'clear_message_count', 'core_observation'}
+          'clear_published', 'clear_message_count', 'core_observation', 'ingest_observation'}
 AVATAR_CORE = {'core_avatar_present', 'app_avatar_present', 'core_epoch', 'clear_receipt_cached'}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 LIMIT = 16 * 1024 * 1024
@@ -181,6 +181,82 @@ def native_controls():
     return {'positive': positives, 'negative': len(bad)}
 
 
+AVATAR_INGEST_BOUNDARIES = {'account_ingest', 'receive_receipt_skip',
+                           'recovery_receipt_skip', 'drain_receipt_skip'}
+AVATAR_INGEST_OUTCOMES = {'processed', 'buffered', 'transport_deferred', 'local_state',
+                         'stale', 'rejected', 'ignored_duplicate', 'ignored_own_echo',
+                         'ignored_other', 'resource_refused', 'error', 'cached_receipt'}
+
+
+def closed_avatar_ingest(value):
+    if (not isinstance(value, dict) or set(value) != {'rows', 'complete'}
+            or type(value['complete']) is not bool or not isinstance(value['rows'], list)
+            or len(value['rows']) > 8):
+        raise ValueError('avatar-ingest-collection')
+    for row in value['rows']:
+        if (not isinstance(row, dict) or set(row) != {'boundary', 'outcome', 'left_object_unpersisted'}
+                or type(row['boundary']) is not str or type(row['outcome']) is not str
+                or row['boundary'] not in AVATAR_INGEST_BOUNDARIES
+                or row['outcome'] not in AVATAR_INGEST_OUTCOMES):
+            raise ValueError('avatar-ingest-row')
+        boundary, outcome, left = row['boundary'], row['outcome'], row['left_object_unpersisted']
+        if boundary == 'account_ingest':
+            valid = left is None if outcome == 'error' else type(left) is bool and outcome != 'cached_receipt'
+        else:
+            valid = outcome == 'cached_receipt' and left is None
+        if not valid:
+            raise ValueError('avatar-ingest-coherence')
+    # complete means bounded capture/grammar only; zero rows is not proof that
+    # the event never arrived or that no earlier/other path handled it.
+    return value
+
+
+def avatar_ingest_fixture(boundary='account_ingest', outcome='processed', left=False):
+    return {'rows': [{'boundary': boundary, 'outcome': outcome, 'left_object_unpersisted': left}],
+            'complete': True}
+
+
+def avatar_ingest_controls():
+    positives = 0
+    valid = avatar_ingest_fixture()
+    cases = [avatar_ingest_fixture(outcome=name) for name in sorted(AVATAR_INGEST_OUTCOMES - {'error', 'cached_receipt'})]
+    cases += [avatar_ingest_fixture(outcome='error', left=None)]
+    cases += [avatar_ingest_fixture(name, 'cached_receipt', None)
+              for name in sorted(AVATAR_INGEST_BOUNDARIES - {'account_ingest'})]
+    cases += [{'rows': [], 'complete': True}, {'rows': [], 'complete': False},
+              {'rows': valid['rows'] * 8, 'complete': True},
+              dict(valid, complete=False)]
+    for value in cases:
+        assert closed_avatar_ingest(value) == value
+        positives += 1
+    def changed():
+        return json.loads(json.dumps(valid))
+    bad = [None, [], dict(valid, private='PRIVATE'), dict(valid, complete=1),
+           dict(valid, complete=None), dict(valid, rows='PRIVATE'),
+           dict(valid, rows=valid['rows'] * 9), dict(valid, rows=[None]),
+           dict(valid, rows=[['PRIVATE']])]
+    for field, value in [('boundary', 'PRIVATE'), ('outcome', 'PRIVATE'),
+                         ('boundary', ['PRIVATE']), ('outcome', {'private': 'PRIVATE'}),
+                         ('left_object_unpersisted', 1), ('left_object_unpersisted', None)]:
+        row = changed(); row['rows'][0][field] = value; bad.append(row)
+    row = changed(); row['rows'][0]['private'] = 'PRIVATE'; bad.append(row)
+    row = changed(); del row['rows'][0]['outcome']; bad.append(row)
+    row = changed(); del row['complete']; bad.append(row)
+    bad += [avatar_ingest_fixture(outcome='cached_receipt', left=None),
+            avatar_ingest_fixture(outcome='error', left=False),
+            avatar_ingest_fixture('drain_receipt_skip', 'processed', False),
+            avatar_ingest_fixture('drain_receipt_skip', 'cached_receipt', True)]
+    for value in bad:
+        try:
+            closed_avatar_ingest(value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('avatar-ingest-negative-accepted')
+    assert all('PRIVATE' not in json.dumps(closed_avatar_ingest(value)) for value in cases)
+    return {'positive': positives, 'negative': len(bad)}
+
+
 def closed_marker(case, value):
     if not isinstance(value, dict):
         raise ValueError('marker-shape')
@@ -199,6 +275,9 @@ def closed_marker(case, value):
         if set(value) != AVATAR:
             raise ValueError('marker-keys')
         for key, item in value.items():
+            if key == 'ingest_observation':
+                closed_avatar_ingest(item)
+                continue
             if key == 'core_observation':
                 if not isinstance(item, dict) or set(item) != AVATAR_CORE:
                     raise ValueError('avatar-core-shape')
@@ -318,7 +397,8 @@ def parser_controls():
                    'journal_read_ok': True, 'journal_phase': 'local_state_created',
                    'telemetry': telemetry_fixture(), 'native': native_fixture()}
                   if case == 'key-package' else dict({key: None for key in AVATAR},
-                      core_observation={key: None for key in AVATAR_CORE}))
+                      core_observation={key: None for key in AVATAR_CORE},
+                      ingest_observation={'rows': [], 'complete': True}))
         package, binary, test, source, prefix = CASES[case]
         raw = (prefix + json.dumps(values) + '\nFAIL [1s] ' + binary + ' ' + test + '\n'
                + "thread 'PRIVATE' panicked at " + source + ':2206:10:\nPRIVATE_PAYLOAD\n'
@@ -384,7 +464,8 @@ def parser_controls():
             'historical_counter_regressions': counter_regressions,
             'historical_collector': PRIOR_COLLECTOR,
             'key_package_telemetry_controls': telemetry_controls(),
-            'key_package_native_controls': native_controls()}
+            'key_package_native_controls': native_controls(),
+            'avatar_ingest_controls': avatar_ingest_controls()}
 
 
 def close_inputs(report, before, input_probe=frozen_inputs, diff_probe=None):

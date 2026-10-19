@@ -7508,6 +7508,39 @@ fn groups_set_avatar_url_round_trips_through_sync_and_show() {
     } else {
         None
     };
+    // Retain only fixed closed facts from the SAME final-sync stderr. More
+    // than eight rows or any malformed row makes collection incomplete; never
+    // echo arbitrary JSON, errors, identities or event bytes into this marker.
+    let mut ingest_rows = Vec::new();
+    let mut ingest_complete = true;
+    for (index, line) in sync_stderr.lines()
+        .filter_map(|line| line.strip_prefix("avatar-ingest-control ")).take(9).enumerate()
+    {
+        if index == 8 { ingest_complete = false; break; }
+        let value = (line.len() <= 512).then(|| serde_json::from_str::<Value>(line).ok()).flatten();
+        let valid = value.as_ref().is_some_and(|value| {
+            let Some(row) = value.as_object() else { return false; };
+            if row.len() != 3 || !row.keys().all(|key|
+                matches!(key.as_str(), "boundary" | "outcome" | "left_object_unpersisted")) { return false; }
+            let boundary = row["boundary"].as_str();
+            let outcome = row["outcome"].as_str();
+            let left = &row["left_object_unpersisted"];
+            match boundary {
+                Some("account_ingest") => match outcome {
+                    Some("error") => left.is_null(),
+                    Some("processed" | "buffered" | "transport_deferred" | "local_state" |
+                        "stale" | "rejected" | "ignored_duplicate" | "ignored_own_echo" |
+                        "ignored_other" | "resource_refused") => left.is_boolean(),
+                    _ => false,
+                },
+                Some("receive_receipt_skip" | "recovery_receipt_skip" | "drain_receipt_skip") =>
+                    outcome == Some("cached_receipt") && left.is_null(),
+                _ => false,
+            }
+        });
+        if valid { ingest_rows.push(value.unwrap()); } else { ingest_complete = false; }
+    }
+    let ingest_observation = serde_json::json!({"rows": ingest_rows, "complete": ingest_complete});
     let bob_cleared = run_json(home.path(), &["--account", &bob, "chats", "show", group_id]);
     // Copy closed facts from the existing outputs only; no additional command,
     // protocol operation, retry or wait can alter the original assertion.
@@ -7523,6 +7556,7 @@ fn groups_set_avatar_url_round_trips_through_sync_and_show() {
             "clear_message_count": cleared["message_ids"].as_array()
                 .and_then(|ids| u64::try_from(ids.len()).ok()),
             "core_observation": core_observation,
+            "ingest_observation": ingest_observation,
         })
     );
     assert_eq!(bob_cleared["group"]["avatar_url"]["present"], false);
