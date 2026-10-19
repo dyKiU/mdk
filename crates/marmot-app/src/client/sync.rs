@@ -2782,6 +2782,8 @@ impl AppClient {
     ) -> Result<transport_nostr::AccountDeliveryReceive, AppError> {
         use transport_nostr::AccountDeliveryWait;
         loop {
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::LoopEntry);
             // A consumer lag charges notification loss before any control
             // record reaches this queue, and a record may never come: its
             // queue can close during a reopen. Persist the loss now. Without
@@ -2790,9 +2792,16 @@ impl AppClient {
             // deliveries queued ahead of it drain, so no attempt starts that
             // could not clear the loss.
             if let Some(loss) = self.adapter.unpersisted_notification_loss() {
-                self.observe_delivery_overflow(loss)?;
+                self.observe_delivery_overflow(loss).inspect_err(|_| {
+                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::OverflowErr);
+                })?;
                 if !self.adapter.delivery_overflow_signal_outstanding() {
                     self.delivery_spill.complete_cooperative_offer();
+                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::EarlyOverflow);
+                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::OverflowReturn);
                     return Ok(transport_nostr::AccountDeliveryReceive::Overflow(loss));
                 }
             }
@@ -2801,6 +2810,8 @@ impl AppClient {
             // starts the same recovery it runs for a router omission.
             if self.delivery_spill.take_recorded_loss() {
                 self.delivery_spill.complete_cooperative_offer();
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::OverflowReturn);
                 return Ok(transport_nostr::AccountDeliveryReceive::Overflow(
                     transport_nostr::AccountDeliveryOverflow {
                         marker_token: self
@@ -2815,12 +2826,27 @@ impl AppClient {
             // and cancellation here loses nothing. Retain the offered turn in
             // the reader so a cancelled receive does not offer it indefinitely.
             if self.delivery_spill.pending() && self.delivery_spill.offer_cooperative_turn() {
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::BeforeSpillYield);
                 tokio::task::yield_now().await;
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::AfterSpillYield);
+
             }
-            let received = match self.take_ready_delivery()? {
-                Some(received) => received,
+            let received = match self.take_ready_delivery().inspect_err(|_| {
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::TakeReadyErr);
+            })? {
+                Some(received) => {
+                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::TakeReadySome);
+                    received
+                },
                 None if self.delivery_spill.loss_recorded() => continue,
-                None => match match self.spill_retry_wait() {
+                None => {
+                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::BeforeAdapterAwait);
+                    match match self.spill_retry_wait() {
                     // Wake for a deferred spilled row even when nothing else
                     // arrives; a directly owned client has no other timer.
                     Some(delay) => match tokio::time::timeout(
@@ -2836,35 +2862,59 @@ impl AppClient {
                 } {
                     AccountDeliveryWait::Received(received) => received,
                     AccountDeliveryWait::SpillReady => {
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::SpillReady);
+
                         self.note_spill_ready();
                         continue;
                     }
                     AccountDeliveryWait::Closed => {
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::Closed);
+
                         if let Some(loss) = self
                             .adapter
                             .unpersisted_notification_loss()
                             .or_else(|| self.adapter.pending_delivery_overflow())
                         {
-                            self.observe_delivery_overflow(loss)?;
+                            self.observe_delivery_overflow(loss).inspect_err(|_| {
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::OverflowErr);
+                            })?;
                         }
                         return Err(AppError::TransportClosed);
                     }
+                }
                 },
             };
             let delivery = match received {
                 transport_nostr::AccountDeliveryReceive::Delivery(delivery) => delivery,
                 transport_nostr::AccountDeliveryReceive::Overflow(overflow) => {
-                    self.observe_delivery_overflow(overflow)?;
+                    self.observe_delivery_overflow(overflow).inspect_err(|_| {
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::OverflowErr);
+                    })?;
+                    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::OverflowReturn);
+
                     return Ok(transport_nostr::AccountDeliveryReceive::Overflow(overflow));
                 }
             };
             let event_id = hex::encode(delivery.message.id.as_slice());
-            if self.transport_receipts()?.contains(&event_id) {
+            if self.transport_receipts().map(|receipts| receipts.contains(&event_id)).inspect_err(|_| {
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::ReceiptsErr);
+            })? {
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::Duplicate);
+
                 self.record_durable_transport_reconciliation_delivery(&delivery);
                 self.adapter.release_account_delivery(&delivery.message.id);
                 self.settle_spilled_delivery();
                 continue;
             }
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            self.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::DeliveryReturn);
             return Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery));
         }
     }

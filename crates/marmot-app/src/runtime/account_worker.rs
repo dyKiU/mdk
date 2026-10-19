@@ -2708,6 +2708,8 @@ async fn run_app_runtime_account_worker(
                                 continue 'worker;
                             }
                         }
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        client.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::WorkerSelected);
                         // Only the transport wait participates in `select!`. Once a
                         // delivery has been claimed, finish ingest + incidental
                         // publish + projection as one uncancelled worker operation;
@@ -2719,7 +2721,12 @@ async fn run_app_runtime_account_worker(
                             Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) => {
                                 #[cfg(feature = "experimental-device-sync")]
                                 client.begin_selected_recipient_ingest();
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                client.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::IngestBegin);
                                 let result = client.ingest_observed_received_delivery(&delivery).await;
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                client.record_native_app_receive_for_test(crate::client::device_linking::sibling_sharing::NativeAppReceiveStage::IngestEnd);
+
                                 #[cfg(feature = "experimental-device-sync")]
                                 if delivery.message.payload.len() <= 512 * 1024
                                     && let Some(error) = result.as_ref().err()

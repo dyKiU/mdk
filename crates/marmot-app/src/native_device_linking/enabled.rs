@@ -440,6 +440,22 @@ impl DeviceLinkingSession {
             .map(|choice| choice.receive_poll_snapshot_for_test())
     }
 
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn native_app_receive_for_test(&self) -> Option<crate::client::device_linking::sibling_sharing::NativeAppReceiveSnapshot> {
+        self.inner.sharing_choice.lock().expect("sharing choice").as_ref().map(|choice| choice.app_receive_snapshot_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn native_adapter_receive_for_test(&self) -> Option<crate::client::device_linking::sibling_sharing::NativeAdapterReceiveSnapshot> {
+        self.inner.sharing_choice.lock().expect("sharing choice").as_ref().and_then(|choice| choice.adapter_receive_snapshot_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn prepared_publication_same_receiver_for_test(&self, publication: &cgka_traits::MessageId) -> Option<bool> {
+        let identity = self.inner.sharing_choice.lock().expect("sharing choice").as_ref()?.adapter_identity_for_test()?;
+        let account = cgka_traits::MemberId::new(self.inner.scope.account.to_vec());
+        let (plane, _) = self.inner.manager.device_pairing_transport();
+        plane.account_notification_same_receiver_for_test(&account, &hex::encode(publication.as_slice()), &identity)
+    }
+
     // PEER_PROOF_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn arm_late_peer_proof_for_test(

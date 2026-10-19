@@ -1750,6 +1750,8 @@ async fn wait_for_automatic_phase_with_approvals(
                 "automatic-enrollment-control side={side} receive_poll_counts/last/overflow={:?}",
                 original.native_receive_poll_for_test(),
             );
+            eprintln!("automatic-enrollment-control side={side} app_receive_counts/last/overflow={:?}", original.native_app_receive_for_test());
+            eprintln!("automatic-enrollment-control side={side} adapter_receive_counts/last/overflow/queue/capture={:?}", original.native_adapter_receive_for_test());
         }
         #[cfg(feature = "test-policy-overrides")]
         for (index, approval) in approvals.iter().enumerate() {
@@ -1772,6 +1774,8 @@ async fn wait_for_automatic_phase_with_approvals(
                 publication.is_some(),
                 notification,
             );
+            let same_receiver = publication.as_ref().and_then(|id| b.prepared_publication_same_receiver_for_test(id));
+            eprintln!("automatic-enrollment-control existing_index={index} first_queue_matches_last_observed_receiver={same_receiver:?}");
         }
         #[cfg(not(feature = "test-policy-overrides"))]
         let _ = approvals;

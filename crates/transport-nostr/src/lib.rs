@@ -273,8 +273,9 @@ struct AutomaticBodyPublicationGate {
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct NotificationQueueObservation {
+    first_receiver: Option<AccountReceiverIdentityForTest>,
     first_accepted_depths: Option<(usize, usize)>,
     depth_recorded: bool,
     dequeued: u64,
@@ -333,7 +334,7 @@ impl NotificationDispositionObserver {
     // These depths reuse the router's existing observations. They are not an
     // atomic enqueue/dequeue snapshot or an exact FIFO position: the receiver
     // can take the delivery before this separate post-send lock is acquired.
-    fn accepted_depths(&self, id: &str, before: usize, after: usize) {
+    fn accepted_depths(&self, id: &str, before: usize, after: usize, receiver: AccountReceiverIdentityForTest) {
         let mut entries = self.0.lock().unwrap();
         let Some(entry) = entries.get_mut(id) else {
             return;
@@ -343,6 +344,7 @@ impl NotificationDispositionObserver {
             return;
         }
         queue.depth_recorded = true;
+        queue.first_receiver = Some(receiver);
         if before <= ACCOUNT_DELIVERY_BUFFER + 1 && after <= ACCOUNT_DELIVERY_BUFFER + 1 {
             queue.first_accepted_depths = Some((before, after));
         } else {
@@ -513,6 +515,35 @@ struct IncrementalActivation {
     since: Timestamp,
 }
 
+#[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[derive(Clone)]
+#[doc(hidden)]
+pub struct AccountReceiverIdentityForTest {
+    owner: std::sync::Weak<AccountDeliveryOverflowState>,
+    epoch: u64,
+}
+#[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum AccountReceiveStageForTest {
+    AwaitEntry = 0,
+    RxMutexAcquired = 1,
+    SpillWake = 2,
+    QueueDelivery = 3,
+    QueueOverflow = 4,
+    QueueClosed = 5,
+}
+#[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[derive(Default)]
+struct AccountReceiveProbeForTest {
+    counts: [u64; 6],
+    last: Option<(u8, std::time::Instant)>,
+    overflow: bool,
+}
+#[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[doc(hidden)]
+pub type AccountReceiveSnapshotForTest = ([u64; 6], Option<(u8, std::time::Instant)>, bool);
+
 #[derive(Clone)]
 pub struct MarmotRelayPlaneAccountAdapter {
     account_id: MemberId,
@@ -523,6 +554,8 @@ pub struct MarmotRelayPlaneAccountAdapter {
     delivery_overflow: Arc<AccountDeliveryOverflowState>,
     /// The queue generation `delivery_rx` belongs to.
     delivery_epoch: u64,
+    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    receive_probe: Arc<std::sync::Mutex<AccountReceiveProbeForTest>>,
     incremental_activation: Arc<Mutex<Option<IncrementalActivation>>>,
     #[cfg(feature = "experimental-device-sync")]
     private_observation_group: Arc<std::sync::RwLock<Option<cgka_traits::GroupId>>>,
@@ -2021,6 +2054,8 @@ impl MarmotRelayPlane {
             delivery_rx: Arc::new(Mutex::new(delivery_rx)),
             delivery_overflow,
             delivery_epoch,
+            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            receive_probe: Arc::new(std::sync::Mutex::new(AccountReceiveProbeForTest::default())),
             incremental_activation: Arc::new(Mutex::new(None)),
             #[cfg(feature = "experimental-device-sync")]
             private_observation_group: Arc::new(std::sync::RwLock::new(None)),
@@ -2074,6 +2109,17 @@ impl MarmotRelayPlane {
         counts.get(id).map(|entry| entry.0)
     }
 
+    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[doc(hidden)]
+    pub fn account_notification_same_receiver_for_test(
+        &self, account: &MemberId, id: &str, receiver: &AccountReceiverIdentityForTest,
+    ) -> Option<bool> {
+        let observers = self.inner.transport.test_notification_dispositions.lock().unwrap();
+        let entries = observers.get(account)?.0.lock().unwrap();
+        let first = entries.get(id)?.4.first_receiver.as_ref()?;
+        Some(std::sync::Weak::ptr_eq(&first.owner, &receiver.owner) && first.epoch == receiver.epoch)
+    }
+
     /// Copy the same observer entry, including actual earliest stage instants.
     #[cfg(all(
         any(test, feature = "test-support"),
@@ -2095,7 +2141,7 @@ impl MarmotRelayPlane {
         let observer = observers.get(account)?;
         let entries = observer.0.lock().unwrap();
         entries.get(id).map(|entry| {
-            let queue = entry.4;
+            let queue = &entry.4;
             (
                 entry.0,
                 entry.1,
@@ -5010,11 +5056,35 @@ impl MarmotRelayPlaneAccountAdapter {
         eose
     }
 
+    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    fn note_receive_for_test(&self, stage: AccountReceiveStageForTest) {
+        let mut probe = self.receive_probe.lock().unwrap();
+        if let Some(next) = probe.counts[stage as usize].checked_add(1) {
+            probe.counts[stage as usize] = next;
+        } else { probe.overflow = true; }
+        probe.last = Some((stage as u8, std::time::Instant::now()));
+    }
+    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[doc(hidden)]
+    pub fn receiver_snapshot_for_test(&self) -> (AccountReceiveSnapshotForTest, AccountReceiverIdentityForTest) {
+        let snapshot = { let probe = self.receive_probe.lock().unwrap(); (probe.counts, probe.last, probe.overflow) };
+        (snapshot, AccountReceiverIdentityForTest { owner: Arc::downgrade(&self.delivery_overflow), epoch: self.delivery_epoch })
+    }
+
     #[doc(hidden)]
     pub async fn receive_account_delivery(
         &self,
     ) -> Result<Option<AccountDeliveryReceive>, TransportAdapterError> {
-        let event = self.delivery_rx.lock().await.recv().await;
+        #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        self.note_receive_for_test(AccountReceiveStageForTest::AwaitEntry);
+        let event = {
+            let mut receiver = self.delivery_rx.lock().await;
+            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            self.note_receive_for_test(AccountReceiveStageForTest::RxMutexAcquired);
+            receiver.recv().await
+        };
+        #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        if event.is_none() { self.note_receive_for_test(AccountReceiveStageForTest::QueueClosed); }
         Ok(event.map(|event| self.account_delivery_receive(event)))
     }
 
@@ -5048,7 +5118,14 @@ impl MarmotRelayPlaneAccountAdapter {
     /// The next queued item, if one is ready now.
     #[doc(hidden)]
     pub fn try_receive_account_delivery(&self) -> Option<AccountDeliveryReceive> {
-        let event = self.delivery_rx.try_lock().ok()?.try_recv().ok()?;
+        #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        self.note_receive_for_test(AccountReceiveStageForTest::AwaitEntry);
+        let event = {
+            let mut receiver = self.delivery_rx.try_lock().ok()?;
+            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            self.note_receive_for_test(AccountReceiveStageForTest::RxMutexAcquired);
+            receiver.try_recv().ok()?
+        };
         Some(self.account_delivery_receive(event))
     }
 
@@ -5057,18 +5134,32 @@ impl MarmotRelayPlaneAccountAdapter {
     /// hide it; it fires once per writer batch, so live input is not starved.
     #[doc(hidden)]
     pub async fn receive_account_delivery_or_spill(&self) -> AccountDeliveryWait {
+        #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        self.note_receive_for_test(AccountReceiveStageForTest::AwaitEntry);
         let mut delivery_rx = self.delivery_rx.lock().await;
+        #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        self.note_receive_for_test(AccountReceiveStageForTest::RxMutexAcquired);
         tokio::select! {
             biased;
-            () = self.delivery_overflow.spill_ready.notified() => AccountDeliveryWait::SpillReady,
+            () = self.delivery_overflow.spill_ready.notified() => {
+                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.note_receive_for_test(AccountReceiveStageForTest::SpillWake);
+                AccountDeliveryWait::SpillReady
+            },
             event = delivery_rx.recv() => match event {
                 Some(event) => AccountDeliveryWait::Received(self.account_delivery_receive(event)),
-                None => AccountDeliveryWait::Closed,
+                None => {
+                    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.note_receive_for_test(AccountReceiveStageForTest::QueueClosed);
+                    AccountDeliveryWait::Closed
+                },
             },
         }
     }
 
     fn account_delivery_receive(&self, event: AccountDeliveryEvent) -> AccountDeliveryReceive {
+        #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        self.note_receive_for_test(if matches!(&event, AccountDeliveryEvent::Delivery(_)) { AccountReceiveStageForTest::QueueDelivery } else { AccountReceiveStageForTest::QueueOverflow });
         match event {
             AccountDeliveryEvent::Delivery(delivery) => {
                 // NATIVE5_DEQUEUE_TIMING_BEGIN
@@ -5553,6 +5644,7 @@ fn route_account_delivery(
                             &observed_id,
                             notification_depth_before_placement,
                             queue_depth,
+                            AccountReceiverIdentityForTest { owner: Arc::downgrade(&route.overflow), epoch: route.epoch },
                         );
                     }
                     // NATIVE5_DEQUEUE_TIMING_END
