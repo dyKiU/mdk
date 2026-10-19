@@ -505,6 +505,14 @@ impl DeviceLinkingSession {
             .as_ref()
             .map(crate::client::device_linking::sibling_sharing::peer_proof_probe::arm)
     }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn arm_recipient_retry_priority_for_test(
+        &self,
+        nonce: [u8; 32],
+    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::recipient_retry_priority::RecipientGuard> {
+        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+            .map(|choice| crate::client::device_linking::sibling_sharing::peer_proof_probe::recipient_retry_priority::arm_recipient(choice, nonce))
+    }
     // PEER_PROOF_TEST_END
     // COMPLETION_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]

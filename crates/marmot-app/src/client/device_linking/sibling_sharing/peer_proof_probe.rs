@@ -15,6 +15,8 @@ pub(crate) mod retry_completion;
 // PEER_NEGATIVE_TEST_BEGIN
 pub(crate) mod negative;
 // PEER_NEGATIVE_TEST_END
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod recipient_retry_priority;
 use std::sync::{OnceLock, Weak};
 use tokio::sync::Notify;
 

@@ -290,7 +290,7 @@ async fn authenticated_consent_retires_obsolete_request_retry_before_proof() {
 
 // Probe only this fixture's owned loopback MockRelay listener.
 #[allow(clippy::disallowed_methods)]
-async fn owned_loopback_listener_is_closed(address: &str) -> bool {
+pub(super) async fn owned_loopback_listener_is_closed(address: &str) -> bool {
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
             drop(socket);

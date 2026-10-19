@@ -2434,6 +2434,8 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    peer_proof_probe::recipient_retry_priority::peer_authenticated(&entry);
                     // COMMAND_BACKLOG_TEST_BEGIN
                     #[cfg(all(
                         test,
@@ -2784,6 +2786,8 @@ impl AppClient {
                 entry.handshake_published = true;
                 entry.handshake_retry_at = retry_at;
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            peer_proof_probe::recipient_retry_priority::harvested(entry, pending.proof);
             #[cfg(all(test, feature = "test-policy-overrides"))]
             Self::observe_sibling_harvest_for_test(
                 &entry.state,
@@ -3333,6 +3337,8 @@ impl AppClient {
         // COMPLETION_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let completion_consent_identity = consent.then(|| request.message.id.clone());
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let priority_capture = peer_proof_probe::recipient_retry_priority::prepared(entry, kind, &request.message.id);
         // COMPLETION_TEST_END
         // PEER_PROOF_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -3371,6 +3377,8 @@ impl AppClient {
 // PEER_PROOF_TEST_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     if proof { peer_proof_probe::hold(&original, peer_proof_nonce).await; }
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if proof { peer_proof_probe::recipient_retry_priority::hold_source(&original, peer_proof_nonce, state.deadline, &request.message.id).await; }
 // PEER_PROOF_TEST_END
 // RECIPIENT_ADMISSION_TEST_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -3383,7 +3391,11 @@ impl AppClient {
                         if let Some(capture) = &request_consent_capture { request_lineage::consent_phase(capture, 1); }
                         adapter.publish_sibling_consent(request).await
                     }
-                    else { adapter.publish_selected_chat(request).await }
+                    else {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if proof { peer_proof_probe::recipient_retry_priority::source_dispatched(&original, peer_proof_nonce, state.deadline, &request.message.id); }
+                        adapter.publish_selected_chat(request).await
+                    }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
             };
             if !original.live() || !state.live() || !report.met_required_acks() {
@@ -3429,6 +3441,10 @@ impl AppClient {
                 }
             }
             // COMPLETION_TEST_END
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(capture) = &priority_capture { peer_proof_probe::recipient_retry_priority::acknowledged(capture, &report.message_id); }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if proof { peer_proof_probe::recipient_retry_priority::source_acknowledged(&original, peer_proof_nonce, state.deadline, &report.message_id); }
             Ok(())
             }.await;
             let success = outcome.is_ok();
@@ -3444,6 +3460,8 @@ impl AppClient {
             outcome: None,
             task,
         });
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        peer_proof_probe::recipient_retry_priority::started(entry);
         // PEER_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         peer_proof_probe::negative::started(entry, proof);

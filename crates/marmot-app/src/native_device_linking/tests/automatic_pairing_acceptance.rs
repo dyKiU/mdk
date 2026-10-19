@@ -2529,3 +2529,7 @@ mod sequential_installations_acceptance;
 
 #[path = "public_chat_delivery_acceptance.rs"]
 mod public_chat_delivery_acceptance;
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "recipient_retry_priority_acceptance.rs"]
+mod recipient_retry_priority_acceptance;
