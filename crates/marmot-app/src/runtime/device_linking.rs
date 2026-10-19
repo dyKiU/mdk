@@ -511,7 +511,9 @@ pub(super) async fn handle_verifier_command(
                 && let Ok((_, gate)) = client.enrollment_proposal_control(&scope)
             {
                 publication_control.install_proposal(
-                    scope.clone(), gate, client.proposal_retirement_for_control(&scope),
+                    scope.clone(),
+                    gate,
+                    client.proposal_retirement_for_control(&scope),
                 );
             }
             if respond.send(result).is_err() {

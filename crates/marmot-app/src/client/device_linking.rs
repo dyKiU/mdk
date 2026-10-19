@@ -30,18 +30,30 @@ pub(crate) struct ProposalRetirement {
 }
 impl ProposalRetirement {
     fn new(scope: &PurposeAttemptScope, gate: &Arc<RuntimeInviteGate>) -> Self {
-        Self { scope: scope.clone(), gate: Arc::downgrade(gate),
-            state: std::sync::atomic::AtomicU8::new(0) }
+        Self {
+            scope: scope.clone(),
+            gate: Arc::downgrade(gate),
+            state: std::sync::atomic::AtomicU8::new(0),
+        }
     }
     fn invalidate(&self) {
         self.state.store(2, std::sync::atomic::Ordering::Release);
     }
     fn retire(&self) {
-        let _ = self.state.compare_exchange(0, 1,
-            std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire);
+        let _ = self.state.compare_exchange(
+            0,
+            1,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        );
     }
-    pub(crate) fn matches_retired(&self, scope: &PurposeAttemptScope, gate: &Arc<RuntimeInviteGate>) -> bool {
-        self.scope == *scope && self.gate.ptr_eq(&Arc::downgrade(gate))
+    pub(crate) fn matches_retired(
+        &self,
+        scope: &PurposeAttemptScope,
+        gate: &Arc<RuntimeInviteGate>,
+    ) -> bool {
+        self.scope == *scope
+            && self.gate.ptr_eq(&Arc::downgrade(gate))
             && self.state.load(std::sync::atomic::Ordering::Acquire) == 1
     }
 }
@@ -845,7 +857,8 @@ impl AppClient {
         }
         attempt.proposal = Some(proposal);
         attempt.proposal_retirement = Some(Arc::new(ProposalRetirement::new(
-            scope, &self.linking_owner.invite,
+            scope,
+            &self.linking_owner.invite,
         )));
         Ok(())
     }
@@ -948,9 +961,15 @@ impl AppClient {
         &self,
         scope: &PurposeAttemptScope,
     ) -> Option<Arc<ProposalRetirement>> {
-        self.linking_owner.invite_attempt.as_ref()
-            .filter(|attempt| attempt.scope == *scope && !attempt.for_add
-                && attempt.prepared.is_none() && attempt.proposal.is_some())
+        self.linking_owner
+            .invite_attempt
+            .as_ref()
+            .filter(|attempt| {
+                attempt.scope == *scope
+                    && !attempt.for_add
+                    && attempt.prepared.is_none()
+                    && attempt.proposal.is_some()
+            })
             .and_then(|attempt| attempt.proposal_retirement.clone())
     }
 
@@ -1105,8 +1124,12 @@ impl AppClient {
                     .retire_unprepared_private_device_invite(&attempt.scope)
                     .map_err(ClientLinkingError::PrivateInvite)?;
             }
-            if !attempt.for_add && attempt.prepared.is_none()
-                && attempt.proposal.as_ref().is_some_and(|proposal| !proposal.preparation_has_started())
+            if !attempt.for_add
+                && attempt.prepared.is_none()
+                && attempt
+                    .proposal
+                    .as_ref()
+                    .is_some_and(|proposal| !proposal.preparation_has_started())
                 && let Some(retirement) = &attempt.proposal_retirement
             {
                 // Core cleanup has returned Ok. This records local retirement,
