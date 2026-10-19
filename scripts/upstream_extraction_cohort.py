@@ -14,6 +14,7 @@ REPOSITORY = 'dyKiU/mdk'
 OVERLAYS = {
     '.github/workflows/upstream-avatar-ready-turn.yml',
     'scripts/upstream_avatar_ready_turn_chain.py',
+    'scripts/upstream_explicit_ready_selection.py',
     '.github/workflows/upstream-backend-probes.yml',
     'scripts/upstream_current_backend_probe.py',
     'scripts/upstream_extraction_cohort.py',
