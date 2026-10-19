@@ -27,9 +27,42 @@ def require(value, message):
         raise ValueError(message)
 
 
+def safe_install_directory(app, directory):
+    require(directory.is_absolute() and directory.is_relative_to(app), 'Install destination escaped app')
+    require(app.resolve(strict=True) == app and not app.is_symlink(), 'Physical app root required')
+    for ancestor in [directory, *directory.parents]:
+        require(not ancestor.is_symlink(), 'Install destination ancestor symlink refused')
+        if ancestor.exists():
+            require(ancestor.is_dir(), 'Install destination parent is not a directory')
+        if ancestor == app:
+            break
+
+
+def check_install_destinations(app, platform):
+    """Read-only preflight; every destination parent is checked before any write."""
+    require(platform in {'macos', 'ios'}, 'Unknown Apple platform')
+    package = app / ('Vendored/MarmotKit' if platform == 'macos' else 'Packages/MarmotKit')
+    safe_install_directory(app, package)
+    absent = [package / 'Artifacts/MarmotKit.xcframework', package / 'LOCAL_BUILD_INPUTS',
+              package / 'LOCAL_BUILD.json']
+    outputs = [package / name for name in ['Package.swift', 'MARMOT_VERSION',
+        'Sources/MarmotKit/MarmotKit.swift', 'Sources/MarmotKit/MarmotKitVersion.swift',
+        'Sources/MarmotKit/Resources/PrivacyInfo.xcprivacy']]
+    for path in absent + outputs:
+        safe_install_directory(app, path.parent)
+        require(not path.is_symlink(), 'Install destination leaf symlink refused')
+    for path in absent:
+        require(not path.exists(), 'Existing local SDK destination refused')
+    for path in outputs:
+        require(not path.exists() or path.is_file(), 'Install destination is not a regular file')
+    return package
+
+
 def verified_package(packages, platform, source, run_id, destination, profile='experimental'):
     expected_features = profile_features(profile)
-    proof = json.loads((packages / 'qualification.json').read_text())
+    qualification_path = packages / 'qualification.json'
+    qualification_bytes = qualification_path.read_bytes()
+    proof = json.loads(qualification_bytes)
     validate_provenance(proof, profile, source, run_id)
     require(proof['source_sha'] == proof['builder_sha'] == source, 'SDK source/builder mismatch')
     require(proof['workflow_run_id'] == run_id and proof['features'] == expected_features, 'SDK run/cohort mismatch')
@@ -50,7 +83,8 @@ def verified_package(packages, platform, source, run_id, destination, profile='e
             seen.add(item.filename)
         archive.extractall(destination)
     output = destination / root_name
-    manifest = json.loads((output / 'manifest.json').read_text())
+    manifest_bytes = (output / 'manifest.json').read_bytes()
+    manifest = json.loads(manifest_bytes)
     require(manifest == record['manifest'], 'Embedded manifest mismatch')
     require(manifest['source_sha'] == manifest['builder_sha'] == source and manifest['features'] == expected_features,
             'Embedded cohort mismatch')
@@ -66,6 +100,16 @@ def verified_package(packages, platform, source, run_id, destination, profile='e
         elif name.endswith('.xcframework.zip'):
             continue  # Standalone distribution ZIP is not part of this complete bundle.
         require(path.is_file() and digest(path) == value['sha256'], 'Manifest artifact mismatch')
+    require(qualification_path.read_bytes() == qualification_bytes, 'Qualification changed during verification')
+    # Installer-only receipt; never mutate the generated embedded manifest.
+    manifest['qualification_receipt'] = {
+        'qualification_json': qualification_bytes.decode('utf-8'),
+        'qualification_sha256': hashlib.sha256(qualification_bytes).hexdigest(),
+        'manifest_json': manifest_bytes.decode('utf-8'),
+        'manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
+        'platform': platform, 'bundle': record['bundle'], 'bundle_sha256': record['sha256'],
+        'original_swift_relative_path': 'LOCAL_BUILD_INPUTS/MarmotKit.swift',
+    }
     manifest['uniffi_version'] = proof['uniffi_version']
     manifest['sdk_profile'] = profile
     return output, manifest
@@ -87,14 +131,16 @@ def main():
     # Default app capability is a prerequisite, not an artifact installation.
     # Refuse an unsupported real app before reading a package or writing an
     # overlay. This negative preflight cannot qualify a synthetic artifact.
-    if args.profile == 'default' and args.app:
+    if args.app:
         app = args.app.resolve(strict=True)
         require(re.fullmatch('[0-9a-f]{40}', args.app_sha or ''), 'Exact app SHA required')
         head = subprocess.check_output(['git', '-C', str(app), 'rev-parse', 'HEAD'], text=True).strip()
         require(head == args.app_sha, 'App source identity mismatch')
         require(not subprocess.check_output(['git', '-C', str(app), 'status', '--porcelain']), 'App checkout must be pristine')
-        require((app / 'scripts/local-sdk-profile-settings.sh').is_file(),
-                'Default SDK app capability guard is not implemented')
+        if args.profile == 'default':
+            require((app / 'scripts/local-sdk-profile-settings.sh').is_file(),
+                    'Default SDK app capability guard is not implemented')
+        check_install_destinations(app, args.platform)
     with tempfile.TemporaryDirectory() as temp:
         output, manifest = verified_package(args.packages, args.platform, args.source, args.run_id, Path(temp), args.profile)
         if args.output:
@@ -109,12 +155,16 @@ def main():
         if args.profile == 'default':
             require((app / 'scripts/local-sdk-profile-settings.sh').is_file(),
                     'Default SDK app capability guard is not implemented')
-        package = app / ('Vendored/MarmotKit' if args.platform == 'macos' else 'Packages/MarmotKit')
+        package = check_install_destinations(app, args.platform)
         artifact = package / 'Artifacts/MarmotKit.xcframework'
         require(not artifact.exists(), 'Existing local SDK overlay refused')
+        original_inputs = package / 'LOCAL_BUILD_INPUTS'
+        require(not original_inputs.exists(), 'Existing SDK original inputs refused')
         artifact.parent.mkdir(exist_ok=True)
         shutil.copytree(output / 'MarmotKit.xcframework', artifact)
         swift = package / 'Sources/MarmotKit/MarmotKit.swift'
+        original_inputs.mkdir()
+        shutil.copy2(output / 'MarmotKit.swift', original_inputs / 'MarmotKit.swift')
         swift.write_text('\n'.join(line.rstrip() for line in (output / 'MarmotKit.swift').read_text().splitlines()) + '\n')
         resources = package / 'Sources/MarmotKit/Resources'
         resources.mkdir(exist_ok=True)
@@ -140,22 +190,26 @@ def main():
             '    public static let builtAt = "CI artifact"\n'
             f'    public static let uniffiVersion = "{manifest["uniffi_version"]}"\n'
             f'    public static let features = "{features}"\n' + '}\n')
-        # Independent app guards are required for either profile. The default
-        # route fails closed until Root authors and qualifies its separate API-
-        # capability guard; it never enables private sync to obtain compilation.
+        guard_environment = dict(os.environ, WN_SDK_PROFILE=args.profile,
+                                 WN_EXPERIMENTAL_DEVICE_SYNC='0' if args.profile == 'default' else '1',
+                                 WN_SDK_SOURCE_SHA=args.source, WN_SDK_RUN_ID=args.run_id,
+                                 SDK_SOURCE_REPOSITORY=os.environ.get('SDK_SOURCE_REPOSITORY',
+                                                                    str(Path(__file__).resolve().parents[2])))
+        guard = app / 'scripts/local-sdk-profile-settings.sh'
         if args.profile == 'default':
-            guard = app / 'scripts/local-sdk-profile-settings.sh'
             require(guard.is_file(), 'Default SDK app capability guard is not implemented')
             subprocess.run(['bash', '-c',
                             'set -e; repo_root=$1; source "$repo_root/scripts/local-sdk-profile-settings.sh"; '
-                            'test "${WN_VERIFIED_SDK_PROFILE:-}" = default; '
-                            'test "$WN_EXPERIMENTAL_DEVICE_SYNC" = 0',
-                            'verify-default-overlay', str(app)], check=True,
-                           env=dict(os.environ, WN_SDK_PROFILE='default', WN_EXPERIMENTAL_DEVICE_SYNC='0'))
+                            'test "$WN_VERIFIED_SDK_PROFILE" = default; '
+                            'test "$WN_CURRENT_SDK_API" = 1; test "$WN_EXPERIMENTAL_DEVICE_SYNC" = 0',
+                            'verify-default-overlay', str(app)], check=True, env=guard_environment)
         else:
-            subprocess.run(['bash', '-c', 'repo_root=$1; source "$repo_root/scripts/local-device-sync-settings.sh"',
-                            'verify-overlay', str(app)], check=True,
-                           env=dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC='1'))
+            # Historical app revisions have only the original stable entry point.
+            # Preserve their independently validated experimental installation.
+            subprocess.run(['bash', '-c',
+                            'set -e; repo_root=$1; source "$repo_root/scripts/local-device-sync-settings.sh"',
+                            'verify-overlay', str(app)], check=True, env=guard_environment)
+
 
 
 if __name__ == '__main__':
