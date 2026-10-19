@@ -142,6 +142,7 @@ mod tests {
                     name: "Fixture".into(),
                     description: "Fixture description".into(),
                     direct_peer_account_id_hex: Some("88".repeat(32)),
+                    latest_message: None,
                     source: source.clone(),
                 },
             },
@@ -168,6 +169,16 @@ mod tests {
                 message_id_hex: "55".repeat(32),
             }),
         };
+        // A list preview owns its nested message separately from a conversation row.
+        let mut snapshot = snapshot;
+        let AccountConversationRowFfi::PairedSource { row } = &snapshot.rows[0] else {
+            panic!("fixture paired row")
+        };
+        let latest = row.clone();
+        let AccountConversationHeaderFfi::PairedSource { header } = &mut snapshot.header else {
+            panic!("fixture paired header")
+        };
+        header.latest_message = Some(latest);
         let out = boxed(MarmotAccountConversationWindowSnapshot::from(snapshot));
         assert!(audit::live_allocations() > start);
         unsafe {

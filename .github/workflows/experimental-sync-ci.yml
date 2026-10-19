@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, paired-presentation, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -102,7 +102,7 @@ jobs:
           if-no-files-found: error
 
   pairing-replay:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","pairing-departure-arrival-order","pairing-departure-orders","pairing-leave-schedule","automatic-body-regression","automatic-body-negative"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","pairing-departure-arrival-order","pairing-departure-orders","pairing-leave-schedule","paired-presentation","automatic-body-regression","automatic-body-negative"]'), inputs.scope)
     name: Pairing replay (${{ matrix.slots }} slots)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -169,6 +169,8 @@ jobs:
             filter='package(marmot-app) & (test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_reproposes_public_leave_after_same_epoch_branch_race) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer))'
           elif [[ "$REPLAY_SCOPE" == pairing-leave-schedule ]]; then
             filter='package(marmot-app) & (test(=client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake) | test(=client::sync::queued_outbound_schedule_tests::restarted_safe_queued_send_does_not_inherit_secondary_retry_cutoff) | test(=client::sync::queued_outbound_schedule_tests::restarted_below_quorum_send_keeps_required_retry_cutoff) | test(=client::sync::queued_outbound_schedule_tests::publication_barrier_rejects_unhydrated_inventory) | test(=client::sync::queued_outbound_schedule_tests::publication_barrier_keeps_pending_mls_after_quorum) | test(=tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier) | test(=tests::removed_device_retires_peer_leave_timer_after_input_only_convergence))'
+          elif [[ "$REPLAY_SCOPE" == paired-presentation ]]; then
+            filter='package(marmot-app) & (test(=account_chat_presentation::tests::paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_privacy) | test(=account_chat_presentation::tests::paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer) | test(=account_chat_presentation::tests::paired_presentation_actual_original_approval_catalog_without_fake_mls_group) | test(=runtime::account_chat_windows::tests::paired_chat_list_expiry_tracks_visible_payload_without_hidden_row_spin) | test(=runtime::account_conversation_windows::tests::paired_presentation_overdue_retention_wakes_before_unrelated_events))'
           elif [[ "$REPLAY_SCOPE" == automatic-body-negative ]]; then
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition)'
           elif [[ "$REPLAY_SCOPE" == automatic-body-regression ]]; then
@@ -222,6 +224,14 @@ jobs:
                   'client::sync::queued_outbound_schedule_tests::publication_barrier_keeps_pending_mls_after_quorum',
                   'tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier',
                   'tests::removed_device_retires_peer_leave_timer_after_input_only_convergence',
+              }
+          elif os.environ['REPLAY_SCOPE'] == 'paired-presentation':
+              expected = {
+                  'account_chat_presentation::tests::paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_privacy',
+                  'account_chat_presentation::tests::paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer',
+                  'account_chat_presentation::tests::paired_presentation_actual_original_approval_catalog_without_fake_mls_group',
+                  'runtime::account_chat_windows::tests::paired_chat_list_expiry_tracks_visible_payload_without_hidden_row_spin',
+                  'runtime::account_conversation_windows::tests::paired_presentation_overdue_retention_wakes_before_unrelated_events',
               }
           elif os.environ['REPLAY_SCOPE'] == 'automatic-body-negative':
               expected = {'native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition'}

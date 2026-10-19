@@ -357,7 +357,7 @@ pub(super) async fn verify(
                     assert_administrator_holds_only_a(peer,epoch_before);
                     eprintln!("account_departure_own_leave_first_no_auto_commit_before_d_release=true");
                 } else {
-                    publication.expect(&format!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}"));
+                    publication.unwrap_or_else(|error| panic!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}: {error:?}"));
                     assert_administrator_holds_only_a(peer,epoch_before);
                     eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
                     {

@@ -17,6 +17,14 @@ fun main() {
     check(FfiConverterTypeAccountChatRowFfi.lift(FfiConverterTypeAccountChatRowFfi.lower(pairedRow)) == pairedRow)
     for (cursor in listOf(null, PairedChatMessageCursorFfi(ULong.MAX_VALUE, "canonical"))) {
         val observation = PairedChatMessageFfi(9u, true, "canonical", "author", 1uL, null, false, "fixture 🦀", MarkdownDocumentFfi(emptyList(), false, byteArrayOf()), listOf(MessageTagFfi(listOf("e", "reply"))), emptyList(), pairedSource)
+        val activity = PairedChatSummaryFfi("opaque-group", "Paired 🦀", "source observation", pairedSource, latestMessage = observation)
+        val activityCopy = FfiConverterTypePairedChatSummaryFfi.lift(FfiConverterTypePairedChatSummaryFfi.lower(activity))
+        val latest = activityCopy.latestMessage!!
+        check(latest.content == observation.content && latest.createdAt == observation.createdAt && latest.expiresAt == observation.expiresAt && latest.source == observation.source)
+        check(latest.contentTokens.blankLinesBefore.contentEquals(observation.contentTokens.blankLinesBefore))
+        val activityPage = PairedChatListPageFfi(listOf(activity), null)
+        val activityPageCopy = FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(activityPage))
+        check(activityPageCopy.chats.single().latestMessage!!.content == observation.content)
         val pairedPage = PairedChatMessagePageFfi(listOf(observation), cursor)
         val pairedPageCopy = FfiConverterTypePairedChatMessagePageFfi.lift(FfiConverterTypePairedChatMessagePageFfi.lower(pairedPage))
         check(pairedPageCopy.next == cursor && pairedPageCopy.messages.single().content == observation.content && pairedPageCopy.messages.single().tags == observation.tags)

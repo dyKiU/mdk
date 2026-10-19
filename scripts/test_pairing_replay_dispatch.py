@@ -51,6 +51,13 @@ EXPECTED = {
         "tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier",
         "tests::removed_device_retires_peer_leave_timer_after_input_only_convergence",
     },
+    "paired-presentation": {
+        'account_chat_presentation::tests::paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_privacy',
+        'account_chat_presentation::tests::paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer',
+        'account_chat_presentation::tests::paired_presentation_actual_original_approval_catalog_without_fake_mls_group',
+        'runtime::account_chat_windows::tests::paired_chat_list_expiry_tracks_visible_payload_without_hidden_row_spin',
+        'runtime::account_conversation_windows::tests::paired_presentation_overdue_retention_wakes_before_unrelated_events',
+    },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
         PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",

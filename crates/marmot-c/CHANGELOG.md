@@ -14,6 +14,11 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Appends owned nullable `latest_message` to `MarmotPairedChatSummary` for
+  source-qualified chat-list preview/time observations. Its message retains its
+  own source and expiry; page/snapshot deep-free releases it recursively.
+  Consumers must use matching regenerated headers and native libraries.
+
 - Appends nullable `direct_peer_account_id_hex` to `MarmotPairedChatSummary` for
   source-attested direct-chat labels. It grants no MLS membership or send rights.
   Consumers must use the matching generated header and library for this layout.

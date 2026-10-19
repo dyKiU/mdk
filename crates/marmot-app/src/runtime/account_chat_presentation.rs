@@ -306,16 +306,27 @@ pub(crate) fn handle(client: &crate::AppClient, command: Command) {
             limit,
             respond,
         } => {
-            let result = client
-                .current_mirrored_catalog_page(after.as_ref(), limit)
-                .map_err(AccountChatReadError::from)
-                .map(|rows| {
-                    let next_group = (rows.len() == limit)
-                        .then(|| rows.last().map(|row| row.entry.group_id.clone()))
-                        .flatten();
-                    let chats = rows.into_iter().map(Into::into).collect();
-                    PairedChatListPage { chats, next_group }
-                });
+            let result = (|| {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| AccountChatReadError::RuntimeUnavailable)?
+                    .as_secs();
+                let rows =
+                    client.current_mirrored_chat_activity_page(after.as_ref(), limit, now)?;
+                let next_group = (rows.len() == limit)
+                    .then(|| rows.last().map(|row| row.catalog.entry.group_id.clone()))
+                    .flatten();
+                let chats = rows
+                    .into_iter()
+                    .map(|row| {
+                        crate::account_chat_presentation::present_chat_activity(
+                            row,
+                            client.app.config.allow_loopback_blob_endpoints,
+                        )
+                    })
+                    .collect::<Result<_, _>>()?;
+                Ok(PairedChatListPage { chats, next_group })
+            })();
             let _ = respond.send(result);
         }
         Command::Messages {

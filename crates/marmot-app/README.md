@@ -893,7 +893,11 @@ index, policy or runtime errors must not be treated as a missing conversation.
 
 `open_account_chat_list_window` combines bounded ordinary and mirror lanes; its
 ordinary metadata/anchors and separate mirror cursor do not imply global activity
-ordering. `open_account_conversation_window` merges canonical event time/ID with
+ordering. Paired list summaries include an optional latest source-qualified
+message from the same bounded read snapshot, with its own source and canonical
+time. Missing bodies remain absent. A list-owned retention timer clears expired
+preview payloads without relying on network events; it does not create ordinary
+unread state. `open_account_conversation_window` merges canonical event time/ID with
 ordinary precedence and a total 128-row SQL bound. Captured sequence, cancellation,
 account reset, runtime shutdown, committed catalog wakes and retention refresh
 keep owners current. Unsupported logical kinds remain visible placeholders.
