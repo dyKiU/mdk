@@ -286,6 +286,8 @@ pub(super) async fn handle_verifier_command(
             {
                 publication_control.install(scope.clone(), gate);
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            publication_control.record_prepare_reply_for_test(&scope, result.is_ok());
             if respond.send(result).is_err() {
                 let _ = client.cancel_device_linking_scope(&scope).await;
             }
@@ -3356,6 +3358,11 @@ mod tests {
             .await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_first_old_cancel_after_newer_terminal_does_not_touch_current_gate() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAddRetryLateFirstCancel).await;
+    }
+
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ThirdDeviceCheck {
         LocalProposal,
@@ -3364,6 +3371,7 @@ mod tests {
         LocalProposalTrustedAdd,
         LocalProposalTrustedAddRetry,
         LocalProposalTrustedAddRetryCancelMaintenance,
+        LocalProposalTrustedAddRetryLateFirstCancel,
         LocalProposalTrustedAddRetryGuardIdentity,
         LocalProposalCancelMaintenanceNewerTerminal,
         LocalProposalRecipientAdmission,
@@ -3387,7 +3395,8 @@ mod tests {
             || newer_terminal_after_maintenance;
         let test_guard_identity =
             check == ThirdDeviceCheck::LocalProposalTrustedAddRetryGuardIdentity;
-        let check = if cancel_after_maintenance || test_guard_identity {
+        let late_first_cancel = check == ThirdDeviceCheck::LocalProposalTrustedAddRetryLateFirstCancel;
+        let check = if cancel_after_maintenance || test_guard_identity || late_first_cancel {
             ThirdDeviceCheck::LocalProposalTrustedAddRetry
         } else {
             check
@@ -4007,6 +4016,73 @@ mod tests {
                         .unwrap()
                             == c_purpose
                     );
+                    if late_first_cancel {
+                        use cgka_traits::private_device_invite::PrivateInvitePhase;
+                        assert!(fact.phase == PrivateInvitePhase::Wrapped);
+                        assert!(fact.raw.binding.approver_scope == a_scope);
+                        assert!(fact.transport.is_some());
+                        // Abandon an ACTUAL successful cached Prepare reply.
+                        // Its actor cleanup retires the invite without caller revoke.
+                        let account = workers.a.resolve("test").unwrap();
+                        let prior_reply = {
+                            let active = workers.a.workers.lock().await;
+                            active.get(&account.account_id_hex).unwrap().publication_control
+                                .prepare_reply_for_test(&a_scope).unwrap()
+                        };
+                        assert!(prior_reply.1);
+                        let commands = workers.a.worker_commands("test").await.unwrap();
+                        let (respond, receiver) = tokio::sync::oneshot::channel();
+                        drop(receiver);
+                        commands.send(AccountWorkerCommand::DeviceLinkingVerifier(Box::new(
+                            VerifierCommand::PrepareEndorsedEnrollmentInvite { scope: a_scope.clone(), respond },
+                        ))).await.unwrap();
+                        // Real serial command barrier after abandoned-response cleanup.
+                        workers.a.maintain_device_linking_at_for_test("test", std::time::Instant::now())
+                            .await.unwrap();
+                        let retired = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                            .unwrap().private_invite().unwrap().unwrap();
+                        assert!(retired.phase == PrivateInvitePhase::Retired);
+                        assert!(retired.scope == fact.scope && retired.raw == fact.raw && retired.transport == fact.transport);
+                        {
+                            let active = workers.a.workers.lock().await;
+                            let worker = active.get(&account.account_id_hex).unwrap();
+                            let reply = worker.publication_control.prepare_reply_for_test(&a_scope).unwrap();
+                            assert!(reply.1);
+                            assert_eq!(reply.0, prior_reply.0.checked_add(1).unwrap());
+                            assert!(worker.publication_control.unrevoked_invite_revision_for_test(&a_scope).is_some());
+                        }
+                        let newer = workers.a.reserve_device_linking_for_approver("test").await.unwrap();
+                        assert!(newer.generation > a_scope.generation);
+                        workers.a.cancel_device_linking("test", &newer).await.unwrap();
+                        let purpose_before = cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                            .unwrap().purpose_key_package().unwrap();
+                        let before_late = {
+                            let active = workers.a.workers.lock().await;
+                            active.get(&account.account_id_hex).unwrap().publication_control
+                                .unrevoked_invite_revision_for_test(&a_scope).unwrap()
+                        };
+                        eprintln!("cancel-late-first-prerequisites {{\"successful_reply_abandoned\":true,\"same_owned_retired\":true,\"old_slot_unrevoked\":true,\"newer_reservation_terminal\":true}}");
+                        let old_result = workers.a.cancel_device_linking("test", &a_scope).await;
+                        let old_acknowledged = old_result.is_ok();
+                        let old_stale_rejected = matches!(old_result,
+                            Err(ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(crate::device_linking::LinkError::StaleFlow))));
+                        let current_revision_unchanged = before_late.revision_matches_for_negative_completion();
+                        drop(before_late);
+                        assert!(cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                            .unwrap().purpose_key_package().unwrap() == purpose_before);
+                        assert!(cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                            .unwrap().purpose_key_package().unwrap() == c_purpose);
+                        // Freeze the verdict before positive owned teardown; teardown
+                        // necessarily changes cancellation counters and cannot be sampled instead.
+                        runtime_c.shutdown_and_close().await.unwrap();
+                        workers.runtime_a.shutdown_and_close().await.unwrap();
+                        workers.runtime_b.shutdown_and_close().await.unwrap();
+                        relay.shutdown();
+                        eprintln!("cancel-late-first-result {{\"old_acknowledged\":{},\"old_stale_rejected\":{},\"current_revision_unchanged\":{},\"owned_runtimes_closed\":true}}", old_acknowledged, old_stale_rejected, current_revision_unchanged);
+                        assert!(old_stale_rejected && current_revision_unchanged,
+                            "late first cancellation must reject old scope without touching the newer gate");
+                        return;
+                    }
                     if cancel_after_maintenance {
                         use cgka_traits::private_device_invite::PrivateInvitePhase;
                         assert!(fact.phase == PrivateInvitePhase::Wrapped);
