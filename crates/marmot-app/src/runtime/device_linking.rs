@@ -212,6 +212,11 @@ pub(crate) enum VerifierCommand {
         respond: Reply<()>,
     },
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    ProposalHandoffSnapshotForTest {
+        scope: PurposeAttemptScope,
+        respond: Reply<crate::client::device_linking::ProposalHandoffSnapshotForTest>,
+    },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     CaptureProposalOnlyCancelForTest {
         scope: PurposeAttemptScope,
         respond: Reply<crate::client::device_linking::ProposalOnlyCancelObservationHandleForTest>,
@@ -391,6 +396,10 @@ pub(super) async fn handle_verifier_command(
         #[cfg(all(test, feature = "test-policy-overrides"))]
         VerifierCommand::RejectForeignSettlementGuardForTest { respond } => {
             let _ = respond.send(client.reject_foreign_guard_against_real_settlement_for_test());
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        VerifierCommand::ProposalHandoffSnapshotForTest { scope, respond } => {
+            let _ = respond.send(client.proposal_handoff_snapshot_for_test(&scope));
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         VerifierCommand::CaptureProposalOnlyCancelForTest { scope, respond } => {
@@ -3383,12 +3392,18 @@ mod tests {
             .await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_failed_add_handoff_cannot_reinstall_proposal_cancel_receipt() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalFailedAddReceipt).await;
+    }
+
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ThirdDeviceCheck {
         LocalProposal,
         LocalProposalEndorsement,
         LocalProposalCollection,
         LocalProposalTrustedAdd,
+        LocalProposalFailedAddReceipt,
         LocalProposalTrustedAddRetry,
         LocalProposalTrustedAddRetryCancelMaintenance,
         LocalProposalTrustedAddRetryLateFirstCancel,
@@ -3408,6 +3423,12 @@ mod tests {
     }
 
     async fn exercise_third_device_invite(check: ThirdDeviceCheck) {
+        let failed_add_receipt = check == ThirdDeviceCheck::LocalProposalFailedAddReceipt;
+        let check = if failed_add_receipt {
+            ThirdDeviceCheck::LocalProposalTrustedAdd
+        } else {
+            check
+        };
         let proposal_only_cancel_maintenance =
             check == ThirdDeviceCheck::UnapprovedPublicationCancelMaintenance;
         let check = if proposal_only_cancel_maintenance {
@@ -4930,6 +4951,83 @@ mod tests {
                             == before,
                         "raw SQL failure must roll back pending MLS and ledger together"
                     );
+                    if failed_add_receipt {
+                        // This is an actual SDK handoff followed by a real SQL staging rollback.
+                        // App has not set for_add on error; that alone is not proposal provenance.
+                        assert!(before.is_none(), "the failed-handoff control requires no earlier invite fact");
+                        let first = workers.a.verifier_command("test", |respond| {
+                            VerifierCommand::ProposalHandoffSnapshotForTest { scope: a_scope.clone(), respond }
+                        }).await.unwrap();
+                        assert!(first.preparation_started && !first.for_add && !first.prepared);
+                        assert!(first.receipt.invalid_for_test(), "the actual Add call must burn proposal-only eligibility before returning an error");
+                        workers.a.prepare_enrollment_proposal("test", &a_scope).await.unwrap();
+                        let cached = workers.a.verifier_command("test", |respond| {
+                            VerifierCommand::ProposalHandoffSnapshotForTest { scope: a_scope.clone(), respond }
+                        }).await.unwrap();
+                        assert!(std::sync::Arc::ptr_eq(&first.receipt, &cached.receipt));
+                        assert!(cached.preparation_started && !cached.for_add && !cached.prepared && cached.receipt.invalid_for_test());
+                        let retry_failed = matches!(workers.a.verifier_command("test", |respond| {
+                            VerifierCommand::PrepareEndorsedEnrollmentInvite { scope: a_scope.clone(), respond }
+                        }).await, Err(ClientLinkingError::PrivateInvite(
+                            cgka_engine::private_device_invite::PrivateInviteError::Storage(_)
+                        )));
+                        assert!(retry_failed, "the same real raw-staging fault must remain active for the Add retry");
+                        let retried = workers.a.verifier_command("test", |respond| {
+                            VerifierCommand::ProposalHandoffSnapshotForTest { scope: a_scope.clone(), respond }
+                        }).await.unwrap();
+                        assert!(std::sync::Arc::ptr_eq(&first.receipt, &retried.receipt));
+                        assert!(retried.preparation_started && !retried.for_add && !retried.prepared && retried.receipt.invalid_for_test());
+                        assert!(cgka_traits::StorageProvider::private_device_invite_storage(&a_storage).unwrap().private_invite().unwrap().is_none());
+                        injector.execute_batch("DROP TRIGGER reject_enrollment_raw;").unwrap();
+                        drop(injector);
+                        let probe = workers.a.verifier_command("test", |respond| {
+                            VerifierCommand::CaptureProposalOnlyCancelForTest { scope: a_scope.clone(), respond }
+                        }).await.unwrap();
+                        let account = workers.a.resolve("test").unwrap();
+                        {
+                            let active = workers.a.workers.lock().await;
+                            active.get(&account.account_id_hex).unwrap().publication_control.revoke(&a_scope);
+                        }
+                        workers.a.maintain_device_linking_at_for_test("test", std::time::Instant::now()).await.unwrap();
+                        let locally_retired = probe.lock().unwrap_or_else(|error| error.into_inner()).retired_proposal;
+                        assert!(locally_retired, "actual cleanup must drop the failed handoff continuation before cancel");
+                        let no_fact_after_cleanup = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage).unwrap().private_invite().unwrap().is_none();
+                        assert!(no_fact_after_cleanup);
+                        let cancel_result = workers.a.cancel_device_linking("test", &a_scope).await;
+                        let cancel_stale = matches!(cancel_result, Err(ClientLinkingError::Owner(
+                            crate::device_linking::OwnerError::Verifier(crate::device_linking::LinkError::StaleFlow)
+                        )));
+                        let observed = probe.lock().unwrap_or_else(|error| error.into_inner()).clone();
+                        let receipt_still_invalid = first.receipt.invalid_for_test();
+                        let anchors_unchanged = cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&a_storage).unwrap().accepted_anchor().unwrap() == a_anchor
+                            && cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage).unwrap().read_round().unwrap() == b_before
+                            && cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage).unwrap().purpose_key_package().unwrap() == c_purpose;
+                        let safe = cancel_stale && receipt_still_invalid && anchors_unchanged
+                            && observed.fallback_entered && !observed.context_rejected
+                            && observed.scope_check_entered && observed.scope_check_passed
+                            && observed.durable_query_completed && observed.durable_phase.is_none()
+                            && observed.exact_retired == Some(false);
+                        runtime_c.shutdown_and_close().await.unwrap();
+                        crate::test_support::emit_line(format_args!("proposal-failed-handoff-close index=0"));
+                        workers.runtime_a.shutdown_and_close().await.unwrap();
+                        crate::test_support::emit_line(format_args!("proposal-failed-handoff-close index=1"));
+                        workers.runtime_b.shutdown_and_close().await.unwrap();
+                        crate::test_support::emit_line(format_args!("proposal-failed-handoff-close index=2"));
+                        relay.shutdown();
+                        crate::test_support::emit_line(format_args!("proposal-failed-handoff-control {}", serde_json::json!({
+                            "actual_handoff": first.preparation_started, "app_for_add": first.for_add, "app_prepared": first.prepared,
+                            "cached_same_receipt": std::sync::Arc::ptr_eq(&first.receipt, &cached.receipt),
+                            "retry_same_receipt": std::sync::Arc::ptr_eq(&first.receipt, &retried.receipt),
+                            "retry_failed": retry_failed, "locally_retired": locally_retired,
+                            "no_fact_after_cleanup": no_fact_after_cleanup, "receipt_still_invalid": receipt_still_invalid,
+                            "cancel_stale": cancel_stale, "anchors_unchanged": anchors_unchanged,
+                            "fallback_entered": observed.fallback_entered, "context_rejected": observed.context_rejected,
+                            "scope_check_passed": observed.scope_check_passed, "durable_query_completed": observed.durable_query_completed,
+                            "durable_phase": observed.durable_phase, "exact_retired": observed.exact_retired,
+                        })));
+                        assert!(safe, "a real failed Add handoff must never regain proposal-only cancellation acknowledgment");
+                        return;
+                    }
                     injector.execute_batch("DROP TRIGGER reject_enrollment_raw; CREATE TRIGGER reject_enrollment_wrap BEFORE UPDATE OF transport ON private_device_invite_staging WHEN NEW.phase = 1 BEGIN SELECT RAISE(ABORT,'injected enrollment wrapper rollback'); END;").unwrap();
                     assert!(
                         workers

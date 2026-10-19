@@ -47,6 +47,10 @@ impl ProposalRetirement {
             std::sync::atomic::Ordering::Acquire,
         );
     }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn invalid_for_test(&self) -> bool {
+        self.state.load(std::sync::atomic::Ordering::Acquire) == 2
+    }
     pub(crate) fn matches_retired(
         &self,
         scope: &PurposeAttemptScope,
@@ -56,6 +60,15 @@ impl ProposalRetirement {
             && self.gate.ptr_eq(&Arc::downgrade(gate))
             && self.state.load(std::sync::atomic::Ordering::Acquire) == 1
     }
+}
+
+// Fixed read-only test metadata; receipt custody here retains no SDK lease or gate.
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) struct ProposalHandoffSnapshotForTest {
+    pub preparation_started: bool,
+    pub for_add: bool,
+    pub prepared: bool,
+    pub receipt: Arc<ProposalRetirement>,
 }
 
 /// The actor owns the only continuation and exact public retry inputs. Metadata
@@ -1076,6 +1089,30 @@ impl AppClient {
             self.linking_owner.verifier.check_scope(scope)
         }
         .map_err(ClientLinkingError::Owner)
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn proposal_handoff_snapshot_for_test(
+        &self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<ProposalHandoffSnapshotForTest, ClientLinkingError> {
+        let attempt = self.linking_owner.invite_attempt.as_ref()
+            .filter(|attempt| attempt.scope == *scope)
+            .ok_or(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+            ))?;
+        let proposal = attempt.proposal.as_ref().ok_or(ClientLinkingError::Gate(
+            cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+        ))?;
+        let receipt = attempt.proposal_retirement.as_ref().ok_or(ClientLinkingError::Gate(
+            cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+        ))?;
+        Ok(ProposalHandoffSnapshotForTest {
+            preparation_started: proposal.preparation_has_started(),
+            for_add: attempt.for_add,
+            prepared: attempt.prepared.is_some(),
+            receipt: receipt.clone(),
+        })
     }
 
     #[cfg(all(test, feature = "test-policy-overrides"))]
