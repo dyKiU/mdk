@@ -383,3 +383,15 @@ class ExactCancellationMutation:
     def close(self):
         self.os.close(self.fd)
         self.os.close(self.parent_fd)
+
+
+SECONDARY_PREFIX_INSERT = 'pending.push_back(AccountWorkerCommand::LocalSubmissionFence);'
+SECONDARY_PREFIX_OMISSION = '/* finite-predecessor barrier omitted */'
+
+
+def secondary_prefix_omission(source):
+    if source.count(SECONDARY_PREFIX_INSERT) != 1:
+        raise ValueError('Exact unique finite-predecessor insertion required')
+    if SECONDARY_PREFIX_OMISSION in source:
+        raise ValueError('Finite-predecessor omission already present')
+    return source.replace(SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION)

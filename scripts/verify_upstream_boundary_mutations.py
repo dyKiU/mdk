@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation
+from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control'], required=True)
@@ -62,10 +62,9 @@ elif args.case in SECONDARY_CASES:
     if not cohort or os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('Secondary scheduling requires reviewed source and original 4 MiB stack')
     source = Path('crates/marmot-app/src/runtime/account_worker.rs')
-    without_debt = 'if yield_observation.peek().is_some() {'
-    with_debt = 'if yield_observation.peek().is_some() || local_submission_due {'
-    old = without_debt if args.secondary_stage == 'red' else with_debt
-    new = without_debt
+    old = ('if yield_observation.peek().is_some() {'
+           if args.secondary_stage == 'red' else SECONDARY_PREFIX_INSERT)
+    new = SECONDARY_PREFIX_OMISSION
     test = SECONDARY_CASES[args.case]
     command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features',
                'marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks',
@@ -188,6 +187,8 @@ original = source.read_bytes()
 text = original.decode()
 if text.count(old) != 1:
     raise ValueError('Mutation anchor must match exactly once')
+if args.case in SECONDARY_CASES and args.secondary_stage == 'green':
+    secondary_prefix_omission(text)
 if args.case in {'automatic-publication', 'sibling-publication'}:
     # Validate the complete pure transform before any baseline compile/run.
     publication_mutant(text, args.case)
@@ -360,7 +361,11 @@ try:
     if args.case == 'cancel-maintenance-pfp':
         proof['runtime_mutant_killed'] &= mutant['exit_code'] == 101 and mutant['evidence_passed']
     if args.case in SECONDARY_CASES:
-        proof['runtime_mutant_killed'] &= mutant['exit_code'] == 101 and mutant['evidence_passed']
+        proof['finite_predecessors_completed_before_mutant_timeout'] = (
+            mutant.get('timeout_observation') is not None
+            and mutant['timeout_observation']['predecessor_command_count'] == 4)
+        proof['runtime_mutant_killed'] &= (mutant['exit_code'] == 101 and mutant['evidence_passed']
+                                          and proof['finite_predecessors_completed_before_mutant_timeout'])
     if args.case == 'sibling-retry-priority':
         proof['runtime_mutant_killed'] &= mutant['exit_code'] == 100 and mutant['evidence_passed']
     if args.case == 'outbound-mailbox-kind':

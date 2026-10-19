@@ -311,6 +311,20 @@ class PublicationAnchors(unittest.TestCase):
 
 
 class SecondarySchedulerOracles(unittest.TestCase):
+    def test_finite_predecessor_insertion_is_the_only_runtime_omission(self):
+        from upstream_publication_mutation_anchors import (
+            SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission,
+        )
+        source = Path('crates/marmot-app/src/runtime/account_worker.rs').read_text()
+        self.assertEqual(source.count(SECONDARY_PREFIX_INSERT), 1)
+        changed = secondary_prefix_omission(source)
+        self.assertEqual(changed.replace(SECONDARY_PREFIX_OMISSION, SECONDARY_PREFIX_INSERT), source)
+        self.assertEqual(changed.count(SECONDARY_PREFIX_OMISSION), 1)
+        for bad in (source.replace(SECONDARY_PREFIX_INSERT, ''), source + '\n' + SECONDARY_PREFIX_INSERT,
+                    changed, source + '\n' + SECONDARY_PREFIX_OMISSION):
+            with self.assertRaises(ValueError):
+                secondary_prefix_omission(bad)
+
     def test_actual_timeout_case_and_closed_metadata_oracles(self):
         from upstream_publication_mutation_anchors import (
             SECONDARY_CASES, SECONDARY_FIXTURE, SECONDARY_ASSERTION,
