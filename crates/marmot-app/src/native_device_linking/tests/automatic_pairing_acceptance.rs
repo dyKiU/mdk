@@ -487,14 +487,18 @@ async fn public_third_device_enrollment_from_initial_joiner_with_existing_chat()
 }
 
 async fn public_third_device_enrollment(reverse_initial_roles: bool) {
+    let relay = public_enrollment_relay();
+    four_device_enrollment_with_relay(HeldPublication::None, Some(&relay), reverse_initial_roles).await;
+}
+
+fn public_enrollment_relay() -> String {
     let relay =
         std::env::var("WN_PUBLIC_ENROLLMENT_RELAY").expect("explicit public chat relay required");
     assert!(matches!(
         relay.as_str(),
         "wss://relay.eu.whitenoise.chat" | "wss://relay.us.whitenoise.chat"
     ));
-    four_device_enrollment_with_relay(HeldPublication::None, Some(&relay), reverse_initial_roles)
-        .await;
+    relay
 }
 
 async fn public_onboarded_accounts(
@@ -576,8 +580,24 @@ async fn four_device_enrollment_with_relay(
     public_relay: Option<&str>,
     reverse_initial_roles: bool,
 ) {
+    four_device_enrollment_with_delivery(
+        held_publication,
+        public_relay,
+        reverse_initial_roles,
+        false,
+    )
+    .await;
+}
+
+async fn four_device_enrollment_with_delivery(
+    held_publication: HeldPublication,
+    public_relay: Option<&str>,
+    reverse_initial_roles: bool,
+    verify_public_chat_delivery: bool,
+) {
     #[cfg(feature = "test-policy-overrides")]
     install_publication_diagnostic_subscriber();
+    assert!(!verify_public_chat_delivery || public_relay.is_some());
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = public_relay
@@ -852,6 +872,18 @@ async fn four_device_enrollment_with_relay(
     let targets = managers[0].device_linking_targets(&account).await.unwrap();
     assert_eq!(targets[0].device_count, 3);
     if public_relay.is_some() {
+        if verify_public_chat_delivery {
+            public_chat_delivery_acceptance::verify(
+                &apps,
+                &runtimes,
+                &account,
+                &contact,
+                existing_chat
+                    .as_ref()
+                    .expect("existing public chat required"),
+            )
+            .await;
+        }
         for runtime in runtimes {
             runtime.shutdown_and_close().await.unwrap();
         }
@@ -2436,3 +2468,6 @@ mod recipient_sibling_admission_acceptance;
 
 #[path = "sequential_installations_acceptance.rs"]
 mod sequential_installations_acceptance;
+
+#[path = "public_chat_delivery_acceptance.rs"]
+mod public_chat_delivery_acceptance;

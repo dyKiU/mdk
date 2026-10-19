@@ -20,6 +20,8 @@ PREDECESSOR_SCOPE = "native-predecessor-readiness"
 PREDECESSOR_CASE = "client::device_linking::setup::tests::native_pair_sharing_waits_for_exact_predecessor_before_persistence"
 PUBLIC_SCOPE = "public-third-device-deployment"
 PUBLIC_CASE = "native_device_linking::automatic_pairing_acceptance::public_third_device_enrollment_with_existing_chat"
+CHAT_SCOPE = "public-three-device-chat-delivery"
+CHAT_CASE = "native_device_linking::automatic_pairing_acceptance::public_chat_delivery_acceptance::public_three_device_automatic_chats_and_messages"
 EXPERIMENTAL_FEATURES = (
     "marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,"
     "marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,"
@@ -35,7 +37,7 @@ class CheckpointDispatchTests(unittest.TestCase):
         job = workflow.split("  core-regressions:\n", 1)[1].split("    name:", 1)[0]
         self.assertIn("github.event_name == 'workflow_dispatch'", job)
         routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
-        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, PREDECESSOR_SCOPE):
+        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, PREDECESSOR_SCOPE, CHAT_SCOPE):
             self.assertIn(scope, options)
             self.assertIn(scope, routes)
 
@@ -50,6 +52,9 @@ class CheckpointDispatchTests(unittest.TestCase):
 
     def test_public_scope_executes_only_the_exact_ignored_deployment_case(self):
         self.check_inventory(PUBLIC_SCOPE, PUBLIC_CASE, EXPERIMENTAL_FEATURES, ignored_only=True)
+
+    def test_chat_scope_executes_only_the_exact_ignored_delivery_case(self):
+        self.check_inventory(CHAT_SCOPE, CHAT_CASE, EXPERIMENTAL_FEATURES, ignored_only=True)
 
     def check_inventory(self, scope, required_case, features, ignored_only=False):
         workflow = WORKFLOW.read_text()
