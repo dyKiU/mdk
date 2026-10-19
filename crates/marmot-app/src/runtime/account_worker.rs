@@ -6324,7 +6324,9 @@ fn account_worker_command_future<'a>(
             let result = client.set_group_archived(&group_id, archived);
             #[cfg(all(test, feature = "test-policy-overrides"))]
             tests::secondary_retry_scheduler_tests::record_cutoff_archive_result(
-                account_id_hex, archived, result.is_ok(),
+                account_id_hex,
+                archived,
+                result.is_ok(),
             );
             let _ = respond_diagnosed(shared, storage_permit.as_ref(), respond, result);
             true

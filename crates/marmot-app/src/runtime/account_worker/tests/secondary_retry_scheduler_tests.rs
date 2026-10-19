@@ -387,7 +387,6 @@ async fn overdue_secondary_groups_service_durable_send(deferred_count: usize) {
     );
 }
 
-
 // These one-shot test-only observers never insert, select, or change commands.
 #[cfg(feature = "test-policy-overrides")]
 struct CutoffFacts {
@@ -422,20 +421,36 @@ static CUTOFFS: std::sync::LazyLock<Mutex<HashMap<String, Arc<CutoffProbe>>>> =
 struct CutoffGuard(String);
 #[cfg(feature = "test-policy-overrides")]
 impl Drop for CutoffGuard {
-    fn drop(&mut self) { CUTOFFS.lock().unwrap().remove(&self.0); }
+    fn drop(&mut self) {
+        CUTOFFS.lock().unwrap().remove(&self.0);
+    }
 }
 #[cfg(feature = "test-policy-overrides")]
 fn cutoff_observe(account: &str, event: CutoffEvent) {
     let probe = CUTOFFS.lock().unwrap().get(account).cloned();
     if let Some(probe) = probe {
         let mut observations = probe.observations.lock().unwrap();
-        if observations.0.len() < 128 { observations.0.push(event); }
-        else { observations.1 = true; }
+        if observations.0.len() < 128 {
+            observations.0.push(event);
+        } else {
+            observations.1 = true;
+        }
     }
 }
 #[cfg(feature = "test-policy-overrides")]
-pub(in crate::runtime::account_worker) fn record_cutoff_archive_result(account: &str, archived: bool, succeeded: bool) {
-    cutoff_observe(account, if succeeded { CutoffEvent::ArchiveCompleted(archived) } else { CutoffEvent::ArchiveFailed });
+pub(in crate::runtime::account_worker) fn record_cutoff_archive_result(
+    account: &str,
+    archived: bool,
+    succeeded: bool,
+) {
+    cutoff_observe(
+        account,
+        if succeeded {
+            CutoffEvent::ArchiveCompleted(archived)
+        } else {
+            CutoffEvent::ArchiveFailed
+        },
+    );
 }
 #[cfg(feature = "test-policy-overrides")]
 pub(in crate::runtime::account_worker) fn before_prefix_capture(
@@ -443,9 +458,18 @@ pub(in crate::runtime::account_worker) fn before_prefix_capture(
     pending: &VecDeque<AccountWorkerCommand>,
 ) -> Option<(usize, bool)> {
     let probe = CUTOFFS.lock().unwrap().get(account).cloned()?;
-    if probe.rendezvous.lock().unwrap().is_none() { return None; }
-    Some((pending.iter().filter(|command| matches!(command, AccountWorkerCommand::SetGroupArchived { .. })).count(),
-          pending.iter().any(|command| matches!(command, AccountWorkerCommand::LocalSubmissionFence))))
+    if probe.rendezvous.lock().unwrap().is_none() {
+        return None;
+    }
+    Some((
+        pending
+            .iter()
+            .filter(|command| matches!(command, AccountWorkerCommand::SetGroupArchived { .. }))
+            .count(),
+        pending
+            .iter()
+            .any(|command| matches!(command, AccountWorkerCommand::LocalSubmissionFence)),
+    ))
 }
 #[cfg(feature = "test-policy-overrides")]
 pub(in crate::runtime::account_worker) async fn after_prefix_capture(
@@ -456,23 +480,41 @@ pub(in crate::runtime::account_worker) async fn after_prefix_capture(
 ) {
     let (before_archives, before_had_fence) = before;
     let probe = CUTOFFS.lock().unwrap().get(account).cloned();
-    let Some(probe) = probe else { return; };
+    let Some(probe) = probe else {
+        return;
+    };
     let rendezvous = probe.rendezvous.lock().unwrap().take();
-    let Some(rendezvous) = rendezvous else { return; };
+    let Some(rendezvous) = rendezvous else {
+        return;
+    };
     let no_completion_or_drain = probe.observations.lock().unwrap().0.is_empty();
     let no_archive_or_drain = no_completion_or_drain
-        && self::probe(account).is_some_and(|original|
-            original.observations.lock().unwrap().iter().all(|event|
-                !matches!(event, Observation::Command(_) | Observation::Drain(_))));
+        && self::probe(account).is_some_and(|original| {
+            original
+                .observations
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|event| !matches!(event, Observation::Command(_) | Observation::Drain(_)))
+        });
     let facts = CutoffFacts {
-        before_archives, before_had_fence,
+        before_archives,
+        before_had_fence,
         after_archives,
-        no_archive_or_drain, due_retry_owed,
+        no_archive_or_drain,
+        due_retry_owed,
     };
-    if rendezvous.reached.send(facts).is_err() { return; }
+    if rendezvous.reached.send(facts).is_err() {
+        return;
+    }
     // Neither side can retain the other through a missing test-only release.
-    if matches!(timeout(Duration::from_secs(5), rendezvous.release).await, Ok(Ok(()))) {
-        rendezvous.released.store(true, std::sync::atomic::Ordering::SeqCst);
+    if matches!(
+        timeout(Duration::from_secs(5), rendezvous.release).await,
+        Ok(Ok(()))
+    ) {
+        rendezvous
+            .released
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -577,11 +619,16 @@ async fn captured_prefix_drains_before_later_archive_commands(deferred_count: us
     let cutoff_released = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let cutoff_probe = Arc::new(CutoffProbe {
         rendezvous: Mutex::new(Some(CutoffRendezvous {
-            reached: cutoff_reached, release, released: cutoff_released.clone(),
+            reached: cutoff_reached,
+            release,
+            released: cutoff_released.clone(),
         })),
         observations: Mutex::new((Vec::new(), false)),
     });
-    CUTOFFS.lock().unwrap().insert(account.account_id_hex.clone(), cutoff_probe.clone());
+    CUTOFFS
+        .lock()
+        .unwrap()
+        .insert(account.account_id_hex.clone(), cutoff_probe.clone());
     let cutoff_guard = CutoffGuard(account.account_id_hex.clone());
     HELD_SCHEDULED_CONVERGENCE_ACCOUNTS
         .lock()
@@ -653,34 +700,45 @@ async fn captured_prefix_drains_before_later_archive_commands(deferred_count: us
         predecessors.push(response);
     }
     tail.wait().await;
-    let cutoff = timeout(Duration::from_secs(5), cutoff_observed).await
+    let cutoff = timeout(Duration::from_secs(5), cutoff_observed)
+        .await
         .expect("real prefix capture must reach its bounded rendezvous")
         .expect("real prefix capture must retain its observation sender");
-    let captured_initial_four = !cutoff.before_had_fence
-        && cutoff.after_archives == 4;
+    let captured_initial_four = !cutoff.before_had_fence && cutoff.after_archives == 4;
     // Each boolean means the actual count matches this requested scenario,
     // including the zero deferred prefix of the buffered case.
     let original_deferred_prefix = cutoff.before_archives == deferred_count;
     // The synchronous capture only appends commands: this actual kind-count
     // difference binds captured archives while preserving other FIFO controls.
-    let original_buffered_prefix = cutoff.after_archives.checked_sub(cutoff.before_archives)
-        == Some(4 - deferred_count);
-    assert!(captured_initial_four && original_deferred_prefix && original_buffered_prefix
-        && cutoff.no_archive_or_drain && cutoff.due_retry_owed,
-        "cutoff fixture must witness all four real predecessors and an already due owed retry");
+    let original_buffered_prefix =
+        cutoff.after_archives.checked_sub(cutoff.before_archives) == Some(4 - deferred_count);
+    assert!(
+        captured_initial_four
+            && original_deferred_prefix
+            && original_buffered_prefix
+            && cutoff.no_archive_or_drain
+            && cutoff.due_retry_owed,
+        "cutoff fixture must witness all four real predecessors and an already due owed retry"
+    );
     // These real mutations arrive only after the existing capture has finished.
     // Their finite replies must also complete; they are not an infinite flood.
     let later_count = if deferred_count == 2 { 2 } else { 4 };
     let mut later_responses = Vec::new();
     for archived in [true, false, true, false].into_iter().take(later_count) {
         let (respond, response) = oneshot::channel();
-        commands.try_send(AccountWorkerCommand::SetGroupArchived {
-            group_id: groups[0].clone(), archived, respond,
-        }).unwrap();
+        commands
+            .try_send(AccountWorkerCommand::SetGroupArchived {
+                group_id: groups[0].clone(),
+                archived,
+                respond,
+            })
+            .unwrap();
         later_responses.push(response);
     }
     let later_commands_enqueued_after_cutoff = later_responses.len() == later_count;
-    cutoff_release.send(()).expect("observing worker must still own the cutoff release");
+    cutoff_release
+        .send(())
+        .expect("observing worker must still own the cutoff release");
     // Repeated optional passes must preserve the ordinary 100ms gate-contention backoff.
     sleep(Duration::from_millis(700)).await;
     // A loaded machine may fit fewer drains into that sleep than the
@@ -729,7 +787,8 @@ async fn captured_prefix_drains_before_later_archive_commands(deferred_count: us
             })
         );
     }
-    retry_result.expect("cutoff fixture held admission gate must exercise the ordinary durable retry");
+    retry_result
+        .expect("cutoff fixture held admission gate must exercise the ordinary durable retry");
     let admission_released = TokioInstant::now();
     drop(held_admission);
     let observed = timeout(Duration::from_secs(3), async {
@@ -762,26 +821,50 @@ async fn captured_prefix_drains_before_later_archive_commands(deferred_count: us
     let runtime_closed = true;
     observed.expect("overdue confirmed secondary groups must service the durable send while their ACKs remain held");
     let published_send_observed = true;
-    let all_archives = cutoff_observations.iter().filter_map(|event| match event {
-        CutoffEvent::ArchiveCompleted(value) => Some(*value), _ => None,
-    }).collect::<Vec<_>>();
-    let first_completed_drain = cutoff_observations.iter().position(|event| matches!(event, CutoffEvent::Drain))
+    let all_archives = cutoff_observations
+        .iter()
+        .filter_map(|event| match event {
+            CutoffEvent::ArchiveCompleted(value) => Some(*value),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let first_completed_drain = cutoff_observations
+        .iter()
+        .position(|event| matches!(event, CutoffEvent::Drain))
         .expect("actual due drain must be observed");
-    let completed_before_drain = cutoff_observations[..first_completed_drain].iter().filter_map(|event| match event {
-        CutoffEvent::ArchiveCompleted(value) => Some(*value), _ => None,
-    }).collect::<Vec<_>>();
-    let initial_predecessors_before_first_drain = completed_before_drain.get(..4) == Some(&[true, false, true, false][..]);
+    let completed_before_drain = cutoff_observations[..first_completed_drain]
+        .iter()
+        .filter_map(|event| match event {
+            CutoffEvent::ArchiveCompleted(value) => Some(*value),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let initial_predecessors_before_first_drain =
+        completed_before_drain.get(..4) == Some(&[true, false, true, false][..]);
     let later_commands_after_first_drain = completed_before_drain.len() == 4;
-    let all_commands_completed = !cutoff_overflow && all_archives.len() == 4 + later_count
-        && !cutoff_observations.iter().any(|event| matches!(event, CutoffEvent::ArchiveFailed));
-    assert!(all_commands_completed, "all actual archive handlers and replies must succeed without observation loss");
-    assert!(initial_predecessors_before_first_drain,
-        "all deferred and buffered predecessors must run before durable execution");
-    assert_eq!(all_archives.len(), 4 + later_count,
-        "all original and later archive commands must actually execute");
+    let all_commands_completed = !cutoff_overflow
+        && all_archives.len() == 4 + later_count
+        && !cutoff_observations
+            .iter()
+            .any(|event| matches!(event, CutoffEvent::ArchiveFailed));
+    assert!(
+        all_commands_completed,
+        "all actual archive handlers and replies must succeed without observation loss"
+    );
+    assert!(
+        initial_predecessors_before_first_drain,
+        "all deferred and buffered predecessors must run before durable execution"
+    );
+    assert_eq!(
+        all_archives.len(),
+        4 + later_count,
+        "all original and later archive commands must actually execute"
+    );
     // Unlike a sampled scheduler Turn, these are the actual capture boundary.
-    assert!(original_deferred_prefix && original_buffered_prefix,
-        "fixture must exercise the requested deferred and buffered capture prefixes");
+    assert!(
+        original_deferred_prefix && original_buffered_prefix,
+        "fixture must exercise the requested deferred and buffered capture prefixes"
+    );
     let blocked_drains = observations
         .iter()
         .filter_map(|event| match event {
@@ -809,25 +892,36 @@ async fn captured_prefix_drains_before_later_archive_commands(deferred_count: us
     let held_backoff_preserved = true;
     let optional_passes_observed = true;
     let cutoff_rendezvous_completed = cutoff_released.load(std::sync::atomic::Ordering::SeqCst);
-    assert!(cutoff_rendezvous_completed, "cutoff release must be consumed by the actual worker");
-    eprintln!("secondary-cutoff-prerequisites {}", serde_json::json!({
-        "captured_initial_four": captured_initial_four,
-        "original_deferred_prefix": original_deferred_prefix,
-        "original_buffered_prefix": original_buffered_prefix,
-        "no_archive_or_drain_before_cutoff": cutoff.no_archive_or_drain,
-        "due_retry_owed": cutoff.due_retry_owed,
-        "later_commands_enqueued_after_cutoff": later_commands_enqueued_after_cutoff,
-    }));
-    eprintln!("secondary-cutoff-result {}", serde_json::json!({
-        "initial_predecessors_before_first_drain": initial_predecessors_before_first_drain,
-        "later_commands_after_first_drain": later_commands_after_first_drain,
-        "all_commands_completed": all_commands_completed,
-        "published_send_observed": published_send_observed,
-        "runtime_closed": runtime_closed,
-        "held_backoff_preserved": held_backoff_preserved,
-        "optional_passes_observed": optional_passes_observed,
-        "cutoff_rendezvous_completed": cutoff_rendezvous_completed,
-    }));
-    assert!(initial_predecessors_before_first_drain && later_commands_after_first_drain,
-        "captured predecessor prefix must drain before post-cutoff archive commands");
+    assert!(
+        cutoff_rendezvous_completed,
+        "cutoff release must be consumed by the actual worker"
+    );
+    eprintln!(
+        "secondary-cutoff-prerequisites {}",
+        serde_json::json!({
+            "captured_initial_four": captured_initial_four,
+            "original_deferred_prefix": original_deferred_prefix,
+            "original_buffered_prefix": original_buffered_prefix,
+            "no_archive_or_drain_before_cutoff": cutoff.no_archive_or_drain,
+            "due_retry_owed": cutoff.due_retry_owed,
+            "later_commands_enqueued_after_cutoff": later_commands_enqueued_after_cutoff,
+        })
+    );
+    eprintln!(
+        "secondary-cutoff-result {}",
+        serde_json::json!({
+            "initial_predecessors_before_first_drain": initial_predecessors_before_first_drain,
+            "later_commands_after_first_drain": later_commands_after_first_drain,
+            "all_commands_completed": all_commands_completed,
+            "published_send_observed": published_send_observed,
+            "runtime_closed": runtime_closed,
+            "held_backoff_preserved": held_backoff_preserved,
+            "optional_passes_observed": optional_passes_observed,
+            "cutoff_rendezvous_completed": cutoff_rendezvous_completed,
+        })
+    );
+    assert!(
+        initial_predecessors_before_first_drain && later_commands_after_first_drain,
+        "captured predecessor prefix must drain before post-cutoff archive commands"
+    );
 }
