@@ -9,10 +9,10 @@ import re
 import subprocess
 from upstream_avatar_ready_turn_chain import compiler_diagnostics
 from upstream_secondary_cutoff import runtime_panic_coordinates
-from upstream_publication_mutation_anchors import AUTOMATIC_BODY_CASE, automatic_body_pfp_oracle, PEER_TIMER_CASES, PEER_TIMER_NAMES, peer_leave_timer_control_oracle, CANONICAL_CASES, CANONICAL_FIXTURE, CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_CLEANUP, CANONICAL_EMPTY, canonical_leaf_oracle, publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
+from upstream_publication_mutation_anchors import EXPLICIT_LIFECYCLE_CASES, EXPLICIT_PROGRESS_CASES, EXPLICIT_LIFECYCLE_NAME, EXPLICIT_LIFECYCLE_FIXTURE, EXPLICIT_ELIGIBILITY, EXPLICIT_INVERSE, EXPLICIT_PROGRESS_NAMES, explicit_sync_lifecycle_oracle, explicit_sync_progress_oracle, explicit_sync_original_relay_positive_oracle, AUTOMATIC_BODY_CASE, automatic_body_pfp_oracle, PEER_TIMER_CASES, PEER_TIMER_NAMES, peer_leave_timer_control_oracle, CANONICAL_CASES, CANONICAL_FIXTURE, CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_CLEANUP, CANONICAL_EMPTY, canonical_leaf_oracle, publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['automatic-body-publication-pfp', 'peer-leave-timer-default', 'peer-leave-timer-experimental', 'canonical-leaf-cleanup-default', 'canonical-leaf-cleanup-experimental', 'departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red', 'cancel-late-first-pfp', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'], required=True)
+parser.add_argument('--case', choices=['explicit-sync-lifecycle-default', 'explicit-sync-lifecycle-experimental', 'explicit-sync-progress-default', 'explicit-sync-progress-experimental', 'automatic-body-publication-pfp', 'peer-leave-timer-default', 'peer-leave-timer-experimental', 'canonical-leaf-cleanup-default', 'canonical-leaf-cleanup-experimental', 'departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red', 'cancel-late-first-pfp', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 parser.add_argument('--secondary-stage', choices=['red', 'green'], default='red')
@@ -29,7 +29,26 @@ failure_marker = None
 cancellation_pfp_cases = {'cancel-maintenance-pfp', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-pfp'}
 cancellation_cases = cancellation_pfp_cases | {'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'}
 body_pfp_cases = {AUTOMATIC_BODY_CASE}
-if args.case in body_pfp_cases:
+if args.case in EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES:
+    if not cohort or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or os.environ.get('RUST_MIN_STACK') != '4194304':
+        raise ValueError('Explicit sync controls require exact reviewed manual source and original stack')
+    source = Path('crates/marmot-app/src/client/sync.rs')
+    old, new = EXPLICIT_ELIGIBILITY, EXPLICIT_INVERSE
+    features = 'marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks'
+    if args.case.endswith('experimental'): features += ',marmot-app/experimental-device-sync'
+    if args.case in EXPLICIT_LIFECYCLE_CASES:
+        test = EXPLICIT_LIFECYCLE_NAME
+        expected = 1
+        command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features', features,
+                   test, '--', '--exact', '--test-threads=1', '--show-output']
+        original_relay_command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--test', 'relay_runtime', '--features', features,
+                                  'relay_app_runtime_publishes_member_leave', '--', '--exact', '--test-threads=1', '--show-output']
+    else:
+        test = None
+        expected = 5
+        command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features', features,
+                   '--', '--exact', '--test-threads=1', '--show-output', *EXPLICIT_PROGRESS_NAMES]
+elif args.case in body_pfp_cases:
     if not cohort or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('Body responsiveness PFP requires exact reviewed manual source and original stack')
     source = Path('crates/marmot-app/src/client/account_chat_sharing/automatic.rs')
@@ -254,15 +273,20 @@ if args.case in SECONDARY_CASES and args.secondary_stage == 'green':
 if args.case in {'automatic-publication', 'sibling-publication'} | body_pfp_cases:
     # Validate the complete pure transform before any baseline compile/run.
     publication_mutant(text, 'automatic-publication' if args.case in body_pfp_cases else args.case)
+if args.case in EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES:
+    start = text.index('    async fn advance_one_ready_explicit_sync_group(')
+    end = text.index('\n    /// Bring the live group subscriptions', start)
+    if text[start:end].count(EXPLICIT_ELIGIBILITY) != 1:
+        raise ValueError('explicit-sync-only-owned-eligibility-guard')
 mailbox_assertion_line = None
 if args.case == 'outbound-mailbox-kind':
     assertion = '        assert_eq!(\n            mailbox.publish(&other_kind).await,\n            Err(PairingRelayError::Invalid)\n        );'
     if text.count(assertion) != 1:
         raise ValueError('Exact generic mailbox own assertion must remain unchanged')
     mailbox_assertion_line = text[:text.index(assertion)].count('\n') + 1
-cancellation_leaf = ExactCancellationMutation(source) if args.case in cancellation_pfp_cases | CANONICAL_CASES | body_pfp_cases else None
-cancellation_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases else None
-cancellation_index = hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases else None
+cancellation_leaf = ExactCancellationMutation(source) if args.case in cancellation_pfp_cases | CANONICAL_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES else None
+cancellation_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES else None
+cancellation_index = hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES else None
 args.output.mkdir(parents=True, exist_ok=False)
 proof = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
          'case': args.case, 'source_path': str(source),
@@ -286,6 +310,8 @@ def execute(phase):
     path = args.output / (phase + '.log')
     with path.open('x') as log:
         phase_command = command + (CANONICAL_SIBLINGS if phase == 'mutant' else CANONICAL_NAMES) if args.case in CANONICAL_CASES else command
+        if args.case in EXPLICIT_LIFECYCLE_CASES and phase == 'original-relay-control':
+            phase_command = original_relay_command
         result = subprocess.run(phase_command, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
     output = re.sub(r'\x1b\[[0-9;]*m', '', path.read_text())
     counts = re.findall(r'test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', output)
@@ -315,6 +341,12 @@ def execute(phase):
         row['runtime_panic_coordinates'] = runtime_panic_coordinates(output.encode())
     proof['runs'].append(row)
     save()  # Preserve actual counts before supplementary oracle/physical checks.
+    if args.case in EXPLICIT_LIFECYCLE_CASES:
+        row['actual_command'] = phase_command
+        row.update(explicit_sync_original_relay_positive_oracle(output) if phase == 'original-relay-control'
+                   else explicit_sync_lifecycle_oracle(output, Path(EXPLICIT_LIFECYCLE_FIXTURE).read_text(), phase))
+    if args.case in EXPLICIT_PROGRESS_CASES:
+        row.update(explicit_sync_progress_oracle(output))
     if args.case in body_pfp_cases:
         row.update(automatic_body_pfp_oracle(output, phase, result.returncode))
     if cohort:
@@ -374,7 +406,7 @@ def execute(phase):
             and "assertion `left == right` failed" in output
             and re.search(r'(?m)^\s*left: Ok\(\(\)\)\s*$', output) is not None
             and re.search(r'(?m)^\s*right: Err\(Invalid\)\s*$', output) is not None)
-    if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases:
+    if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES | EXPLICIT_PROGRESS_CASES:
         row['head_and_index_unchanged'] = (subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == cancellation_head and hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() == cancellation_index)
         if not row['head_and_index_unchanged']:
             row['evidence_passed'] = False
@@ -387,6 +419,21 @@ def matches(row, passed, failed):
 
 
 baseline = execute('baseline')
+if args.case in EXPLICIT_PROGRESS_CASES:
+    proof.update(control_only=True, product_mutation_attempted=False, runtime_mutation_qualification=False, completed=False, control_passed=False)
+    try:
+        proof['source_unchanged'] = source.read_bytes() == original
+        proof['all_tracked_inputs_unchanged'] = frozen_inputs() == frozen
+        proof['final_source_head_index_exact'] = (subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == cancellation_head
+            and hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() == cancellation_index)
+        proof['control_passed'] = (baseline['exit_code'] == 0 and matches(baseline, 5, 0) and baseline['evidence_passed']
+            and proof['source_unchanged'] and proof['all_tracked_inputs_unchanged'] and proof['final_source_head_index_exact'])
+        proof['completed'] = proof['control_passed']
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        proof.update(source_unchanged=False, all_tracked_inputs_unchanged=False, final_source_head_index_exact=False,
+                     control_passed=False, completed=False, final_closure_error_category=type(error).__name__)
+    save()
+    raise SystemExit(0 if proof['completed'] else 1)
 if args.case in PEER_TIMER_CASES:
     proof.update(control_only=True, product_mutation_attempted=False, runtime_mutation_qualification=False,
                  completed=False, control_passed=False)
@@ -436,7 +483,7 @@ if args.case in SECONDARY_CASES and args.secondary_stage == 'red':
     proof['completed'] = proof['baseline_behavioral_red'] and proof['source_unchanged'] and proof['all_inputs_restored']
     save()
     raise SystemExit(0 if proof['completed'] else 1)
-if args.case in cancellation_cases | CANONICAL_CASES | body_pfp_cases and not baseline['evidence_passed']:
+if args.case in cancellation_cases | CANONICAL_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES and not baseline['evidence_passed']:
     raise SystemExit('Exact cancellation baseline evidence incomplete')
 if args.case in cancellation_cases - cancellation_pfp_cases:
     proof.update(control_only=True, runtime_mutation_qualification=False, completed=(baseline['exit_code'] == 0 and matches(baseline, expected, 0) and baseline['evidence_passed'] and frozen_inputs() == frozen))
@@ -470,7 +517,7 @@ try:
         source.write_text(text.replace(old, new))
     mutant = execute('mutant')
     proof['runtime_mutant_killed'] = mutant['exit_code'] != 0 and matches(mutant, 0, len(CANONICAL_SIBLINGS) if args.case in CANONICAL_CASES else expected)
-    if args.case in cancellation_pfp_cases | CANONICAL_CASES | body_pfp_cases:
+    if args.case in cancellation_pfp_cases | CANONICAL_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES:
         proof['runtime_mutant_killed'] &= mutant['exit_code'] == 101 and mutant['evidence_passed']
     if args.case in SECONDARY_CASES:
         proof['finite_predecessors_completed_before_mutant_timeout'] = (
@@ -517,6 +564,13 @@ proof['restored_control_passed'] = (control['exit_code'] == 0 and matches(contro
                                   and (args.case not in publication_cases or control['required_runtime_marker_observed'])
                                   and (args.case not in {'automatic-publication', 'sibling-publication'}
                                        or (control['compiler_error_count'] == 0 and control['panic_header_count'] == 0)))
+if args.case in EXPLICIT_LIFECYCLE_CASES:
+    proof['restored_control_passed'] &= control['evidence_passed']
+    original_relay_control = execute('original-relay-control')
+    proof['original_relay_positive_passed'] = (original_relay_control['exit_code'] == 0
+        and matches(original_relay_control, 1, 0) and original_relay_control['evidence_passed'])
+    proof['restored_control_passed'] &= proof['original_relay_positive_passed']
+    proof['counterfactual'] = 'disable-only-explicit-sync-eligibility-guard'
 if args.case in body_pfp_cases:
     proof['restored_control_passed'] &= control['evidence_passed']
     proof['complementary_body_responsiveness_case'] = True
@@ -551,7 +605,7 @@ if args.case == 'worker-spawn-stack':
 proof['final_source_sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
 proof['completed'] = (proof.get('runtime_mutant_killed', False) and proof['restored_control_passed']
                       and proof['final_source_sha256'] == proof['original_sha256'] and attempt_error is None)
-if args.case in cancellation_pfp_cases | CANONICAL_CASES | body_pfp_cases:
+if args.case in cancellation_pfp_cases | CANONICAL_CASES | body_pfp_cases | EXPLICIT_LIFECYCLE_CASES:
     try:
         proof['final_source_head_index_exact'] = (frozen_inputs() == frozen
             and subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == cancellation_head

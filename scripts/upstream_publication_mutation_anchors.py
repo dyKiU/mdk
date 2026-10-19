@@ -742,3 +742,121 @@ def automatic_body_pfp_oracle(output, phase, exit_code):
             'compiler_diagnostics': diagnostics, 'panic_header_count': text.count('panicked at '),
             'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and running and compiler_zero
                 and valid and (own if failed else text.count('panicked at ') == 0))}
+
+
+EXPLICIT_LIFECYCLE_CASES = {'explicit-sync-lifecycle-default', 'explicit-sync-lifecycle-experimental'}
+EXPLICIT_PROGRESS_CASES = {'explicit-sync-progress-default', 'explicit-sync-progress-experimental'}
+EXPLICIT_LIFECYCLE_NAME = 'client::sync::explicit_ready_turn_tests::explicit_sync_preserves_a_genuinely_due_peer_leave_for_its_scheduled_owner'
+EXPLICIT_LIFECYCLE_FIXTURE = 'crates/marmot-app/src/client/sync/explicit_ready_turn_tests.rs'
+EXPLICIT_LIFECYCLE_LABEL = 'explicit sync must preserve a genuinely due peer removal for its scheduled convergence owner'
+EXPLICIT_ELIGIBILITY = '                    if !explicit_sync_ready {'
+EXPLICIT_INVERSE = '                    if false && !explicit_sync_ready {'
+EXPLICIT_PROGRESS_NAMES = CANONICAL_NAMES + PEER_TIMER_NAMES
+
+
+def explicit_lifecycle_assertion_line(fixture):
+    if fixture.count('async fn ' + EXPLICIT_LIFECYCLE_NAME.rsplit('::', 1)[1] + '(') != 1 or fixture.count(EXPLICIT_LIFECYCLE_LABEL) != 1:
+        raise ValueError('explicit-lifecycle-owned-fixture')
+    start = fixture.index('async fn ' + EXPLICIT_LIFECYCLE_NAME.rsplit('::', 1)[1] + '(')
+    label = fixture.index(EXPLICIT_LIFECYCLE_LABEL)
+    call = fixture.rfind('assert!(', start, label)
+    if call < start or label - call > 1024:
+        raise ValueError('explicit-lifecycle-owned-assertion')
+    condition = re.sub(r'\s+', '', fixture[call:label])
+    if 'sync_preserved_lifecycle&&retry_published_once' not in condition:
+        raise ValueError('explicit-lifecycle-original-no-removal-condition')
+    return fixture[:call].count('\n') + 1
+
+
+EXPLICIT_LIFECYCLE_PRIOR_FIELDS = ('actual_signed_leave', 'no_convergence_pass', 'no_deferred_input', 'timer_already_due', 'scheduled_ready', 'pending_edge', 'members_two')
+EXPLICIT_LIFECYCLE_RESULT_FIELDS = ('no_removal_events', 'timer_retained', 'pending_edge_retained', 'members_two', 'retry_published_once', 'one_member_after_retry', 'storage_closed')
+
+
+def explicit_lifecycle_marker(text, prefix, fields):
+    import json
+    rows = []
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result: raise ValueError('duplicate-lifecycle-marker-key')
+            result[key] = value
+        return result
+    for line in text.splitlines():
+        if prefix not in line: continue
+        match = re.fullmatch(re.escape(prefix) + r'(\{[^\r\n]{1,1024}\})', line)
+        if match is None: return None
+        try: value = json.loads(match[1], object_pairs_hook=unique)
+        except (ValueError, TypeError): return None
+        if type(value) is not dict or set(value) != set(fields) or not all(type(v) is bool for v in value.values()): return None
+        rows.append(value)
+    return rows[0] if len(rows) == 1 else None
+
+
+def explicit_sync_lifecycle_oracle(output, fixture, phase):
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    if phase not in {'baseline', 'mutant', 'restored-control'}:
+        raise ValueError('explicit-lifecycle-owned-phase')
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    failed = phase == 'mutant'
+    site = explicit_lifecycle_assertion_line(fixture)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode(), cargo_test_context=('marmot-app', '--lib'))
+    named = statuses == [(EXPLICIT_LIFECYCLE_NAME, 'FAILED' if failed else 'ok')]
+    counts = len(summaries) == 1 and summaries[0][:5] == (('FAILED', '0', '1', '0', '0') if failed else ('ok', '1', '0', '0', '0')) and running == ['1']
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + EXPLICIT_LIFECYCLE_NAME + r"'(?: \([0-9]+\))? panicked at "
+        + re.escape(EXPLICIT_LIFECYCLE_FIXTURE) + ':' + str(site) + r':\d+:\r?\n(?:[ \t]{0,8}\r?\n){0,2}[ \t]{0,8}'
+        + re.escape(EXPLICIT_LIFECYCLE_LABEL) + r'[ \t]*\r?$')
+    own_matches = list(re.finditer(pattern, text))
+    own = text.count('panicked at ') == 1 and len(own_matches) == 1
+    prior = explicit_lifecycle_marker(text, 'explicit-sync-lifecycle-prerequisites ', EXPLICIT_LIFECYCLE_PRIOR_FIELDS)
+    result = explicit_lifecycle_marker(text, 'explicit-sync-lifecycle-result ', EXPLICIT_LIFECYCLE_RESULT_FIELDS)
+    prerequisites = prior is not None and all(prior.values())
+    closes = result is not None and result['one_member_after_retry'] and result['storage_closed']
+    result_valid = closes and ((not result['no_removal_events'] and not result['retry_published_once']) if failed else all(result.values()))
+    ordered = prerequisites and result is not None and text.index('explicit-sync-lifecycle-prerequisites ') < text.index('explicit-sync-lifecycle-result ')
+    if failed: ordered = ordered and own and text.index('explicit-sync-lifecycle-result ') < own_matches[0].start()
+    return {'expected_test': EXPLICIT_LIFECYCLE_NAME, 'expected_original_assertion_file': EXPLICIT_LIFECYCLE_FIXTURE,
+            'expected_original_assertion_line': site, 'actual_exact_named_body': named,
+            'own_no_member_removal_assertion': own, 'compiler_diagnostics': diagnostics,
+            'prerequisites': prior, 'result': result, 'prerequisites_and_results_ordered': bool(ordered),
+            'compiler_error_count': diagnostics['compiler_header_count'],
+            'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and counts and not diagnostics['compiler_codes']
+                and diagnostics['compiler_header_count'] == 0 and prerequisites and result_valid and ordered
+                and (own if failed else text.count('panicked at ') == 0))}
+
+
+def explicit_sync_progress_oracle(output):
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode(), cargo_test_context=('marmot-app', '--lib'))
+    named = sorted(statuses) == sorted((name, 'ok') for name in EXPLICIT_PROGRESS_NAMES)
+    return {'selected_tests': EXPLICIT_PROGRESS_NAMES, 'actual_exact_named_set': named,
+            'compiler_diagnostics': diagnostics, 'compiler_error_count': diagnostics['compiler_header_count'],
+            'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and running == ['5']
+                and len(summaries) == 1 and summaries[0][:5] == ('ok', '5', '0', '0', '0')
+                and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0 and text.count('panicked at ') == 0)}
+
+
+# Independent positive original integration contract, never a jitter-dependent inverse.
+def explicit_sync_original_relay_positive_oracle(output):
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    name = 'relay_app_runtime_publishes_member_leave'
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode())
+    named = statuses == [(name, 'ok')]
+    return {'expected_test': name, 'original_relay_positive_only': True,
+            'actual_exact_named_body': named, 'compiler_diagnostics': diagnostics,
+            'compiler_error_count': diagnostics['compiler_header_count'], 'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and running == ['1']
+                and len(summaries) == 1 and summaries[0][:5] == ('ok', '1', '0', '0', '0')
+                and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0 and text.count('panicked at ') == 0)}

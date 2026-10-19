@@ -372,3 +372,115 @@ async fn real_ready_finalizer_write_failure_preserves_progress_and_edges() {
     // Real finalizer WRITE error only: no claim of a post-pass SELECT fault
     // or retention of a nonempty application summary.
 }
+
+/// A real peer removal is already due before public sync starts. Sync must
+/// preserve that timer-owned action while still servicing retained input.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_sync_preserves_a_genuinely_due_peer_leave_for_its_scheduled_owner() {
+    use crate::tests::remember_test_member_inbox;
+    use cgka_traits::engine::{GroupEvent, GroupStateChange};
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = AccountHome::open(dir.path());
+    home.create_account("alice").unwrap();
+    let bob_account = home.create_account("bob").unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = crate::MarmotApp::with_relay(dir.path(), "wss://relay.example")
+        .with_test_relay_client(relay.clone());
+    remember_test_member_inbox(&app, &bob_account.account_id_hex, "wss://relay.example");
+    let mut bob = app.client("bob").await.unwrap();
+    bob.publish_key_package().await.unwrap();
+    let mut alice = app.client("alice").await.unwrap();
+    let group = alice.create_group("due peer leave owner", &[&bob_account.account_id_hex]).await.unwrap();
+    // The fixture forwards only the actual signed Welcome addressed to Bob.
+    let welcomes = relay.published_events_snapshot().into_iter().filter(|event| {
+        event.kind == 1059 && event.tags.iter().any(|tag| {
+            tag.first().is_some_and(|value| value == "p")
+                && tag.get(1) == Some(&bob_account.account_id_hex)
+        })
+    }).collect::<Vec<_>>();
+    assert_eq!(welcomes.len(), 1);
+    for event in welcomes {
+        let account_id = bob.runtime.session().self_id();
+        bob.ingest_received_delivery(cgka_traits::TransportDelivery {
+            account_id,
+            group_id_hint: None,
+            message: event.to_transport_message().unwrap(),
+            received_at: cgka_traits::Timestamp(unix_now_seconds()),
+            source: cgka_traits::TransportDeliverySource {
+                transport: cgka_traits::transport::TransportSource("nostr".into()),
+                plane: cgka_traits::TransportDeliveryPlane::AccountInbox,
+                endpoint: None, subscription_id: None, wire: None,
+            },
+        }).await.unwrap();
+    }
+    bob.sync().await.unwrap();
+    bob.accept_group_invite(&group).unwrap();
+    assert_eq!(bob.members(&group).unwrap().len(), 2);
+    alice.sync().await.unwrap();
+    assert_eq!(alice.members(&group).unwrap().len(), 2);
+
+    let before_leave = relay.published_events_snapshot().len();
+    let leave = bob.leave_group(&group).await.unwrap();
+    assert_eq!(leave.published, 1);
+    let leaves = relay.published_events_snapshot().into_iter().skip(before_leave)
+        .filter(|event| event.kind == transport_nostr_peeler::KIND_MARMOT_GROUP_MESSAGE)
+        .collect::<Vec<_>>();
+    assert_eq!(leaves.len(), 1);
+    // Normal App ingestion authenticates the genuine peer's SelfRemove.
+    for event in leaves {
+        let account_id = alice.runtime.session().self_id();
+        alice.ingest_received_delivery(cgka_traits::TransportDelivery {
+            account_id,
+            group_id_hint: Some(group.clone()),
+            message: event.to_transport_message().unwrap(),
+            received_at: cgka_traits::Timestamp(unix_now_seconds()),
+            source: cgka_traits::TransportDeliverySource {
+                transport: cgka_traits::transport::TransportSource("nostr".into()),
+                plane: cgka_traits::TransportDeliveryPlane::Group,
+                endpoint: None, subscription_id: None, wire: None,
+            },
+        }).await.unwrap();
+    }
+    assert!(alice.runtime.prepare_convergence_cutoff_delay_ms(&group).unwrap().is_none());
+    assert!(alice.runtime.deferred_peel_cutoff_delay_ms(&group).unwrap().is_none());
+    let delay = alice.runtime.scheduled_self_remove_auto_commit_delay_ms(&group).unwrap()
+        .expect("the authentic peer leave schedules the original timer");
+    assert!(delay <= 50);
+    tokio::time::sleep(Duration::from_millis(delay + 1)).await;
+    assert_eq!(alice.runtime.scheduled_self_remove_auto_commit_delay_ms(&group).unwrap(), Some(0));
+    assert!(alice.runtime.prepare_convergence_cutoff_delay_ms(&group).unwrap().is_none());
+    assert!(alice.runtime.deferred_peel_cutoff_delay_ms(&group).unwrap().is_none());
+    assert!(matches!(alice.convergence_schedule_state(&group).unwrap(), ConvergenceScheduleState::Ready));
+    assert!(alice.pending_convergence_groups.contains(&group));
+    assert_eq!(alice.members(&group).unwrap().len(), 2);
+    crate::test_support::emit_line(format_args!(
+        "explicit-sync-lifecycle-prerequisites {{\"actual_signed_leave\":true,\"no_convergence_pass\":true,\"no_deferred_input\":true,\"timer_already_due\":true,\"scheduled_ready\":true,\"pending_edge\":true,\"members_two\":true}}"
+    ));
+
+    let summary = alice.sync().await.unwrap();
+    let no_removal_events = !summary.events.iter().any(|event| matches!(event,
+        GroupEvent::GroupStateChanged { group_id, change: GroupStateChange::MemberRemoved { .. }
+            | GroupStateChange::MemberLeft { .. }, .. } if group_id == &group));
+    let timer_retained = alice.runtime.scheduled_self_remove_auto_commit_delay_ms(&group).unwrap() == Some(0);
+    let pending_edge_retained = alice.pending_convergence_groups.contains(&group);
+    let members_two = alice.members(&group).unwrap().len() == 2;
+    let sync_preserved_lifecycle = no_removal_events && timer_retained && pending_edge_retained && members_two;
+    // Always run the original action, even if the inverse already removed Bob.
+    let retry = alice.retry_group_convergence(&group).await.unwrap();
+    let retry_published_once = retry.published == 1;
+    let one_member_after_retry = alice.members(&group).unwrap().len() == 1;
+    assert!(one_member_after_retry);
+    drop(alice);
+    drop(bob);
+    app.close_storage().unwrap();
+    let storage_closed = app.storage_is_closed();
+    assert!(storage_closed);
+    crate::test_support::emit_line(format_args!(
+        "explicit-sync-lifecycle-result {{\"no_removal_events\":{no_removal_events},\"timer_retained\":{timer_retained},\"pending_edge_retained\":{pending_edge_retained},\"members_two\":{members_two},\"retry_published_once\":{retry_published_once},\"one_member_after_retry\":{one_member_after_retry},\"storage_closed\":{storage_closed}}}"
+    ));
+    assert!(
+        sync_preserved_lifecycle && retry_published_once,
+        "explicit sync must preserve a genuinely due peer removal for its scheduled convergence owner"
+    );
+}

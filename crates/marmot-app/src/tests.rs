@@ -808,10 +808,7 @@ impl ScriptedPushRelayClient {
         *self.publish_results.lock().unwrap() = results.into_iter().collect();
     }
 
-    #[cfg(all(
-        feature = "test-policy-overrides",
-        feature = "experimental-device-sync"
-    ))]
+    #[cfg(feature = "test-policy-overrides")]
     pub(crate) fn published_events_snapshot(&self) -> Vec<NostrTransportEvent> {
         self.published_events.lock().unwrap().clone()
     }

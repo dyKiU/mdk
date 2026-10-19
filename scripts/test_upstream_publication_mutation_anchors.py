@@ -672,5 +672,69 @@ class AutomaticBodyComplementaryPfp(unittest.TestCase):
         self.assertFalse(automatic_body_pfp_oracle(raw, 'mutant', 0)['evidence_passed'])
         self.assertFalse(automatic_body_pfp_oracle(raw, 'baseline', 101)['evidence_passed'])
 
+
+
+class ExplicitSyncLifecycleBoundary(unittest.TestCase):
+    def lifecycle(self, failed):
+        from upstream_publication_mutation_anchors import EXPLICIT_LIFECYCLE_NAME as name, EXPLICIT_LIFECYCLE_FIXTURE as file, EXPLICIT_LIFECYCLE_LABEL as label, explicit_lifecycle_assertion_line
+        site = explicit_lifecycle_assertion_line(Path(file).read_text())
+        raw = 'running 1 test\ntest ' + name + ' ... ' + ('FAILED' if failed else 'ok') + '\n'
+        from upstream_publication_mutation_anchors import EXPLICIT_LIFECYCLE_PRIOR_FIELDS, EXPLICIT_LIFECYCLE_RESULT_FIELDS
+        raw += 'explicit-sync-lifecycle-prerequisites ' + json.dumps(dict.fromkeys(EXPLICIT_LIFECYCLE_PRIOR_FIELDS, True), separators=(',', ':')) + '\n'
+        values = dict.fromkeys(EXPLICIT_LIFECYCLE_RESULT_FIELDS, not failed)
+        values.update(one_member_after_retry=True, storage_closed=True)
+        raw += 'explicit-sync-lifecycle-result ' + json.dumps(values, separators=(',', ':')) + '\n'
+        if failed: raw += "thread '" + name + "' panicked at " + file + ':' + str(site) + ':5:\n\n' + label + '\n'
+        return raw + 'test result: ' + ('FAILED. 0 passed; 1 failed;' if failed else 'ok. 1 passed; 0 failed;') + ' 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n'
+
+    def test_lifecycle_due_green_own_red_restored_and_lib_terminal_wrapper(self):
+        from upstream_publication_mutation_anchors import explicit_sync_lifecycle_oracle, EXPLICIT_LIFECYCLE_FIXTURE
+        fixture = Path(EXPLICIT_LIFECYCLE_FIXTURE).read_text()
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            raw = self.lifecycle(phase == 'mutant')
+            if phase == 'mutant': raw += 'error: test failed, to rerun pass `--lib`\n'
+            self.assertTrue(explicit_sync_lifecycle_oracle(raw, fixture, phase)['evidence_passed'])
+
+    def test_lifecycle_no_unrelated_or_compiler_or_empty_or_duplicate_credit(self):
+        from upstream_publication_mutation_anchors import explicit_sync_lifecycle_oracle, EXPLICIT_LIFECYCLE_FIXTURE, EXPLICIT_LIFECYCLE_NAME, EXPLICIT_LIFECYCLE_LABEL, explicit_lifecycle_assertion_line
+        fixture = Path(EXPLICIT_LIFECYCLE_FIXTURE).read_text();raw = self.lifecycle(True)
+        for bad in [raw + raw, raw.replace(EXPLICIT_LIFECYCLE_NAME, 'private::unknown', 1),
+                    raw.replace("thread '" + EXPLICIT_LIFECYCLE_NAME + "'", "thread 'private::unknown'"),
+                    raw.replace(EXPLICIT_LIFECYCLE_LABEL, 'PRIVATE_VALUE'),
+                    raw.replace(':' + str(explicit_lifecycle_assertion_line(fixture)) + ':5:', ':1:5:'),
+                    raw + 'error[E0308]: PRIVATE_VALUE\n', raw.replace('0 ignored;', '1 ignored;'),
+                    raw.replace('running 1 test', 'running 0 tests'), raw.replace('1 failed;', '0 failed;'),
+                    raw + 'error: test failed, to rerun pass `--test PRIVATE_VALUE`\n',
+                    raw + 'error: test failed, to rerun pass `--lib`\nPRIVATE_VALUE\n',
+                    raw.replace('\"timer_already_due\":true', '\"timer_already_due\":false'),
+                    raw.replace('\"storage_closed\":true', '\"storage_closed\":false'),
+                    raw.replace('explicit-sync-lifecycle-prerequisites ', 'PRIVATE_VALUE '),
+                    raw.replace('\"timer_already_due\":true', '\"timer_already_due\":true,\"timer_already_due\":true')]:
+            row = explicit_sync_lifecycle_oracle(bad, fixture, 'mutant')
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+    def test_progress_exact_five_positives_and_missing_duplicate_extra_failure(self):
+        from upstream_publication_mutation_anchors import explicit_sync_progress_oracle, EXPLICIT_PROGRESS_NAMES
+        raw = 'running 5 tests\n' + ''.join('test ' + name + ' ... ok\n' for name in EXPLICIT_PROGRESS_NAMES) + 'test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n'
+        self.assertTrue(explicit_sync_progress_oracle(raw)['evidence_passed'])
+        for bad in [raw + raw, raw.replace(EXPLICIT_PROGRESS_NAMES[0], 'private::unknown'),
+                    raw.replace('5 passed;', '4 passed;'), raw.replace('0 ignored;', '1 ignored;'),
+                    raw.replace('... ok', '... FAILED', 1), raw + 'error[E0308]: PRIVATE_VALUE\n']:
+            row = explicit_sync_progress_oracle(bad)
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+class OriginalRelayPositiveControl(unittest.TestCase):
+    def test_original_relay_positive_is_not_mutation_credit(self):
+        from upstream_publication_mutation_anchors import explicit_sync_original_relay_positive_oracle
+        raw = 'running 1 test\ntest relay_app_runtime_publishes_member_leave ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n'
+        row = explicit_sync_original_relay_positive_oracle(raw)
+        self.assertTrue(row['evidence_passed']);self.assertTrue(row['original_relay_positive_only'])
+        for bad in [raw + raw, raw.replace(' ... ok', ' ... FAILED'), raw.replace('1 passed;', '0 passed;'),
+                    raw.replace('0 ignored;', '1 ignored;'), raw.replace('relay_app_runtime_publishes_member_leave', 'private::unknown'),
+                    raw + 'error[E0308]: PRIVATE_VALUE\n', raw + 'thread private panicked at PRIVATE_VALUE\n']:
+            row = explicit_sync_original_relay_positive_oracle(bad)
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+
 if __name__ == '__main__':
     unittest.main()
