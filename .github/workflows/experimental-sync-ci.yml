@@ -414,6 +414,7 @@ jobs:
           shared-key: pairing-replay
       - name: Run actual enrollment and authority retirement bodies without retries
         env:
+          CARGO_INCREMENTAL: '1'
           SLOTS: ${{ matrix.slots }}
           REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}
         run: |
