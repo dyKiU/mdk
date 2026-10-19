@@ -1,0 +1,127 @@
+name: Original strict-five bounded function sampling (diagnostic only)
+on:
+  push:
+    branches: ['ci/upstream-develop-dy-cpu-*']
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [preflight, sample]
+        default: preflight
+      sampler:
+        description: Explicitly choose one tool before the sole test; no fallback
+        type: choice
+        options: [perf, gdb]
+        default: perf
+      approved_source:
+        description: Exact signed candidate HEAD; required for one Rust body
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: original-five-cpu-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  CARGO_INCREMENTAL: '1'
+  CARGO_BUILD_JOBS: '2'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  RUST_MIN_STACK: '4194304'
+  CARGO_TERM_COLOR: never
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Complete immutable source and remote-only synthetic sampler controls (zero Rust)
+        run: python3 scripts/qualify_upstream_ec0b_cpu.py --mode preflight
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ec0b-cpu-preflight
+          path: ${{ runner.temp }}/ec0b-cpu-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14
+  sample:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'sample'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify owned physical Cargo cache target mapping
+        id: cargo-cache-target
+        shell: bash
+        run: |
+          python3 - <<'PY_CACHE_TARGET'
+          import os, stat
+          from pathlib import Path
+          try:
+              workspace = Path(os.environ['GITHUB_WORKSPACE']).absolute()
+              temporary = Path(os.environ['RUNNER_TEMP']).absolute()
+              for path in [workspace, temporary]:
+                  if path.resolve(strict=True) != path or not path.is_dir() or path.is_symlink() or path.stat().st_uid != os.getuid():
+                      raise ValueError()
+              target = temporary / 'merged-affected-target'
+              try:
+                  target.mkdir(mode=0o700)
+              except FileExistsError:
+                  pass
+              info = target.lstat()
+              if not stat.S_ISDIR(info.st_mode) or target.resolve(strict=True) != target or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                  raise ValueError()
+              relative = os.path.relpath(target, workspace)
+              if os.path.isabs(relative) or '\n' in relative or '\r' in relative or (workspace / relative).resolve(strict=True) != target:
+                  raise ValueError()
+              fd = os.open(os.environ['GITHUB_OUTPUT'], os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+              try:
+                  output = os.fstat(fd)
+                  if not stat.S_ISREG(output.st_mode) or output.st_uid != os.getuid():
+                      raise ValueError()
+                  payload = ('relative=' + relative + '\n').encode()
+                  if os.write(fd, payload) != len(payload):
+                      raise ValueError()
+              finally:
+                  os.close(fd)
+          except Exception:
+              raise SystemExit(1) from None
+          print('cache-target-mapping-verified')
+          PY_CACHE_TARGET
+      - name: Exact pinned toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: . -> ${{ steps.cargo-cache-target.outputs.relative }}
+          shared-key: merged-affected-full-workspace-v2
+          cache-on-failure: true
+          cache-workspace-crates: true
+      - name: Capacity preflight (owned target; no cleanup)
+        run: |
+          available=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
+          test "$available" -ge 50331648
+      - name: Harmless tool admission, original fresh compile, ONE strict-five under selected sampler
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/merged-affected-target
+          CARGO_INCREMENTAL: '1'
+          APPROVED_SOURCE: ${{ inputs.approved_source }}
+          SAMPLER: ${{ inputs.sampler }}
+        run: python3 scripts/qualify_upstream_ec0b_cpu.py --mode sample --sampler "$SAMPLER" --approved-source "$APPROVED_SOURCE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ec0b-cpu-diagnostic
+          path: ${{ runner.temp }}/ec0b-cpu-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14
