@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Current original strict five or original sixteen enrollment cases; no mutation."""
+"""Original strict five and/or original sixteen, one fresh binary; no mutation."""
 import argparse, hashlib, json, os, re, shutil, stat, subprocess, time, sys
 from pathlib import Path
 import qualify_upstream_storage_boundary as bounded
@@ -11,7 +11,7 @@ ensure=bounded.ensure
 BASE='c5a5c10ce0792a41c7feecc81bcd2efab2a8adda'
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 PFP_METADATA={'.github/workflows/native-predecessor-readiness-pfp.yml','scripts/qualify_upstream_native_predecessor_readiness.py'}
-WORKFLOW_SHA='25c0ea3871f9622ee9e169aec1fd8a93532c130e8e6791aeb571ab0ea11a163b'
+WORKFLOW_SHA='07b16ab533e7ba061935b03d684f18deede2f4a711f512d7b8652471c29dfd8e'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -153,14 +153,32 @@ def aggregate(cases,expected_count):
     return result
 
 
+def required_count(mode):return {'five':1,'sixteen':16,'both':17}[mode]
+
 def selected_cases(mode):
-    if mode=='five':return [('five',native.SUFFIX,native.NAME,None)]
+    five=[('five',native.SUFFIX,native.NAME,None)]
+    if mode=='five':return five
     rows=list(ack.CASES)
     ensure(len(rows)==16 and all(type(row) in (list,tuple) and len(row)==4 for row in rows)
         and all(len({row[i] for row in rows})==16 for i in [0,1,2])
         and {'policy','stress_0','stress_1','stress_2','paused_clock'}<={row[0] for row in rows},'original-exact-sixteen-inventory')
     ensure(all(type(label) is str and type(suffix) is str and type(name) is str and name.endswith(suffix) for label,suffix,name,_ in rows),'exact-source-case-names')
+    if mode=='both':
+        result=five+rows
+        ensure(len(result)==17 and len({row[0] for row in result})==17 and len({row[2] for row in result})==17
+            and result[0]==five[0] and result[1:]==rows,'strict-five-first-plus-all-sixteen-distinct-once')
+        return result
     return rows
+
+def cohort_totals(cases,mode):
+    result={}
+    for cohort,size in [('five',1),('sixteen',16)]:
+        expected=size if mode in (cohort,'both') else 0
+        rows=[row for row in cases if row.get('cohort')==cohort]
+        result[cohort]=aggregate(rows,expected)
+        result[cohort]['required']=expected>0
+        result[cohort]['all_original_cases_green']=None if expected==0 else len(rows)==expected and all(row.get('oracle_green') is True for row in rows)
+    return result
 
 # Only fixed-field numeric/boolean projections leave memory. Strict original oracles
 # still consume the complete ephemeral parser result; no raw compiler/panic text exports.
@@ -193,7 +211,7 @@ def closed_panic_sites(raw,name,tracked,read_bytes=None):
         'other_panic_headers_unknown':max(0,raw.count('panicked at ')-len(found)),'panic_payloads_exported':False}
 
 def execute_case(report,row,binary,before,mode,parent,inputs,label,name,five):
-    row.update(label=label,name=name,runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
+    row.update(label=label,name=name,cohort='five' if five else 'sixteen',runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
     save(report)
     for ignored in [False,True]:
         code,raw,seconds=bounded.capture([str(binary),'--exact',name]+(['--ignored'] if ignored else [])+['--list','--format','terse'],60,limit=1024*1024)
@@ -220,9 +238,11 @@ def execute_case(report,row,binary,before,mode,parent,inputs,label,name,five):
     save(report)
 
 def parser_controls(mode):
-    inherited=native.parser_controls() if mode=='five' else ack.parser_controls()
+    inherited=({'five':native.parser_controls(),'sixteen':ack.parser_controls()} if mode=='both' else
+        (native.parser_controls() if mode=='five' else ack.parser_controls()))
     names=selected_cases(mode)
-    ensure(len(names)==(1 if mode=='five' else 16),'exact-selected-case-count')
+    ensure(len(names)==required_count(mode),'exact-selected-case-count')
+    if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
     ensure(not within(Path.cwd().parent,Path.cwd()) and within(Path.cwd()/'ordinary',Path.cwd()),'containment-direction-controls')
     complete={'basic_counts':{'passed':1,'failed':0,'ignored':0,'executed_nonignored':1,'actual_counts_complete':True}}
@@ -244,6 +264,14 @@ def parser_controls(mode):
         ensure(not closed_panic_sites(text,name,{path},read)['sites'],'unknown-or-out-of-source-site-not-exported')
     many=closed_panic_sites(header*33,name,{path},read)
     ensure(len(many['sites'])==32 and many['truncated'] is True,'bounded-source-sites')
+    synthetic=[{'cohort':'five' if label=='five' else 'sixteen','oracle_green':True,'basic_counts':dict(complete['basic_counts'])} for label,_,_,_ in names]
+    totals=cohort_totals(synthetic,mode)
+    ensure(sum(row['basic_counts']['executed_nonignored'] for row in synthetic)==required_count(mode),'all-selected-observed-counts-control')
+    if mode=='both':
+        ensure(totals['five']['actual_executed_nonignored']==1 and totals['sixteen']['actual_executed_nonignored']==16,'distinct-1-and-16-cohort-counts')
+        synthetic[-1]['oracle_green']=False
+        changed=cohort_totals(synthetic,mode)
+        ensure(changed['five']['all_original_cases_green'] is True and changed['sixteen']['all_original_cases_green'] is False,'sixteen-failure-never-overrides-five-or-qualifies-both')
     return {'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'actual_runtime_bodies':0}
 
 def main(args):
@@ -251,8 +279,8 @@ def main(args):
     report={'expected_case_mode':args.mode,'preflight_only':args.preflight,'actual_test_qualification':False,'global_qualification':False,
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'automatic_retries':0,'raw_runtime_output_exported':False,
         'requested_features':FEATURES,'environment_stack_bytes':4194304,'Tokio_workers':2 if args.mode=='five' else None,
-        'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else 'original-source-defined-mixed-sixteen',
-        'actual_runtime_attempts':0,'actual_executed_nonignored':0,'strict_five_join_deadline_seconds':15 if args.mode=='five' else None,'body_watchdog_seconds':900 if args.mode=='five' else 300,'output_limit_bytes':8*1024*1024,'cases':[]}
+        'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else ('original-source-defined-mixed-five-plus-sixteen' if args.mode=='both' else 'original-source-defined-mixed-sixteen'),
+        'actual_runtime_attempts':0,'actual_executed_nonignored':0,'strict_five_join_deadline_seconds':15 if args.mode in ('five','both') else None,'body_watchdog_seconds':None if args.mode=='both' else (900 if args.mode=='five' else 300),'body_watchdog_seconds_by_cohort':{'five':900,'sixteen':300},'output_limit_bytes':8*1024*1024,'cases':[]}
     save(report);inputs=None;binary=None;before=None;mode=None;parent=None
     try:
         report['controller_stage']='source_guard';save(report)
@@ -284,10 +312,10 @@ def main(args):
         report['controller_stage']='original_bodies';save(report)
         for label,suffix,name,_ in selected:
             row={};report['cases'].append(row);save(report)
-            try:execute_case(report,row,binary,before,mode,parent,inputs,label,name,args.mode=='five')
+            try:execute_case(report,row,binary,before,mode,parent,inputs,label,name,label=='five')
             except Exception as error:row['controller_failure_type']=closed_exception(error);save(report)
         report['controller_stage']='aggregate_original_oracles'
-        report.update(aggregate(report['cases'],len(selected)));save(report)
+        report.update(aggregate(report['cases'],len(selected)));report['cohorts']=cohort_totals(report['cases'],args.mode);save(report)
         report['all_original_cases_green']=len(report['cases'])==len(selected) and all(row.get('oracle_green') is True for row in report['cases'])
         report['git_closure_before_qualification']=git_closure()
         report['actual_test_qualification']=report['all_original_cases_green'] and source_matches(inputs) and report['git_closure_before_qualification']['verified']
@@ -297,7 +325,7 @@ def main(args):
     finally:
         report['actual_runtime_attempts']=sum(row.get('runtime_attempted') is True for row in report['cases'])
         if not args.preflight:
-            report.update(aggregate(report['cases'],1 if args.mode=='five' else 16))
+            report.update(aggregate(report['cases'],required_count(args.mode)));report['cohorts']=cohort_totals(report['cases'],args.mode)
             if report['actual_runtime_attempts']==0:report['actual_executed_nonignored']=0
         report['final_git_closure']=git_closure()
         report['final_source_pristine']=inputs is not None and source_matches(inputs)
@@ -310,5 +338,5 @@ def main(args):
     ensure(report['actual_test_qualification'],'actual-current-native-qualification-required')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen'],default='five')
+    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','both'],default='both')
     main(parser.parse_args())

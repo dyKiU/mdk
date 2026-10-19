@@ -1,4 +1,4 @@
-name: Current original enrollment five and sixteen
+name: Current original enrollment five and sixteen; single binary
 on:
   push:
     branches: [ci/upstream-current-enrollment-20261019]
@@ -10,8 +10,8 @@ on:
         default: preflight
       mode:
         type: choice
-        options: [five, sixteen]
-        default: five
+        options: [five, sixteen, both]
+        default: both
 permissions:
   contents: read
 concurrency:
@@ -38,7 +38,7 @@ jobs:
       - name: Whole source and closed parser controls; zero bodies
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_current_enrollment.py --preflight --mode "${{ inputs.mode || 'five' }}"
+        run: python3 scripts/qualify_upstream_current_enrollment.py --preflight --mode "${{ inputs.mode || 'both' }}"
       - name: Hosted formatting; exact patch on failure
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
@@ -59,7 +59,7 @@ jobs:
     needs: preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-current-enrollment-20261019'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.mode == 'sixteen' && 180 || 90 }}
+    timeout-minutes: ${{ inputs.mode != 'five' && 180 || 90 }}
     env:
       UPSTREAM_CURRENT_ENROLLMENT_BASELINE: c5a5c10ce0792a41c7feecc81bcd2efab2a8adda
       CARGO_INCREMENTAL: '1'
