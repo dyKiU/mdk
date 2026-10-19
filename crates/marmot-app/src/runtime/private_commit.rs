@@ -232,14 +232,19 @@ impl PublicationControl {
         &self,
         scope: &PurposeAttemptScope,
     ) -> Option<crate::device_linking::settlement::SdkCancellationFence> {
-        let active = self.active.lock().unwrap_or_else(|error| error.into_inner());
-        let active = active.as_ref().filter(|active| {
-            active.identity == PublicationIdentity::Scoped(scope.clone())
-        })?;
+        let active = self
+            .active
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let active = active
+            .as_ref()
+            .filter(|active| active.identity == PublicationIdentity::Scoped(scope.clone()))?;
         let PublicationGate::Invite(gate) = &active.gate else {
             return None;
         };
-        active.proposal_retirement.as_ref()
+        active
+            .proposal_retirement
+            .as_ref()
             .filter(|receipt| receipt.matches_retired(scope, gate))
             .map(|_| gate.cancellation_fence())
     }
