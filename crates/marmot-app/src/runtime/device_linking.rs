@@ -4062,9 +4062,11 @@ mod tests {
                             .unwrap();
                         assert!(matches!(
                             workers.a.cancel_device_linking("test", &a_scope).await,
-                            Err(ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
-                                crate::device_linking::LinkError::StaleFlow
-                            )))
+                            Err(ClientLinkingError::Owner(
+                                crate::device_linking::OwnerError::Verifier(
+                                    crate::device_linking::LinkError::StaleFlow
+                                )
+                            ))
                         ));
                         assert!(
                             cgka_traits::StorageProvider::device_linking_key_package_storage(
