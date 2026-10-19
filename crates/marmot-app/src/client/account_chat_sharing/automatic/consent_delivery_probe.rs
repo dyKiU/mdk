@@ -272,6 +272,7 @@ pub(crate) struct ObservedPublication {
 #[derive(Default, Clone)]
 struct Evidence {
     proof_queue: Option<ProofQueueFacts>,
+    proof_request_queue: Option<ProofQueueFacts>,
     proof_stages: [usize; 3],
     raw_id_seen: bool,
     raw_payload_hash_matches: bool,
@@ -644,6 +645,7 @@ impl ConsentDeliveryProbe {
                 dispatch: [0; 5],
                 owned: [0; 3],
                 queue: None,
+                request_queue: None,
                 queue_ambiguous: false,
                 incomplete: self.mode != Mode::PeerProof
                     || Instant::now() >= self.deadline
@@ -660,6 +662,7 @@ impl ConsentDeliveryProbe {
                 summary.acknowledged += usize::from(record.outer_id.is_some());
                 let evidence = &record.evidence;
                 summary.queue = evidence.proof_queue;
+                summary.request_queue = evidence.proof_request_queue;
                 summary.raw_id += usize::from(evidence.raw_id_seen);
                 summary.raw_payload_match += usize::from(evidence.raw_payload_hash_matches);
                 summary.event += usize::from(evidence.event_seen);
@@ -678,6 +681,7 @@ impl ConsentDeliveryProbe {
             summary.queue_ambiguous = summary.prepared > 1;
             if summary.prepared != 1 {
                 summary.queue = None;
+                summary.request_queue = None;
             }
             summary.incomplete |= summary.prepared == 0
                 || summary.acknowledged != summary.prepared
@@ -703,6 +707,7 @@ pub(crate) struct ProofSummary {
     dispatch: [usize; 5],
     owned: [usize; 3],
     queue: Option<ProofQueueFacts>,
+    request_queue: Option<ProofQueueFacts>,
     queue_ambiguous: bool,
     incomplete: bool,
 }
@@ -790,7 +795,7 @@ pub(crate) struct ProofQueueFacts {
 /// Source identities are transient lookup keys, never part of stored queue facts.
 pub(crate) fn capture_proof_queue<F>(root: &Path, account: &cgka_traits::MemberId, mut query: F)
 where
-    F: FnMut(&MessageId, &MessageId, Instant) -> ProofQueueFacts,
+    F: FnMut(&MessageId, &MessageId, Instant, Option<Instant>) -> (ProofQueueFacts, Option<ProofQueueFacts>),
 {
     let Some(probe) = current(root).filter(|probe| {
         probe.mode == Mode::PeerProof
@@ -802,6 +807,8 @@ where
     let Some(origin) = probe.deadline.checked_sub(Duration::from_secs(600)) else {
         return;
     };
+    // Independent passive registry read before taking this probe's progress lock.
+    let request_origin = super::request_lineage_probe::observation_origin(root, account, &probe.group);
     // Never hold the probe mutex while reading the relay-plane observer locks.
     let targets: Vec<_> = {
         let progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
@@ -824,13 +831,14 @@ where
             .collect()
     };
     for (index, outer, content) in targets {
-        let facts = query(&outer, &content, origin);
+        let (facts, request_facts) = query(&outer, &content, origin, request_origin);
         let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(record) = progress.records.get_mut(index)
             && record.outer_id.as_ref() == Some(&outer)
             && record.prepared.content_id == content
         {
             record.evidence.proof_queue = Some(facts);
+            record.evidence.proof_request_queue = request_facts;
         }
     }
 }

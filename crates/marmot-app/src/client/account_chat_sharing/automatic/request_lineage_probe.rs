@@ -95,6 +95,12 @@ fn current(root: &Path) -> Option<Arc<Probe>> {
     weak.and_then(|weak| weak.upgrade())
         .filter(|probe| Instant::now() < probe.deadline)
 }
+/// Borrow only the existing passive clock after exact root/account/group lookup.
+/// No owner, authority, path or Instant is exported from diagnostics.
+pub(super) fn observation_origin(root: &Path, account: &MemberId, group: &GroupId) -> Option<Instant> {
+    let probe = current(root).filter(|probe| probe.account.as_slice() == account.as_slice() && probe.group == *group)?;
+    Some(probe.origin)
+}
 impl Drop for Probe {
     fn drop(&mut self) {
         let mut roots = registry().lock().unwrap_or_else(|e| e.into_inner());
