@@ -30,6 +30,9 @@ EXPECTED = {
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race",
         "native_device_linking::tests::actual::automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent",
     },
+    "pairing-departure-middle-signer": {
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
+    },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
         PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
@@ -65,7 +68,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         start = text.index("  pairing-replay:\n")
         replay = text[start:text.index("  archive-recovery-plan:\n", start)]
-        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","automatic-body-regression","automatic-body-negative"]', replay)
+        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","automatic-body-regression","automatic-body-negative"]', replay)
         self.assertEqual(replay.count("REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}"), 1)
 
     def test_every_scope_is_offered_and_routes_to_pairing_job(self):
@@ -131,7 +134,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                            REPLAY_SCOPE=ALIASES.get(scope, scope), SYNC_FEATURES=EXPERIMENTAL_FEATURES,
-                           SLOTS=("6" if scope.startswith("pairing-departure-") else
+                           SLOTS=("6" if scope in ("pairing-departure-contention", "pairing-departure-staggered") else
                                   "1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3"),
                            PAIRING_COMMAND=str(command), PAIRING_DELAY=str(root / "delay"))
                 ready = root / "mock-sleep-ready"

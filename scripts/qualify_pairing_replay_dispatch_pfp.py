@@ -13,7 +13,7 @@ import qualify_upstream_storage_boundary as bounded
 
 SELF='scripts/qualify_pairing_replay_dispatch_pfp.py'
 TEST='scripts/test_pairing_replay_dispatch.py'
-TEST_SHA='0ccb2dc827ef99a43b59b7a05ae6d0654983432ad62d6f44eded4457ef11a795'  # Exact controlled-mock four-method union; root aliases and nine routes retained.
+TEST_SHA='f125306a816fdee9da360773bbde8decb109994abc10512b6945784dca7b9830'  # Exact controlled-mock four-method union; root aliases and ten routes retained.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 OUT=Path('pairing-dispatch-pfp-evidence')
 NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',
@@ -22,7 +22,7 @@ NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',
        'test_departure_contention_rejects_a_serial_budget_before_cargo']
 TARGET=NAMES[1]
 RESTART=['pairing-restart-diagnostic','pairing-restart-higher-source']
-REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART,'pairing-departure-contention','pairing-departure-staggered','automatic-body-regression','automatic-body-negative'}
+REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART,'pairing-departure-contention','pairing-departure-staggered','pairing-departure-middle-signer','automatic-body-regression','automatic-body-negative'}
 ASSERTION='self.assertTrue(set(routed) <= set(supported))'
 ensure=bounded.ensure
 
@@ -67,7 +67,7 @@ def condition(text,job):
 def mutant(text):
     line,found,values=condition(text,'workflow-union-preflight')
     ensure(all(values.count(scope)==1 for scope in RESTART),'both-new-dependency-scopes-required')
-    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'unchanged-exact-nine-replay-routes')
+    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'unchanged-exact-ten-replay-routes')
     replacement=line[:found.start(1)]+json.dumps([v for v in values if v not in RESTART],separators=(',',':'))+line[found.end(1):]
     ensure(text.count(line)==1 and replacement!=line,'one-narrow-dependency-list-mutation')
     changed=text.replace(line,replacement,1)

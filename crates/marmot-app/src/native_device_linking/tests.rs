@@ -355,6 +355,21 @@ pub(super) mod actual {
         AutomaticForwardingReceiptRetry,
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
+        run_native_public_three_device_enrollment_with_departure_order(scenario, false).await;
+    }
+
+    pub(super) async fn run_departure_with_original_signer_order() {
+        run_native_public_three_device_enrollment_with_departure_order(
+            ApprovalScenario::AutomaticAccountDepartureSourceWins,
+            true,
+        )
+        .await;
+    }
+
+    async fn run_native_public_three_device_enrollment_with_departure_order(
+        scenario: ApprovalScenario,
+        departure_signers_ascending: bool,
+    ) {
         use cgka_traits::StorageProvider;
         let relay_database = Arc::new(nostr_relay_builder::prelude::MemoryDatabase::with_opts(
             nostr_relay_builder::prelude::MemoryDatabaseOptions {
@@ -375,6 +390,17 @@ pub(super) mod actual {
                 .unwrap();
             MarmotApp::with_relay(dirs[i].path(), &url)
         });
+        if departure_signers_ascending {
+            assert!(scenario == ApprovalScenario::AutomaticAccountDepartureSourceWins);
+            // Reuse genuine Core signer initialization before any ordinary
+            // group or public pairing. This helper yields [highest, lowest,
+            // middle]; rotation selects the original failed A < B < C order.
+            super::automatic_held_three_original_acceptance::order_actual_signers(
+                &mut apps, &keys, true,
+            )
+            .await;
+            apps.rotate_left(1);
+        }
         if matches!(
             scenario,
             ApprovalScenario::AutomaticHeldSponsorInitiates
@@ -1162,6 +1188,21 @@ pub(super) mod actual {
             return;
         }
         if let Some(peer) = two_source_peer {
+            if departure_signers_ascending {
+                let devices = apps.each_ref().map(|app| {
+                    app.account_storage("test")
+                        .unwrap()
+                        .private_roster_settlement_storage()
+                        .unwrap()
+                        .read_round()
+                        .unwrap()
+                        .unwrap()
+                        .anchor
+                        .local_device
+                });
+                assert!(devices[0] < devices[1] && devices[1] < devices[2]);
+                eprintln!("account_departure_actual_signer_order_a_b_c=true");
+            }
             let departure_scenario = matches!(
                 scenario,
                 ApprovalScenario::AutomaticRecordsCutConsent
