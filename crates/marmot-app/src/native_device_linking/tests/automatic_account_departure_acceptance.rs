@@ -248,7 +248,7 @@ pub(super) async fn verify(
                 let mut publication_wait_empty = 0_u64;
                 let mut publication_wait_queued = 0_u64;
                 let mut publication_wait_published = 0_u64;
-                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                let publication = tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     loop {
                         let store = reopened_app.account_storage("test").unwrap();
                         let round = store.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
@@ -270,7 +270,15 @@ pub(super) async fn verify(
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     }
-                }).await.expect(&format!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}"));
+                }).await;
+                if publication.is_err() {
+                    let observation = reopened_app.account_storage("test").map(|store| (
+                        store.get_group(&peer.group).map(|group|group.epoch.0).map_err(|_|"Unknown"),
+                        store.leave_request(&peer.group).map(|request|request.map(|request|request.last_proposed_epoch.map(|epoch|epoch.0))).map_err(|_|"Unknown"),
+                    )).map_err(|_|"Unknown");
+                    eprintln!("account_departure_publication_timeout_expected_prior_epoch={} current_and_own_leave_proposed_epoch={observation:?}",epoch_before.0);
+                }
+                publication.expect(&format!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}"));
                 assert_administrator_holds_only_a(peer,epoch_before);
                 eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
                 {
