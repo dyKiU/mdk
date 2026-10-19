@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Original strict five and/or original sixteen, one fresh binary; no mutation."""
+"""Original enrollment modes and a closed four-case observation mode; no mutation."""
 import argparse, hashlib, json, os, re, shutil, stat, subprocess, time, sys
 from pathlib import Path
 import qualify_upstream_storage_boundary as bounded
@@ -8,10 +8,10 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='c5a5c10ce0792a41c7feecc81bcd2efab2a8adda'
+BASE='d87717a234fbb434c9e4d584e9c36366076cd167'
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
-PFP_METADATA={'.github/workflows/native-predecessor-readiness-pfp.yml','scripts/qualify_upstream_native_predecessor_readiness.py'}
-WORKFLOW_SHA='07b16ab533e7ba061935b03d684f18deede2f4a711f512d7b8652471c29dfd8e'
+REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
+WORKFLOW_SHA='026843864bdff9569a99eb64bdf7c7ccdb762dbe4660a6d60469a81f1edaf7d4'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -83,9 +83,12 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
-    ensure(set(git('diff','--name-only',PURE_PRODUCT_BASE,BASE).decode().splitlines())==PFP_METADATA,'pure-product-plus-existing-PFP-metadata-only')
-    baseline=layout(BASE);current=layout('HEAD')
-    ensure(SELF not in baseline and WORKFLOW not in baseline and set(current)==set(baseline)|{SELF,WORKFLOW},'only-two-owned-metadata')
+    pure=layout(PURE_PRODUCT_BASE);baseline=layout(BASE);current=layout('HEAD')
+    differences={path for path in set(pure)|set(baseline) if pure.get(path)!=baseline.get(path)}
+    ensure(differences==REVIEWED_PRODUCT_METADATA,'pure-product-plus-exact-reviewed-metadata-union-only')
+    ensure(all(path.startswith(('scripts/','.github/workflows/')) for path in differences),'no-Rust-Cargo-product-exceptions')
+    ensure(SELF in baseline and WORKFLOW in baseline and set(current)==set(baseline),'exact-BASE-inventory-two-existing-owned-metadata')
+    ensure(all(baseline[path][0]=='100644' for path in [SELF,WORKFLOW]),'owned-existing-regular-metadata-modes')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
     for path,(mode,oid) in current.items():
         p=Path(path);ensure(within(p,Path.cwd()),'every-tracked-path-within-checkout');s=p.lstat();link=stat.S_ISLNK(s.st_mode);expected=baseline.get(path,('100644',None))
@@ -93,7 +96,7 @@ def source_guard(preflight=False):
             and (link or bool(s.st_mode&0o111)==(mode=='100755')),'whole-source-modes')
         data=os.fsencode(os.readlink(p)) if link else p.read_bytes()
         actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
-        ensure(actual==oid and (expected[1] is None or actual==expected[1]),'whole-BASE-and-HEAD-content')
+        ensure(actual==oid and (path in {SELF,WORKFLOW} or actual==expected[1]),'whole-BASE-and-HEAD-content')
     ensure(digest(Path(WORKFLOW).read_bytes())==WORKFLOW_SHA,'exact-owned-workflow')
     ensure(digest(Path(FIXTURE).read_bytes())==FIXTURE_SHA and digest(Path(PARENT).read_bytes())==PARENT_SHA,'immutable-original-five-fixture-parent')
     parent=Path(PARENT).read_text();start=parent.index('async fn wait_for_automatic_phase_with_approvals(');end=parent.index('\n}\n',start)+3
@@ -103,8 +106,8 @@ def source_guard(preflight=False):
     ensure(text.count(begin)==text.count(endmark)==1 and digest(text.split(begin,1)[1].split(endmark,1)[0].encode())==ORACLE_SHA,'immutable-five-oracle-region')
     ensure(git_closure()['verified'],'tracked-index-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
-        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'BASE_additions_are_existing_PFP_metadata_only':True,
-        'new_native_HEAD_metadata_difference':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
+        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'BASE_product_difference_is_exact_reviewed_metadata_union':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),
+        'owned_existing_metadata_content_bound_to_HEAD':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
 
 def compile_app(report,cohort,tracked,save_report):
     features=['otlp-export','product-analytics-export','test-policy-overrides','experimental-device-sync']
@@ -153,7 +156,7 @@ def aggregate(cases,expected_count):
     return result
 
 
-def required_count(mode):return {'five':1,'sixteen':16,'both':17}[mode]
+def required_count(mode):return {'five':1,'sixteen':16,'both':17,'observations':4}[mode]
 
 def selected_cases(mode):
     five=[('five',native.SUFFIX,native.NAME,None)]
@@ -163,6 +166,11 @@ def selected_cases(mode):
         and all(len({row[i] for row in rows})==16 for i in [0,1,2])
         and {'policy','stress_0','stress_1','stress_2','paused_clock'}<={row[0] for row in rows},'original-exact-sixteen-inventory')
     ensure(all(type(label) is str and type(suffix) is str and type(name) is str and name.endswith(suffix) for label,suffix,name,_ in rows),'exact-source-case-names')
+    if mode=='observations':
+        indexed={row[0]:row for row in five+rows}
+        result=[indexed[label] for label in OBSERVATION_LABELS]
+        ensure(len(result)==4 and len({row[2] for row in result})==4,'exact-four-original-observation-cases')
+        return result
     if mode=='both':
         result=five+rows
         ensure(len(result)==17 and len({row[0] for row in result})==17 and len({row[2] for row in result})==17
@@ -173,10 +181,11 @@ def selected_cases(mode):
 def cohort_totals(cases,mode):
     result={}
     for cohort,size in [('five',1),('sixteen',16)]:
-        expected=size if mode in (cohort,'both') else 0
+        expected=(1 if cohort=='five' else 3) if mode=='observations' else (size if mode in (cohort,'both') else 0)
         rows=[row for row in cases if row.get('cohort')==cohort]
         result[cohort]=aggregate(rows,expected)
         result[cohort]['required']=expected>0
+        if mode=='observations':result[cohort]['selected_subset_not_full_sixteen']=cohort=='sixteen'
         result[cohort]['all_original_cases_green']=None if expected==0 else len(rows)==expected and all(row.get('oracle_green') is True for row in rows)
     return result
 
@@ -210,6 +219,156 @@ def closed_panic_sites(raw,name,tracked,read_bytes=None):
     return {'sites':found[:32],'truncated':len(found)>32,'source_valid_location_count':len(found),
         'other_panic_headers_unknown':max(0,raw.count('panicked at ')-len(found)),'panic_payloads_exported':False}
 
+# Fixed source-owned observations only. They never authorize an original PASS.
+OBSERVATION_LABELS=('policy','five','original_2','stress_1')
+PHASES=('AwaitingSetup','AwaitingPeer','ComparisonAvailable','AwaitingPeerVerification','VerificationCompleteEnrollmentPending','Cancelled','Expired','Failed','EnrollmentComplete')
+REASONS=('VerifierFallback','NoRound','GuardInvalid','NoSettledRoster','SharingPending','Complete')
+RPC_STAGES=('DispatchStarted','WorkerStarted','WorkerReturned','FacadeReturned','AutomaticEntered','AutomaticExited')
+STAGES=('initial-two-comparison','initial-two-completion','initial-two-completed','initial-chat-mirrored','third-device-comparison','third-device-completion','third-device-completed','fourth-device-comparison','sibling-consent-held-before-peer-progress','automatic-publication-held-before-completion','fourth-device-completion','fourth-device-completed')
+NUM=r'(?:0|[1-9][0-9]{0,19})'
+POLICY_FILE='crates/marmot-app/src/runtime/tests.rs'
+POLICY_NAME='runtime::tests::async_suites_choose_their_tokio_flavor'
+POLICY_PREFIX='use #[tokio::test(flavor = "multi_thread", worker_threads = 2)], run_composed_app_runtime_test, or a multi-thread runtime builder; pin one thread (a current_thread flavor, the one-thread composed runner, or a current-thread builder) only under a `//` comment saying why: '
+
+def observation_uint(value):
+    ensure(re.fullmatch(NUM,value) is not None and int(value)<1<<64,'observation-u64');return int(value)
+def observation_array(value,size):
+    ensure(re.fullmatch(r'\['+', '.join([NUM]*size)+r'\]',value) is not None,'fixed-observation-array')
+    return [observation_uint(item) for item in value[1:-1].split(', ')]
+def observation_option_array(value,size):
+    if value=='None':return None
+    ensure(value.startswith('Some(') and value.endswith(')'),'optional-observation-array')
+    return observation_array(value[5:-1],size)
+def observation_completion(value):
+    if value=='None':return None
+    m=re.fullmatch(r'Some\(\((true|false), (None|Some\('+NUM+r'\)), ('+NUM+'), ('+NUM+r')\)\)',value)
+    ensure(m is not None,'fixed-completion-tuple')
+    ensure(observation_uint(m[4])<=observation_uint(m[3]),'completed-subset-of-child-count')
+    return {'primary_committed':m[1]=='true','expected':None if m[2]=='None' else observation_uint(m[2][5:-1]),'children':observation_uint(m[3]),'completed':observation_uint(m[4])}
+def observation_rpc(value):
+    if value=='None':return None
+    arr=r'\['+', '.join([NUM]*6)+r'\]'
+    m=re.fullmatch(r'Some\(\(('+arr+'), ('+arr+r'), (None|Some\(\(('+'|'.join(REASONS)+'), ('+NUM+r')\)\))\)\)',value)
+    ensure(m is not None,'fixed-native-RPC-tuple')
+    return {'counts':observation_array(m[1],6),'last_elapsed_millis':observation_array(m[2],6),'last_reason':None if m[3]=='None' else m[4],'last_reason_elapsed_millis':None if m[3]=='None' else observation_uint(m[5]),'stage_order':list(RPC_STAGES),'per_original_clock_not_common_join_clock':True,'AutomaticExited_is_not_result_success':True}
+def observed_stage(raw):
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control stage=' in line]
+    ensure(len(lines)<=128,'bounded-source-stage-observations');values=[]
+    for line in lines:
+        m=re.fullmatch(r'automatic-enrollment-control stage=('+'|'.join(STAGES)+')',line)
+        ensure(m is not None,'finite-source-stage');values.append(m[1])
+    return {'available':bool(values),'last':values[-1] if values else None,'record_count':len(values),'names_are_fixture_progress_not_worker_timestamps':True}
+def observed_phase(raw,name):
+    needle='automatic pairing did not reach required phase:'
+    lines=[line for line in raw.splitlines() if needle in line]
+    if not lines:return {'available':False,'expected':None,'observed_pair':None}
+    ensure(len(lines)==1 and len(lines[0])<=1024,'one-finite-phase-failure')
+    phases='|'.join(PHASES)
+    m=re.fullmatch(re.escape(needle)+r' expected=('+phases+r') observed=(None|Some\(\(('+phases+'), ('+phases+r')\)\))',lines[0])
+    ensure(m is not None,'closed-phase-expected-observed')
+    source=Path(PARENT).read_text().splitlines();hits=[i+1 for i,line in enumerate(source) if 'panic!("automatic pairing did not reach required phase:' in line]
+    ensure(len(hits)==1,'unique-source-phase-panic')
+    header=r"(?m)^thread '"+re.escape(name)+r"'(?: \([1-9][0-9]{0,9}\))? panicked at "+re.escape(PARENT)+':'+str(hits[0])+r':9:\n'+re.escape(lines[0])+r'$'
+    ensure(len(re.findall(header,raw))==1,'phase-payload-bound-to-selected-source-panic')
+    return {'available':True,'expected':m[1],'observed_pair':None if m[2]=='None' else [m[3],m[4]],'observed_None_is_unknown':m[2]=='None','after_timeout_not_joint_predicate_at_deadline':True}
+def observed_sides(raw):
+    aggregate=[line for line in raw.splitlines() if 'automatic-enrollment-control side=' in line and ' primary/expected/children/completed=' in line]
+    rpc=[line for line in raw.splitlines() if 'automatic-enrollment-control side=' in line and ' native_rpc_counts/elapsed_ms/branch=' in line]
+    ensure(len(aggregate) in (0,2) and len(rpc) in (0,2),'zero-or-two-source-side-records')
+    result=[]
+    for index,side in enumerate(('left','right')):
+        row={'side':side,'completion':None,'native_RPC':None,'aggregate_record_present':bool(aggregate),'RPC_record_present':bool(rpc)}
+        if aggregate:
+            ensure(len(aggregate[index].encode())<=4096,'bounded-aggregate-record')
+            m=re.fullmatch('automatic-enrollment-control side='+side+r' primary/expected/children/completed=(.+) intake=(.+) rejections=(.+) context_rejections=(.+) projection=(.+)',aggregate[index])
+            ensure(m is not None,'ordered-source-side-aggregate')
+            row['completion']=observation_completion(m[1]);row['intake']=observation_option_array(m[2],8);row['rejections']=observation_option_array(m[3],4);row['context_rejections']=observation_option_array(m[4],9);row['projection']=observation_option_array(m[5],4)
+        if rpc:
+            prefix='automatic-enrollment-control side='+side+' native_rpc_counts/elapsed_ms/branch='
+            ensure(rpc[index].startswith(prefix) and len(rpc[index].encode())<=2048,'ordered-bounded-source-RPC')
+            row['native_RPC']=observation_rpc(rpc[index][len(prefix):])
+        result.append(row)
+    return {'available':bool(aggregate or rpc),'rows':result,'independent_getters_not_joint_snapshot':True,'post_timeout_only':True,'missing_None_never_zero_work':True,'child_channel_Debug_exported':False}
+def source_policy_offender(path,line,read_source):
+    source=read_source(path).splitlines();ensure(0<line<=len(source),'tracked-policy-line')
+    text=source[line-1].strip();previous=source[line-2].strip() if line>1 else ''
+    pinned=text=='#[tokio::test(flavor = "current_thread")]' or 'Builder::new_current_thread()' in text or text.removeprefix('crate::tests::').startswith('run_composed_app_runtime_test_on_one_thread(')
+    ensure(text=='#[tokio::test]' or (pinned and (not previous.startswith('//') or previous.startswith('///'))),'actual-source-policy-offender')
+
+def source_function(path,line,read_source):
+    source=read_source(path).splitlines();ensure(0<line<=len(source),'tracked-source-line')
+    fn=r'\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\b'
+    if source[line-1].strip().startswith('#['):
+        for text in source[line:min(line+8,len(source))]:
+            m=re.match(fn,text)
+            if m:return m[1]
+    for text in reversed(source[:line]):
+        m=re.match(fn,text)
+        if m:return m[1]
+    return None
+
+def observed_policy(raw,name,tracked,read_source=None,root=None):
+    read_source=read_source or (lambda path:Path(path).read_text());root=root or str(Path.cwd().resolve())
+    if POLICY_PREFIX not in raw:return {'available':False,'offenders':None}
+    ensure(name==POLICY_NAME and raw.count(POLICY_PREFIX)==1,'policy-case-and-unique-static-payload')
+    source=read_source(POLICY_FILE).splitlines();sites=[i+1 for i,line in enumerate(source) if line.strip()=='offenders.is_empty(),'];ensure(len(sites)==1,'unique-policy-assertion')
+    assert_line=sites[0]-1
+    m=re.search(r"(?m)^thread '"+re.escape(name)+r"'(?: \([1-9][0-9]{0,9}\))? panicked at "+re.escape(POLICY_FILE)+':'+str(assert_line)+r':5:\n'+re.escape(POLICY_PREFIX)+r'\[\n((?:[^\n]*\n){1,64})\]',raw)
+    ensure(m is not None,'source-owned-policy-panic-and-closed-array')
+    rows=[]
+    for text in m[1].splitlines():
+        item=re.fullmatch(r'    "([A-Za-z0-9_./-]+):([1-9][0-9]{0,6})",',text);ensure(item is not None,'policy-source-path-line-only')
+        path=item[1];path=path[len(root)+1:] if path.startswith(root+'/') else path
+        ensure(path in tracked and path.endswith('.rs') and path.startswith(('crates/marmot-app/src/','crates/marmot-app/tests/')),'policy-tracked-known-Rust-path')
+        line=int(item[2]);source_policy_offender(path,line,read_source);function=source_function(path,line,read_source);ensure(function is not None,'policy-known-source-function')
+        rows.append({'file':path,'line':line,'function':function})
+    ensure(0<len(rows)<=64 and len({(row['file'],row['line']) for row in rows})==len(rows),'bounded-distinct-source-offenders')
+    return {'available':True,'offenders':rows,'source_owned_assertion_site':{'file':POLICY_FILE,'line':assert_line,'column':5},'raw_panic_payload_exported':False}
+def finite_observations(raw,name,tracked):
+    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    prefix=r'(?m)^test '+re.escape(name)+r' \.\.\. '
+    if len(re.findall(prefix,text))>1:return {'schema_known':False,'available':None,'duplicate_selected_prefix':True,'raw_private_export':False}
+    text=re.sub(prefix,lambda hit:hit[0]+'\n',text,count=1)
+    result={'separate_from_original_verdict':True,'no_authority_or_before_deadline_claim':True,'SourcePolicyCommit':{'available':False,'count':None,'last_kind':None,'reason':'not_printed_by_current_frozen_Rust'},'child_channel_Debug_exported':False}
+    for key,extract in [('fixture_stage',lambda:observed_stage(text)),('phase_timeout',lambda:observed_phase(text,name)),('side_aggregates',lambda:observed_sides(text)),('policy_offenders',lambda:observed_policy(text,name,tracked))]:
+        try:result[key]=dict(schema_known=True,**extract())
+        except (ValueError,TypeError,OverflowError,OSError):result[key]={'schema_known':False,'available':None,'values':None,'closed_schema_rejected':True}
+    return result
+
+def observation_controls():
+    ensure(observation_completion('Some((true, Some(2), 2, 1))')['expected']==2,'completion-positive')
+    ensure(observation_completion('None') is None,'completion-None-unknown')
+    rpc='Some(([1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12], Some((SharingPending, 13))))'
+    ensure(observation_rpc(rpc)['last_reason']=='SharingPending','actual-nested-RPC-Some-positive')
+    ensure(observation_rpc(rpc.replace('Some((SharingPending, 13))','None'))['last_reason'] is None,'actual-nested-RPC-reason-None-positive')
+    ensure(observation_rpc('None') is None,'unavailable-RPC-positive')
+    aggregate=lambda side:'automatic-enrollment-control side='+side+' primary/expected/children/completed=Some((true, Some(2), 2, 1)) intake=Some([0, 1, 2, 3, 4, 5, 6, 7]) rejections=Some([0, 1, 2, 3]) context_rejections=Some([0, 1, 2, 3, 4, 5, 6, 7, 8]) projection=Some([1, 2, 3, 4])'
+    sample='\n'.join([aggregate(side) for side in ('left','right')]+['automatic-enrollment-control side='+side+' native_rpc_counts/elapsed_ms/branch='+rpc for side in ('left','right')])
+    ensure(observed_sides(sample)['rows'][1]['native_RPC']['counts']==[1,2,3,4,5,6],'two-side-full-source-positive')
+    ensure(not observed_sides('')['available'],'no-timeout-print-unknown-positive')
+    ensure(observed_stage('automatic-enrollment-control stage=fourth-device-comparison')['last']=='fourth-device-comparison','known-last-stage-positive')
+    path='crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs'
+    read=lambda p:('line\n    assert!(\n        offenders.is_empty(),\n' if p==POLICY_FILE else '\n\n\n\n#[tokio::test]\n#[ignore = "known"]\nasync fn public_three_device_automatic_chats_and_messages() {}\n')
+    policy="thread '"+POLICY_NAME+"' (123) panicked at "+POLICY_FILE+':2:5:\n'+POLICY_PREFIX+'[\n    "/public/'+path+':5",\n]\n'
+    known={POLICY_FILE,path}
+    ensure(observed_policy(policy,POLICY_NAME,known,read,'/public')['offenders']==[{'file':path,'line':5,'function':'public_three_device_automatic_chats_and_messages'}],'policy-known-source-projection-positive')
+    phase_source=Path(PARENT).read_text().splitlines();phase_line=[i+1 for i,line in enumerate(phase_source) if 'panic!("automatic pairing did not reach required phase:' in line]
+    ensure(len(phase_line)==1,'control-source-phase-site')
+    phase_payload='automatic pairing did not reach required phase: expected=EnrollmentComplete observed=Some((EnrollmentComplete, VerificationCompleteEnrollmentPending))'
+    phase_header="thread 'source::case' (123) panicked at "+PARENT+':'+str(phase_line[0])+':9:\n'
+    phase_raw=phase_header+phase_payload+'\n'
+    ensure(observed_phase(phase_raw,'source::case')['observed_pair']==['EnrollmentComplete','VerificationCompleteEnrollmentPending'],'source-shaped-phase-positive')
+    ensure(observed_phase(phase_raw.replace('Some((EnrollmentComplete, VerificationCompleteEnrollmentPending))','None'),'source::case')['observed_pair'] is None,'phase-None-unknown-positive')
+    ensure(not observed_phase('','source::case')['available'],'missing-phase-unknown-positive')
+    negatives=[lambda:observation_completion('Some((true, Some(2), 1, 2))'),lambda:observed_phase(phase_raw.replace('VerificationCompleteEnrollmentPending','PRIVATE'),'source::case'),lambda:observed_phase(phase_raw,'foreign::case'),lambda:observed_phase(phase_raw+phase_raw,'source::case'),lambda:observed_phase(phase_raw.replace(':9:',':8:'),'source::case'),lambda:observed_phase(phase_raw.replace('(123)','(PRIVATE)'),'source::case'),lambda:observation_completion('Some((true, Some(18446744073709551616), 2, 1))'),lambda:observation_completion('Some((true, None, 2))'),lambda:observation_rpc(rpc.replace('Some((SharingPending, 13))','Some(SharingPending, 13)')),lambda:observation_rpc(rpc.replace('SharingPending','PRIVATE')),lambda:observation_rpc(rpc.replace('[1, 2, 3, 4, 5, 6]','[1, 2]')),lambda:observation_rpc(rpc.replace('13))))','18446744073709551616))))')),lambda:observed_sides(sample.replace('side=right','side=foreign')),lambda:observed_sides(sample+'\n'+aggregate('left')),lambda:observed_sides(sample.replace('Some([1, 2, 3, 4])','Some([1, PRIVATE, 3, 4])')),lambda:observed_stage('automatic-enrollment-control stage=PRIVATE'),lambda:observed_policy(policy.replace(path,'private/foreign.rs'),POLICY_NAME,known,read,'/public'),lambda:observed_policy(policy.replace(':5",',':999999",'),POLICY_NAME,known,read,'/public'),lambda:observed_policy(policy.replace(':5",',':0",'),POLICY_NAME,known,read,'/public'),lambda:observed_policy(policy+policy,POLICY_NAME,known,read,'/public')]
+    for operation in negatives:
+        try:operation();accepted=True
+        except (ValueError,TypeError,OverflowError,OSError):accepted=False
+        ensure(not accepted,'finite-observation-unknown-schema-width-or-path-rejected')
+    unknown=finite_observations('automatic-enrollment-control stage=PRIVATE','source::case',set())
+    ensure(unknown['fixture_stage']['schema_known'] is False and 'PRIVATE' not in json.dumps(unknown),'unknown-observation-never-exports-raw-token')
+    return {'positive':12,'negative':len(negatives)+1,'raw_private_export':False,'runtime_bodies':0,'unexecuted_until_hosted_preflight':True}
+
 def execute_case(report,row,binary,before,mode,parent,inputs,label,name,five):
     row.update(label=label,name=name,cohort='five' if five else 'sixteen',runtime_attempted=False,actual_executed_nonignored=0,oracle_green=False)
     save(report)
@@ -230,6 +389,10 @@ def execute_case(report,row,binary,before,mode,parent,inputs,label,name,five):
     basic=counts.parse_body(raw,code,name);row['basic_counts']=closed_counts(basic)
     for dest,key in [('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored'),('actual_executed_nonignored','executed_nonignored')]:row[dest]=basic.get(key)
     row['actual_test_passed']=basic.get('passed_gate') is True;save(report)
+    if report['expected_case_mode']=='observations':
+        try:row['finite_observations']=finite_observations(raw,name,set(inputs))
+        except Exception:row['finite_observations']={'schema_known':False,'available':None,'raw_private_export':False}
+        save(report)
     row['panic_locations']=closed_panic_sites(raw,name,set(inputs));save(report)
     ensure(row['source_after_body_pristine'] and row['binary_after_regular_parent'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
     parsed=native.parse(raw,code) if five else ack.parse_case(label,raw,code)
@@ -238,9 +401,12 @@ def execute_case(report,row,binary,before,mode,parent,inputs,label,name,five):
     save(report)
 
 def parser_controls(mode):
-    inherited=({'five':native.parser_controls(),'sixteen':ack.parser_controls()} if mode=='both' else
+    inherited=({'five':native.parser_controls(),'sixteen':ack.parser_controls()} if mode in ('both','observations') else
         (native.parser_controls() if mode=='five' else ack.parser_controls()))
-    names=selected_cases(mode)
+    names=selected_cases(mode);supplemental_controls=None
+    if mode=='observations':
+        ensure(tuple(row[0] for row in names)==OBSERVATION_LABELS,'fixed-four-original-observation-order')
+        supplemental_controls=observation_controls()
     ensure(len(names)==required_count(mode),'exact-selected-case-count')
     if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
@@ -272,21 +438,21 @@ def parser_controls(mode):
         synthetic[-1]['oracle_green']=False
         changed=cohort_totals(synthetic,mode)
         ensure(changed['five']['all_original_cases_green'] is True and changed['sixteen']['all_original_cases_green'] is False,'sixteen-failure-never-overrides-five-or-qualifies-both')
-    return {'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'actual_runtime_bodies':0}
+    return {'original_oracle_controls':inherited,'wrapper_controls':5,'panic_site_positive':4,'panic_site_negative':8,'actual_runtime_bodies':0,'finite_observation_controls':supplemental_controls}
 
 def main(args):
     os.umask(0o077)
     report={'expected_case_mode':args.mode,'preflight_only':args.preflight,'actual_test_qualification':False,'global_qualification':False,
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'automatic_retries':0,'raw_runtime_output_exported':False,
         'requested_features':FEATURES,'environment_stack_bytes':4194304,'Tokio_workers':2 if args.mode=='five' else None,
-        'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else ('original-source-defined-mixed-five-plus-sixteen' if args.mode=='both' else 'original-source-defined-mixed-sixteen'),
-        'actual_runtime_attempts':0,'actual_executed_nonignored':0,'strict_five_join_deadline_seconds':15 if args.mode in ('five','both') else None,'body_watchdog_seconds':None if args.mode=='both' else (900 if args.mode=='five' else 300),'body_watchdog_seconds_by_cohort':{'five':900,'sixteen':300},'output_limit_bytes':8*1024*1024,'cases':[]}
+        'observation_only':args.mode=='observations','runtime_flavor': 'original-five-two-worker' if args.mode=='five' else ('original-source-defined-mixed-five-plus-sixteen' if args.mode=='both' else ('original-source-defined-four-selected-cases' if args.mode=='observations' else 'original-source-defined-mixed-sixteen')),
+        'actual_runtime_attempts':0,'actual_executed_nonignored':0,'strict_five_join_deadline_seconds':15 if args.mode in ('five','both','observations') else None,'body_watchdog_seconds':None if args.mode in ('both','observations') else (900 if args.mode=='five' else 300),'body_watchdog_seconds_by_cohort':{'five':900,'sixteen':300},'output_limit_bytes':8*1024*1024,'cases':[]}
     save(report);inputs=None;binary=None;before=None;mode=None;parent=None
     try:
         report['controller_stage']='source_guard';save(report)
         report['source']=source_guard(args.preflight);inputs=physical();save(report)
         report['controller_stage']='parser_controls';save(report)
-        report['parser_controls']=parser_controls(args.mode);save(report)
+        report['parser_controls']=({item:parser_controls(item) for item in ['five','sixteen','both','observations']} if args.preflight else parser_controls(args.mode));save(report)
         if args.preflight:
             report['actual_executed_nonignored']=0;report['preflight_passed']=True;save(report);return
         report['controller_stage']='compile_admission';save(report)
@@ -318,8 +484,9 @@ def main(args):
         report.update(aggregate(report['cases'],len(selected)));report['cohorts']=cohort_totals(report['cases'],args.mode);save(report)
         report['all_original_cases_green']=len(report['cases'])==len(selected) and all(row.get('oracle_green') is True for row in report['cases'])
         report['git_closure_before_qualification']=git_closure()
-        report['actual_test_qualification']=report['all_original_cases_green'] and source_matches(inputs) and report['git_closure_before_qualification']['verified']
-        save(report);ensure(report['actual_test_qualification'],'original-current-enrollment-cases-not-all-GREEN')
+        report['all_selected_originals_and_closure_green']=report['all_original_cases_green'] and source_matches(inputs) and report['git_closure_before_qualification']['verified']
+        report['actual_test_qualification']=args.mode!='observations' and report['all_selected_originals_and_closure_green']
+        save(report);ensure(report['all_selected_originals_and_closure_green'],'original-current-enrollment-cases-not-all-GREEN')
     except Exception as error:
         report['controller_failure_type']=closed_exception(error);save(report);raise
     finally:
@@ -335,8 +502,8 @@ def main(args):
         if not report['final_source_pristine'] or not report['final_git_closure']['verified'] or report['final_binary_pristine'] is False:report['actual_test_qualification']=False
         save(report)
         ensure(report['final_source_pristine'] and report['final_git_closure']['verified'] and report['final_binary_pristine'] is not False,'final-source-binary-mode-closure')
-    ensure(report['actual_test_qualification'],'actual-current-native-qualification-required')
+    ensure(report.get('all_selected_originals_and_closure_green') is True if args.mode=='observations' else report['actual_test_qualification'],'actual-original-case-verdicts-and-closure-required')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','both'],default='both')
+    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','both','observations'],default='both')
     main(parser.parse_args())
