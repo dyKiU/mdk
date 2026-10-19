@@ -10313,6 +10313,9 @@ mod queued_outbound_schedule_tests;
 #[cfg(test)]
 mod full_history_tests;
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+mod explicit_ready_turn_tests;
+
 #[cfg(test)]
 mod selective_history_acquisition_tests;
 
