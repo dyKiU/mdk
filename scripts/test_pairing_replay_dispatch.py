@@ -26,6 +26,10 @@ EXPECTED = {
     "pairing-restart-higher-source": {
         "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record"
     },
+    "pairing-departure-contention": {
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race",
+        "native_device_linking::tests::actual::automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent",
+    },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
         PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
@@ -60,7 +64,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         start = text.index("  pairing-replay:\n")
         replay = text[start:text.index("  archive-recovery-plan:\n", start)]
-        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","automatic-body-regression","automatic-body-negative"]', replay)
+        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","automatic-body-regression","automatic-body-negative"]', replay)
         self.assertEqual(replay.count("REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}"), 1)
 
     def test_every_scope_is_offered_and_routes_to_pairing_job(self):
@@ -101,14 +105,16 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                            REPLAY_SCOPE=ALIASES.get(scope, scope), SYNC_FEATURES=EXPERIMENTAL_FEATURES,
-                           SLOTS="1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3", PAIRING_COMMAND=str(command))
+                           SLOTS=("6" if scope == "pairing-departure-contention" else
+                                  "1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3"),
+                           PAIRING_COMMAND=str(command))
                 result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads(command.read_text())
                 selected = set(re.findall(r"test\(=([^)]*)\)", args[args.index("-E") + 1]))
                 self.assertEqual(selected, expected)
-                if scope in ("pairing-restart-diagnostic", "pairing-restart-higher-source"):
+                if scope in ("pairing-restart-diagnostic", "pairing-restart-higher-source", "pairing-departure-contention"):
                     self.assertIn("--workspace", args)
                     self.assertNotIn("-p", args)
                     self.assertEqual(args[args.index("--features") + 1], EXPERIMENTAL_FEATURES)
@@ -119,6 +125,21 @@ class PairingReplayDispatchTests(unittest.TestCase):
                                       ("--test-threads", env["SLOTS"]), ("--success-output", "immediate")):
                     self.assertEqual(args[args.index(option) + 1], value)
                 self.assertIn("qualification-selected-pairing-cases: " + str(len(expected)), result.stdout)
+
+    def test_departure_contention_rejects_a_serial_budget_before_cargo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cargo = root / "cargo"
+            cargo.write_text("#!/bin/sh\necho unexpected-cargo >&2\nexit 97\n")
+            cargo.chmod(0o700)
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                       REPLAY_SCOPE="pairing-departure-contention", SLOTS="3",
+                       SYNC_FEATURES=EXPERIMENTAL_FEATURES)
+            result = subprocess.run(["bash", "-c", replay_script()], cwd=root,
+                                    env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("departure contention requires six test slots", result.stderr)
+            self.assertNotIn("unexpected-cargo", result.stderr)
 
 
 if __name__ == "__main__":

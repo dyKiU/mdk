@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remote-only three-unit selector P/F/P; never protocol or native qualification."""
+"""Remote-only four-unit selector P/F/P; never protocol or native qualification."""
 import hashlib
 import json
 import os
@@ -13,15 +13,16 @@ import qualify_upstream_storage_boundary as bounded
 
 SELF='scripts/qualify_pairing_replay_dispatch_pfp.py'
 TEST='scripts/test_pairing_replay_dispatch.py'
-TEST_SHA='0e20d8f1416e486f902e2a803477545caae967550fa83322eebe9fd455158473'  # Exact reviewed union including both full-workspace restart cases and root aliases.
+TEST_SHA='aa12240118ec8916deb721de305a70965d4e168c4c61c84745e8f5a2f17d5580'  # Exact eight-route/four-method union; root alias and real six-slot rejection retained.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 OUT=Path('pairing-dispatch-pfp-evidence')
 NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',
        'test_every_scope_is_offered_and_routes_to_pairing_job',
-       'test_explicit_replay_alias_preserves_the_existing_one_case_scope']
+       'test_explicit_replay_alias_preserves_the_existing_one_case_scope',
+       'test_departure_contention_rejects_a_serial_budget_before_cargo']
 TARGET=NAMES[1]
 RESTART=['pairing-restart-diagnostic','pairing-restart-higher-source']
-REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART,'automatic-body-regression','automatic-body-negative'}
+REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART,'pairing-departure-contention','automatic-body-regression','automatic-body-negative'}
 ASSERTION='self.assertTrue(set(routed) <= set(supported))'
 ensure=bounded.ensure
 
@@ -66,7 +67,7 @@ def condition(text,job):
 def mutant(text):
     line,found,values=condition(text,'workflow-union-preflight')
     ensure(all(values.count(scope)==1 for scope in RESTART),'both-new-dependency-scopes-required')
-    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'unchanged-exact-seven-replay-routes')
+    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'unchanged-exact-eight-replay-routes')
     replacement=line[:found.start(1)]+json.dumps([v for v in values if v not in RESTART],separators=(',',':'))+line[found.end(1):]
     ensure(text.count(line)==1 and replacement!=line,'one-narrow-dependency-list-mutation')
     changed=text.replace(line,replacement,1)
@@ -87,7 +88,7 @@ def parse(raw,code):
         else:unknown+=1
     summaries=re.findall(r'(?m)^Ran ([0-9]{1,3}) tests? in [0-9]+(?:\.[0-9]+)?s$',clean)
     observed=len(rows);complete=(unknown==0 and len(summaries)==1 and int(summaries[0])==observed
-        and observed==3 and {r['name'] for r in rows}==set(NAMES) and len({r['name'] for r in rows})==3
+        and observed==4 and {r['name'] for r in rows}==set(NAMES) and len({r['name'] for r in rows})==4
         and all(r['status'] in {'ok','FAIL','ERROR','skipped'} for r in rows))
     partial={'passed':sum(r['status']=='ok' for r in rows),'failed':sum(r['status']=='FAIL' for r in rows),
         'errors':sum(r['status']=='ERROR' for r in rows),'skipped':sum(r['status'].startswith('skipped') for r in rows)}
@@ -110,12 +111,12 @@ def parse(raw,code):
 
 def green(row):
     return row.get('actual_counts_complete') is True and all(type(row.get(k)) is int and row[k]==v for k,v in
-        {'exit_code':0,'passed':3,'failed':0,'errors':0,'skipped':0,'executed':3,'green_summary_count':1,
+        {'exit_code':0,'passed':4,'failed':0,'errors':0,'skipped':0,'executed':4,'green_summary_count':1,
          'intended_failure_summary_count':0,'failure_header_count':0,'error_header_count':0,'exact_false_assertion_payload_count':0,'unexpected_failure_or_error_header_count':0}.items())
 
 def intended(row):
     return (row.get('actual_counts_complete') is True and all(type(row.get(k)) is int and row[k]==v for k,v in
-        {'exit_code':1,'passed':2,'failed':1,'errors':0,'skipped':0,'executed':3,'green_summary_count':0,
+        {'exit_code':1,'passed':3,'failed':1,'errors':0,'skipped':0,'executed':4,'green_summary_count':0,
          'intended_failure_summary_count':1,'failure_header_count':1,'error_header_count':0,'exact_dependency_assertion_source_count':1,
          'exact_false_assertion_payload_count':1,'unexpected_failure_or_error_header_count':0}.items())
         and row.get('intended_failure_header') is True and row.get('exact_dependency_assertion_site') is True
@@ -123,12 +124,15 @@ def intended(row):
 
 def parser_controls():
     prefix=''.join(name+' (__main__.PairingReplayDispatchTests.'+name+') ... '+('FAIL' if name==TARGET else 'ok')+'\n' for name in NAMES)
-    bad=prefix+'\nFAIL: '+TARGET+' (__main__.PairingReplayDispatchTests.'+TARGET+')\nTraceback (most recent call last):\n  File "/public/scripts/test_pairing_replay_dispatch.py", line '+str(assertion_line())+', in '+TARGET+'\n    '+ASSERTION+'\nAssertionError: False is not true\n\nRan 3 tests in 1.234s\n\nFAILED (failures=1)\n'
-    good=''.join(name+' (__main__.PairingReplayDispatchTests.'+name+') ... ok\n' for name in NAMES)+'\nRan 3 tests in 1.234s\n\nOK\n'
+    bad=prefix+'\nFAIL: '+TARGET+' (__main__.PairingReplayDispatchTests.'+TARGET+')\nTraceback (most recent call last):\n  File "/public/scripts/test_pairing_replay_dispatch.py", line '+str(assertion_line())+', in '+TARGET+'\n    '+ASSERTION+'\nAssertionError: False is not true\n\nRan 4 tests in 1.234s\n\nFAILED (failures=1)\n'
+    good=''.join(name+' (__main__.PairingReplayDispatchTests.'+name+') ... ok\n' for name in NAMES)+'\nRan 4 tests in 1.234s\n\nOK\n'
     ensure(green(parse(good,0)) and intended(parse(bad,1)),'closed-unittest-positive-controls')
     negatives=[bad.replace('line '+str(assertion_line()),'line '+str(assertion_line()+1)),bad.replace(ASSERTION,'self.assertTrue(False)'),
-        bad.replace('False is not true','private payload'),bad.replace(' ... FAIL',' ... ERROR'),bad.replace('Ran 3 tests','Ran 0 tests'),
+        bad.replace('False is not true','private payload'),bad.replace(' ... FAIL',' ... ERROR'),bad.replace('Ran 4 tests','Ran 0 tests'),
         bad+bad,bad.replace(TARGET,'test_foreign'),bad.replace(' ... ok',' ... skipped reason',1),bad.replace('failures=1','failures=2')]
+    fourth=NAMES[3]+' (__main__.PairingReplayDispatchTests.'+NAMES[3]+') ... ok\n'
+    negatives += [bad.replace(fourth,'').replace('Ran 4 tests','Ran 3 tests'),bad+fourth,
+        bad.replace(fourth,fourth.replace(' ... ok',' ... FAIL')).replace('failures=1','failures=2')]
     for raw in negatives:ensure(not intended(parse(raw,1)),'unittest-adversary-rejected')
     ensure(not intended(parse(bad,0)) and not green(parse(good,1)),'exact-exit-controls')
     ensure(not green(parse(good+'FAIL: '+TARGET+' (__main__.PairingReplayDispatchTests.'+TARGET+')\n',0)),'foreign-failure-header-never-GREEN')
@@ -174,10 +178,10 @@ def main():
         report['source_guard']=event_identity(os.environ.get('GITHUB_EVENT_NAME'),os.environ.get('GITHUB_REPOSITORY'),json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()),head,os.environ.get('GITHUB_SHA',''))
         ensure(os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('GITHUB_WORKFLOW_REF','').startswith('dyKiU/mdk/'+WORKFLOW+'@'),'hosted-exact-workflow-path')
         ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'initial-GitHEAD-pristine')
-        ensure(isinstance(TEST_SHA,str) and re.fullmatch('[0-9a-f]{64}',TEST_SHA) and digest(Path(TEST).read_bytes())==TEST_SHA,'frozen-unchanged-three-unit-fixture')
+        ensure(isinstance(TEST_SHA,str) and re.fullmatch('[0-9a-f]{64}',TEST_SHA) and digest(Path(TEST).read_bytes())==TEST_SHA,'frozen-unchanged-four-unit-fixture')
         report['parser_controls']=parser_controls();before=freeze();original=path.read_bytes();mode=stat.S_IMODE(path.stat().st_mode)
         changed=mutant(original.decode()).encode();report['source_before_sha256']=identity(before);save()
-        baseline=phase('baseline',before,save,report);ensure(baseline['verified'],'fresh-three-metadata-controls-before-mutation')
+        baseline=phase('baseline',before,save,report);ensure(baseline['verified'],'fresh-four-metadata-controls-before-mutation')
         try:
             fresh_write(path,changed,mode);expected=freeze()
             ensure(set(expected)==set(before) and {p for p in before if before[p]!=expected[p]}=={WORKFLOW},'only-owned-preflight-list-changed')
@@ -187,8 +191,8 @@ def main():
             fresh_write(path,original,mode);restored=phase('restored',before,save,report)
         report.update(totals(report['phases']))
         report['selector_PFP_verified']=(all(p['verified'] for p in [baseline,mutation,restored])
-            and all(type(report.get(k)) is int and report[k]==v for k,v in {'actual_passed':8,'actual_failed':1,'actual_errors':0,'actual_skipped':0,'actual_executed':9}.items()))
-        ensure(report['selector_PFP_verified'],'exact-nine-unit-PFP-required')
+            and all(type(report.get(k)) is int and report[k]==v for k,v in {'actual_passed':11,'actual_failed':1,'actual_errors':0,'actual_skipped':0,'actual_executed':12}.items()))
+        ensure(report['selector_PFP_verified'],'exact-twelve-unit-PFP-required')
     except Exception as error:report['exception_type']=type(error).__name__;raise
     finally:
         active_exception=sys.exc_info()[0] is not None
