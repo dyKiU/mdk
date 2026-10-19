@@ -17,7 +17,7 @@ pub(super) struct DepartureOrdering {
 }
 
 #[test]
-fn account_departure_source_wins_when_own_leave_precedes_replayed_proposal() {
+fn account_departure_completes_when_own_leave_precedes_replayed_proposal() {
     crate::tests::run_composed_app_runtime_test(
         "account-wide-departure-own-leave-first",
         || async {
@@ -186,6 +186,17 @@ pub(super) async fn verify(
     };
     runtimes[1].shutdown_and_close().await.unwrap();
     assert!(runtimes[1].storage_is_closed());
+    // This race requires B to commit A before B starts its own leave. Hold only
+    // C's genuine addressed negative-intent publication to B; C→A must continue
+    // normally so A's actual public proposal reaches D's existing commit gate.
+    let ordered_intent = (ordered && !own_leave_first).then(|| {
+        crate::AppClient::test_hold_automatic_departure_intent(
+            apps[1].account_home().root(),
+            apps[2].account_home().root(),
+            &peer.group,
+            consent_rounds[1].anchor.local_device,
+        )
+    });
     let admitted = runtimes[2]
         .leave_account_chat("test", &peer.group)
         .await
@@ -246,6 +257,7 @@ pub(super) async fn verify(
             let mut leave_reproposal_hold = None;
             let mut reopened_after_branch_switch = false;
             let mut requested_before_reanchor = None;
+            let mut ordered_intent_released = false;
             if !ordered {
                 let administrator = peer.app.account_storage("test").unwrap();
                 let identity = cgka_traits::MemberId::new(hex::decode(peer.app.account_home().account("test").unwrap().account_id_hex).unwrap());
@@ -288,6 +300,21 @@ pub(super) async fn verify(
                         if let Some(arrival) = &mut arrival {
                             arrival.advance(&reopened_app, peer, relay_database).await;
                         }
+                        if let Some(intent) = &ordered_intent && !ordered_intent_released {
+                            let current = store.get_group(&peer.group).unwrap().epoch;
+                            if current.0 == epoch_before.0 + 1 && intent.peer_intent_is_held() {
+                                assert!(store.leave_request(&peer.group).unwrap().is_none(),
+                                    "B must really commit A before receiving C's held intent");
+                                let indices = stored_indices(&reopened_app,&peer.group);
+                                assert_eq!(indices.len(),2);
+                                assert!(!indices.contains(&peer.a_index) && indices.contains(&peer.b_index),
+                                    "the actual B tree must have removed A and retained B");
+                                assert_administrator_holds_only_a(peer,epoch_before);
+                                eprintln!("account_departure_ordering_a_committed_before_b_own_leave=true");
+                                intent.release_peer_intent();
+                                ordered_intent_released = true;
+                            }
+                        }
                         if work.iter().any(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published) {
                             let current = store.get_group(&peer.group).unwrap().epoch;
                             let proposed = store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch;
@@ -312,29 +339,48 @@ pub(super) async fn verify(
                 if let Some(arrival) = &arrival {
                     arrival.assert_actual_order();
                 }
-                publication.expect(&format!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}"));
-                assert_administrator_holds_only_a(peer,epoch_before);
-                eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
-                {
-                    use cgka_traits::storage::MessageStorage;
-                    use sha2::{Digest, Sha256};
-                    let source = peer.app.account_storage("test").unwrap().get_message(held_commit_id.as_ref().unwrap()).unwrap();
-                    let payload = cgka_traits::message::StoredMessagePayload::decode(&source.payload).unwrap();
-                    let wire = payload.as_openmls_wire().unwrap();
-                    canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),peer.b_index,cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec())));
+                if publication.is_ok() && ordered_intent.is_some() {
+                    assert!(ordered_intent_released,
+                        "the original race requires actual held C-to-B intent release after B commits A");
                 }
-                requested_before_reanchor = Some(reopened_app.account_storage("test").unwrap().leave_request(&peer.group).unwrap().unwrap().requested_at_ms);
-                if expect_b_branch_switch {
-                    leave_reproposal_hold = Some(canonical_probe.as_ref().unwrap().hold_leave_reproposal());
+                if own_leave_first {
+                    // This is a different legal order, not a source-branch race.
+                    // Keep the observed guard refusal and then require real
+                    // administrator-driven completion through the common tail.
+                    assert!(publication.is_err(),
+                        "B must not auto-commit A while B's own leave is pending");
+                    assert!(publication_wait_polls > 0 && publication_wait_published > 0,
+                        "legal own-leave order must poll actual published source-owned work, not an empty or skipped scenario");
+                    let store = reopened_app.account_storage("test").unwrap();
+                    assert_eq!(store.get_group(&peer.group).unwrap().epoch,epoch_before);
+                    assert_eq!(store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch,Some(epoch_before));
+                    assert_administrator_holds_only_a(peer,epoch_before);
+                    eprintln!("account_departure_own_leave_first_no_auto_commit_before_d_release=true");
                 } else {
-                    let administrator = peer.app.account_storage("test").unwrap();
-                    let own_leaf = administrator.with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
-                        let group = openmls::group::MlsGroup::load(storage.mls_storage(), &openmls::group::GroupId::from_slice(peer.group.as_slice())).map_err(|_|cgka_traits::StorageError::Backend("fixture MLS read failed".into()))?.ok_or(cgka_traits::StorageError::NotFound)?;
-                        Ok(group.own_leaf_index().u32())
-                    }).unwrap();
-                    let source = reopened_app.account_storage("test").unwrap();
-                    let content = actual_confirmed_commit_content(&source,&peer.group,epoch_before,&cgka_traits::MemberId::new(hex::decode(reopened_app.account_home().account("test").unwrap().account_id_hex).unwrap()));
-                    administrator_canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),own_leaf,content));
+                    publication.expect(&format!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}"));
+                    assert_administrator_holds_only_a(peer,epoch_before);
+                    eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
+                    {
+                        use cgka_traits::storage::MessageStorage;
+                        use sha2::{Digest, Sha256};
+                        let source = peer.app.account_storage("test").unwrap().get_message(held_commit_id.as_ref().unwrap()).unwrap();
+                        let payload = cgka_traits::message::StoredMessagePayload::decode(&source.payload).unwrap();
+                        let wire = payload.as_openmls_wire().unwrap();
+                        canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),peer.b_index,cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec())));
+                    }
+                    requested_before_reanchor = Some(reopened_app.account_storage("test").unwrap().leave_request(&peer.group).unwrap().unwrap().requested_at_ms);
+                    if expect_b_branch_switch {
+                        leave_reproposal_hold = Some(canonical_probe.as_ref().unwrap().hold_leave_reproposal());
+                    } else {
+                        let administrator = peer.app.account_storage("test").unwrap();
+                        let own_leaf = administrator.with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
+                            let group = openmls::group::MlsGroup::load(storage.mls_storage(), &openmls::group::GroupId::from_slice(peer.group.as_slice())).map_err(|_|cgka_traits::StorageError::Backend("fixture MLS read failed".into()))?.ok_or(cgka_traits::StorageError::NotFound)?;
+                            Ok(group.own_leaf_index().u32())
+                        }).unwrap();
+                        let source = reopened_app.account_storage("test").unwrap();
+                        let content = actual_confirmed_commit_content(&source,&peer.group,epoch_before,&cgka_traits::MemberId::new(hex::decode(reopened_app.account_home().account("test").unwrap().account_id_hex).unwrap()));
+                        administrator_canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),own_leaf,content));
+                    }
                 }
                 drop(publication_gate.take());
             }
@@ -346,7 +392,7 @@ pub(super) async fn verify(
                         let current = current_branch_observation(&reopened_app.account_storage("test").unwrap(), &peer.group).unwrap();
                         observed_losing_branch |= current.epoch == published.epoch && current.authenticator_digest != published.authenticator_digest && current.selected_head_digest != published.selected_head_digest;
                     }
-                    if ordered && expect_b_branch_switch && observed_losing_branch && !reopened_after_branch_switch {
+                    if ordered && !own_leave_first && expect_b_branch_switch && observed_losing_branch && !reopened_after_branch_switch {
                         let store = reopened_app.account_storage("test").unwrap();
                         let request = store.leave_request(&peer.group).unwrap().unwrap();
                         assert_eq!(request.group_id, peer.group);
@@ -377,12 +423,12 @@ pub(super) async fn verify(
                         && state.status == crate::AccountChatDepartureStatus::Completed
                     {
                         assert_eq!(state.operation_id.as_deref(), Some(operation.as_str()));
-                        if ordered && expect_b_branch_switch {
+                        if ordered && !own_leave_first && expect_b_branch_switch {
                             assert!(reopened_after_branch_switch, "actual losing branch must survive fresh same-root reopening before departure completes");
                             assert!(observed_losing_branch, "real competing D branch must replace B published proposal branch before qualifying this case");
                             eprintln!("account_departure_ordering_same_epoch_published_branch_replaced=true");
                         }
-                        if ordered && !expect_b_branch_switch {
+                        if ordered && !own_leave_first && !expect_b_branch_switch {
                             let b = canonical_probe.as_ref().unwrap().snapshot();
                             let d = administrator_canonical_probe.as_ref().unwrap().snapshot();
                             assert!(b.target_lost_by_committer, "real equal-prior-score source winner must be observed on B");

@@ -34,7 +34,13 @@ EXPECTED = {
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
     },
     "pairing-departure-arrival-order": {
-        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_when_own_leave_precedes_replayed_proposal",
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal",
+    },
+    "pairing-departure-orders": {
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal",
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_reproposes_public_leave_after_same_epoch_branch_race",
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race",
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
     },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
@@ -124,7 +130,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                            REPLAY_SCOPE=scope, SYNC_FEATURES=EXPERIMENTAL_FEATURES,
-                           SLOTS=("6" if scope in ("pairing-departure-contention", "pairing-departure-staggered") else
+                           SLOTS=("6" if scope in ("pairing-departure-contention", "pairing-departure-staggered", "pairing-departure-orders") else
                                   "1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3"),
                            PAIRING_COMMAND=str(command), PAIRING_DELAY=str(root / "delay"))
                 ready = root / "mock-sleep-ready"
@@ -164,7 +170,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 self.assertIn("qualification-selected-pairing-cases: " + str(len(expected)), result.stdout)
 
     def test_departure_contention_rejects_a_serial_budget_before_cargo(self):
-        for scope in ("pairing-departure-contention", "pairing-departure-staggered"):
+        for scope in ("pairing-departure-contention", "pairing-departure-staggered", "pairing-departure-orders"):
             with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 cargo = root / "cargo"

@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, pairing-departure-orders, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -102,7 +102,7 @@ jobs:
           if-no-files-found: error
 
   pairing-replay:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","pairing-departure-arrival-order","automatic-body-regression","automatic-body-negative"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","pairing-departure-arrival-order","pairing-departure-orders","automatic-body-regression","automatic-body-negative"]'), inputs.scope)
     name: Pairing replay (${{ matrix.slots }} slots)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -112,7 +112,7 @@ jobs:
         # Serial and shared budgets both reproduced the same fourth-device stall.
         # Continue diagnosis once per candidate rather than duplicating the fixture.
         # Departure contention preserves the original full job's six-slot budget.
-        slots: ${{ fromJSON(contains(fromJSON('["pairing-departure-contention","pairing-departure-staggered"]'), inputs.scope) && '[6]' || contains(fromJSON('["automatic-body-regression","automatic-body-negative"]'), inputs.scope) && '[1]' || '[3]') }}
+        slots: ${{ fromJSON(contains(fromJSON('["pairing-departure-contention","pairing-departure-staggered","pairing-departure-orders"]'), inputs.scope) && '[6]' || contains(fromJSON('["automatic-body-regression","automatic-body-negative"]'), inputs.scope) && '[1]' || '[3]') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -145,7 +145,7 @@ jobs:
           REPLAY_SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
-          if [[ ( "$REPLAY_SCOPE" == pairing-departure-contention || "$REPLAY_SCOPE" == pairing-departure-staggered ) && "$SLOTS" != 6 ]]; then
+          if [[ ( "$REPLAY_SCOPE" == pairing-departure-contention || "$REPLAY_SCOPE" == pairing-departure-staggered || "$REPLAY_SCOPE" == pairing-departure-orders ) && "$SLOTS" != 6 ]]; then
             echo 'qualification-error: departure contention requires six test slots' >&2
             exit 1
           fi
@@ -164,14 +164,16 @@ jobs:
           elif [[ "$REPLAY_SCOPE" == pairing-departure-middle-signer ]]; then
             filter='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer)'
           elif [[ "$REPLAY_SCOPE" == pairing-departure-arrival-order ]]; then
-            filter='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_when_own_leave_precedes_replayed_proposal)'
+            filter='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal)'
+          elif [[ "$REPLAY_SCOPE" == pairing-departure-orders ]]; then
+            filter='package(marmot-app) & (test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_reproposes_public_leave_after_same_epoch_branch_race) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer))'
           elif [[ "$REPLAY_SCOPE" == automatic-body-negative ]]; then
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition)'
           elif [[ "$REPLAY_SCOPE" == automatic-body-regression ]]; then
             filter='package(marmot-app) & (test(=client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position) | test(=native_device_linking::automatic_pairing_acceptance::held_automatic_catalog_body_keeps_fresh_account_commands_responsive) | test(=native_device_linking::automatic_pairing_acceptance::body_late_ack_acceptance::authenticated_receipt_retires_final_catalog_body_before_late_backend_ack) | test(=native_device_linking::automatic_pairing_acceptance::body_late_ack_acceptance::unchanged_catalog_context_accepts_the_same_real_backend_ack) | test(=native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent) | test(=native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record) | test(=native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition))'
           fi
           args=(--locked -p marmot-app --lib --features "$features")
-          if [[ "$REPLAY_SCOPE" == pairing-restart-diagnostic || "$REPLAY_SCOPE" == pairing-restart-higher-source || "$REPLAY_SCOPE" == pairing-departure-contention || "$REPLAY_SCOPE" == pairing-departure-staggered || "$REPLAY_SCOPE" == pairing-departure-middle-signer || "$REPLAY_SCOPE" == pairing-departure-arrival-order ]]; then
+          if [[ "$REPLAY_SCOPE" == pairing-restart-diagnostic || "$REPLAY_SCOPE" == pairing-restart-higher-source || "$REPLAY_SCOPE" == pairing-departure-contention || "$REPLAY_SCOPE" == pairing-departure-staggered || "$REPLAY_SCOPE" == pairing-departure-middle-signer || "$REPLAY_SCOPE" == pairing-departure-arrival-order || "$REPLAY_SCOPE" == pairing-departure-orders ]]; then
             args=(--locked --workspace --features "$SYNC_FEATURES")
           fi
           cargo nextest list "${args[@]}" -E "$filter" --message-format json > pairing-inventory.json
@@ -201,7 +203,14 @@ jobs:
           elif os.environ['REPLAY_SCOPE'] == 'pairing-departure-middle-signer':
               expected = {'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer'}
           elif os.environ['REPLAY_SCOPE'] == 'pairing-departure-arrival-order':
-              expected = {'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_when_own_leave_precedes_replayed_proposal'}
+              expected = {'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal'}
+          elif os.environ['REPLAY_SCOPE'] == 'pairing-departure-orders':
+              expected = {
+                  'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal',
+                  'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_reproposes_public_leave_after_same_epoch_branch_race',
+                  'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race',
+                  'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer',
+              }
           elif os.environ['REPLAY_SCOPE'] == 'automatic-body-negative':
               expected = {'native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition'}
           elif os.environ['REPLAY_SCOPE'] == 'automatic-body-regression':
