@@ -44,6 +44,12 @@ EXPECTED = {
     },
     "pairing-leave-schedule": {
         "client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake",
+        "client::sync::queued_outbound_schedule_tests::restarted_safe_queued_send_does_not_inherit_secondary_retry_cutoff",
+        "client::sync::queued_outbound_schedule_tests::restarted_below_quorum_send_keeps_required_retry_cutoff",
+        "client::sync::queued_outbound_schedule_tests::publication_barrier_rejects_unhydrated_inventory",
+        "client::sync::queued_outbound_schedule_tests::publication_barrier_keeps_pending_mls_after_quorum",
+        "tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier",
+        "tests::removed_device_retires_peer_leave_timer_after_input_only_convergence",
     },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",

@@ -807,18 +807,19 @@ impl AppClient {
                     || (matches!(
                         self.runtime.epoch_state(group_id),
                         Some(cgka_traits::EpochState::Stable { .. })
-                    ) && self
+                    ) && (self
                         .runtime
                         .disband_request(group_id)?
                         .is_some_and(|request| {
                             request.status == cgka_traits::DisbandRequestStatus::Pending
-                        }))
+                        })
+                        || self.stale_own_leave_needs_wake(group_id)?))
                 {
-                    // Acceptance stores a separate durable request, not a queued
-                    // outbound intent or convergence input. Keep its wakeup so
-                    // the next advance can prepare the closing commit. Existing
-                    // convergence and frozen publications retain their precedence;
-                    // an unrecoverable group stays paused.
+                    // Durable lifecycle requests are separate from queued
+                    // intents and convergence inputs. Input-only convergence
+                    // can make an original leave's proposal stale; retain a
+                    // wake for the engine's normal re-proposal drain. Existing
+                    // convergence and frozen publications keep precedence.
                     Ok(ConvergenceScheduleState::PendingOutbound {
                         retry_after_ms: None,
                     })
@@ -840,6 +841,24 @@ impl AppClient {
                 }
             }
         }
+    }
+
+    fn stale_own_leave_needs_wake(
+        &self,
+        group_id: &cgka_traits::GroupId,
+    ) -> Result<bool, AppError> {
+        use cgka_traits::storage::LeaveRequestStorage;
+        let storage = self.app.account_storage(&self.state.label)?;
+        let Some(request) = storage.leave_request(group_id)? else {
+            return Ok(false);
+        };
+        let group = self.runtime.group_record(group_id)?;
+        // Scheduling grants no mutation: the engine rechecks the original
+        // request and actual local state before preparing a new SelfRemove.
+        // A current proposal must not create a perpetual worker timer.
+        Ok(!group.is_terminal()
+            && !group.unrecoverable
+            && request.last_proposed_epoch != Some(group.epoch))
     }
 
     fn remember_buffered_convergence_outcome(&mut self, outcome: &IngestOutcome) {

@@ -168,7 +168,7 @@ jobs:
           elif [[ "$REPLAY_SCOPE" == pairing-departure-orders ]]; then
             filter='package(marmot-app) & (test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_reproposes_public_leave_after_same_epoch_branch_race) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race) | test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer))'
           elif [[ "$REPLAY_SCOPE" == pairing-leave-schedule ]]; then
-            filter='package(marmot-app) & test(=client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake)'
+            filter='package(marmot-app) & (test(=client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake) | test(=client::sync::queued_outbound_schedule_tests::restarted_safe_queued_send_does_not_inherit_secondary_retry_cutoff) | test(=client::sync::queued_outbound_schedule_tests::restarted_below_quorum_send_keeps_required_retry_cutoff) | test(=client::sync::queued_outbound_schedule_tests::publication_barrier_rejects_unhydrated_inventory) | test(=client::sync::queued_outbound_schedule_tests::publication_barrier_keeps_pending_mls_after_quorum) | test(=tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier) | test(=tests::removed_device_retires_peer_leave_timer_after_input_only_convergence))'
           elif [[ "$REPLAY_SCOPE" == automatic-body-negative ]]; then
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition)'
           elif [[ "$REPLAY_SCOPE" == automatic-body-regression ]]; then
@@ -214,7 +214,15 @@ jobs:
                   'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer',
               }
           elif os.environ['REPLAY_SCOPE'] == 'pairing-leave-schedule':
-              expected = {'client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake'}
+              expected = {
+                  'client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake',
+                  'client::sync::queued_outbound_schedule_tests::restarted_safe_queued_send_does_not_inherit_secondary_retry_cutoff',
+                  'client::sync::queued_outbound_schedule_tests::restarted_below_quorum_send_keeps_required_retry_cutoff',
+                  'client::sync::queued_outbound_schedule_tests::publication_barrier_rejects_unhydrated_inventory',
+                  'client::sync::queued_outbound_schedule_tests::publication_barrier_keeps_pending_mls_after_quorum',
+                  'tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier',
+                  'tests::removed_device_retires_peer_leave_timer_after_input_only_convergence',
+              }
           elif os.environ['REPLAY_SCOPE'] == 'automatic-body-negative':
               expected = {'native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition'}
           elif os.environ['REPLAY_SCOPE'] == 'automatic-body-regression':
