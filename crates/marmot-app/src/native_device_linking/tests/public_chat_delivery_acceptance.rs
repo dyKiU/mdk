@@ -2,7 +2,7 @@
 use super::*;
 use std::time::Duration;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "explicit synthetic public-network chat delivery acceptance"]
 async fn public_three_device_automatic_chats_and_messages() {
     let relay = public_enrollment_relay();
