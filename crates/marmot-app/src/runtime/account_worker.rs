@@ -5203,7 +5203,9 @@ fn account_worker_command_future<'a>(
         }),
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::CancelDeviceLinking { scope, respond } => Box::pin(async move {
-            let _ = respond.send(super::private_commit::cancel_scope(client, &scope, publication_control).await);
+            let _ = respond.send(
+                super::private_commit::cancel_scope(client, &scope, publication_control).await,
+            );
             true
         }),
         #[cfg(all(

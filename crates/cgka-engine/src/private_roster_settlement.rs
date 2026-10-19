@@ -291,19 +291,37 @@ impl<S: StorageProvider> Engine<S> {
     /// Negative-only cancellation of the exact original memory guard. A different
     /// admission, even in the same group, must remain untouched.
     pub fn cancel_owned_private_roster_settlement(
-        &self, group: &GroupId, expected: &Arc<dyn TrustedPrivateSettlementGuard>,
+        &self,
+        group: &GroupId,
+        expected: &Arc<dyn TrustedPrivateSettlementGuard>,
     ) -> Result<(), EngineError> {
-        let admission = self.settlement_admission.lock().map_err(|_| unavailable())?.clone();
-        let Some(admission) = admission else { return Ok(()); };
+        let admission = self
+            .settlement_admission
+            .lock()
+            .map_err(|_| unavailable())?
+            .clone();
+        let Some(admission) = admission else {
+            return Ok(());
+        };
         if admission.anchor.group_id != *group
-            || !admission.guard.as_ref().is_some_and(|guard| Arc::ptr_eq(guard, expected))
-        { return Err(unavailable()); }
+            || !admission
+                .guard
+                .as_ref()
+                .is_some_and(|guard| Arc::ptr_eq(guard, expected))
+        {
+            return Err(unavailable());
+        }
         admission.cancel();
-        let store = self.storage.private_roster_settlement_storage().ok_or_else(unavailable)?;
+        let store = self
+            .storage
+            .private_roster_settlement_storage()
+            .ok_or_else(unavailable)?;
         if let Some(state) = store.read_round()?
             && state.generation == admission.generation
             && state.phase == PrivateSettlementPhase::Pending
-        { store.deny_round(state.generation)?; }
+        {
+            store.deny_round(state.generation)?;
+        }
         Ok(())
     }
     pub fn cancel_private_roster_settlement(&self, group: &GroupId) -> Result<(), EngineError> {

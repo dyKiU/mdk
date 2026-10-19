@@ -624,10 +624,14 @@ impl AccountDeviceSession {
 
     #[cfg(feature = "experimental-device-sync")]
     pub fn cancel_owned_private_roster_settlement(
-        &self, group: &GroupId,
-        expected: &std::sync::Arc<dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard>,
+        &self,
+        group: &GroupId,
+        expected: &std::sync::Arc<
+            dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard,
+        >,
     ) -> Result<(), cgka_traits::EngineError> {
-        self.engine.cancel_owned_private_roster_settlement(group, expected)
+        self.engine
+            .cancel_owned_private_roster_settlement(group, expected)
     }
 
     #[cfg(feature = "experimental-device-sync")]

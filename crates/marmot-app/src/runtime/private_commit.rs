@@ -92,23 +92,41 @@ impl PublicationControl {
         }
     }
     fn matches_negative_invite(
-        &self, active: &ActiveControl, scope: &PurposeAttemptScope,
+        &self,
+        active: &ActiveControl,
+        scope: &PurposeAttemptScope,
         gate: &Arc<RuntimeInviteGate>,
     ) -> bool {
         !self.shutdown.load(Ordering::Acquire)
             && active.identity == PublicationIdentity::Scoped(scope.clone())
             && active.revoked
             && matches!(&active.gate, PublicationGate::Invite(own) if Arc::ptr_eq(own, gate))
-            && active.negative_invite_revision.as_ref().is_some_and(|revision|
-                revision.revision_matches_for_negative_completion())
+            && active
+                .negative_invite_revision
+                .as_ref()
+                .is_some_and(|revision| revision.revision_matches_for_negative_completion())
     }
-    fn has_negative_invite(&self, scope: &PurposeAttemptScope, gate: &Arc<RuntimeInviteGate>) -> bool {
-        self.active.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+    fn has_negative_invite(
+        &self,
+        scope: &PurposeAttemptScope,
+        gate: &Arc<RuntimeInviteGate>,
+    ) -> bool {
+        self.active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
             .is_some_and(|active| self.matches_negative_invite(active, scope, gate))
     }
-    fn consume_negative_invite(&self, scope: &PurposeAttemptScope, gate: &Arc<RuntimeInviteGate>) -> bool {
+    fn consume_negative_invite(
+        &self,
+        scope: &PurposeAttemptScope,
+        gate: &Arc<RuntimeInviteGate>,
+    ) -> bool {
         let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
-        if !active.as_ref().is_some_and(|active| self.matches_negative_invite(active, scope, gate)) {
+        if !active
+            .as_ref()
+            .is_some_and(|active| self.matches_negative_invite(active, scope, gate))
+        {
             return false;
         }
         *active = None;
@@ -140,19 +158,29 @@ impl PublicationControl {
 /// Acknowledge only an already-retired original after exact caller revocation.
 /// No await, new authority, or broad cancellation occurs in the fallback.
 pub(super) async fn cancel_scope(
-    client: &mut crate::client::AppClient, scope: &PurposeAttemptScope,
+    client: &mut crate::client::AppClient,
+    scope: &PurposeAttemptScope,
     control: &PublicationControl,
 ) -> Result<(), crate::client::device_linking::ClientLinkingError> {
     use crate::client::device_linking::ClientLinkingError;
     let stale = match client.cancel_device_linking_scope(scope).await {
-        Err(error @ ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
-            crate::device_linking::LinkError::StaleFlow))) => error,
+        Err(
+            error @ ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
+                crate::device_linking::LinkError::StaleFlow,
+            )),
+        ) => error,
         result => return result,
     };
-    let Some(gate) = client.retired_invite_cancel_candidate(scope)? else { return Err(stale); };
-    if !control.has_negative_invite(scope, &gate) { return Err(stale); }
+    let Some(gate) = client.retired_invite_cancel_candidate(scope)? else {
+        return Err(stale);
+    };
+    if !control.has_negative_invite(scope, &gate) {
+        return Err(stale);
+    }
     client.finish_retired_invite_negative_cleanup(scope)?;
-    if !control.consume_negative_invite(scope, &gate) { return Err(stale); }
+    if !control.consume_negative_invite(scope, &gate) {
+        return Err(stale);
+    }
     Ok(())
 }
 

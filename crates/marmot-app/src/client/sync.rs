@@ -1853,7 +1853,11 @@ impl AppClient {
     /// account worker. Do not wait for a collecting cutoff, retry unopenable
     /// input in a loop, or turn a sync into an account-wide settling sweep.
     async fn advance_one_ready_explicit_sync_group(&mut self) -> Result<(), AppError> {
-        let mut groups = self.pending_convergence_groups.iter().cloned().collect::<Vec<_>>();
+        let mut groups = self
+            .pending_convergence_groups
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
         groups.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         for group_id in groups {
             match self.convergence_schedule_state(&group_id)? {

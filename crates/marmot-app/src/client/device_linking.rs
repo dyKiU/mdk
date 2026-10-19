@@ -1367,43 +1367,73 @@ impl AppClient {
     /// This only offers a candidate for an actor-owned negative-slot check.
     /// Durable Retired metadata alone never authorizes an acknowledgement.
     pub(crate) fn retired_invite_cancel_candidate(
-        &self, scope: &PurposeAttemptScope,
+        &self,
+        scope: &PurposeAttemptScope,
     ) -> Result<Option<Arc<RuntimeInviteGate>>, ClientLinkingError> {
         let owner = &self.linking_owner;
-        if owner.verifier.has_retained_attempt_for_negative_completion()
+        if owner
+            .verifier
+            .has_retained_attempt_for_negative_completion()
             || owner.welcome.has_retained_token_for_negative_completion()
-            || owner.invite_attempt.is_some() || owner.existing_settlement_attempt.is_some()
-            || owner.received_endorsement.is_some() || owner.recipient_enrollment.is_some()
-            || owner.native_setup_request.is_some() || owner.native_enrollment.is_some()
-            || owner.sharing_approval.is_some() || owner.approval_pairing_metadata.is_some()
+            || owner.invite_attempt.is_some()
+            || owner.existing_settlement_attempt.is_some()
+            || owner.received_endorsement.is_some()
+            || owner.recipient_enrollment.is_some()
+            || owner.native_setup_request.is_some()
+            || owner.native_enrollment.is_some()
+            || owner.sharing_approval.is_some()
+            || owner.approval_pairing_metadata.is_some()
             || owner.pending_sibling_source.is_some()
-            || owner.pairing_metadata.as_ref().is_some_and(|(own, _)| own != scope)
-            || owner.settlement_attempt.as_ref().is_some_and(|attempt|
-                attempt.guard.scope() != scope || attempt.guard.is_live())
-        { return Ok(None); }
-        owner.verifier.check_retained_invite_scope(scope).map_err(ClientLinkingError::Owner)?;
-        let storage = self.app.account_storage(&self.state.label)
+            || owner
+                .pairing_metadata
+                .as_ref()
+                .is_some_and(|(own, _)| own != scope)
+            || owner
+                .settlement_attempt
+                .as_ref()
+                .is_some_and(|attempt| attempt.guard.scope() != scope || attempt.guard.is_live())
+        {
+            return Ok(None);
+        }
+        owner
+            .verifier
+            .check_retained_invite_scope(scope)
+            .map_err(ClientLinkingError::Owner)?;
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
         let fact = cgka_traits::StorageProvider::private_device_invite_storage(&storage)
-            .ok_or(ClientLinkingError::Gate(cgka_traits::device_linking_key_package::LinkingWelcomeDenied::UnsupportedStorage))?
-            .private_invite().map_err(|error| ClientLinkingError::PrivateInvite(error.into()))?;
-        let exact_retired = fact.is_some_and(|fact|
+            .ok_or(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::UnsupportedStorage,
+            ))?
+            .private_invite()
+            .map_err(|error| ClientLinkingError::PrivateInvite(error.into()))?;
+        let exact_retired = fact.is_some_and(|fact| {
             fact.phase == cgka_traits::private_device_invite::PrivateInvitePhase::Retired
                 && fact.raw.binding.approver_scope == *scope
                 && fact.scope.account == scope.account
-                && fact.scope.local_device == scope.local_device);
+                && fact.scope.local_device == scope.local_device
+        });
         Ok(exact_retired.then(|| owner.invite.clone()))
     }
     pub(crate) fn finish_retired_invite_negative_cleanup(
-        &mut self, scope: &PurposeAttemptScope,
+        &mut self,
+        scope: &PurposeAttemptScope,
     ) -> Result<(), ClientLinkingError> {
         if let Some(attempt) = self.linking_owner.settlement_attempt.as_ref() {
             if attempt.guard.scope() != scope || attempt.guard.is_live() {
-                return Err(ClientLinkingError::Owner(OwnerError::Verifier(crate::device_linking::LinkError::StaleFlow)));
+                return Err(ClientLinkingError::Owner(OwnerError::Verifier(
+                    crate::device_linking::LinkError::StaleFlow,
+                )));
             }
             // Exact original guard identity; never cancel a replacement by group.
-            let expected: Arc<dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard> = attempt.guard.clone();
-            self.runtime.session().cancel_owned_private_roster_settlement(&attempt.guard.group(), &expected)
+            let expected: Arc<
+                dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard,
+            > = attempt.guard.clone();
+            self.runtime
+                .session()
+                .cancel_owned_private_roster_settlement(&attempt.guard.group(), &expected)
                 .map_err(ClientLinkingError::Engine)?;
             self.linking_owner.settlement_attempt = None;
         }
