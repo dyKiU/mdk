@@ -54,16 +54,16 @@ mod held_delivery;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[doc(hidden)]
-pub use held_delivery::Hold as HeldAccountDeliveryForTest;
+pub use account_ingress_schedule_for_test::{
+    AccountIngressScheduleForTest, AccountIngressScheduleSnapshot,
+};
 #[cfg(all(
     any(test, feature = "test-support"),
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-pub use account_ingress_schedule_for_test::{
-    AccountIngressScheduleForTest, AccountIngressScheduleSnapshot,
-};
+#[doc(hidden)]
+pub use held_delivery::Hold as HeldAccountDeliveryForTest;
 mod directory;
 mod directory_wire;
 #[cfg(all(
@@ -411,10 +411,10 @@ impl NotificationDispositionObserver {
 
 struct RelayPlaneTransport {
     #[cfg(all(
-    any(test, feature = "test-support"),
-    feature = "experimental-device-sync",
-    feature = "test-policy-overrides"
-))]
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     held_delivery: std::sync::Mutex<Option<Weak<held_delivery::State>>>,
     adapter: NostrTransportAdapter,
     sdk_relay_client: Option<NostrSdkRelayClient>,
@@ -1873,10 +1873,10 @@ impl MarmotRelayPlane {
     ) -> Self {
         let transport = Arc::new(RelayPlaneTransport {
             #[cfg(all(
-    any(test, feature = "test-support"),
-    feature = "experimental-device-sync",
-    feature = "test-policy-overrides"
-))]
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             held_delivery: std::sync::Mutex::new(None),
             adapter,
             sdk_relay_client,
@@ -5746,10 +5746,10 @@ fn route_account_delivery(
         route.spill.is_some(),
     );
     #[cfg(all(
-    any(test, feature = "test-support"),
-    feature = "experimental-device-sync",
-    feature = "test-policy-overrides"
-))]
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     let Some(delivery) = held_delivery::hold(transport, &route, delivery, placement) else {
         return;
     };

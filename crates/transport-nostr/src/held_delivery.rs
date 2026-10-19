@@ -19,11 +19,7 @@ pub struct Hold(Arc<State>);
 
 impl MarmotRelayPlane {
     #[doc(hidden)]
-    pub fn hold_account_delivery_for_test(
-        &self,
-        account: MemberId,
-        message: MessageId,
-    ) -> Hold {
+    pub fn hold_account_delivery_for_test(&self, account: MemberId, message: MessageId) -> Hold {
         let (release, _) = tokio::sync::watch::channel(false);
         let state = Arc::new(State {
             account,
