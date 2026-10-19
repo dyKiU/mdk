@@ -473,7 +473,10 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn begin_observe_cost_for_test(&self) -> Instant {
-        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
         if let Some(count) = probe.observe_cost.0.checked_add(1) {
             probe.observe_cost.0 = count;
         } else {
@@ -484,9 +487,13 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn finish_observe_cost_for_test(&self, started: Instant) {
-        let elapsed = Instant::now().checked_duration_since(started)
+        let elapsed = Instant::now()
+            .checked_duration_since(started)
             .and_then(|duration| u64::try_from(duration.as_nanos()).ok());
-        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
         if let Some(count) = probe.observe_cost.1.checked_add(1) {
             probe.observe_cost.1 = count;
         } else {
@@ -506,7 +513,10 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn observe_cost_snapshot_for_test(&self) -> (u64, u64, u64, u64, bool) {
-        self.native_observation_probe.lock().expect("native observation probe").observe_cost
+        self.native_observation_probe
+            .lock()
+            .expect("native observation probe")
+            .observe_cost
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_reason_for_test(&self, reason: NativeObservationReason) {

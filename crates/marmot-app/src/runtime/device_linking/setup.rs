@@ -272,7 +272,9 @@ pub(super) async fn handle(
                 );
             }
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            let observe_cost_started = observer.as_ref().map(|choice| choice.begin_observe_cost_for_test());
+            let observe_cost_started = observer
+                .as_ref()
+                .map(|choice| choice.begin_observe_cost_for_test());
             let result = client.linking_native_observation(&scope);
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let (Some(observer), Some(started)) = (&observer, observe_cost_started) {

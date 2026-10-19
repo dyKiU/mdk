@@ -406,7 +406,11 @@ impl DeviceLinkingSession {
 
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn native_observe_cost_for_test(&self) -> Option<(u64, u64, u64, u64, bool)> {
-        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
             .map(|choice| choice.observe_cost_snapshot_for_test())
     }
 
