@@ -276,7 +276,7 @@ CANCEL_MAINTENANCE_CHAIN = '''                    workers
 CANCEL_MAINTENANCE_MESSAGE = 'called `Result::unwrap()` on an `Err` value: Owner(Verifier(StaleFlow))'
 
 
-def cancel_maintenance_oracle(output, fixture):
+def cancel_maintenance_oracle(output, fixture, expect_failure=True):
     import json
     if fixture.count(CANCEL_MAINTENANCE_MARKER) != 1:
         raise ValueError('Exact negative-maintenance fixture marker required')
@@ -316,7 +316,7 @@ def cancel_maintenance_oracle(output, fixture):
         except (ValueError, TypeError):
             valid = False
     closed = valid and len(markers) == 1
-    named = statuses == ['FAILED']
+    named = statuses == ['FAILED' if expect_failure else 'ok']
     own = bool(panic and output.count('panicked at ') == 1)
     prior = bool(closed and panic and output.index(CANCEL_MAINTENANCE_MARKER) < panic.start())
     return {'expected_test': CANCEL_MAINTENANCE_NAME, 'trusted_source_line': line,
@@ -325,5 +325,61 @@ def cancel_maintenance_oracle(output, fixture):
             'own_cancel_stale_flow_observed': own, 'prerequisite_marker_complete': closed,
             'prerequisites_before_cancel_panic': prior,
             'prerequisite_observation': markers[0] if closed else None,
-            'evidence_passed': bool(named and counts == [('FAILED', '0', '1', '0')]
-                                    and not compiler and own and prior)}
+            'evidence_passed': bool(named and not compiler and closed
+                and (counts == [('FAILED', '0', '1', '0')] and own and prior if expect_failure
+                     else counts == [('ok', '1', '0', '0')] and output.count('panicked at ') == 0))}
+
+
+class ExactCancellationMutation:
+    """Fixed original inode custody; refuse parent/leaf replacement before writes."""
+    def __init__(self, path):
+        import os, stat
+        from pathlib import Path
+        self.os = os
+        self.path = Path(path).absolute()
+        self.parents = []
+        for parent in reversed(self.path.parents):
+            value = parent.lstat()
+            if not stat.S_ISDIR(value.st_mode) or parent.resolve() != parent:
+                raise ValueError('mutation-parent-layout')
+            self.parents.append((parent, value.st_dev, value.st_ino))
+        self.parent_fd = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            self.fd = os.open(self.path.name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=self.parent_fd)
+            value = os.fstat(self.fd)
+            if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1:
+                raise ValueError('mutation-leaf-layout')
+            self.identity = (value.st_dev, value.st_ino, stat.S_IMODE(value.st_mode))
+            self.check()
+        except BaseException:
+            if hasattr(self, 'fd'): os.close(self.fd)
+            os.close(self.parent_fd)
+            raise
+    def check(self):
+        import stat
+        for parent, device, inode in self.parents:
+            value = parent.lstat()
+            if not stat.S_ISDIR(value.st_mode) or (value.st_dev, value.st_ino) != (device, inode):
+                raise ValueError('mutation-parent-changed')
+        leaf = self.os.stat(self.path.name, dir_fd=self.parent_fd, follow_symlinks=False)
+        descriptor = self.os.fstat(self.fd)
+        if not stat.S_ISREG(leaf.st_mode) or leaf.st_nlink != 1 or descriptor.st_nlink != 1:
+            raise ValueError('mutation-leaf-changed')
+        if (leaf.st_dev, leaf.st_ino, stat.S_IMODE(leaf.st_mode)) != self.identity:
+            raise ValueError('mutation-leaf-changed')
+        if (descriptor.st_dev, descriptor.st_ino, stat.S_IMODE(descriptor.st_mode)) != self.identity:
+            raise ValueError('mutation-descriptor-changed')
+    def write(self, content):
+        self.check()
+        self.os.lseek(self.fd, 0, self.os.SEEK_SET)
+        view = memoryview(content)
+        while view:
+            count = self.os.write(self.fd, view)
+            if count <= 0: raise OSError('mutation-write')
+            view = view[count:]
+        self.os.ftruncate(self.fd, len(content))
+        self.os.fsync(self.fd)
+        self.check()
+    def close(self):
+        self.os.close(self.fd)
+        self.os.close(self.parent_fd)

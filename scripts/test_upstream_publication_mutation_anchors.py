@@ -390,5 +390,53 @@ class CancelMaintenanceOracles(unittest.TestCase):
         with self.assertRaises(ValueError):
             cancel_maintenance_oracle(raw, fixture.replace(CANCEL_MAINTENANCE_CHAIN, 'PRIVATE'))
 
+class CancelMaintenanceGreenOracle(unittest.TestCase):
+    def test_exact_green_marker_and_named_pass(self):
+        from upstream_publication_mutation_anchors import (CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, CANCEL_MAINTENANCE_MARKER, CANCEL_MAINTENANCE_FIELDS, cancel_maintenance_oracle)
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        marker = CANCEL_MAINTENANCE_MARKER + json.dumps({key: True for key in CANCEL_MAINTENANCE_FIELDS}) + '\n'
+        raw = f'test {CANCEL_MAINTENANCE_NAME} ... ok\n' + marker + 'test result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'
+        self.assertTrue(cancel_maintenance_oracle(raw, fixture, False)['evidence_passed'])
+        for bad in [raw + raw, raw.replace(marker, ''), raw.replace('... ok', '... FAILED'), raw.replace('1 passed; 0 failed', '0 passed; 0 failed'), raw + 'error[E0308]: PRIVATE\n', raw + "thread 'PRIVATE' panicked at PRIVATE:1:1:\n", raw.replace('true', 'false'), raw.replace('true', '1'), raw.replace(CANCEL_MAINTENANCE_MARKER, 'PRIVATE ' + CANCEL_MAINTENANCE_MARKER)]:
+            row = cancel_maintenance_oracle(bad, fixture, False)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(row))
+
+    def test_cancellation_mutation_parent_replacement_is_rejected(self):
+        import tempfile
+        from upstream_publication_mutation_anchors import ExactCancellationMutation
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            parent = root / 'owned'
+            outside = root / 'outside'
+            parent.mkdir(); outside.mkdir()
+            target = parent / 'source.rs'; target.write_bytes(b'ORIGINAL')
+            foreign = outside / 'source.rs'; foreign.write_bytes(b'OUTSIDE')
+            leaf = ExactCancellationMutation(target)
+            leaf.write(b'MUTANT')
+            parent.rename(root / 'moved')
+            parent.symlink_to(outside, target_is_directory=True)
+            try:
+                with self.assertRaises(ValueError): leaf.write(b'ORIGINAL')
+                self.assertEqual(foreign.read_bytes(), b'OUTSIDE')
+            finally:
+                leaf.close()
+
+    def test_cancellation_mutation_exact_inode_and_mode_restored(self):
+        import tempfile
+        from upstream_publication_mutation_anchors import ExactCancellationMutation
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory).resolve() / 'source.rs'
+            target.write_bytes(b'ORIGINAL'); target.chmod(0o600)
+            inode = target.stat().st_ino
+            leaf = ExactCancellationMutation(target)
+            try:
+                leaf.write(b'MUTANT'); leaf.write(b'ORIGINAL')
+                self.assertEqual(target.read_bytes(), b'ORIGINAL')
+                self.assertEqual(target.stat().st_ino, inode)
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            finally:
+                leaf.close()
+
 if __name__ == '__main__':
     unittest.main()
