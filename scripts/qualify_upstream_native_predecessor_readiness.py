@@ -6,8 +6,8 @@ import qualify_upstream_storage_boundary as bounded
 import qualify_upstream_storage_app_handles as counts
 import upstream_completion_ci as completion
 ensure=bounded.ensure
-BASE='052bdb23ee0ac4cb0ae99bda7823ee1f7b4d7fb4'
-WORKFLOW_SHA='fa6ba653677cb8a47b6684cc5cfffbf2046c2a907ffa7623748d10d65af645bb'
+BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
+WORKFLOW_SHA='a23cc4a34751a8263a4407f222baecf2b7c828d0d05203afc1b5704579d47639'
 SELF='scripts/qualify_upstream_native_predecessor_readiness.py'
 WORKFLOW='.github/workflows/native-predecessor-readiness-pfp.yml'
 REF='refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019'
