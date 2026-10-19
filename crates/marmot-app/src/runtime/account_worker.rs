@@ -4545,7 +4545,10 @@ fn spawn_media_http<T>(
 }
 
 fn local_submission_fence_at_front(pending: &VecDeque<AccountWorkerCommand>) -> bool {
-    matches!(pending.front(), Some(AccountWorkerCommand::LocalSubmissionFence))
+    matches!(
+        pending.front(),
+        Some(AccountWorkerCommand::LocalSubmissionFence)
+    )
 }
 
 fn local_submission_prefix_ready(
@@ -4559,7 +4562,10 @@ fn capture_local_submission_prefix(
     pending: &mut VecDeque<AccountWorkerCommand>,
     commands: &mut mpsc::Receiver<AccountWorkerCommand>,
 ) {
-    if pending.iter().any(|command| matches!(command, AccountWorkerCommand::LocalSubmissionFence)) {
+    if pending
+        .iter()
+        .any(|command| matches!(command, AccountWorkerCommand::LocalSubmissionFence))
+    {
         return;
     }
     // One bounded committed-channel snapshot follows the full pass tail.
@@ -4600,8 +4606,8 @@ fn ready_command_index(
             && (local_fence.is_none_or(|fence| index < fence)
                 || command.readable_during_comparison_catch_up())
             && (!comparison_waiting
-            || (deferred_catch_up.is_none_or(|barrier| index < barrier)
-                || command.readable_during_comparison_catch_up()))
+                || (deferred_catch_up.is_none_or(|barrier| index < barrier)
+                    || command.readable_during_comparison_catch_up()))
             && (has_capacity || !command.needs_media_slot())
     })
 }
