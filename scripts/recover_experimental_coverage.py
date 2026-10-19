@@ -24,7 +24,7 @@ TERMINAL = re.compile(
 )
 
 
-def recover(inventory, logs):
+def recover(inventory, logs, *, terminal=TERMINAL, interrupted_jobs=frozenset()):
     selected = {}
     for suite_id, suite in inventory["rust-suites"].items():
         for name, case in suite["testcases"].items():
@@ -37,12 +37,16 @@ def recover(inventory, logs):
         raise ValueError("Empty runnable archive inventory")
     observed = {}
     for job, raw in logs.items():
-        for status, suite, name in TERMINAL.findall(ANSI.sub("", raw)):
+        for status, suite, name in terminal.findall(ANSI.sub("", raw)):
             key = (suite, name)
             if key not in selected:
                 raise ValueError(f"Terminal case absent from runnable inventory: {key}")
             if key in observed:
                 raise ValueError(f"Duplicate terminal case: {key}")
+            # A runner-cancelled body did not finish. Other signals, including
+            # aborts and a SIGTERM without external cancellation, are failures.
+            if status == "SIGTERM" and job in interrupted_jobs:
+                status = "uncompleted"
             observed[key] = dict(status=status, job=job)
     passed, remaining = [], []
     for key, case in sorted(selected.items()):

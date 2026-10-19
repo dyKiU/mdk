@@ -8,7 +8,7 @@ import re
 import subprocess
 import zipfile
 
-from recover_experimental_coverage import ANSI, TERMINAL as ORIGINAL_TERMINAL, make_plan, recover
+from recover_experimental_coverage import ANSI, make_plan, recover
 
 REPOSITORY = "dyKiU/mdk"
 COHORTS = {
@@ -20,7 +20,10 @@ COHORTS = {
 }
 PRODUCERS = {"default": "Build workspace tests", "experimental": "Build experimental sync tests",
              "simulator": "Build simulator tests"}
-TERMINAL = re.compile(r"^\s*(PASS|FAIL|TIMEOUT|LEAK)\s+\[[^\]\n]+\]"
+OUTCOMES = r"PASS|FAIL|TIMEOUT|LEAK|EXECFAIL|SIG[A-Z0-9]+"
+ORIGINAL_TERMINAL = re.compile(r"^\S+\s+(" + OUTCOMES + r")\s+\[[^\]\n]+\]"
+                               r"\s+\(\s*\d+/\d+\)\s+(\S+)\s+(.+?)\s*$", re.M)
+TERMINAL = re.compile(r"^\s*(" + OUTCOMES + r")\s+\[[^\]\n]+\]"
                       r"\s+\(\s*\d+/\d+\)\s+(\S+)\s+(.+?)\s*$", re.M)
 
 
@@ -164,8 +167,16 @@ def without_failure_recap(log):
     return progress + ORIGINAL_TERMINAL.sub(remove, footer)
 
 
-def prepare_plan(inventory, logs, partitions):
-    passed, remaining = recover(inventory, {job: without_failure_recap(log) for job, log in logs.items()})
+def prepare_plan(inventory, logs, partitions, *, interrupted_jobs=frozenset()):
+    if not set(interrupted_jobs) <= logs.keys():
+        raise ValueError("Unknown interrupted job")
+    for job in interrupted_jobs:
+        if not any(marker in logs[job] for marker in (
+                "The operation was canceled.", "The runner has received a shutdown signal.")):
+            raise ValueError("Interrupted job lacks an external cancellation marker")
+    passed, remaining = recover(
+        inventory, {job: without_failure_recap(log) for job, log in logs.items()},
+        terminal=ORIGINAL_TERMINAL, interrupted_jobs=interrupted_jobs)
     missing = [row for row in remaining if row["status"] == "uncompleted"]
     failures = [row for row in remaining if row["status"] != "uncompleted"]
     plan, replacements = make_plan(missing, partitions, replace_known=False)
@@ -176,13 +187,22 @@ def prepare_plan(inventory, logs, partitions):
 
 def plan(args):
     provenance = json.loads((args.directory / "provenance.json").read_text())
+    original_jobs = validate_origin(
+        json.loads((args.directory / "original-run.json").read_text()),
+        json.loads((args.directory / "original-jobs.json").read_text()),
+        json.loads((args.directory / "original-artifact.json").read_text()),
+        provenance["cohort"], provenance["run"], provenance["source"])
+    if {str(job["id"]) for job in original_jobs} != provenance["original_log_hashes"].keys():
+        raise ValueError("Original log inventory differs from validated jobs")
+    interrupted = {str(job["id"]) for job in original_jobs if job["conclusion"] == "cancelled"}
     logs = {}
     for job, expected in provenance["original_log_hashes"].items():
         path = args.directory / f"{job}.log"
         if digest(path) != expected:
             raise ValueError("Original log changed")
         logs[job] = path.read_text()
-    passed, failures, selected = prepare_plan(json.loads(args.inventory.read_text()), logs, args.partitions)
+    passed, failures, selected = prepare_plan(json.loads(args.inventory.read_text()), logs, args.partitions,
+                                            interrupted_jobs=interrupted)
     write(args.directory / "execution-plan.json", selected)
     write(args.directory / "retained-passes.json", passed)
     write(args.directory / "retained-failures.json", failures)
