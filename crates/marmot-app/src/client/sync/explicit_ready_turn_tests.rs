@@ -162,3 +162,131 @@ async fn one_ready_turn_advances_only_one_real_retained_group() {
         "next ready group must get its turn"
     );
 }
+
+struct ReleaseSubscribeOnDrop(Arc<ScriptedPushRelayClient>);
+impl Drop for ReleaseSubscribeOnDrop {
+    fn drop(&mut self) {
+        self.0.release_subscribe();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancellation_at_real_ready_finalizer_await_keeps_both_edges() {
+    let (_dir, app, mut client, relay, groups) = fixture().await;
+    let pending_route = client
+        .create_group_with_options_and_telemetry(
+            "pending ready-tail route", &[], Default::default(),
+            &crate::AppPerformanceTelemetry::default(),
+        ).await.unwrap().group_id;
+    let ids = retain_both(&mut client, &app, &groups).await;
+    let before = rows(&app, &ids);
+    // Existing publication-progress fixture's route-repair tail. No engine
+    // readiness, clock, input, budget or authority is modified.
+    client.routing.replace_group_routes(&pending_route, Vec::new());
+    for group in &groups {
+        assert!(matches!(client.convergence_schedule_state(group).unwrap(),
+                         ConvergenceScheduleState::Ready));
+        assert!(!client.runtime.has_pending_outbound_fanouts(group).unwrap());
+    }
+    let _release = ReleaseSubscribeOnDrop(relay.clone());
+    relay.block_next_subscribe();
+    {
+        let turn = client.advance_one_ready_explicit_sync_group();
+        tokio::pin!(turn);
+        tokio::select! {
+            _ = &mut turn => panic!("ready turn completed before its real route-repair await"),
+            observed = tokio::time::timeout(Duration::from_secs(5), relay.wait_for_blocked_subscribe()) => {
+                observed.expect("real ready finalizer reaches the existing subscribe hold");
+            }
+        }
+        // Actual Core progress precedes this real await. Cancelling before
+        // readiness or before the first poll cannot satisfy this fixture.
+        let during = rows(&app, &ids);
+        assert!(actual_attempt(&during[0]), "selected input must progress before cancellation");
+        assert!(during[1] == before[1], "unselected row changed before cancellation");
+    }
+    assert!(client.pending_convergence_groups.contains(&groups[0]),
+            "real ready-tail cancellation must retain the selected edge");
+    assert!(client.pending_convergence_groups.contains(&groups[1]),
+            "real ready-tail cancellation must retain the unselected edge");
+    assert!(client.has_pending_runtime_group_subscription_refresh());
+    relay.release_subscribe();
+    assert!(tokio::time::timeout(Duration::from_secs(5),
+        client.retry_pending_runtime_group_subscription_refresh())
+        .await.expect("released route repair finishes")
+        .expect("real route retry succeeds"));
+    assert!(!client.has_pending_runtime_group_subscription_refresh());
+    client.advance_one_ready_explicit_sync_group().await.unwrap();
+    assert!(actual_attempt(&rows(&app, &ids)[1]), "work resumes after cancellation and route retry");
+    assert!(app.messages("alice").unwrap().is_empty(), "malformed input grants no plaintext");
+}
+
+struct ReadyCheckpointFault(rusqlite::Connection);
+impl Drop for ReadyCheckpointFault {
+    fn drop(&mut self) {
+        // Cleanup after a failing body is best effort and earns no pass.
+        let _ = self.0.execute_batch("DROP TRIGGER IF EXISTS fail_ready_turn_checkpoint");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_ready_finalizer_write_failure_preserves_progress_and_edges() {
+    let (_dir, app, mut client, relay, groups) = fixture().await;
+    let pending_route = client.create_group_with_options_and_telemetry(
+        "pending checkpoint-tail route", &[], Default::default(),
+        &crate::AppPerformanceTelemetry::default(),
+    ).await.unwrap().group_id;
+    let ids = retain_both(&mut client, &app, &groups).await;
+    let before = rows(&app, &ids);
+    client.routing.replace_group_routes(&pending_route, Vec::new());
+    for group in &groups {
+        assert!(matches!(client.convergence_schedule_state(group).unwrap(),
+                         ConvergenceScheduleState::Ready));
+        assert!(!client.runtime.has_pending_outbound_fanouts(group).unwrap());
+    }
+    let fault = ReadyCheckpointFault(
+        super::runtime_group_subscription_refresh_tests::projection_fault_connection(&app)
+    );
+    let _release = ReleaseSubscribeOnDrop(relay.clone());
+    relay.block_next_subscribe();
+    let error = {
+        let turn = client.advance_one_ready_explicit_sync_group();
+        tokio::pin!(turn);
+        tokio::select! {
+            _ = &mut turn => panic!("ready turn completed before its real checkpoint-tail await"),
+            observed = tokio::time::timeout(Duration::from_secs(5), relay.wait_for_blocked_subscribe()) => {
+                observed.expect("real finalizer reaches the existing subscribe hold");
+            }
+        }
+        let during = rows(&app, &ids);
+        assert!(actual_attempt(&during[0]), "Core must progress before installing the tail fault");
+        assert!(during[1] == before[1], "unselected row changed before the tail fault");
+        // Install only AFTER actual Core progress and entry to the real tail,
+        // so earlier schedule reads cannot masquerade as this boundary.
+        fault.0.execute_batch(
+            "CREATE TRIGGER fail_ready_turn_checkpoint BEFORE INSERT ON account_state
+             BEGIN SELECT RAISE(FAIL, 'explicit ready checkpoint fault'); END;"
+        ).unwrap();
+        relay.release_subscribe();
+        match tokio::time::timeout(Duration::from_secs(5), turn).await
+            .expect("released real finalizer returns") {
+            Err(error) => error,
+            Ok(_) => panic!("the actual finalizer write fault must propagate"),
+        }
+    };
+    assert!(error.to_string().contains("explicit ready checkpoint fault"),
+            "failure must come from the installed real write trigger");
+    let after = rows(&app, &ids);
+    assert!(actual_attempt(&after[0]), "Core progress must survive the finalizer write error");
+    assert!(after[1] == before[1], "a failing selected tail cannot drain another group");
+    assert!(client.pending_convergence_groups.contains(&groups[0]));
+    assert!(client.pending_convergence_groups.contains(&groups[1]));
+    fault.0.execute_batch("DROP TRIGGER fail_ready_turn_checkpoint").unwrap();
+    client.save_state_with_pending_local_group_deletion_frontier_clears().unwrap();
+    client.retry_pending_runtime_group_subscription_refresh().await.unwrap();
+    client.advance_one_ready_explicit_sync_group().await.unwrap();
+    assert!(actual_attempt(&rows(&app, &ids)[1]), "work resumes after actual checkpoint repair");
+    assert!(app.messages("alice").unwrap().is_empty());
+    // Real finalizer WRITE error only: no claim of a post-pass SELECT fault
+    // or retention of a nonempty application summary.
+}

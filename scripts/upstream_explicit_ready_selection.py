@@ -17,6 +17,9 @@ from upstream_publication_mutation_anchors import ExactCancellationMutation
 SOURCE = 'crates/marmot-app/src/client/sync.rs'
 FIXTURE = 'crates/marmot-app/src/client/sync/explicit_ready_turn_tests.rs'
 NAME = 'client::sync::explicit_ready_turn_tests::one_ready_turn_advances_only_one_real_retained_group'
+TAIL_TESTS = (NAME,
+              'client::sync::explicit_ready_turn_tests::cancellation_at_real_ready_finalizer_await_keeps_both_edges',
+              'client::sync::explicit_ready_turn_tests::real_ready_finalizer_write_failure_preserves_progress_and_edges')
 ASSERTION = 'one owner turn must not retry the second group'
 PRIOR = 'explicit-ready-selection-prerequisites '
 PROGRESS = 'explicit-ready-selection-progress '
@@ -147,7 +150,8 @@ SELECTION_FAILURE_CATEGORIES = frozenset({
     'exact-pinned-rustc-release', 'phase-input-identity',
     'inventory-compile-failed', 'inventory-one-nonignored',
     'post-inventory-input-identity', 'baseline-not-qualified',
-    'unsupported-cargo-test-context',
+    'unsupported-cargo-test-context', 'tail-parser-positive', 'tail-parser-negative',
+    'tail-inventory-three-nonignored', 'tail-body-not-qualified',
 })
 
 
@@ -276,6 +280,44 @@ def cargo_wrapper_metadata_controls():
             'prior_runtime_wrapper_text': 'unknown', 'runtime_mutation_qualification': False}
 
 
+def passing_tail_body(raw, name):
+    # Exact libtest body counts only; no summed definition/parameter counts.
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', raw.decode('utf-8', errors='replace'))
+    summaries = re.findall(r'test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', text)
+    named = re.findall(r'^test ' + re.escape(name) + r' \.\.\. (ok|FAILED)\s*$', text, re.M)
+    running = re.findall(r'^running (\d+) tests?\s*$', text, re.M)
+    diagnostics = compiler_diagnostics(raw, cargo_test_context=('marmot-app', '--lib'))
+    counts = None
+    if len(summaries) == 1:
+        counts = dict(passed=int(summaries[0][1]), failed=int(summaries[0][2]),
+                      ignored=int(summaries[0][3]))
+    return {'counts': counts, 'actual_one_named_body': named == ['ok'],
+            'running_one': running == ['1'], 'panic_header_count': raw.count(b'panicked at '),
+            'compiler_diagnostics': diagnostics,
+            'oracle_qualified': (summaries == [('ok', '1', '0', '0')]
+                                  and named == ['ok'] and running == ['1']
+                                  and raw.count(b'panicked at ') == 0
+                                  and not diagnostics['compiler_codes']
+                                  and diagnostics['compiler_header_count'] == 0)}
+
+
+def tail_parser_controls():
+    name = TAIL_TESTS[1]
+    good = ('running 1 test\ntest ' + name + ' ... ok\n'
+            + 'test result: ok. 1 passed; 0 failed; 0 ignored\n').encode()
+    if not passing_tail_body(good, name)['oracle_qualified']:
+        raise ValueError('tail-parser-positive')
+    bad = [good.replace(b'running 1 test', b'running 0 tests'),
+           good.replace(name.encode(), b'unknown_case'),
+           good.replace(b'1 passed; 0 failed', b'0 passed; 1 failed'),
+           good.replace(b'0 ignored', b'1 ignored'), good + good,
+           good + b'panicked at private.rs:1:1:\n',
+           good + b'error[E0382]: source-owned compiler fixture\n']
+    if any(passing_tail_body(raw, name)['oracle_qualified'] for raw in bad):
+        raise ValueError('tail-parser-negative')
+    return {'positive': 1, 'negative': len(bad), 'metadata_only': True}
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -283,6 +325,7 @@ def main():
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--metadata-only', action='store_true')
+    parser.add_argument('--mode', choices=['chain', 'ready-tail-controls'], default='chain')
     args = parser.parse_args()
     output = args.output.resolve()
     root = Path.cwd().resolve()
@@ -291,6 +334,10 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     report = {'complete': False, 'case': 'explicit-ready-selection-pfp', 'cohort': args.cohort,
               'expected_test': NAME, 'runs': [], 'runtime_mutation_qualification': False}
+    if args.mode == 'ready-tail-controls':
+        report.update(case='explicit-ready-tail-controls', expected_tests=list(TAIL_TESTS))
+        report.pop('expected_test')
+    controls_passed = False
     before = None
     leaf = None
     baseline_passed = False
@@ -332,7 +379,7 @@ def main():
             raise ValueError('product-source-identity')
         if fixture.encode() != subprocess.check_output(['git', 'show', args.source + ':' + FIXTURE]):
             raise ValueError('product-fixture-identity')
-        mutant = mutate(original.decode()).encode()
+        mutant = mutate(original.decode()).encode() if args.mode == 'chain' else None
         report['parser_controls'] = parser_controls(fixture)
         rustc = subprocess.check_output(['rustc', '-Vv'], text=True).strip()
         channel = re.search(r'^channel = "([0-9.]+)"$', Path('rust-toolchain.toml').read_text(), re.M)
@@ -341,7 +388,8 @@ def main():
         leaf = ExactCancellationMutation(Path(SOURCE))
         report.update(source=args.source, tooling=head,
                       source_tree=git('rev-parse', args.source + '^{tree}'),
-                      original_sha256=digest(original), mutant_sha256=digest(mutant),
+                      original_sha256=digest(original),
+                      mutant_sha256=digest(mutant) if mutant is not None else None,
                       fixture_sha256=digest(fixture.encode()), lock_sha256=digest(Path('Cargo.lock').read_bytes()),
                       compiler_environment=environment, rustc=rustc,
                       cargo=subprocess.check_output(['cargo', '-V'], text=True).strip(),
@@ -394,11 +442,59 @@ def main():
                                 and row['body']['oracle_qualified'] and row['inputs_exact'])
             save()
             return row['qualified']
-        baseline_passed = execute('baseline', original)
-        if not baseline_passed:
-            raise ValueError('baseline-not-qualified')
-        leaf.write(mutant)
-        report['mutant_killed'] = execute('mutant', mutant)
+        if args.mode == 'ready-tail-controls':
+            report['tail_parser_controls'] = tail_parser_controls()
+            row = {'phase': 'controls-inventory', 'qualified': False}
+            report['runs'].append(row)
+            save()
+            selection = ('package(marmot-app) & binary(=marmot_app)'
+                         + ' & test(client::sync::explicit_ready_turn_tests::)')
+            code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list', *flags,
+                '--message-format', 'json', '-E', selection], 1800, separate=True)
+            row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
+                                'stdout_sha256': digest(raw), 'stderr_sha256': digest(stderr),
+                                'compiler_diagnostics': compiler_diagnostics(stderr)}
+            save()
+            if code != 0:
+                raise ValueError('inventory-compile-failed')
+            inventory = json.loads(raw)
+            selected = [(name, case['ignored']) for suite in inventory['rust-suites'].values()
+                        for name, case in suite['testcases'].items()
+                        if case['filter-match']['status'] == 'matches']
+            if (sorted(name for name, ignored in selected) != sorted(TAIL_TESTS)
+                    or not all(ignored is False for name, ignored in selected)):
+                raise ValueError('tail-inventory-three-nonignored')
+            row['selected_nonignored'] = list(TAIL_TESTS)
+            row['qualified'] = inputs_exact(original)
+            save()
+            if not row['qualified']:
+                raise ValueError('post-inventory-input-identity')
+            for name in TAIL_TESTS:
+                leaf.check()
+                if not inputs_exact(original):
+                    raise ValueError('phase-input-identity')
+                row = {'phase': 'control', 'expected_test': name, 'qualified': False}
+                report['runs'].append(row)
+                save()
+                code, raw, elapsed, _ = capture(['cargo', 'test', *flags, name,
+                    '--', '--exact', '--test-threads=1', '--show-output'], 1800)
+                row['body'] = {'exit_code': code, 'elapsed_seconds': elapsed,
+                               'raw_sha256': digest(raw), 'raw_bytes': len(raw)}
+                row['body'].update(oracle(raw, fixture, False) if name == NAME
+                                   else passing_tail_body(raw, name))
+                row['inputs_exact'] = inputs_exact(original)
+                row['qualified'] = (code == 0 and row['body']['oracle_qualified']
+                                    and row['inputs_exact'])
+                save()
+                if not row['qualified']:
+                    raise ValueError('tail-body-not-qualified')
+            controls_passed = True
+        else:
+            baseline_passed = execute('baseline', original)
+            if not baseline_passed:
+                raise ValueError('baseline-not-qualified')
+            leaf.write(mutant)
+            report['mutant_killed'] = execute('mutant', mutant)
     except Exception as error:
         report['error_category'] = type(error).__name__
         report['failure_category'] = selection_failure_category(error)
@@ -414,9 +510,14 @@ def main():
                 report['all_inputs_restored'] = (inputs_exact(original)
                                                  and not git('diff', '--name-only', 'HEAD')
                                                  and not git('diff', '--cached', '--name-only'))
-            report['complete'] = bool(baseline_passed and report.get('mutant_killed')
-                                      and report.get('restored_passed') and report.get('all_inputs_restored'))
-            report['runtime_mutation_qualification'] = report['complete']
+            if args.mode == 'ready-tail-controls':
+                report['scoped_controls_passed'] = bool(controls_passed and report.get('all_inputs_restored'))
+                report['complete'] = report['scoped_controls_passed']
+                report['runtime_mutation_qualification'] = False
+            else:
+                report['complete'] = bool(baseline_passed and report.get('mutant_killed')
+                                          and report.get('restored_passed') and report.get('all_inputs_restored'))
+                report['runtime_mutation_qualification'] = report['complete']
         except Exception as error:
             report['complete'] = False
             report['runtime_mutation_qualification'] = False

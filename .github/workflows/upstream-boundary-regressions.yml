@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [publication-preflight, publication-controls, storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-stack-regression, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind, secondary-deferred, secondary-buffered, cancel-maintenance-red, cancel-maintenance-controls, cancel-maintenance-pfp, cancel-maintenance-newer-owner, cancel-maintenance-slot-controls, cancel-maintenance-guard-control, cancel-maintenance-real-guard-pfp, avatar-ready-turn-pfp, explicit-ready-selection-pfp, cancel-late-first-red]
+        options: [publication-preflight, publication-controls, storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-stack-regression, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind, secondary-deferred, secondary-buffered, cancel-maintenance-red, cancel-maintenance-controls, cancel-maintenance-pfp, cancel-maintenance-newer-owner, cancel-maintenance-slot-controls, cancel-maintenance-guard-control, cancel-maintenance-real-guard-pfp, avatar-ready-turn-pfp, explicit-ready-selection-pfp, explicit-ready-tail-controls, cancel-late-first-red]
         default: all
       secondary_scheduler_stage:
         description: Explicit expected baseline RED or fixed-source omission/restoration
@@ -446,7 +446,7 @@ jobs:
           retention-days: 7
   # STORAGE_HANDLE_JOBS_END
   cohort-preflight:
-    if: (startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["avatar-ready-turn-pfp","explicit-ready-selection-pfp"]'), inputs.case) && startsWith(github.ref_name, 'ci/upstream-avatar-ready-turn-'))) && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
+    if: (startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["avatar-ready-turn-pfp","explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case) && startsWith(github.ref_name, 'ci/upstream-avatar-ready-turn-'))) && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -464,35 +464,35 @@ jobs:
           python3 scripts/test_upstream_publication_mutation_anchors.py
           python3 scripts/upstream_extraction_cohort.py > cohort-identity.json
       - name: Selector source transform and closed parser metadata only
-        if: github.event_name == 'workflow_dispatch' && inputs.case == 'explicit-ready-selection-pfp'
+        if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case)
         run: |
           python3 -m py_compile scripts/upstream_explicit_ready_selection.py
           python3 - <<'PYCONTROL'
           import json,sys
           from pathlib import Path
           sys.path.insert(0,'scripts')
-          from upstream_explicit_ready_selection import SOURCE,FIXTURE,mutate,parser_controls
+          from upstream_explicit_ready_selection import SOURCE,FIXTURE,mutate,parser_controls,tail_parser_controls
           source=Path(SOURCE).read_text()
           changed=mutate(source)
           assert changed != source
           controls=parser_controls(Path(FIXTURE).read_text())
-          Path('ready-selection-metadata.json').write_text(json.dumps({'parser_controls':controls,'product_bodies':0,'qualification_passed':False},indent=2)+'\n')
+          Path('ready-selection-metadata.json').write_text(json.dumps({'parser_controls':controls,'tail_parser_controls':tail_parser_controls(),'product_bodies':0,'qualification_passed':False},indent=2)+'\n')
           PYCONTROL
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.case == 'explicit-ready-selection-pfp'
+        if: always() && github.event_name == 'workflow_dispatch' && contains(fromJSON('["explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case)
         with:
           name: ready-selection-parser-metadata
           path: ready-selection-metadata.json
           if-no-files-found: error
           retention-days: 7
       - name: Strict Cargo lib wrapper historical assertion and metadata boundaries
-        if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["publication-preflight","explicit-ready-selection-pfp"]'), inputs.case)
+        if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["publication-preflight","explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case)
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
           python3 scripts/upstream_explicit_ready_selection.py --metadata-only --source "$UPSTREAM_EXTRACTION_COHORT_BASELINE" --cohort default --output "$RUNNER_TEMP/cargo-lib-wrapper-metadata.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always() && github.event_name == 'workflow_dispatch' && contains(fromJSON('["publication-preflight","explicit-ready-selection-pfp"]'), inputs.case)
+        if: always() && github.event_name == 'workflow_dispatch' && contains(fromJSON('["publication-preflight","explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case)
         with:
           name: cargo-lib-wrapper-metadata
           path: ${{ runner.temp }}/cargo-lib-wrapper-metadata.json
@@ -611,7 +611,7 @@ jobs:
           retention-days: 7
 
   explicit-ready-selection-pfp:
-    if: github.event_name == 'workflow_dispatch' && inputs.case == 'explicit-ready-selection-pfp' && (startsWith(github.ref_name, 'ci/upstream-avatar-ready-turn-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case) && (startsWith(github.ref_name, 'ci/upstream-avatar-ready-turn-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
     needs: cohort-preflight
     strategy:
       fail-fast: false
@@ -627,6 +627,7 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_MIN_STACK: '4194304'
       SELECTION_COHORT: ${{ matrix.cohort }}
+      READY_MODE: ${{ inputs.case == 'explicit-ready-tail-controls' && 'ready-tail-controls' || 'chain' }}
       SOURCE_SHA: ${{ inputs.extraction_cohort_baseline }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -654,12 +655,13 @@ jobs:
         run: >-
           python3 scripts/qualification_build_preflight.py --label explicit-ready-selection-chain
           --output "$RUNNER_TEMP/explicit-ready-selection-capacity.json"
-      - name: Real retained-input control, exact return inverse, restored control
+      - name: Exact selected Ready-turn mode (controls or mutation chain)
         env:
           CARGO_INCREMENTAL: '1'
         run: >-
           python3 scripts/upstream_explicit_ready_selection.py --source "$SOURCE_SHA"
-          --cohort "$SELECTION_COHORT" --output "$RUNNER_TEMP/explicit-ready-selection-result.json"
+          --cohort "$SELECTION_COHORT" --mode "$READY_MODE"
+          --output "$RUNNER_TEMP/explicit-ready-selection-result.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -672,7 +674,7 @@ jobs:
 
   mutation:
     needs: cohort-preflight
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'publication-preflight' && inputs.case != 'avatar-ready-turn-pfp' && inputs.case != 'explicit-ready-selection-pfp' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'publication-preflight' && inputs.case != 'avatar-ready-turn-pfp' && inputs.case != 'explicit-ready-selection-pfp' && inputs.case != 'explicit-ready-tail-controls' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
     runs-on: ubuntu-latest
     # Three bounded 30-minute command captures plus setup and exact restoration.
     timeout-minutes: 105
