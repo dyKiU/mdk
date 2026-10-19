@@ -32,6 +32,12 @@ TESTS = sorted('base::boundary_tests::' + name for name in [
     'cfg_predicates_skip_only_test_builds',
 ])
 ADDED_TEST = 'base::boundary_tests::unknown_production_roots_cannot_escape_boundary_scan'
+
+CURRENT_RED = '91e32220dafef5338734b504e10a8a4892691abd'
+CURRENT_RETAINED_PARENT = 'd1667ffa8725eab08c3d58baadd36e8b78320603'
+CURRENT_BOUNDARY_PINS = {'crates/storage-sqlite/src/base/mod.rs': {'mode': '100644', 'red': '00e4a3a4308c48beb1cee96342f2455673b7e2781c5a310febd9331a619f29ea', 'green': '00e4a3a4308c48beb1cee96342f2455673b7e2781c5a310febd9331a619f29ea'}, 'crates/storage-sqlite/src/base/boundary_tests.rs': {'mode': '100644', 'red': '56016fb692e86488bd2c5a32654c8e2ade6d9140335c022a5391fa653eff2d62', 'green': '1c3bc5c9240b6b50188e7d27ee66d46693dc9e37e00cda5e8ff600c833239e26'}, 'crates/storage-sqlite/src/base/table_owners.rs': {'mode': '100644', 'red': '708423e6eb599b3dadd75822e9650acedd98796686d8794054a010383aa5fd7f', 'green': 'af3c9c823d1b183962544cdd8a971970afd1b442deb21c3f9fe2d9c00e95aeb8'}, 'crates/storage-sqlite/src/cross/allow-list.txt': {'mode': '100644', 'red': '3b749bbbc2807eb0b8e8928df5fe3a81d25a1677e8fe2a3df3c83bc4ca9d245e', 'green': '3b749bbbc2807eb0b8e8928df5fe3a81d25a1677e8fe2a3df3c83bc4ca9d245e'}}
+CURRENT_TESTS = sorted(TESTS + [ADDED_TEST, 'base::boundary_tests::trait_channel_sees_every_way_to_name_a_trait'])
+
 OWNERSHIP_DOC = 'crates/storage-sqlite/src/cross/private-ownership.md'
 OUT = Path('storage-boundary-evidence')
 BOUNDARY_TEST = 'base::boundary_tests::storage_boundary_matches_the_allow_list'
@@ -490,6 +496,67 @@ def source_guard(baseline, ownership_adaptation):
             'ownership_adaptation': adaptation, 'overlay_paths': sorted(changed), 'historical_results_reused': False}
 
 
+def current_source_guard(baseline, stage):
+    """Separate exact current cohort; historical RED/adaptation routes stay unchanged."""
+    ensure(baseline == CURRENT_RED, 'current-explicit-reviewed-red-baseline')
+    source = git('rev-parse', 'HEAD')
+    workflow = workflow_identity(source)
+    ensure(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'current-manual-only')
+    ensure(os.environ.get('GITHUB_REF', '').startswith('refs/heads/ci/upstream-storage-boundary-'), 'current-owned-branch-only')
+    event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+    ensure(event.get('inputs', {}).get('case') == 'storage-ownership-current'
+           and event['inputs'].get('current_ownership_stage') == stage
+           and event['inputs'].get('extraction_cohort_baseline') == CURRENT_RED, 'current-event-inputs-exact')
+    subprocess.run(['git', 'merge-base', '--is-ancestor', CURRENT_RED, source], check=True)
+    ensure(not git('diff', 'HEAD', '--name-only'), 'current-initial-tracked-source-pristine')
+    untracked = set(git('ls-files', '--others', '--exclude-standard').splitlines())
+    ensure(untracked <= {str(OUT / 'result.json')}, 'current-no-unreviewed-untracked-inputs')
+    ensure(not OUT.is_symlink() and OUT.resolve() == Path.cwd() / OUT, 'current-physical-evidence-directory')
+    result_path = OUT / 'result.json'
+    if result_path.exists() or result_path.is_symlink():
+        ensure(result_path.is_file() and not result_path.is_symlink()
+               and result_path.stat().st_uid == os.getuid()
+               and result_path.stat().st_mode & 0o777 == 0o600, 'current-owned-regular-evidence-only')
+    changed = set(git('diff', '--name-only', CURRENT_RED, source).splitlines())
+    maps = set(BOUNDARY[1:3])
+    ensure(changed <= {SELF, WORKFLOW} | (maps if stage == 'green' else set()), 'current-whole-source-overlay-only')
+    if stage == 'green':
+        ensure(maps <= changed, 'current-both-reviewed-ownership-additions-required')
+    inputs = frozen_inputs()
+    # Compare each physical tracked byte, link target and executable mode with HEAD;
+    # Git tree comparison above then binds every non-owned input to the RED baseline.
+    entries = subprocess.check_output(['git', 'ls-tree', '-r', '-z', source]).split(b'\0')
+    expected = {}
+    for entry in entries:
+        if not entry:
+            continue
+        meta, path = entry.split(b'\t', 1)
+        mode, kind, oid = meta.decode().split()
+        ensure(kind == 'blob' and mode in {'100644', '100755', '120000'}, 'current-supported-git-input-kind')
+        expected[os.fsdecode(path)] = (mode, oid)
+    ensure(set(expected) == set(inputs), 'current-index-inventory-exact-head')
+    process = subprocess.run(['git', 'cat-file', '--batch'], input=('\n'.join(oid for _, oid in expected.values()) + '\n').encode(), stdout=subprocess.PIPE, check=True)
+    stream = io.BytesIO(process.stdout)
+    for name, (mode, oid) in expected.items():
+        header = stream.readline().decode().strip().split()
+        ensure(len(header) == 3 and header[:2] == [oid, 'blob'], 'current-git-blob-identity')
+        body = stream.read(int(header[2]))
+        ensure(stream.read(1) == b'\n' and inputs[name] == {'mode': mode, 'actual_executable': mode in {'100755', '120000'}, 'sha256': digest(body)}, 'current-physical-source-bytes-modes-links-exact-head')
+    ensure(stream.read() == b'', 'current-complete-git-blob-inputs')
+    for name, pin in CURRENT_BOUNDARY_PINS.items():
+        ensure(digest(subprocess.check_output(['git', 'show', CURRENT_RETAINED_PARENT + ':' + name])) == pin['red'], 'current-retained-d166-boundary-pin')
+        ensure(inputs[name]['mode'] == pin['mode'] and inputs[name]['sha256'] == pin[stage], 'current-exact-stage-boundary-full-pin')
+    ensure(all(not os.environ.get(key) for key in ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS']), 'current-no-unrecorded-rust-flags')
+    environment = {'CARGO_INCREMENTAL': '1', 'CARGO_BUILD_JOBS': '2', 'CARGO_PROFILE_DEV_DEBUG': '0', 'CARGO_PROFILE_TEST_DEBUG': '0', 'RUST_MIN_STACK': '4194304'}
+    ensure(all(os.environ.get(key) == value for key, value in environment.items()), 'current-exact-build-environment')
+    return {'source': source, 'reviewed_cohort_baseline': CURRENT_RED,
+            'baseline_tree': git('rev-parse', CURRENT_RED + '^{tree}'), 'workflow_identity': workflow,
+            'current_cohort_stage': stage, 'current_boundary_pins': CURRENT_BOUNDARY_PINS,
+            'overlay_paths': sorted(changed), 'all_non_overlay_inputs_exact_baseline': True,
+            'physical_input_bytes_modes_and_link_targets_exact_HEAD': True,
+            'selected_original_current_tests': CURRENT_TESTS, 'historical_results_reused': False}
+
+
 def mutation_specs(source):
     """Single reviewed counterfactuals; no test, migration or allowance mutation."""
     return {
@@ -754,6 +821,7 @@ def run_mutations(args, report, frozen, save):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--current-cohort', choices=['red', 'green'])
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
     parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'))
     parser.add_argument('--preflight', action='store_true')
@@ -774,7 +842,8 @@ def main():
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     try:
-        report.update(source_guard(args.cohort_baseline, args.ownership_adaptation))
+        ensure(not args.current_cohort or not any([args.ownership_adaptation, args.compile_only, args.crossing_diagnostics, args.mutations, args.controls_run_id]), 'current-isolated-five-body-route')
+        report.update(current_source_guard(args.cohort_baseline, args.current_cohort) if args.current_cohort else source_guard(args.cohort_baseline, args.ownership_adaptation))
         report['parser_fixtures'] = parser_preflight()
         report['compiler_parser_fixtures'] = diagnostic_parser_preflight()
         report['crossing_parser_fixtures'] = crossing_parser_preflight()
@@ -791,7 +860,7 @@ def main():
             return 0
         if args.mutations:
             return run_mutations(args, report, frozen, save)
-        selected_tests = sorted(TESTS + ([ADDED_TEST] if args.ownership_adaptation else []))
+        selected_tests = CURRENT_TESTS if args.current_cohort else sorted(TESTS + ([ADDED_TEST] if args.ownership_adaptation else []))
         if args.crossing_diagnostics:
             selected_tests = [BOUNDARY_TEST]
         expected_count = len(selected_tests)
@@ -867,6 +936,9 @@ def main():
             report['crossing_diagnostic_complete'] = report['actual_counts_complete'] and rows[0].get('crossing_diagnostic', {}).get('status') == 'complete'
             return 1
         report['boundary_controls_passed'] = report['actual_counts_complete'] and all(row['passed_gate'] for row in rows)
+        if args.current_cohort:
+            report['current_five_body_component_passed'] = report['boundary_controls_passed']
+            report['expected_stage_is_not_a_verdict_override'] = True
         return 0 if report['boundary_controls_passed'] else 1
     except Exception as error:
         report['controller_failure_type'] = type(error).__name__
@@ -875,6 +947,9 @@ def main():
         return 1
     finally:
         report['inputs_pristine'] = frozen_inputs() == frozen
+        if args.current_cohort:
+            report['current_final_HEAD_matches_admitted_source'] = git('rev-parse', 'HEAD') == report.get('source')
+            report['inputs_pristine'] = report['inputs_pristine'] and report['current_final_HEAD_matches_admitted_source']
         save()
         if not report['inputs_pristine']:
             raise SystemExit(1)

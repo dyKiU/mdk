@@ -11,8 +11,13 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
+      current_ownership_stage:
+        description: Separately pinned current five-test cohort; RED never overrides failures
+        type: choice
+        options: [red, green]
+        default: red
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
         type: string
@@ -559,7 +564,7 @@ jobs:
 
   storage-ownership-boundary:
     needs: storage-ownership-preflight
-    if: ${{ !cancelled() && ((inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings') || needs.storage-ownership-preflight.result == 'success') && github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-crossings' || inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-boundary' || inputs.case == 'storage-ownership-diagnostics') && (startsWith(github.ref_name, 'ci/upstream-storage-boundary-') || startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-')) }}
+    if: ${{ !cancelled() && ((inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings') || needs.storage-ownership-preflight.result == 'success') && github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-current' || inputs.case == 'storage-ownership-crossings' || inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-boundary' || inputs.case == 'storage-ownership-diagnostics') && (startsWith(github.ref_name, 'ci/upstream-storage-boundary-') || startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-')) }}
     name: Incoming SQLite ownership (${{ matrix.cohort }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -594,7 +599,14 @@ jobs:
       - name: Verify explicit source cohort and adversarial receipt fixtures
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --preflight ${{ (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings') && '--ownership-adaptation' || '' }}
+        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --preflight ${{ inputs.case == 'storage-ownership-current' && format('--current-cohort {0}', inputs.current_ownership_stage) || '' }} ${{ (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings') && '--ownership-adaptation' || '' }}
+      - name: Run five exact current ownership assertions without verdict override
+        if: inputs.case == 'storage-ownership-current'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Current five-test SQLite ownership boundary' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --current-cohort '${{ inputs.current_ownership_stage }}'
       - name: Run only three unchanged incoming ownership assertions
         if: inputs.case == 'storage-ownership-boundary'
         env:
