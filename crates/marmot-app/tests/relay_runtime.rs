@@ -2193,12 +2193,20 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
             (Stage::MigrationApply, "migration_apply"),
             (Stage::AttachmentLocalRead, "attachment_local_read"),
             (Stage::AttachmentFutureWait, "attachment_future_wait"),
-            (Stage::ProductAnalyticsAdmission, "product_analytics_admission"),
+            (
+                Stage::ProductAnalyticsAdmission,
+                "product_analytics_admission",
+            ),
         ];
         let mut interval_ms = [0u64; 20];
-        let mut previous = std::collections::BTreeMap::<u64, &marmot_app::NativeStartupObservation>::new();
-        let unknown_stages = snapshot.events.iter().chain(snapshot.active.iter())
-            .filter(|row| !stages.iter().any(|(stage, _)| *stage == row.stage)).count();
+        let mut previous =
+            std::collections::BTreeMap::<u64, &marmot_app::NativeStartupObservation>::new();
+        let unknown_stages = snapshot
+            .events
+            .iter()
+            .chain(snapshot.active.iter())
+            .filter(|row| !stages.iter().any(|(stage, _)| *stage == row.stage))
+            .count();
         let mut duplicates = 0u64;
         let mut monotonic = true;
         let mut overflow = false;
@@ -2230,7 +2238,10 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
                             monotonic = false;
                             continue;
                         };
-                        [Some((before.stage, prior)), Some((row.stage, row.stage_elapsed_ms))]
+                        [
+                            Some((before.stage, prior)),
+                            Some((row.stage, row.stage_elapsed_ms)),
+                        ]
                     }
                 } else {
                     let prefix = row.elapsed_ms - row.stage_elapsed_ms;
@@ -2263,9 +2274,13 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
         }).collect::<serde_json::Map<String, serde_json::Value>>();
         let present = !snapshot.events.is_empty() || !snapshot.active.is_empty();
         let usable = bounded && monotonic && !overflow && unknown_stages == 0;
-        let complete = snapshot.enabled && usable && present
-            && duplicates == 0 && unattributed_prefix_ms == 0
-            && snapshot.dropped_events == 0 && snapshot.dropped_scopes == 0;
+        let complete = snapshot.enabled
+            && usable
+            && present
+            && duplicates == 0
+            && unattributed_prefix_ms == 0
+            && snapshot.dropped_events == 0
+            && snapshot.dropped_scopes == 0;
         serde_json::json!({
             "enabled": snapshot.enabled,
             "bounded": bounded,
@@ -2287,55 +2302,134 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     }
     // Pure observer-grammar controls, not protocol fixtures or behavioral RED.
     {
-        use marmot_app::{NativeStartupObservation as Row, NativeStartupOutcome as Outcome,
-            NativeStartupSnapshot as Snapshot, NativeStartupStage as Stage};
-        let row = |stage, elapsed| Row { token: 1, stage, elapsed_ms: elapsed,
-            stage_elapsed_ms: 0, migration_version: None, migrations_completed: 0,
-            outcome: Outcome::Active };
-        let sample = Snapshot { enabled: true, events: vec![row(Stage::KeyDerivation, 0),
-            row(Stage::CipherKeyApplication, 7)], active: vec![row(Stage::CipherKeyApplication, 12)],
-            dropped_events: 0, dropped_scopes: 0 };
+        use marmot_app::{
+            NativeStartupObservation as Row, NativeStartupOutcome as Outcome,
+            NativeStartupSnapshot as Snapshot, NativeStartupStage as Stage,
+        };
+        let row = |stage, elapsed| Row {
+            token: 1,
+            stage,
+            elapsed_ms: elapsed,
+            stage_elapsed_ms: 0,
+            migration_version: None,
+            migrations_completed: 0,
+            outcome: Outcome::Active,
+        };
+        let sample = Snapshot {
+            enabled: true,
+            events: vec![
+                row(Stage::KeyDerivation, 0),
+                row(Stage::CipherKeyApplication, 7),
+            ],
+            active: vec![row(Stage::CipherKeyApplication, 12)],
+            dropped_events: 0,
+            dropped_scopes: 0,
+        };
         let summary = native_summary(&sample);
-        assert_eq!(summary["stages"]["key_derivation"]["observed_interval_ms"], 7);
-        assert_eq!(summary["stages"]["cipher_key_application"]["observed_interval_ms"], 5);
+        assert_eq!(
+            summary["stages"]["key_derivation"]["observed_interval_ms"],
+            7
+        );
+        assert_eq!(
+            summary["stages"]["cipher_key_application"]["observed_interval_ms"],
+            5
+        );
         assert_eq!(summary["retained_intervals_complete"], true);
-        let mut reverse = sample.clone(); reverse.active[0].elapsed_ms = 6;
+        let mut reverse = sample.clone();
+        reverse.active[0].elapsed_ms = 6;
         assert_eq!(native_summary(&reverse)["monotonic"], false);
-        assert_eq!(native_summary(&reverse)["retained_intervals_complete"], false);
-        let mut duplicate = sample.clone(); duplicate.events.push(duplicate.events[1].clone());
+        assert_eq!(
+            native_summary(&reverse)["retained_intervals_complete"],
+            false
+        );
+        let mut duplicate = sample.clone();
+        duplicate.events.push(duplicate.events[1].clone());
         assert_eq!(native_summary(&duplicate)["duplicate_entries"], 1);
-        assert_eq!(native_summary(&duplicate)["retained_intervals_complete"], false);
-        let mut dropped = sample.clone(); dropped.dropped_events = 1;
-        assert_eq!(native_summary(&dropped)["retained_intervals_complete"], false);
-        let mut missing = sample.clone(); missing.events.remove(0);
+        assert_eq!(
+            native_summary(&duplicate)["retained_intervals_complete"],
+            false
+        );
+        let mut dropped = sample.clone();
+        dropped.dropped_events = 1;
+        assert_eq!(
+            native_summary(&dropped)["retained_intervals_complete"],
+            false
+        );
+        let mut missing = sample.clone();
+        missing.events.remove(0);
         assert_eq!(native_summary(&missing)["unattributed_prefix_ms"], 7);
-        assert_eq!(native_summary(&missing)["retained_intervals_complete"], false);
-        let mut oversized = sample.clone(); oversized.active = vec![sample.active[0].clone(); 17];
+        assert_eq!(
+            native_summary(&missing)["retained_intervals_complete"],
+            false
+        );
+        let mut oversized = sample.clone();
+        oversized.active = vec![sample.active[0].clone(); 17];
         assert_eq!(native_summary(&oversized)["bounded"], false);
-        assert_eq!(native_summary(&oversized)["retained_intervals_complete"], false);
+        assert_eq!(
+            native_summary(&oversized)["retained_intervals_complete"],
+            false
+        );
         let mut overflow = sample.clone();
-        overflow.events = vec![row(Stage::KeyDerivation, 0), row(Stage::CipherKeyApplication, u64::MAX),
-            Row { token: 2, ..row(Stage::KeyDerivation, 0) },
-            Row { token: 2, ..row(Stage::CipherKeyApplication, 1) }];
+        overflow.events = vec![
+            row(Stage::KeyDerivation, 0),
+            row(Stage::CipherKeyApplication, u64::MAX),
+            Row {
+                token: 2,
+                ..row(Stage::KeyDerivation, 0)
+            },
+            Row {
+                token: 2,
+                ..row(Stage::CipherKeyApplication, 1)
+            },
+        ];
         overflow.active.clear();
         assert_eq!(native_summary(&overflow)["overflow"], true);
-        assert_eq!(native_summary(&overflow)["observed_intervals_usable"], false);
-        let mut disabled = sample.clone(); disabled.enabled = false;
-        assert_eq!(native_summary(&disabled)["retained_intervals_complete"], false);
+        assert_eq!(
+            native_summary(&overflow)["observed_intervals_usable"],
+            false
+        );
+        let mut disabled = sample.clone();
+        disabled.enabled = false;
+        assert_eq!(
+            native_summary(&disabled)["retained_intervals_complete"],
+            false
+        );
         // record_history preserves a deferred initial row then a current
         // cache-miss snapshot: elapsed7 includes3ms already in that phase.
-        let deferred = Snapshot { enabled: true,
-            events: vec![row(Stage::ProductAnalyticsAdmission, 0),
-                Row { stage_elapsed_ms: 3, ..row(Stage::AccountStorageCache, 7) }],
-            active: vec![Row { stage_elapsed_ms: 8, ..row(Stage::AccountStorageCache, 12) }],
-            dropped_events: 0, dropped_scopes: 0 };
+        let deferred = Snapshot {
+            enabled: true,
+            events: vec![
+                row(Stage::ProductAnalyticsAdmission, 0),
+                Row {
+                    stage_elapsed_ms: 3,
+                    ..row(Stage::AccountStorageCache, 7)
+                },
+            ],
+            active: vec![Row {
+                stage_elapsed_ms: 8,
+                ..row(Stage::AccountStorageCache, 12)
+            }],
+            dropped_events: 0,
+            dropped_scopes: 0,
+        };
         let split = native_summary(&deferred);
-        assert_eq!(split["stages"]["product_analytics_admission"]["observed_interval_ms"], 4);
-        assert_eq!(split["stages"]["account_storage_cache"]["observed_interval_ms"], 8);
+        assert_eq!(
+            split["stages"]["product_analytics_admission"]["observed_interval_ms"],
+            4
+        );
+        assert_eq!(
+            split["stages"]["account_storage_cache"]["observed_interval_ms"],
+            8
+        );
         assert_eq!(split["retained_intervals_complete"], true);
-        let mut invalid_age = sample.clone(); invalid_age.active[0].stage_elapsed_ms = 13;
-        assert_eq!(native_summary(&invalid_age)["observed_intervals_usable"], false);
-        let mut overlap = sample.clone(); overlap.active[0].stage = Stage::RecoveryProbe;
+        let mut invalid_age = sample.clone();
+        invalid_age.active[0].stage_elapsed_ms = 13;
+        assert_eq!(
+            native_summary(&invalid_age)["observed_intervals_usable"],
+            false
+        );
+        let mut overlap = sample.clone();
+        overlap.active[0].stage = Stage::RecoveryProbe;
         overlap.active[0].stage_elapsed_ms = 6;
         assert_eq!(native_summary(&overlap)["observed_intervals_usable"], false);
     }

@@ -48,7 +48,9 @@ fn observe_avatar_sync_for_test(app: &MarmotApp, client: &marmot_app::AppClient,
         .ok()
         .filter(|value| {
             value.len() == 64
-                && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         })
         .map(|event_id| client.cached_transport_receipt_contains_for_test(&event_id));
     let core_present = client
