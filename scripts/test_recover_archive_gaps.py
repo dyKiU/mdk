@@ -1,11 +1,13 @@
 import copy
+import hashlib
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from recover_archive_gaps import (fetch, prepare_plan, validate_origin, validate_pr_checkout,
+from recover_archive_gaps import (fetch, plan as write_plan, prepare_plan, validate_origin, validate_pr_checkout,
                                   verify_selection, without_failure_recap)
 from test_recover_experimental_coverage import inventory, line
 
@@ -38,6 +40,68 @@ def simulator_origin():
 
 
 class ArchiveGapTests(unittest.TestCase):
+    def test_aborted_original_body_is_a_retained_failure_not_missing_work(self):
+        summary = "2026-10-18T21:59:35Z Summary [42.2s] 1/2 tests run: 0 passed, 1 failed\n"
+        for status in ("SIGABRT", "SIGSEGV", "SIGKILL", "EXECFAIL", "SIGTERM"):
+            aborted = line(status=status)
+            passed, failures, plan = prepare_plan(inventory(), {"1": aborted + summary + aborted}, 2)
+            with self.subTest(status=status):
+                self.assertEqual(passed, [])
+                self.assertEqual([(r["test"], r["status"]) for r in failures], [("complete", status)])
+                self.assertEqual([r["test"] for p in plan for r in p["cases"]], ["missing"])
+
+    def test_later_job_cancellation_cannot_erase_an_earlier_sigterm_failure(self):
+        earlier = line(status="SIGTERM")
+        marker = "2026-10-19T09:00:00Z The operation was canceled.\n"
+        _, failures, selected = prepare_plan(
+            inventory(), {"1": earlier + marker}, 2, interrupted_jobs={"1"})
+        self.assertEqual([row["status"] for row in failures], ["SIGTERM"])
+        self.assertEqual([row["test"] for part in selected for row in part["cases"]], ["missing"])
+
+    def test_ambiguous_sigterm_stays_a_failure_even_in_a_cancelled_job(self):
+        marker = "The operation was canceled.\n"
+        logs = {"1": line(status="SIGTERM") + marker}
+        _, failures, selected = prepare_plan(inventory(), logs, 2, interrupted_jobs={"1"})
+        self.assertEqual([row["status"] for row in failures], ["SIGTERM"])
+        self.assertEqual({r["test"] for p in selected for r in p["cases"]}, {"missing"})
+        self.assertEqual(prepare_plan(inventory(), logs, 2)[1][0]["status"], "SIGTERM")
+        for changed, interrupted in (({"1": line(status="SIGTERM")}, {"1"}), (logs, {"2"})):
+            with self.assertRaises(ValueError):
+                prepare_plan(inventory(), changed, 2, interrupted_jobs=interrupted)
+        self.assertEqual(prepare_plan(inventory(), {"1": line(status="SIGABRT") + marker}, 2,
+                                      interrupted_jobs={"1"})[1][0]["status"], "SIGABRT")
+
+    def test_plan_reads_original_cancelled_job_metadata_without_erasing_failures(self):
+        run, jobs, artifact = origin()
+        for job in jobs:
+            job["conclusion"] = "cancelled" if job["id"] == 2 else "success"
+        logs = {str(job["id"]): "" for job in jobs}
+        logs["1"] = line()
+        logs["2"] = line("missing", "SIGTERM") + "The operation was canceled.\n"
+        provenance = dict(source=run["head_sha"], run=7, cohort="default",
+                          original_log_hashes={n: hashlib.sha256(raw.encode()).hexdigest()
+                                               for n, raw in logs.items()})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (("original-run", run), ("original-jobs", jobs),
+                                ("original-artifact", artifact), ("provenance", provenance),
+                                ("inventory", inventory())):
+                (root / (name + ".json")).write_text(json.dumps(value))
+            for name, raw in logs.items():
+                (root / (name + ".log")).write_text(raw)
+            args = SimpleNamespace(directory=root, inventory=root / "inventory.json", partitions=2,
+                                   github_output=root / "output")
+            write_plan(args)
+            summary = json.loads((root / "summary.json").read_text())
+            self.assertEqual((summary["retained_passes"], summary["original_failures"], summary["missing"]), (1, 1, 0))
+            self.assertFalse(summary["qualified"])
+            jobs[1]["conclusion"] = "failure"
+            (root / "original-jobs.json").write_text(json.dumps(jobs))
+            write_plan(args)
+            summary = json.loads((root / "summary.json").read_text())
+            self.assertEqual((summary["retained_passes"], summary["original_failures"], summary["missing"]), (1, 1, 0))
+            self.assertEqual(json.loads((root / "retained-failures.json").read_text())[0]["status"], "SIGTERM")
+
     def test_original_nextest_failed_summary_recap_is_one_retained_failure(self):
         failed = line(status="FAIL")
         summary = "2026-10-18T21:59:35Z Summary [10.0s] 1/2 tests run: 0 passed, 1 failed\n"
@@ -48,7 +112,7 @@ class ArchiveGapTests(unittest.TestCase):
 
     def test_only_identical_failed_summary_recap_is_allowed(self):
         summary = "2026-10-18T21:59:35Z Summary [10.0s] 1/2 tests run: 0 passed, 1 failed\n"
-        for status in ("FAIL", "TIMEOUT", "LEAK"):
+        for status in ("FAIL", "TIMEOUT", "LEAK", "SIGABRT", "SIGSEGV", "EXECFAIL"):
             failed = line(status=status)
             passed, failures, _ = prepare_plan(inventory(), {"1": failed + summary + failed}, 2)
             self.assertEqual((passed, [r["status"] for r in failures]), ([], [status]))
@@ -215,7 +279,9 @@ class ArchiveGapTests(unittest.TestCase):
         complete = "PASS [ 0.01s] ( 1/2) engine complete\nPASS [ 0.01s] ( 2/2) engine missing\n"
         verify_selection(plan[0], inventory(), complete)
         for bad in ("", complete.splitlines()[0], complete + complete,
-                    complete.replace("PASS", "FAIL", 1), complete.replace("missing", "unknown")):
+                    complete.replace("PASS", "FAIL", 1), complete.replace("missing", "unknown"),
+                    complete.replace("PASS", "SIGABRT", 1),
+                    complete + "SIGSEGV [ 0.1s] ( 1/2) engine unexpected\n"):
             with self.subTest(log=bad), self.assertRaises(ValueError):
                 verify_selection(plan[0], inventory(), bad)
 
