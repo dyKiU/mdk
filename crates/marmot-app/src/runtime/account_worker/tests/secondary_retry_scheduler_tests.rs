@@ -288,19 +288,29 @@ async fn overdue_secondary_groups_service_durable_send(deferred_count: usize) {
         // No account keys, command data, raw trace or timestamps leave the fixture.
         let observations = probe.observations.lock().unwrap();
         let last_turn = observations.iter().rev().find_map(|event| match event {
-            Observation::Turn { pending, buffered, yielded, due, owed, retry_ready } => Some(serde_json::json!({
+            Observation::Turn {
+                pending,
+                buffered,
+                yielded,
+                due,
+                owed,
+                retry_ready,
+            } => Some(serde_json::json!({
                 "pending": pending, "buffered": buffered, "yielded": yielded,
                 "due": due, "owed": owed, "retry_ready": retry_ready,
             })),
             _ => None,
         });
-        eprintln!("secondary-retry-control {}", serde_json::json!({
-            "deferred_count": deferred_count,
-            "drain_count": observations.iter().filter(|event| matches!(event, Observation::Drain(_))).count(),
-            "pass_count": observations.iter().filter(|event| matches!(event, Observation::Pass)).count(),
-            "turn_count": observations.iter().filter(|event| matches!(event, Observation::Turn { .. })).count(),
-            "last_turn": last_turn,
-        }));
+        eprintln!(
+            "secondary-retry-control {}",
+            serde_json::json!({
+                "deferred_count": deferred_count,
+                "drain_count": observations.iter().filter(|event| matches!(event, Observation::Drain(_))).count(),
+                "pass_count": observations.iter().filter(|event| matches!(event, Observation::Pass)).count(),
+                "turn_count": observations.iter().filter(|event| matches!(event, Observation::Turn { .. })).count(),
+                "last_turn": last_turn,
+            })
+        );
     }
     retry_result.expect("the held admission gate makes the durable drain retry");
     let admission_released = TokioInstant::now();
