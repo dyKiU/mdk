@@ -676,3 +676,28 @@ def canonical_leaf_oracle(output, fixture, phase):
             'panic_header_count': text.count('panicked at '),
             'each_sibling_own_token_count_2_vs_1': own,
             'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and counts and named and compiler_zero and (own if failed else clean))}
+
+
+# Positive-only worker-mode timer precedence controls. Never a mutation gate.
+PEER_TIMER_CASES = {'peer-leave-timer-default', 'peer-leave-timer-experimental'}
+PEER_TIMER_NAMES = [
+    'tests::due_peer_leave_does_not_shorten_a_collecting_convergence_pass',
+    'tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier',
+]
+
+
+def peer_leave_timer_control_oracle(output):
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    rows = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode(), cargo_test_context=('marmot-app', '--lib'))
+    named = sorted(rows) == sorted((name, 'ok') for name in PEER_TIMER_NAMES)
+    counts = len(summaries) == 1 and summaries[0][:5] == ('ok', '2', '0', '0', '0') and running == ['2']
+    return {'selected_tests': PEER_TIMER_NAMES, 'actual_exact_named_set': named,
+            'compiler_diagnostics': diagnostics, 'compiler_error_count': diagnostics['compiler_header_count'],
+            'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and counts
+                and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0
+                and text.count('panicked at ') == 0)}

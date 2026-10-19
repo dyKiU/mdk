@@ -9,10 +9,10 @@ import re
 import subprocess
 from upstream_avatar_ready_turn_chain import compiler_diagnostics
 from upstream_secondary_cutoff import runtime_panic_coordinates
-from upstream_publication_mutation_anchors import CANONICAL_CASES, CANONICAL_FIXTURE, CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_CLEANUP, CANONICAL_EMPTY, canonical_leaf_oracle, publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
+from upstream_publication_mutation_anchors import PEER_TIMER_CASES, PEER_TIMER_NAMES, peer_leave_timer_control_oracle, CANONICAL_CASES, CANONICAL_FIXTURE, CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_CLEANUP, CANONICAL_EMPTY, canonical_leaf_oracle, publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['canonical-leaf-cleanup-default', 'canonical-leaf-cleanup-experimental', 'departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red', 'cancel-late-first-pfp', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'], required=True)
+parser.add_argument('--case', choices=['peer-leave-timer-default', 'peer-leave-timer-experimental', 'canonical-leaf-cleanup-default', 'canonical-leaf-cleanup-experimental', 'departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp', 'cancel-late-first-red', 'cancel-late-first-pfp', 'cancel-late-first-slot-controls', 'cancel-invite-cas-controls', 'cancel-invite-cleanup-control'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 parser.add_argument('--secondary-stage', choices=['red', 'green'], default='red')
@@ -38,6 +38,18 @@ if args.case in CANONICAL_CASES:
     features = 'marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks'
     if args.case == 'canonical-leaf-cleanup-experimental': features += ',marmot-app/experimental-device-sync'
     command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features', features, '--', '--exact', '--test-threads=1', '--show-output']
+elif args.case in PEER_TIMER_CASES:
+    if not cohort or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or os.environ.get('RUST_MIN_STACK') != '4194304':
+        raise ValueError('Peer leave timer controls require exact reviewed manual source and original stack')
+    source = Path('crates/marmot-app/src/tests.rs')
+    old = 'async fn due_peer_leave_does_not_shorten_a_collecting_convergence_pass() {'
+    new = old  # Positive controls exit before any mutation write.
+    test = None
+    expected = 2
+    features = 'marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks'
+    if args.case == 'peer-leave-timer-experimental': features += ',marmot-app/experimental-device-sync'
+    command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features', features,
+               '--', '--exact', '--test-threads=1', '--show-output', *PEER_TIMER_NAMES]
 elif args.case in cancellation_cases:
     if not cohort or os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('Cancellation controls require exact reviewed source and original stack')
@@ -238,8 +250,8 @@ if args.case == 'outbound-mailbox-kind':
         raise ValueError('Exact generic mailbox own assertion must remain unchanged')
     mailbox_assertion_line = text[:text.index(assertion)].count('\n') + 1
 cancellation_leaf = ExactCancellationMutation(source) if args.case in cancellation_pfp_cases | CANONICAL_CASES else None
-cancellation_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() if args.case in cancellation_cases | CANONICAL_CASES else None
-cancellation_index = hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() if args.case in cancellation_cases | CANONICAL_CASES else None
+cancellation_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES else None
+cancellation_index = hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES else None
 args.output.mkdir(parents=True, exist_ok=False)
 proof = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
          'case': args.case, 'source_path': str(source),
@@ -283,6 +295,8 @@ def execute(phase):
                           and 'running 1 test' in output and test in output)
     row = {'phase': phase, 'exit_code': result.returncode, 'counts': counts, 'log': path.name}
     row['compiler_diagnostics'] = compiler_diagnostics(output.encode())
+    if args.case in PEER_TIMER_CASES:
+        row.update(peer_leave_timer_control_oracle(output))
     if args.case in CANONICAL_CASES:
         row['actual_command'] = phase_command
         row.update(canonical_leaf_oracle(output, Path(CANONICAL_FIXTURE).read_text(), phase))
@@ -347,7 +361,7 @@ def execute(phase):
             and "assertion `left == right` failed" in output
             and re.search(r'(?m)^\s*left: Ok\(\(\)\)\s*$', output) is not None
             and re.search(r'(?m)^\s*right: Err\(Invalid\)\s*$', output) is not None)
-    if args.case in cancellation_cases | CANONICAL_CASES:
+    if args.case in cancellation_cases | CANONICAL_CASES | PEER_TIMER_CASES:
         row['head_and_index_unchanged'] = (subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == cancellation_head and hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() == cancellation_index)
         if not row['head_and_index_unchanged']:
             row['evidence_passed'] = False
@@ -360,6 +374,25 @@ def matches(row, passed, failed):
 
 
 baseline = execute('baseline')
+if args.case in PEER_TIMER_CASES:
+    proof.update(control_only=True, product_mutation_attempted=False, runtime_mutation_qualification=False,
+                 completed=False, control_passed=False)
+    try:
+        proof['source_unchanged'] = source.read_bytes() == original
+        proof['all_tracked_inputs_unchanged'] = frozen_inputs() == frozen
+        proof['final_source_head_index_exact'] = (
+            subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == cancellation_head
+            and hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() == cancellation_index)
+        proof['control_passed'] = (baseline['exit_code'] == 0 and matches(baseline, 2, 0)
+            and baseline['evidence_passed'] and proof['source_unchanged']
+            and proof['all_tracked_inputs_unchanged'] and proof['final_source_head_index_exact'])
+        proof['completed'] = proof['control_passed']
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        proof.update(source_unchanged=False, all_tracked_inputs_unchanged=False,
+                     final_source_head_index_exact=False, control_passed=False, completed=False,
+                     final_closure_error_category=type(error).__name__)
+    save()
+    raise SystemExit(0 if proof['completed'] else 1)
 if args.case == 'cancel-late-first-red':
     proof.update(expected_red_only=True, qualification_passed=False, original_case_passed=False,
                  runtime_mutation_qualification=False, product_mutation_attempted=False,

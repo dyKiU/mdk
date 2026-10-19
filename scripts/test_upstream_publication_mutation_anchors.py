@@ -600,5 +600,32 @@ class CanonicalLeafCleanup(unittest.TestCase):
         self.assertFalse(canonical_leaf_oracle(raw + 'error: unknown compilation failure\n', self.fixture(), 'mutant')['evidence_passed'])
 
 
+
+
+class PeerLeaveTimerControls(unittest.TestCase):
+    def shape(self):
+        from upstream_publication_mutation_anchors import PEER_TIMER_NAMES
+        return ('running 2 tests\n' + ''.join('test ' + name + ' ... ok\n' for name in PEER_TIMER_NAMES)
+                + 'test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.1s\n')
+
+    def test_exact_two_timer_controls_are_positive_only(self):
+        from upstream_publication_mutation_anchors import peer_leave_timer_control_oracle
+        row = peer_leave_timer_control_oracle(self.shape())
+        self.assertTrue(row['evidence_passed'])
+        self.assertEqual(row['compiler_error_count'], 0)
+        self.assertEqual(row['panic_header_count'], 0)
+
+    def test_missing_duplicate_ignored_failure_compile_and_private_are_not_positive(self):
+        from upstream_publication_mutation_anchors import PEER_TIMER_NAMES, peer_leave_timer_control_oracle
+        raw = self.shape()
+        for bad in [raw + raw, raw.replace('2 passed;', '1 passed;'), raw.replace('0 ignored;', '1 ignored;'),
+                    raw.replace(PEER_TIMER_NAMES[0], 'private::unknown'), raw.replace('... ok', '... FAILED', 1),
+                    raw.replace('running 2 tests', 'running 0 tests'), raw + 'error[E0308]: PRIVATE_VALUE\n',
+                    raw + 'thread private panicked at PRIVATE_VALUE\n']:
+            row = peer_leave_timer_control_oracle(bad)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+
 if __name__ == '__main__':
     unittest.main()
