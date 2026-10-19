@@ -304,9 +304,13 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
         }
         if let Some(probe) = &request_lineage {
             for row in probe.summaries() {
-                eprintln!("enrollment-request-lineage attempted_newcomer={attempted_newcomer:?} summary={row:?}");
+                eprintln!(
+                    "enrollment-request-lineage attempted_newcomer={attempted_newcomer:?} summary={row:?}"
+                );
             }
-        } else { eprintln!("enrollment-request-lineage unavailable=true"); }
+        } else {
+            eprintln!("enrollment-request-lineage unavailable=true");
+        }
         use crate::RuntimePerformanceOperation as Op;
         for (index, runtime) in runtimes.iter().enumerate() {
             let snapshot = runtime.app_performance_snapshot();

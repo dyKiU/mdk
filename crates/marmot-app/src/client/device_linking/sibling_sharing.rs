@@ -2312,10 +2312,21 @@ impl AppClient {
             // RECIPIENT_ADMISSION_TEST_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if request_lineage::enabled(self.app.account_home().root())
-                && let Some(entry) = self.linking_owner.sibling_channels.last() {
-                request_lineage::admitted(self.app.account_home().root(), &entry.channel.scope().protected.group_id,
-                    received, entry.channel.scope().nonce, sha2::Sha256::digest(wire).into(),
-                    [entry.original.live(), entry.state.live(), entry.recipient, entry.ready]);
+                && let Some(entry) = self.linking_owner.sibling_channels.last()
+            {
+                request_lineage::admitted(
+                    self.app.account_home().root(),
+                    &entry.channel.scope().protected.group_id,
+                    received,
+                    entry.channel.scope().nonce,
+                    sha2::Sha256::digest(wire).into(),
+                    [
+                        entry.original.live(),
+                        entry.state.live(),
+                        entry.recipient,
+                        entry.ready,
+                    ],
+                );
             }
             // Core approved this exact owned channel. Wake its first Consent;
             // the completion service still freshly validates before publishing.
@@ -3279,17 +3290,31 @@ impl AppClient {
             None
         };
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let request_lineage_capture = if !proof && !entry.recipient && kind == AccountSharingControl::Request
-            && request_lineage::enabled(self.app.account_home().root()) {
-            request_lineage::prepared(self.app.account_home().root(), &self.runtime.session().self_id(),
-                entry.channel.scope(), entry.channel.outbound_content_id_for_test(kind),
-                entry.channel.outbound_control_wire_digest_for_test(kind), &request.message.payload)
-        } else { None };
+        let request_lineage_capture = if !proof
+            && !entry.recipient
+            && kind == AccountSharingControl::Request
+            && request_lineage::enabled(self.app.account_home().root())
+        {
+            request_lineage::prepared(
+                self.app.account_home().root(),
+                &self.runtime.session().self_id(),
+                entry.channel.scope(),
+                entry.channel.outbound_content_id_for_test(kind),
+                entry.channel.outbound_control_wire_digest_for_test(kind),
+                &request.message.payload,
+            )
+        } else {
+            None
+        };
         let consent = entry.recipient && !proof;
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let request_consent_capture = if consent && request_lineage::enabled(self.app.account_home().root()) {
+        let request_consent_capture = if consent
+            && request_lineage::enabled(self.app.account_home().root())
+        {
             request_lineage::consent_prepared(self.app.account_home().root(), entry.channel.scope())
-        } else { None };
+        } else {
+            None
+        };
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
             *entry

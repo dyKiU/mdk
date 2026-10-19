@@ -10,8 +10,6 @@ mod body_negative_probe;
 // BODY_NEGATIVE_TEST_END
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) mod consent_delivery_probe;
-#[cfg(all(test, feature = "test-policy-overrides"))]
-pub(crate) mod request_lineage_probe;
 mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod departure_replay_probe;
@@ -28,6 +26,8 @@ mod records;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[path = "../sync/tests/records_cut_acceptance.rs"]
 pub(super) mod records_cut_acceptance;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod request_lineage_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[path = "automatic/tests/restart_acceptance.rs"]
 mod restart_acceptance;
@@ -366,9 +366,19 @@ impl AppClient {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_capture_sibling_request_delivery(
-        account: [u8; 32], group: crate::GroupId, roots: [&std::path::Path; 5], devices: [[u8; 32]; 5],
+        account: [u8; 32],
+        group: crate::GroupId,
+        roots: [&std::path::Path; 5],
+        devices: [[u8; 32]; 5],
     ) -> std::sync::Arc<request_lineage_probe::Probe> {
-        request_lineage_probe::arm(account, group, std::array::from_fn(|index| request_lineage_probe::Peer { root: roots[index].to_path_buf(), device: devices[index] }))
+        request_lineage_probe::arm(
+            account,
+            group,
+            std::array::from_fn(|index| request_lineage_probe::Peer {
+                root: roots[index].to_path_buf(),
+                device: devices[index],
+            }),
+        )
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_capture_sibling_proof_queue_for_receiver(
@@ -376,41 +386,51 @@ impl AppClient {
         receiver: &transport_nostr::AccountReceiverIdentityForTest,
     ) {
         let account = self.runtime.session().self_id();
-        let mut queue_query = |outer: &cgka_traits::MessageId, content: &cgka_traits::MessageId, origin: std::time::Instant| {
-                let capture = std::time::Instant::now();
-                let elapsed = |instant: std::time::Instant| {
-                    instant
-                        .checked_duration_since(origin)
-                        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
-                };
-                let plane = &self.app.relay_plane;
-                let query = |id: &cgka_traits::MessageId| {
-                    plane
-                        .account_notification_timing_for_test(&account, &hex::encode(id.as_slice()))
-                        .map(|row| consent_delivery_probe::ProofQueueObservation {
-                            disposition: row.0,
-                            placement: row.2,
-                            depths: row.4.0,
-                            dequeued: row.4.1,
-                            accepted_ms: row.3[0].and_then(elapsed),
-                            dequeued_ms: row.4.2.and_then(elapsed),
-                            invalid: row.4.3,
-                        })
-                };
-                consent_delivery_probe::ProofQueueFacts {
-                    capture_ms: elapsed(capture),
-                    outer: query(outer),
-                    content: query(content),
-                    same_receiver: plane.account_notification_same_receiver_for_test(
-                        &account,
-                        &hex::encode(outer.as_slice()),
-                        receiver,
-                    ),
-                    outer_equals_content: outer == content,
-                }
+        let mut queue_query = |outer: &cgka_traits::MessageId,
+                               content: &cgka_traits::MessageId,
+                               origin: std::time::Instant| {
+            let capture = std::time::Instant::now();
+            let elapsed = |instant: std::time::Instant| {
+                instant
+                    .checked_duration_since(origin)
+                    .and_then(|duration| u64::try_from(duration.as_millis()).ok())
             };
-        consent_delivery_probe::capture_proof_queue(self.app.account_home().root(), &account, &mut queue_query);
-        request_lineage_probe::capture_queue(self.app.account_home().root(), &account, &mut queue_query);
+            let plane = &self.app.relay_plane;
+            let query = |id: &cgka_traits::MessageId| {
+                plane
+                    .account_notification_timing_for_test(&account, &hex::encode(id.as_slice()))
+                    .map(|row| consent_delivery_probe::ProofQueueObservation {
+                        disposition: row.0,
+                        placement: row.2,
+                        depths: row.4.0,
+                        dequeued: row.4.1,
+                        accepted_ms: row.3[0].and_then(elapsed),
+                        dequeued_ms: row.4.2.and_then(elapsed),
+                        invalid: row.4.3,
+                    })
+            };
+            consent_delivery_probe::ProofQueueFacts {
+                capture_ms: elapsed(capture),
+                outer: query(outer),
+                content: query(content),
+                same_receiver: plane.account_notification_same_receiver_for_test(
+                    &account,
+                    &hex::encode(outer.as_slice()),
+                    receiver,
+                ),
+                outer_equals_content: outer == content,
+            }
+        };
+        consent_delivery_probe::capture_proof_queue(
+            self.app.account_home().root(),
+            &account,
+            &mut queue_query,
+        );
+        request_lineage_probe::capture_queue(
+            self.app.account_home().root(),
+            &account,
+            &mut queue_query,
+        );
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_observe_automatic_consent_raw(
