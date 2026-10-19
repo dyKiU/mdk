@@ -9,6 +9,12 @@ on:
       - scripts/upstream_apple_ci/attachment-storage-mutation.py
       - scripts/upstream_apple_ci/ios-storage-mutations.py
       - scripts/upstream_apple_ci/missing-key-mutations.py
+      - scripts/upstream_apple_ci/acceptance-identity.py
+      - scripts/upstream_apple_ci/published-interop.sh
+      - scripts/upstream_apple_ci/observed-public-interop.py
+      - scripts/upstream_apple_ci/profile-interop-evidence.py
+      - scripts/upstream_apple_ci/test_profile_interop_evidence.py
+      - .github/workflows/upstream-acceptance-supplement.yml
   workflow_dispatch:
     inputs:
       sdk_source:
@@ -93,8 +99,15 @@ jobs:
             scripts/upstream_apple_ci/attachment-storage-mutation.py \
             scripts/upstream_apple_ci/ios-storage-mutations.py \
             scripts/upstream_apple_ci/missing-key-mutations.py
+          python3 -m py_compile scripts/upstream_apple_ci/acceptance-identity.py \
+            scripts/upstream_apple_ci/observed-public-interop.py \
+            scripts/upstream_apple_ci/profile-interop-evidence.py \
+            scripts/upstream_apple_ci/test_profile_interop_evidence.py
+          bash -n scripts/upstream_apple_ci/published-interop.sh
       - name: Synthetic routing and strict evidence-boundary metadata controls; no SDK/product execution
         run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_app_sdk_cohort.py -v
+      - name: Six synthetic cross-profile receipt/parser controls; no SDK or fixture execution
+        run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_profile_interop_evidence.py -v
   sdk:
     if: github.event_name == 'workflow_dispatch' && inputs.cohort != 'historical'
     needs: identity
