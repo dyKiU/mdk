@@ -50,12 +50,20 @@ class ArchiveGapTests(unittest.TestCase):
                 self.assertEqual([(r["test"], r["status"]) for r in failures], [("complete", status)])
                 self.assertEqual([r["test"] for p in plan for r in p["cases"]], ["missing"])
 
-    def test_only_actual_runner_cancellation_makes_sigterm_uncompleted(self):
+    def test_later_job_cancellation_cannot_erase_an_earlier_sigterm_failure(self):
+        earlier = line(status="SIGTERM")
+        marker = "2026-10-19T09:00:00Z The operation was canceled.\n"
+        _, failures, selected = prepare_plan(
+            inventory(), {"1": earlier + marker}, 2, interrupted_jobs={"1"})
+        self.assertEqual([row["status"] for row in failures], ["SIGTERM"])
+        self.assertEqual([row["test"] for part in selected for row in part["cases"]], ["missing"])
+
+    def test_ambiguous_sigterm_stays_a_failure_even_in_a_cancelled_job(self):
         marker = "The operation was canceled.\n"
         logs = {"1": line(status="SIGTERM") + marker}
         _, failures, selected = prepare_plan(inventory(), logs, 2, interrupted_jobs={"1"})
-        self.assertEqual(failures, [])
-        self.assertEqual({r["test"] for p in selected for r in p["cases"]}, {"complete", "missing"})
+        self.assertEqual([row["status"] for row in failures], ["SIGTERM"])
+        self.assertEqual({r["test"] for p in selected for r in p["cases"]}, {"missing"})
         self.assertEqual(prepare_plan(inventory(), logs, 2)[1][0]["status"], "SIGTERM")
         for changed, interrupted in (({"1": line(status="SIGTERM")}, {"1"}), (logs, {"2"})):
             with self.assertRaises(ValueError):
@@ -85,7 +93,7 @@ class ArchiveGapTests(unittest.TestCase):
                                    github_output=root / "output")
             write_plan(args)
             summary = json.loads((root / "summary.json").read_text())
-            self.assertEqual((summary["retained_passes"], summary["original_failures"], summary["missing"]), (1, 0, 1))
+            self.assertEqual((summary["retained_passes"], summary["original_failures"], summary["missing"]), (1, 1, 0))
             self.assertFalse(summary["qualified"])
             jobs[1]["conclusion"] = "failure"
             (root / "original-jobs.json").write_text(json.dumps(jobs))

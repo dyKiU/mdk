@@ -24,7 +24,7 @@ TERMINAL = re.compile(
 )
 
 
-def recover(inventory, logs, *, terminal=TERMINAL, interrupted_jobs=frozenset()):
+def recover(inventory, logs, *, terminal=TERMINAL):
     selected = {}
     for suite_id, suite in inventory["rust-suites"].items():
         for name, case in suite["testcases"].items():
@@ -43,10 +43,9 @@ def recover(inventory, logs, *, terminal=TERMINAL, interrupted_jobs=frozenset())
                 raise ValueError(f"Terminal case absent from runnable inventory: {key}")
             if key in observed:
                 raise ValueError(f"Duplicate terminal case: {key}")
-            # A runner-cancelled body did not finish. Other signals, including
-            # aborts and a SIGTERM without external cancellation, are failures.
-            if status == "SIGTERM" and job in interrupted_jobs:
-                status = "uncompleted"
+            # A job-level cancellation cannot prove that this individual test
+            # was interrupted by the runner. Retain every observed terminal
+            # signal as a failure, even if cancellation also appears in the log.
             observed[key] = dict(status=status, job=job)
     passed, remaining = [], []
     for key, case in sorted(selected.items()):

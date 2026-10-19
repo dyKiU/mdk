@@ -176,7 +176,7 @@ def prepare_plan(inventory, logs, partitions, *, interrupted_jobs=frozenset()):
             raise ValueError("Interrupted job lacks an external cancellation marker")
     passed, remaining = recover(
         inventory, {job: without_failure_recap(log) for job, log in logs.items()},
-        terminal=ORIGINAL_TERMINAL, interrupted_jobs=interrupted_jobs)
+        terminal=ORIGINAL_TERMINAL)
     missing = [row for row in remaining if row["status"] == "uncompleted"]
     failures = [row for row in remaining if row["status"] != "uncompleted"]
     plan, replacements = make_plan(missing, partitions, replace_known=False)
