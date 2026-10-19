@@ -2381,16 +2381,21 @@ impl<S: StorageProvider> Engine<S> {
             })
             .map_err(|error| OpenMlsProjectionError::Replay(error.to_string()))?
         {
-            if self
+            if let Some(request) = self
                 .load_leave_request_state(group_id)
                 .map_err(|e| OpenMlsProjectionError::Storage(format!("{e:?}")))?
-                .is_some()
             {
                 // The selected branch advanced without consuming our
                 // SelfRemove. The proposal is epoch-bound, but the durable
                 // leave request is not; keep the send gate so the async
                 // convergence wrapper can publish a fresh proposal.
                 self.leaving_groups.insert(group_id.clone());
+                if request.last_proposed_epoch != Some(selected_tip) {
+                    // Inline ingest can complete this pass without a worker
+                    // timer. Retain an edge for the normal async drain; it
+                    // rechecks the original request and publication barriers.
+                    self.schedule_pending_convergence_group(group_id);
+                }
             } else if self.leaving_groups.contains(group_id) {
                 // Compatibility cleanup for a pre-durable in-memory gate.
                 self.leaving_groups.remove(group_id);
