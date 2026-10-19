@@ -8,10 +8,11 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='d87717a234fbb434c9e4d584e9c36366076cd167'
+BASE='13dcc02eb1abeda0fc7e04a4d059429bbe3e1062'
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
-WORKFLOW_SHA='026843864bdff9569a99eb64bdf7c7ccdb762dbe4660a6d60469a81f1edaf7d4'
+APPROVED_BASE_TEST_DELTAS={'crates/marmot-app/src/native_device_linking/tests.rs': {'before': 'b50bb5dc83643286212e4edee84b91e0cf0ae3a210818bf07cf39617833a31a4', 'after': 'ef450d4a6e6de0d2989cce96ad87f550529282e433590629270bae25e0000168', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs': {'before': '1eeb59aff6dea7791d9970c68ef1227da9de678d05664fda4fc238a50c25e7e0', 'after': 'a6da36ab13def9b3c443bc3a55facd536fede8c3cdea4875d32d2888542d47ec', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs': {'before': '5a89b3cc3e70cb608b78546c993e332f30feb6ab59576195e6656323f161582c', 'after': '8706544aa426d6a945e880089c95d5a5ab6b4ef3d55ef9dbf7dc2d2487e2c1c5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before': 'a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca', 'after': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'mode': '100644'}}
+WORKFLOW_SHA='59ca1a6b8c4e10dfb96f423c30a140822f5f3fa561e94ca6c0081eaa1861bd01'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -20,7 +21,7 @@ EXPECTED_GRAPH={'marmot_app': ['default', 'experimental-device-sync', 'otlp-expo
 OUT=Path(os.environ.get('RUNNER_TEMP','/tmp'))/'current-enrollment-evidence'
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
-FIXTURE_SHA='a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca'
+FIXTURE_SHA='88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5'
 PARENT_SHA='674912b2606b11ab735b947fdab2b8f9e28597f07f406ab8cff8b6e7c8733fe9'
 STRICT_HELPER_SHA='a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
@@ -85,8 +86,9 @@ def source_guard(preflight=False):
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
     pure=layout(PURE_PRODUCT_BASE);baseline=layout(BASE);current=layout('HEAD')
     differences={path for path in set(pure)|set(baseline) if pure.get(path)!=baseline.get(path)}
-    ensure(differences==REVIEWED_PRODUCT_METADATA,'pure-product-plus-exact-reviewed-metadata-union-only')
-    ensure(all(path.startswith(('scripts/','.github/workflows/')) for path in differences),'no-Rust-Cargo-product-exceptions')
+    ensure(differences==REVIEWED_PRODUCT_METADATA|set(APPROVED_BASE_TEST_DELTAS),'pure-product-plus-exact-nine-metadata-four-reviewed-test-deltas')
+    for path,pin in APPROVED_BASE_TEST_DELTAS.items():
+        ensure(pure[path][0]==baseline[path][0]==pin['mode']=='100644' and digest(git('show',PURE_PRODUCT_BASE+':'+path))==pin['before'] and digest(git('show',BASE+':'+path))==pin['after'],'exact-approved-BASE-test-before-after-modes')
     ensure(SELF in baseline and WORKFLOW in baseline and set(current)==set(baseline),'exact-BASE-inventory-two-existing-owned-metadata')
     ensure(all(baseline[path][0]=='100644' for path in [SELF,WORKFLOW]),'owned-existing-regular-metadata-modes')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -106,7 +108,7 @@ def source_guard(preflight=False):
     ensure(text.count(begin)==text.count(endmark)==1 and digest(text.split(begin,1)[1].split(endmark,1)[0].encode())==ORACLE_SHA,'immutable-five-oracle-region')
     ensure(git_closure()['verified'],'tracked-index-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
-        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'BASE_product_difference_is_exact_reviewed_metadata_union':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),
+        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'BASE_product_difference_is_exact_reviewed_metadata_union':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_BASE_test_deltas':APPROVED_BASE_TEST_DELTAS,'all_HEAD_Rust_exact_BASE':True,
         'owned_existing_metadata_content_bound_to_HEAD':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
 
 def compile_app(report,cohort,tracked,save_report):
@@ -156,7 +158,7 @@ def aggregate(cases,expected_count):
     return result
 
 
-def required_count(mode):return {'five':1,'sixteen':16,'both':17,'observations':4}[mode]
+def required_count(mode):return {'five':1,'sixteen':16,'both':17,'observations':4,'observations-five':2}[mode]
 
 def selected_cases(mode):
     five=[('five',native.SUFFIX,native.NAME,None)]
@@ -166,10 +168,11 @@ def selected_cases(mode):
         and all(len({row[i] for row in rows})==16 for i in [0,1,2])
         and {'policy','stress_0','stress_1','stress_2','paused_clock'}<={row[0] for row in rows},'original-exact-sixteen-inventory')
     ensure(all(type(label) is str and type(suffix) is str and type(name) is str and name.endswith(suffix) for label,suffix,name,_ in rows),'exact-source-case-names')
-    if mode=='observations':
+    if mode in OBSERVATION_MODES:
         indexed={row[0]:row for row in five+rows}
-        result=[indexed[label] for label in OBSERVATION_LABELS]
-        ensure(len(result)==4 and len({row[2] for row in result})==4,'exact-four-original-observation-cases')
+        labels=OBSERVATION_FIVE_LABELS if mode=='observations-five' else OBSERVATION_LABELS
+        result=[indexed[label] for label in labels]
+        ensure(len(result)==required_count(mode) and len({row[2] for row in result})==required_count(mode),'exact-selected-original-observation-cases')
         return result
     if mode=='both':
         result=five+rows
@@ -181,11 +184,11 @@ def selected_cases(mode):
 def cohort_totals(cases,mode):
     result={}
     for cohort,size in [('five',1),('sixteen',16)]:
-        expected=(1 if cohort=='five' else 3) if mode=='observations' else (size if mode in (cohort,'both') else 0)
+        expected=(1 if cohort=='five' or mode=='observations-five' else 3) if mode in OBSERVATION_MODES else (size if mode in (cohort,'both') else 0)
         rows=[row for row in cases if row.get('cohort')==cohort]
         result[cohort]=aggregate(rows,expected)
         result[cohort]['required']=expected>0
-        if mode=='observations':result[cohort]['selected_subset_not_full_sixteen']=cohort=='sixteen'
+        if mode in OBSERVATION_MODES:result[cohort]['selected_subset_not_full_sixteen']=cohort=='sixteen'
         result[cohort]['all_original_cases_green']=None if expected==0 else len(rows)==expected and all(row.get('oracle_green') is True for row in rows)
     return result
 
@@ -221,6 +224,8 @@ def closed_panic_sites(raw,name,tracked,read_bytes=None):
 
 # Fixed source-owned observations only. They never authorize an original PASS.
 OBSERVATION_LABELS=('policy','five','original_2','stress_1')
+OBSERVATION_FIVE_LABELS=('policy','five')
+OBSERVATION_MODES=('observations','observations-five')
 PHASES=('AwaitingSetup','AwaitingPeer','ComparisonAvailable','AwaitingPeerVerification','VerificationCompleteEnrollmentPending','Cancelled','Expired','Failed','EnrollmentComplete')
 REASONS=('VerifierFallback','NoRound','GuardInvalid','NoSettledRoster','SharingPending','Complete')
 RPC_STAGES=('DispatchStarted','WorkerStarted','WorkerReturned','FacadeReturned','AutomaticEntered','AutomaticExited')
@@ -324,7 +329,83 @@ def observed_policy(raw,name,tracked,read_source=None,root=None):
         rows.append({'file':path,'line':line,'function':function})
     ensure(0<len(rows)<=64 and len({(row['file'],row['line']) for row in rows})==len(rows),'bounded-distinct-source-offenders')
     return {'available':True,'offenders':rows,'source_owned_assertion_site':{'file':POLICY_FILE,'line':assert_line,'column':5},'raw_panic_payload_exported':False}
-def finite_observations(raw,name,tracked):
+# This existing diagnostic type is a five-field numeric/finite-enum snapshot,
+# not the State/Channel Debug representation. Periodic masks may be stale.
+MAINTENANCE_FAILURES=('Owner','Collection','Runtime','Engine','Genesis','Gate','PrivateInvite')
+PUBLICATION_STAGES=('BeforeCoreWrap','AfterCoreWrap','BeforeRelayPublication','AfterRelayPublication')
+
+def approval_snapshot(value):
+    if value=='None':return None
+    failure='|'.join(MAINTENANCE_FAILURES);stage='|'.join(PUBLICATION_STAGES)
+    m=re.fullmatch(r'Some\(\(('+NUM+'), ('+NUM+'), ('+NUM+r'), (None|Some\(('+failure+r')\)), (None|Some\(('+stage+r')\))\)\)',value)
+    ensure(m is not None,'closed-five-field-approval-snapshot')
+    bits=observation_uint(m[1]);visits=observation_uint(m[2]);failures=observation_uint(m[3])
+    ensure(bits<=255 and failures<=visits,'approval-mask-width-and-visit-failure-coherence')
+    return {'last_periodic_mask':bits,'periodic_visits':visits,'periodic_failures':failures,
+        'last_failure':None if m[4]=='None' else m[5],'publication_stage':None if m[6]=='None' else m[7]}
+
+def observed_approvals(raw):
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control existing_index=' in line]
+    ensure(len(lines)<=128,'bounded-existing-approval-rows');rows=[]
+    for line in lines:
+        ensure(len(line.encode())<=512,'bounded-existing-approval-line')
+        m=re.fullmatch(r'automatic-enrollment-control existing_index=('+NUM+r') child_channel=(.+)',line)
+        ensure(m is not None,'exact-existing-approval-record')
+        index=observation_uint(m[1]);ensure(index<128,'bounded-existing-approval-index')
+        rows.append({'index':index,'snapshot':approval_snapshot(m[2])})
+    ensure([row['index'] for row in rows]==list(range(len(rows))),'unique-ordered-complete-prefix-approval-indices')
+    return {'schema_known':True,'available':bool(rows),'record_count':len(rows),'rows':rows,
+        'fifth_join_evidence_known':None,'all_three_actual_snapshots_present':None,'fifth_A_C_D_mapping_available':False,'partial_or_unknown':True,'fixture_installations_by_index':None,
+        'periodic_mask_not_current_state':True,'publication_stage_not_result_success':True,
+        'separate_getters_not_joint_snapshot':True,'raw_State_or_Channel_Debug_exported':False}
+
+def bind_fifth_approvals(parsed,original,side_result):
+    # The immutable fixture's final join is B->E; its ascending non-sponsor
+    # existing approvals are A,C,D. Never apply that mapping to an earlier join.
+    facts=original.get('facts') if type(original) is dict else None
+    sides=side_result.get('rows') if type(side_result) is dict else None
+    right=(sides[1].get('completion') if type(sides) is list and len(sides)==2 and sides[1].get('side')=='right' else None)
+    fifth=type(facts) is dict and type(facts.get('completed_steps')) is int and facts['completed_steps']==3 and type(right) is dict and type(right.get('expected')) is int and right['expected']==3
+    complete=parsed.get('schema_known') is True and parsed.get('record_count')==3 and [row.get('index') for row in parsed.get('rows',[])]==[0,1,2] and all(row.get('snapshot') is not None for row in parsed.get('rows',[]))
+    parsed['fifth_join_evidence_known']=bool(fifth)
+    parsed['all_three_actual_snapshots_present']=bool(complete)
+    parsed['fifth_A_C_D_mapping_available']=bool(fifth and complete)
+    parsed['partial_or_unknown']=not (fifth and complete)
+    parsed['fixture_installations_by_index']=['A','C','D'] if fifth and complete else None
+    return parsed
+
+def approval_controls():
+    value='Some((255, 3, 1, Some(Engine), Some(AfterRelayPublication)))'
+    ensure(approval_snapshot(value)['last_failure']=='Engine','approval-known-finite-positive')
+    ensure(approval_snapshot('Some((0, 0, 0, None, None))')['publication_stage'] is None,'approval-default-unknown-positive')
+    ensure(approval_snapshot('None') is None,'approval-unavailable-positive')
+    raw='\n'.join('automatic-enrollment-control existing_index='+str(i)+' child_channel='+value for i in range(3))
+    original={'facts':{'completed_steps':3}};sides={'rows':[{'side':'left','completion':None},{'side':'right','completion':{'expected':3}}]}
+    bound=bind_fifth_approvals(observed_approvals(raw),original,sides)
+    ensure(bound['fifth_A_C_D_mapping_available'] is True and bound['fixture_installations_by_index']==['A','C','D'],'actual-fifth-complete-binding-positive')
+    none=raw.replace('existing_index=1 child_channel='+value,'existing_index=1 child_channel=None')
+    ensure(bind_fifth_approvals(observed_approvals(none),original,sides)['fixture_installations_by_index'] is None,'None-snapshot-not-role-bound-positive')
+    ensure(bind_fifth_approvals(observed_approvals(raw),{'facts':{'completed_steps':2}},sides)['fixture_installations_by_index'] is None,'earlier-failure-not-fifth-role-bound-positive')
+    ensure(bind_fifth_approvals(observed_approvals(raw),original,{'rows':[]})['fixture_installations_by_index'] is None,'missing-right-expected-not-role-bound-positive')
+    ensure(bind_fifth_approvals(observed_approvals('\n'.join(raw.splitlines()[:2])),original,sides)['fixture_installations_by_index'] is None,'partial-rows-not-role-bound-positive')
+    ensure(bind_fifth_approvals(observed_approvals(''),original,sides)['partial_or_unknown'] is True,'missing-rows-unknown-positive')
+    maximum='Some((255, 18446744073709551615, 18446744073709551615, Some(PrivateInvite), Some(BeforeCoreWrap)))'
+    ensure(approval_snapshot(maximum)['periodic_visits']==(1<<64)-1,'approval-width-maximum-positive')
+    invalid=[value.replace('255','256'),value.replace('3, 1','1, 2'),value.replace('Some(Engine)','Some(PRIVATE)'),value.replace('Some(AfterRelayPublication)','Some(PRIVATE)'),value.replace('Some((255','Some(255'),value.replace('3, 1','18446744073709551616, 1'),value.replace('255','-1'),value.replace('255','true'),value+' PRIVATE',value.replace(', 3, 1',', 3')]
+    for bad in invalid:
+        try:approval_snapshot(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'invalid-approval-schema-not-exported')
+    bad_rows=[raw+'\n'+raw.splitlines()[0],raw.replace('existing_index=1','existing_index=0'),raw.replace('existing_index=1','existing_index=3'),raw.replace('existing_index=2','existing_index=128'),raw.replace(' child_channel=',' account=PRIVATE child_channel='),raw.replace(value,'PRIVATE'),raw+' PRIVATE']
+    for bad in bad_rows:
+        try:observed_approvals(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'invalid-approval-records-not-exported')
+    for facts,sample in [({'facts':{'completed_steps':True}},sides),(original,{'rows':[{'side':'left'},{'side':'right','completion':{'expected':True}}]})]:
+        ensure(bind_fifth_approvals(observed_approvals(raw),facts,sample)['fixture_installations_by_index'] is None,'bool-not-fifth-count')
+    return {'positive':10,'negative':len(invalid)+len(bad_rows)+2,'runtime_bodies':0,'raw_private_export':False}
+
+def finite_observations(raw,name,tracked,include_approvals=False):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     prefix=r'(?m)^test '+re.escape(name)+r' \.\.\. '
     if len(re.findall(prefix,text))>1:return {'schema_known':False,'available':None,'duplicate_selected_prefix':True,'raw_private_export':False}
@@ -333,6 +414,9 @@ def finite_observations(raw,name,tracked):
     for key,extract in [('fixture_stage',lambda:observed_stage(text)),('phase_timeout',lambda:observed_phase(text,name)),('side_aggregates',lambda:observed_sides(text)),('policy_offenders',lambda:observed_policy(text,name,tracked))]:
         try:result[key]=dict(schema_known=True,**extract())
         except (ValueError,TypeError,OverflowError,OSError):result[key]={'schema_known':False,'available':None,'values':None,'closed_schema_rejected':True}
+    if include_approvals:
+        try:result['existing_approvals']=observed_approvals(text)
+        except (ValueError,TypeError,OverflowError):result['existing_approvals']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
     return result
 
 def observation_controls():
@@ -389,24 +473,33 @@ def execute_case(report,row,binary,before,mode,parent,inputs,label,name,five):
     basic=counts.parse_body(raw,code,name);row['basic_counts']=closed_counts(basic)
     for dest,key in [('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored'),('actual_executed_nonignored','executed_nonignored')]:row[dest]=basic.get(key)
     row['actual_test_passed']=basic.get('passed_gate') is True;save(report)
-    if report['expected_case_mode']=='observations':
-        try:row['finite_observations']=finite_observations(raw,name,set(inputs))
+    if report['expected_case_mode'] in OBSERVATION_MODES:
+        try:row['finite_observations']=finite_observations(raw,name,set(inputs),include_approvals=report['expected_case_mode']=='observations-five' and five)
         except Exception:row['finite_observations']={'schema_known':False,'available':None,'raw_private_export':False}
         save(report)
     row['panic_locations']=closed_panic_sites(raw,name,set(inputs));save(report)
     ensure(row['source_after_body_pristine'] and row['binary_after_regular_parent'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
     parsed=native.parse(raw,code) if five else ack.parse_case(label,raw,code)
     row['original_oracle']=closed_oracle(parsed)
+    if five and report['expected_case_mode']=='observations-five':
+        observations=row.get('finite_observations',{})
+        approvals=observations.get('existing_approvals')
+        if type(approvals) is dict:
+            try:observations['existing_approvals']=bind_fifth_approvals(approvals,row['original_oracle'],observations.get('side_aggregates'))
+            except (ValueError,TypeError,KeyError):observations['existing_approvals']={'schema_known':False,'available':None,'partial_or_unknown':True,'fixture_installations_by_index':None}
+        save(report)
     row['oracle_green']=row['actual_test_passed'] and (native.green(parsed) if five else ack.case_green(label,parsed)) is True
     save(report)
 
 def parser_controls(mode):
-    inherited=({'five':native.parser_controls(),'sixteen':ack.parser_controls()} if mode in ('both','observations') else
+    inherited=({'five':native.parser_controls(),'sixteen':ack.parser_controls()} if mode in ('both','observations','observations-five') else
         (native.parser_controls() if mode=='five' else ack.parser_controls()))
     names=selected_cases(mode);supplemental_controls=None
-    if mode=='observations':
-        ensure(tuple(row[0] for row in names)==OBSERVATION_LABELS,'fixed-four-original-observation-order')
+    if mode in OBSERVATION_MODES:
+        labels=OBSERVATION_FIVE_LABELS if mode=='observations-five' else OBSERVATION_LABELS
+        ensure(tuple(row[0] for row in names)==labels,'fixed-original-observation-order')
         supplemental_controls=observation_controls()
+        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls()}
     ensure(len(names)==required_count(mode),'exact-selected-case-count')
     if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
@@ -445,14 +538,14 @@ def main(args):
     report={'expected_case_mode':args.mode,'preflight_only':args.preflight,'actual_test_qualification':False,'global_qualification':False,
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'automatic_retries':0,'raw_runtime_output_exported':False,
         'requested_features':FEATURES,'environment_stack_bytes':4194304,'Tokio_workers':2 if args.mode=='five' else None,
-        'observation_only':args.mode=='observations','runtime_flavor': 'original-five-two-worker' if args.mode=='five' else ('original-source-defined-mixed-five-plus-sixteen' if args.mode=='both' else ('original-source-defined-four-selected-cases' if args.mode=='observations' else 'original-source-defined-mixed-sixteen')),
-        'actual_runtime_attempts':0,'actual_executed_nonignored':0,'strict_five_join_deadline_seconds':15 if args.mode in ('five','both','observations') else None,'body_watchdog_seconds':None if args.mode in ('both','observations') else (900 if args.mode=='five' else 300),'body_watchdog_seconds_by_cohort':{'five':900,'sixteen':300},'output_limit_bytes':8*1024*1024,'cases':[]}
+        'observation_only':args.mode in OBSERVATION_MODES,'runtime_flavor': 'original-five-two-worker' if args.mode=='five' else ('original-source-defined-mixed-five-plus-sixteen' if args.mode=='both' else ('original-source-defined-four-selected-cases' if args.mode=='observations' else ('original-policy-plus-strict-five' if args.mode=='observations-five' else 'original-source-defined-mixed-sixteen'))),
+        'actual_runtime_attempts':0,'actual_executed_nonignored':0,'strict_five_join_deadline_seconds':15 if args.mode in ('five','both','observations','observations-five') else None,'body_watchdog_seconds':None if args.mode in ('both','observations','observations-five') else (900 if args.mode=='five' else 300),'body_watchdog_seconds_by_cohort':{'five':900,'sixteen':300},'output_limit_bytes':8*1024*1024,'cases':[]}
     save(report);inputs=None;binary=None;before=None;mode=None;parent=None
     try:
         report['controller_stage']='source_guard';save(report)
         report['source']=source_guard(args.preflight);inputs=physical();save(report)
         report['controller_stage']='parser_controls';save(report)
-        report['parser_controls']=({item:parser_controls(item) for item in ['five','sixteen','both','observations']} if args.preflight else parser_controls(args.mode));save(report)
+        report['parser_controls']=({item:parser_controls(item) for item in ['five','sixteen','both','observations','observations-five']} if args.preflight else parser_controls(args.mode));save(report)
         if args.preflight:
             report['actual_executed_nonignored']=0;report['preflight_passed']=True;save(report);return
         report['controller_stage']='compile_admission';save(report)
@@ -485,7 +578,7 @@ def main(args):
         report['all_original_cases_green']=len(report['cases'])==len(selected) and all(row.get('oracle_green') is True for row in report['cases'])
         report['git_closure_before_qualification']=git_closure()
         report['all_selected_originals_and_closure_green']=report['all_original_cases_green'] and source_matches(inputs) and report['git_closure_before_qualification']['verified']
-        report['actual_test_qualification']=args.mode!='observations' and report['all_selected_originals_and_closure_green']
+        report['actual_test_qualification']=args.mode not in OBSERVATION_MODES and report['all_selected_originals_and_closure_green']
         save(report);ensure(report['all_selected_originals_and_closure_green'],'original-current-enrollment-cases-not-all-GREEN')
     except Exception as error:
         report['controller_failure_type']=closed_exception(error);save(report);raise
@@ -502,8 +595,8 @@ def main(args):
         if not report['final_source_pristine'] or not report['final_git_closure']['verified'] or report['final_binary_pristine'] is False:report['actual_test_qualification']=False
         save(report)
         ensure(report['final_source_pristine'] and report['final_git_closure']['verified'] and report['final_binary_pristine'] is not False,'final-source-binary-mode-closure')
-    ensure(report.get('all_selected_originals_and_closure_green') is True if args.mode=='observations' else report['actual_test_qualification'],'actual-original-case-verdicts-and-closure-required')
+    ensure(report.get('all_selected_originals_and_closure_green') is True if args.mode in OBSERVATION_MODES else report['actual_test_qualification'],'actual-original-case-verdicts-and-closure-required')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','both','observations'],default='both')
+    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--mode',choices=['five','sixteen','both','observations','observations-five'],default='both')
     main(parser.parse_args())
