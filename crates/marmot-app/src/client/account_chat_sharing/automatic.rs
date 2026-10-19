@@ -386,40 +386,53 @@ impl AppClient {
         receiver: &transport_nostr::AccountReceiverIdentityForTest,
     ) {
         let account = self.runtime.session().self_id();
-        let mut queue_query = |outer: &cgka_traits::MessageId,
-                               content: &cgka_traits::MessageId,
-                               origin: std::time::Instant,
-                               request_origin: Option<std::time::Instant>| {
-            let capture = std::time::Instant::now();
-            let plane = &self.app.relay_plane;
-            // Exactly the old two observer reads and one receiver comparison.
-            // Both clock views convert these SAME copied physical Instants.
-            let outer_row = plane.account_notification_timing_for_test(&account, &hex::encode(outer.as_slice()));
-            let content_row = plane.account_notification_timing_for_test(&account, &hex::encode(content.as_slice()));
-            let same_receiver = plane.account_notification_same_receiver_for_test(&account, &hex::encode(outer.as_slice()), receiver);
-            let facts = |basis: std::time::Instant| {
-                let elapsed = |instant: std::time::Instant| {
-                    instant.checked_duration_since(basis).and_then(|duration| u64::try_from(duration.as_millis()).ok())
+        let mut queue_query =
+            |outer: &cgka_traits::MessageId,
+             content: &cgka_traits::MessageId,
+             origin: std::time::Instant,
+             request_origin: Option<std::time::Instant>| {
+                let capture = std::time::Instant::now();
+                let plane = &self.app.relay_plane;
+                // Exactly the old two observer reads and one receiver comparison.
+                // Both clock views convert these SAME copied physical Instants.
+                let outer_row = plane
+                    .account_notification_timing_for_test(&account, &hex::encode(outer.as_slice()));
+                let content_row = plane.account_notification_timing_for_test(
+                    &account,
+                    &hex::encode(content.as_slice()),
+                );
+                let same_receiver = plane.account_notification_same_receiver_for_test(
+                    &account,
+                    &hex::encode(outer.as_slice()),
+                    receiver,
+                );
+                let facts = |basis: std::time::Instant| {
+                    let elapsed = |instant: std::time::Instant| {
+                        instant
+                            .checked_duration_since(basis)
+                            .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+                    };
+                    let observation = |row: transport_nostr::AccountNotificationTimingForTest| {
+                        consent_delivery_probe::ProofQueueObservation {
+                            disposition: row.0,
+                            placement: row.2,
+                            depths: row.4.0,
+                            dequeued: row.4.1,
+                            accepted_ms: row.3[0].and_then(elapsed),
+                            dequeued_ms: row.4.2.and_then(elapsed),
+                            invalid: row.4.3,
+                        }
+                    };
+                    consent_delivery_probe::ProofQueueFacts {
+                        capture_ms: elapsed(capture),
+                        outer: outer_row.map(observation),
+                        content: content_row.map(observation),
+                        same_receiver,
+                        outer_equals_content: outer == content,
+                    }
                 };
-                let observation = |row: transport_nostr::AccountNotificationTimingForTest| consent_delivery_probe::ProofQueueObservation {
-                    disposition: row.0,
-                    placement: row.2,
-                    depths: row.4.0,
-                    dequeued: row.4.1,
-                    accepted_ms: row.3[0].and_then(elapsed),
-                    dequeued_ms: row.4.2.and_then(elapsed),
-                    invalid: row.4.3,
-                };
-                consent_delivery_probe::ProofQueueFacts {
-                    capture_ms: elapsed(capture),
-                    outer: outer_row.map(observation),
-                    content: content_row.map(observation),
-                    same_receiver,
-                    outer_equals_content: outer == content,
-                }
+                (facts(origin), request_origin.map(facts))
             };
-            (facts(origin), request_origin.map(facts))
-        };
         consent_delivery_probe::capture_proof_queue(
             self.app.account_home().root(),
             &account,

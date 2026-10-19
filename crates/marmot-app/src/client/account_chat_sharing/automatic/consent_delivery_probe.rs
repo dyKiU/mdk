@@ -795,7 +795,12 @@ pub(crate) struct ProofQueueFacts {
 /// Source identities are transient lookup keys, never part of stored queue facts.
 pub(crate) fn capture_proof_queue<F>(root: &Path, account: &cgka_traits::MemberId, mut query: F)
 where
-    F: FnMut(&MessageId, &MessageId, Instant, Option<Instant>) -> (ProofQueueFacts, Option<ProofQueueFacts>),
+    F: FnMut(
+        &MessageId,
+        &MessageId,
+        Instant,
+        Option<Instant>,
+    ) -> (ProofQueueFacts, Option<ProofQueueFacts>),
 {
     let Some(probe) = current(root).filter(|probe| {
         probe.mode == Mode::PeerProof
@@ -808,7 +813,8 @@ where
         return;
     };
     // Independent passive registry read before taking this probe's progress lock.
-    let request_origin = super::request_lineage_probe::observation_origin(root, account, &probe.group);
+    let request_origin =
+        super::request_lineage_probe::observation_origin(root, account, &probe.group);
     // Never hold the probe mutex while reading the relay-plane observer locks.
     let targets: Vec<_> = {
         let progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());

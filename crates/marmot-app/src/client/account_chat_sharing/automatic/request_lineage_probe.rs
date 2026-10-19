@@ -97,8 +97,13 @@ fn current(root: &Path) -> Option<Arc<Probe>> {
 }
 /// Borrow only the existing passive clock after exact root/account/group lookup.
 /// No owner, authority, path or Instant is exported from diagnostics.
-pub(super) fn observation_origin(root: &Path, account: &MemberId, group: &GroupId) -> Option<Instant> {
-    let probe = current(root).filter(|probe| probe.account.as_slice() == account.as_slice() && probe.group == *group)?;
+pub(super) fn observation_origin(
+    root: &Path,
+    account: &MemberId,
+    group: &GroupId,
+) -> Option<Instant> {
+    let probe = current(root)
+        .filter(|probe| probe.account.as_slice() == account.as_slice() && probe.group == *group)?;
     Some(probe.origin)
 }
 impl Drop for Probe {
