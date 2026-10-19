@@ -920,6 +920,8 @@ mod private_migration_0026_account_chat_departure;
 
 #[path = "private_migrations/0027_mirrored_direct_peer.rs"]
 mod private_migration_0027_mirrored_direct_peer;
+#[path = "private_migrations/0028_mirrored_chat_edits.rs"]
+mod private_migration_0028_mirrored_chat_edits;
 
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
@@ -1056,6 +1058,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 27,
         name: "0027_mirrored_direct_peer",
         apply: private_migration_0027_mirrored_direct_peer::apply,
+    },
+    Migration {
+        version: 28,
+        name: "0028_mirrored_chat_edits",
+        apply: private_migration_0028_mirrored_chat_edits::apply,
     },
 ];
 

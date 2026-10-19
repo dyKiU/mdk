@@ -54,7 +54,7 @@ impl SqliteAccountStorage {
                 JOIN page p ON p.group_id=m.group_id
                 JOIN mirrored_chat_live_catalog c ON c.scope=m.scope AND c.group_id=m.group_id
                 JOIN mirrored_chat_scopes s ON s.scope=m.scope
-                WHERE c.state=0 AND m.origin_id IS c.origin_id AND m.origin_order IS c.origin_order
+                WHERE m.kind<>1009 AND c.state=0 AND m.origin_id IS c.origin_id AND m.origin_order IS c.origin_order
                 AND NOT EXISTS(SELECT 1 FROM user_blocks blocked WHERE blocked.public_key=lower(hex(m.author)))
                 AND NOT EXISTS(SELECT 1 FROM app_events live WHERE live.group_id_hex=lower(hex(m.group_id)) AND live.message_id_hex=lower(hex(m.event_id)))
                 AND (m.deleted=1 OR NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=m.group_id AND terminal.event_id=m.event_id AND terminal.deleted=1))
@@ -92,6 +92,13 @@ impl SqliteAccountStorage {
                 }
                 entry.latest_message = Some(MirroredMessageObservation {
                     scope: scopes.get(source).ok_or_else(invalid)?.clone(),
+                    edit: crate::mirrored_chat_edits::resolve(
+                        &conn,
+                        scopes,
+                        &entry.catalog.entry.group_id,
+                        &record,
+                        now,
+                    )?,
                     record,
                 });
             }
