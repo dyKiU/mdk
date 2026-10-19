@@ -8,11 +8,14 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='4c0810c6f512eb8df672d7b4340f823a5a470eaf'
+BASE='0b1481fe25ee68fb201ff1a3beb95f73dcc4e52f'
+RAW_SOURCE='0b1481fe25ee68fb201ff1a3beb95f73dcc4e52f'
+SOURCE_PARENT='0cae96b7a44858b213a2ae1e2703893ff998a945'
+DIAGNOSTIC_SOURCE_PINS={'crates/marmot-app/src/client/private_enrollment_proposal.rs': {'before_sha256': 'caf4a6946bf91094db597f4c326df4fc497813b6bdf6a3f358752e0eb9b290e8', 'raw_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'canonical_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': 'e41d1015ef565db7d79df7438ffa92d83a888f45a98dc0b73641c69dd3a3db0d', 'raw_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'canonical_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': '674912b2606b11ab735b947fdab2b8f9e28597f07f406ab8cff8b6e7c8733fe9', 'raw_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'canonical_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before_sha256': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'raw_sha256': '9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7', 'canonical_sha256': '9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7', 'mode': '100644'}}
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
 APPROVED_BASE_TEST_DELTAS={'crates/marmot-app/src/native_device_linking/tests.rs': {'before': 'b50bb5dc83643286212e4edee84b91e0cf0ae3a210818bf07cf39617833a31a4', 'after': 'ef450d4a6e6de0d2989cce96ad87f550529282e433590629270bae25e0000168', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs': {'before': '1eeb59aff6dea7791d9970c68ef1227da9de678d05664fda4fc238a50c25e7e0', 'after': 'a6da36ab13def9b3c443bc3a55facd536fede8c3cdea4875d32d2888542d47ec', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs': {'before': '5a89b3cc3e70cb608b78546c993e332f30feb6ab59576195e6656323f161582c', 'after': '8706544aa426d6a945e880089c95d5a5ab6b4ef3d55ef9dbf7dc2d2487e2c1c5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before': 'a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca', 'after': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'mode': '100644'}}
-WORKFLOW_SHA='f5a381a71ea33dce6f4bfc4f295cea6e19880d17119691b93bc192925ac52aa9'
+WORKFLOW_SHA='93734757b76eb15d87576a4d90b24403fda0ebde50f92f191b07564655023943'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -21,9 +24,10 @@ EXPECTED_GRAPH={'marmot_app': ['default', 'experimental-device-sync', 'otlp-expo
 OUT=Path(os.environ.get('RUNNER_TEMP','/tmp'))/'current-enrollment-evidence'
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
-FIXTURE_SHA='88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5'
-PARENT_SHA='674912b2606b11ab735b947fdab2b8f9e28597f07f406ab8cff8b6e7c8733fe9'
-STRICT_HELPER_SHA='a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2'
+FIXTURE_SHA='9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7'
+PARENT_SHA='b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5'
+STRICT_WAIT_LOOP_SHA='29255c02115551856e1c5f84bf9203e79818211564ac41cb1bb9804cc082e5ca'
+STRICT_HELPER_SHA='8b1635d8c4230ace397374462dbdd504110dc032ccc1e6dd89541a33b8d1eb93'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
 NATIVE_HELPER='scripts/qualify_upstream_pure_native5.py'
 ACK_HELPER='scripts/qualify_upstream_request_retry_ack.py'
@@ -71,6 +75,7 @@ def physical():
     return rows
 
 def source_guard(preflight=False):
+    ensure(type(RAW_SOURCE) is str and re.fullmatch('[0-9a-f]{40}',RAW_SOURCE),'root-raw-source-pin-required')
     ensure(type(BASE) is str and re.fullmatch('[0-9a-f]{40}',BASE) and type(WORKFLOW_SHA) is str and re.fullmatch('[0-9a-f]{64}',WORKFLOW_SHA),'root-source-pins-required')
     ensure(Path.cwd().resolve()==Path(git('rev-parse','--show-toplevel').decode().strip()).resolve(),'physical-Git-root')
     ensure(bool(os.environ.get('RUNNER_TEMP')) and Path(os.environ['RUNNER_TEMP']).is_dir() and not within(OUT,Path.cwd()),'outside-hosted-output')
@@ -84,11 +89,24 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
-    pure=layout(PURE_PRODUCT_BASE);baseline=layout(BASE);current=layout('HEAD')
-    differences={path for path in set(pure)|set(baseline) if pure.get(path)!=baseline.get(path)}
-    ensure(differences==REVIEWED_PRODUCT_METADATA|set(APPROVED_BASE_TEST_DELTAS),'pure-product-plus-exact-nine-metadata-four-reviewed-test-deltas')
+    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);baseline=layout(BASE);current=layout('HEAD')
+    differences={path for path in set(pure)|set(prior) if pure.get(path)!=prior.get(path)}
+    ensure(differences==REVIEWED_PRODUCT_METADATA|set(APPROVED_BASE_TEST_DELTAS),'pure-to-source-parent-nine-metadata-four-reviewed-tests')
     for path,pin in APPROVED_BASE_TEST_DELTAS.items():
-        ensure(pure[path][0]==baseline[path][0]==pin['mode']=='100644' and digest(git('show',PURE_PRODUCT_BASE+':'+path))==pin['before'] and digest(git('show',BASE+':'+path))==pin['after'],'exact-approved-BASE-test-before-after-modes')
+        ensure(pure[path][0]==prior[path][0]==pin['mode']=='100644' and digest(git('show',PURE_PRODUCT_BASE+':'+path))==pin['before'] and digest(git('show',SOURCE_PARENT+':'+path))==pin['after'],'exact-approved-source-parent-test-before-after-modes')
+    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,BASE)]:
+        ensure(subprocess.run(['git','merge-base','--is-ancestor',ancestor,descendant]).returncode==0,'reviewed-diagnostic-source-ancestry')
+    ensure(set(prior)==set(raw_source)==set(baseline),'diagnostic-source-inventory-fixed')
+    ensure({p for p in prior if prior[p]!=raw_source[p]}==set(DIAGNOSTIC_SOURCE_PINS),'exact-four-raw-diagnostic-source-paths')
+    ensure({p for p in raw_source if raw_source[p]!=baseline[p]}<=set(DIAGNOSTIC_SOURCE_PINS),'canonical-format-only-owned-four-source-paths')
+    for path,pin in DIAGNOSTIC_SOURCE_PINS.items():
+        ensure(prior[path][0]==raw_source[path][0]==baseline[path][0]==pin['mode']=='100644'
+            and digest(git('show',SOURCE_PARENT+':'+path))==pin['before_sha256']
+            and digest(git('show',RAW_SOURCE+':'+path))==pin['raw_sha256']
+            and digest(git('show',BASE+':'+path))==pin['canonical_sha256'],'reviewed-four-full-before-raw-canonical-source-hashes')
+    full_differences={path for path in set(pure)|set(baseline) if pure.get(path)!=baseline.get(path)}
+    reviewed_Rust=set(APPROVED_BASE_TEST_DELTAS)|set(DIAGNOSTIC_SOURCE_PINS)
+    ensure(len(reviewed_Rust)==7 and full_differences==REVIEWED_PRODUCT_METADATA|reviewed_Rust,'pure-to-BASE-nine-metadata-seven-reviewed-Rust-deltas')
     ensure(SELF in baseline and WORKFLOW in baseline and set(current)==set(baseline),'exact-BASE-inventory-two-existing-owned-metadata')
     ensure(all(baseline[path][0]=='100644' for path in [SELF,WORKFLOW]),'owned-existing-regular-metadata-modes')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -102,13 +120,15 @@ def source_guard(preflight=False):
     ensure(digest(Path(WORKFLOW).read_bytes())==WORKFLOW_SHA,'exact-owned-workflow')
     ensure(digest(Path(FIXTURE).read_bytes())==FIXTURE_SHA and digest(Path(PARENT).read_bytes())==PARENT_SHA,'immutable-original-five-fixture-parent')
     parent=Path(PARENT).read_text();start=parent.index('async fn wait_for_automatic_phase_with_approvals(');end=parent.index('\n}\n',start)+3
-    ensure(digest(parent[start:end].encode())==STRICT_HELPER_SHA,'original-strict15-helper')
+    ensure(digest(parent[start:end].encode())==STRICT_HELPER_SHA,'reviewed-helper-with-timeout-only-diagnostics')
+    wait_end=parent.index('    .unwrap_or_else(|_| {',start)
+    ensure(digest(parent[start:wait_end].encode())==STRICT_WAIT_LOOP_SHA,'byte-original-15s-positive-wait-loop')
     for path,sha in HELPER_PINS.items():ensure(digest(Path(path).read_bytes())==sha,'immutable-oracle-helper-blob')
     text=Path(NATIVE_HELPER).read_text();begin='# NATIVE5_IMMUTABLE_ORACLE_BEGIN\n';endmark='# NATIVE5_IMMUTABLE_ORACLE_END\n'
     ensure(text.count(begin)==text.count(endmark)==1 and digest(text.split(begin,1)[1].split(endmark,1)[0].encode())==ORACLE_SHA,'immutable-five-oracle-region')
     ensure(git_closure()['verified'],'tracked-index-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
-        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'BASE_product_difference_is_exact_reviewed_metadata_union':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_BASE_test_deltas':APPROVED_BASE_TEST_DELTAS,'all_HEAD_Rust_exact_BASE':True,
+        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
         'owned_existing_metadata_content_bound_to_HEAD':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
 
 def compile_app(report,cohort,tracked,save_report):
@@ -464,6 +484,96 @@ def child_controls():
     ensure(child_snapshots('None') is None and child_snapshots('Some([])') is not None,'outerNone-not-empty-vector')
     return {'positive':10,'negative':len(bad_values)+len(bad_rows),'runtime_bodies':0,'raw_private_export':False,'max_vector_entries':128,'max_value_bytes':32768}
 
+# Existing observer projection only: never exports its MessageId or Instants.
+def notification_entry(value):
+    if value=='None':return None
+    arr8=r'\['+', '.join([NUM]*8)+r'\]';arr6=r'\['+', '.join([NUM]*6)+r'\]'
+    m=re.fullmatch(r'Some\(\(('+arr8+'), ('+arr6+r'), (None|Some\(\(('+NUM+'), ('+NUM+r')\)\)), ('+NUM+r'), (true|false), (true|false)\)\)',value)
+    ensure(m is not None,'closed-existing-notification-entry')
+    dispatch=observation_array(m[1],8);placement=observation_array(m[2],6)
+    depth=None if m[3]=='None' else [observation_uint(m[4]),observation_uint(m[5])]
+    dequeued=observation_uint(m[6]);first=m[7]=='true';invalid=m[8]=='true'
+    ensure(depth is None or (max(depth)<=1025 and placement[0]>0),'source-queue-depth-bounds-and-actual-acceptance')
+    ensure(first==(dequeued>0),'actual-dequeue-and-first-callback-presence')
+    return {'dispatch_counts':dispatch,'placement_counts':placement,'first_accepted_depths':depth,'Delivery_dequeue_callbacks':dequeued,'first_dequeue_present':first,'invalid':invalid}
+
+def observed_notifications(raw):
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control existing_index=' in line and ' latest_prepared_id_available=' in line]
+    ensure(len(lines)<=128,'bounded-existing-source-notification-rows');rows=[]
+    for line in lines:
+        ensure(len(line.encode())<=2048,'bounded-existing-source-notification-line')
+        m=re.fullmatch(r'automatic-enrollment-control existing_index=('+NUM+r') latest_prepared_id_available=(true|false) recipient_notification=(.+)',line)
+        ensure(m is not None,'exact-existing-source-notification-line')
+        index=observation_uint(m[1]);ensure(index<128,'bounded-source-notification-index')
+        entry=notification_entry(m[3]);available=m[2]=='true'
+        ensure(available or entry is None,'no-entry-without-captured-publication-key')
+        rows.append({'index':index,'publication_id_available':available,'entry':entry})
+    ensure([v['index'] for v in rows]==list(range(len(rows))),'source-notification-ordered-unique-indices')
+    return {'schema_known':True,'available':bool(rows),'rows':rows,'publication_kind':'UNKNOWN',
+        'captured_latest_prepared_key_not_current_publication':True,'separate_source_and_receiver_getters':True,
+        'None_is_unknown_cap_512_or_missing_not_absence':True,'full_queue_or_protocol_history_claimed':False,
+        'depths_not_atomic_FIFO_position':True,'dequeue_before_App_owner_Core_filters':True,'IDs_and_Instants_exported':False}
+
+TRACE_CATEGORIES={'outer_authentication':('unsupported','not_ready','closed','stale_revision','runtime_unavailable'),
+    'sibling_dispatch':('consumed','not_consumed','unsupported','not_ready','closed','stale_revision','runtime_unavailable'),
+    'automatic_dispatch_result':('consumed','not_consumed','unsupported','not_ready','closed','stale_revision','runtime_unavailable')}
+def observed_ingress_trace(raw):
+    prefix='rejoin boundary diagnostic: stage=';records=[];other=0
+    lines=[line for line in raw.splitlines() if line.startswith(prefix)]
+    ensure(len(lines)<=1024,'bounded-existing-trace-boundary-lines')
+    for line in lines:
+        stage=line[len(prefix):].split(', ',1)[0]
+        if stage not in TRACE_CATEGORIES:other+=1;continue
+        ensure(len(line)<=256,'bounded-selected-trace-line')
+        m=re.fullmatch(re.escape(prefix+stage)+r', category=('+'|'.join(TRACE_CATEGORIES[stage])+r'), owner=recipient',line)
+        ensure(m is not None,'selected-trace-finite-category-exact-owner')
+        records.append({'stage':stage,'category':m[1],'owner':'recipient'})
+    ensure(len(records)<=19 and len({(v['stage'],v['category']) for v in records})==len(records),'deduplicated-finite-selected-boundaries')
+    return {'schema_known':True,'available':bool(records),'records':records,'selected_record_count':len(records),
+        'other_boundary_lines_not_exported':other,'root_armed_only_for_fifth_join':True,
+        'records_are_deduplicated_categories_not_attempt_or_message_counts':True,
+        'capture_complete':False,'missing_records_not_no_ingest_proof':True,
+        'existing_optional_catalog_SQL_diagnostics_may_run':True,'new_Core_queries':False,'raw_output_exported':False}
+
+def boundary_controls():
+    value='Some(([0, 0, 0, 0, 0, 1, 0, 1], [1, 0, 0, 0, 0, 0], Some((0, 1)), 1, true, false))'
+    ensure(notification_entry(value)['Delivery_dequeue_callbacks']==1,'existing-notification-positive')
+    ensure(notification_entry('None') is None,'missing-entry-unknown-positive')
+    zero='Some(([0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], None, 0, false, false))'
+    ensure(notification_entry(zero)['Delivery_dequeue_callbacks']==0,'typed-zero-entry-not-missing-positive')
+    none='automatic-enrollment-control existing_index=0 latest_prepared_id_available=false recipient_notification=None'
+    true_none=none.replace('=false','=true')
+    ensure(not observed_notifications(none)['rows'][0]['publication_id_available'],'missing-key-distinct-positive')
+    ensure(observed_notifications(true_none)['rows'][0]['entry'] is None,'captured-key-missing-entry-unknown-positive')
+    row=none.replace('=false','=true').replace('notification=None','notification='+value)
+    ensure(observed_notifications(row)['rows'][0]['entry']['first_accepted_depths']==[0,1],'captured-key-real-entry-positive')
+    max_array=lambda n:'['+', '.join(['18446744073709551615']*n)+']'
+    maximum='Some(('+max_array(8)+', '+max_array(6)+', Some((1025, 1025)), 18446744073709551615, true, true))'
+    ensure(notification_entry(maximum)['invalid'] is True and len(row.replace(value,maximum).encode())<=2048,'maxwidth-closed-notification-positive')
+    bad_values=[value+' PRIVATE',value.replace('Some((0, 1))','Some(0, 1)'),value.replace('Some((0, 1))','Some((0, 1026))'),value.replace('[1, 0, 0, 0, 0, 0]','[0, 0, 0, 0, 0, 0]'),value.replace('1, true, false))','0, true, false))'),value.replace('1, true, false))','1, false, false))'),value.replace('1, true, false))','18446744073709551616, true, false))'),value.replace('true','True'),value.replace('[1, 0, 0, 0, 0, 0]','[1, 0]')]
+    for bad in bad_values:
+        try:notification_entry(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'invalid-existing-notification-rejected')
+    many='\n'.join(row.replace('existing_index=0','existing_index='+str(i)) for i in range(128))
+    ensure(len(observed_notifications(many)['rows'])==128,'128-source-row-bound-positive')
+    bad_rows=[many+'\n'+row.replace('existing_index=0','existing_index=128'),row.replace('available=true','available=false'),row+'\n'+row,row.replace('existing_index=0','existing_index=1'),row.replace('existing_index=0','existing_index=128'),row+' PRIVATE']
+    for bad in bad_rows:
+        try:observed_notifications(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'invalid-source-notification-row-rejected')
+    trace='rejoin boundary diagnostic: stage=sibling_dispatch, category=consumed, owner=recipient'
+    ensure(observed_ingress_trace(trace)['records']==[{'stage':'sibling_dispatch','category':'consumed','owner':'recipient'}],'existing-ingress-category-positive')
+    ensure(observed_ingress_trace('')['available'] is False,'missing-ingress-unknown-positive')
+    other='rejoin boundary diagnostic: stage=catalog_sql, category=PRIVATE, owner=recipient'
+    ensure('PRIVATE' not in json.dumps(observed_ingress_trace(other)),'unselected-trace-not-exported-positive')
+    bad_trace=[trace.replace('consumed','PRIVATE'),trace.replace('recipient','PRIVATE'),trace+' PRIVATE',trace+'\n'+trace,trace.replace('sibling_dispatch','outer_authentication'),trace.replace('category=consumed','category=consumed, peer=PRIVATE')]
+    for bad in bad_trace:
+        try:observed_ingress_trace(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'private-or-incoherent-selected-trace-rejected')
+    return {'positive':11,'negative':len(bad_values)+len(bad_rows)+len(bad_trace),'runtime_bodies':0,'raw_private_export':False}
+
 def finite_observations(raw,name,tracked,include_approvals=False):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     prefix=r'(?m)^test '+re.escape(name)+r' \.\.\. '
@@ -478,6 +588,10 @@ def finite_observations(raw,name,tracked,include_approvals=False):
         except (ValueError,TypeError,OverflowError):result['existing_approvals']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
         try:result['recipient_child_snapshots']=observed_children(text)
         except (ValueError,TypeError,OverflowError):result['recipient_child_snapshots']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True,'peer_labels_available':False}
+        try:result['source_publication_notifications']=observed_notifications(text)
+        except (ValueError,TypeError,OverflowError):result['source_publication_notifications']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
+        try:result['recipient_ingress_trace']=observed_ingress_trace(text)
+        except (ValueError,TypeError,OverflowError):result['recipient_ingress_trace']={'schema_known':False,'available':None,'records':None,'closed_schema_rejected':True}
     return result
 
 def observation_controls():
@@ -560,7 +674,7 @@ def parser_controls(mode):
         labels=OBSERVATION_FIVE_LABELS if mode=='observations-five' else OBSERVATION_LABELS
         ensure(tuple(row[0] for row in names)==labels,'fixed-original-observation-order')
         supplemental_controls=observation_controls()
-        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls()}
+        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls(),'recipient_boundaries':boundary_controls()}
     ensure(len(names)==required_count(mode),'exact-selected-case-count')
     if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
