@@ -271,7 +271,13 @@ pub(super) async fn handle(
                     crate::client::device_linking::sibling_sharing::NativeObservationStage::WorkerStarted,
                 );
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let observe_cost_started = observer.as_ref().map(|choice| choice.begin_observe_cost_for_test());
             let result = client.linking_native_observation(&scope);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let (Some(observer), Some(started)) = (&observer, observe_cost_started) {
+                observer.finish_observe_cost_for_test(started);
+            }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(observer) = &observer {
                 let (snapshot, identity) = client.adapter.receiver_snapshot_for_test();
