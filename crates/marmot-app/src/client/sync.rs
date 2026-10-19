@@ -1830,7 +1830,64 @@ impl AppClient {
                 summary = self.refresh_live_group_subscriptions(summary).await?;
             }
         }
+        if explicit {
+            // A directly owned client has no account worker to consume the
+            // pending convergence edges produced by the input just ingested.
+            // Keep completed work retained across the bounded owner turn.
+            self.pending_applied_sync_summary
+                .merge(std::mem::take(&mut summary));
+            let advanced = self.advance_one_ready_explicit_sync_group().await;
+            self.prepend_pending_applied_summary(&mut summary);
+            if let Err(error) = advanced {
+                return Err(ClassifiedSyncFailure::at_stage(
+                    summary,
+                    error,
+                    SyncFailureStage::Unknown,
+                ));
+            }
+        }
         self.finish_prepared_sync_summary(summary).await
+    }
+
+    /// Give one due group the same guarded convergence turn used by the
+    /// account worker. Do not wait for a collecting cutoff, retry unopenable
+    /// input in a loop, or turn a sync into an account-wide settling sweep.
+    async fn advance_one_ready_explicit_sync_group(&mut self) -> Result<(), AppError> {
+        let mut groups = self.pending_convergence_groups.iter().cloned().collect::<Vec<_>>();
+        groups.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        for group_id in groups {
+            match self.convergence_schedule_state(&group_id)? {
+                ConvergenceScheduleState::Idle => {
+                    self.pending_convergence_groups.remove(&group_id);
+                }
+                ConvergenceScheduleState::Ready => {
+                    // Keep this edge present during the await: cancellation or
+                    // an error must never consume the only future wakeup.
+                    let summary = self
+                        .advance_convergence_with_projection_progress_and_yield(
+                            &group_id,
+                            None,
+                            std::future::pending(),
+                        )
+                        .await?;
+                    self.pending_applied_sync_summary.merge(summary);
+                    // Retain completed deltas before this fallible state read.
+                    // The normal Core pass owns all deadlines, row allowances,
+                    // publication barriers and terminal/quarantine decisions.
+                    if matches!(
+                        self.convergence_schedule_state(&group_id)?,
+                        ConvergenceScheduleState::Idle
+                    ) {
+                        self.pending_convergence_groups.remove(&group_id);
+                    }
+                    return Ok(());
+                }
+                ConvergenceScheduleState::Collecting { .. }
+                | ConvergenceScheduleState::PendingUnopenable
+                | ConvergenceScheduleState::PendingOutbound { .. } => {}
+            }
+        }
+        Ok(())
     }
 
     /// Bring the live group subscriptions up to the current routes. Nothing
