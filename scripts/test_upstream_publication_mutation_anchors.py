@@ -546,5 +546,59 @@ class LateFirstRevokeOracle(unittest.TestCase):
         self.assertEqual(wrapped_new, wrapped_old[:len(wrapped_old)-len(wrapped_old.lstrip(' '))] + 'gate.cancel();\n' + wrapped_old)
         with self.assertRaises(ValueError): late_first_counter_inverse(source + '\n' + old)
 
+
+
+class CanonicalLeafCleanup(unittest.TestCase):
+    def fixture(self):
+        from upstream_publication_mutation_anchors import CANONICAL_FIXTURE
+        return Path(CANONICAL_FIXTURE).read_text()
+
+    def shape(self, phase):
+        from upstream_publication_mutation_anchors import CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_FIXTURE, CANONICAL_LABEL, canonical_leaf_assertion_line
+        failed = phase == 'mutant'
+        names = CANONICAL_SIBLINGS if failed else CANONICAL_NAMES
+        site = canonical_leaf_assertion_line(self.fixture())
+        text = f'running {len(names)} tests\n' + ''.join(f'test {name} ... {"FAILED" if failed else "ok"}\n' for name in names)
+        if failed:
+            text += ''.join(f"thread '{name}' (3) panicked at {CANONICAL_FIXTURE}:{site}:5:\nassertion `left == right` failed: {CANONICAL_LABEL}\n  left: 2\n right: 1\n" for name in names)
+        return text + f'test result: {"FAILED" if failed else "ok"}. {0 if failed else 3} passed; {2 if failed else 0} failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.1s\n'
+
+    def test_source_exact_one_empty_leaf_slice_inverse(self):
+        from upstream_publication_mutation_anchors import CANONICAL_CLEANUP, CANONICAL_EMPTY
+        source = Path('crates/marmot-app/src/client/sync.rs').read_text()
+        self.assertEqual(source.count(CANONICAL_CLEANUP), 1)
+        mutant = source.replace(CANONICAL_CLEANUP, CANONICAL_EMPTY, 1)
+        self.assertEqual(mutant.replace(CANONICAL_EMPTY, CANONICAL_CLEANUP, 1), source)
+        self.assertEqual(CANONICAL_CLEANUP.replace('                    leaves,', '                    &leaves[..0],'), CANONICAL_EMPTY)
+
+    def test_three_positive_controls_and_two_owned_failures(self):
+        from upstream_publication_mutation_anchors import canonical_leaf_oracle
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            self.assertTrue(canonical_leaf_oracle(self.shape(phase), self.fixture(), phase)['evidence_passed'])
+        for gap in ['\n', '\n\n', '\n\n\n']:
+            raw = self.shape('mutant').replace(':5:\nassertion', ':5:' + gap + 'assertion')
+            self.assertTrue(canonical_leaf_oracle(raw, self.fixture(), 'mutant')['evidence_passed'])
+
+    def test_unknown_compile_duplicate_and_wrong_assertion_fail_closed(self):
+        from upstream_publication_mutation_anchors import canonical_leaf_oracle, CANONICAL_FIXTURE, CANONICAL_SIBLINGS, CANONICAL_LABEL
+        good = self.shape('mutant')
+        for bad in [good + good, good.replace('2 failed;', '1 failed;'), good.replace('0 ignored;', '1 ignored;'),
+                    good.replace(CANONICAL_SIBLINGS[0], 'private::unreviewed'), good.replace(CANONICAL_FIXTURE, 'private.rs'),
+                    good.replace(CANONICAL_LABEL, 'PRIVATE_VALUE'), good.replace('left: 2', 'left: 3'),
+                    good.replace('right: 1', 'right: 2'), good.replace('running 2 tests', 'running 0 tests'),
+                    good + 'error[E0308]: PRIVATE_VALUE\n', good.replace('panicked at ', 'panic at ', 1),
+                    good.replace(':5:\nassertion', ':5:\n\n\n\nassertion')]:
+            row = canonical_leaf_oracle(bad, self.fixture(), 'mutant')
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+    def test_terminal_libtest_wrapper_does_not_hide_real_compile_errors(self):
+        from upstream_publication_mutation_anchors import canonical_leaf_oracle
+        raw = self.shape('mutant')
+        for suffix in ['error: test failed, to rerun pass `--lib`\n', 'error: test failed, to rerun pass `-p marmot-app --lib`\n']:
+            self.assertTrue(canonical_leaf_oracle(raw + suffix, self.fixture(), 'mutant')['evidence_passed'])
+        self.assertFalse(canonical_leaf_oracle(raw + 'error: unknown compilation failure\n', self.fixture(), 'mutant')['evidence_passed'])
+
+
 if __name__ == '__main__':
     unittest.main()

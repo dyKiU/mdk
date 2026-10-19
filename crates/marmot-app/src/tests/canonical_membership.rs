@@ -209,7 +209,8 @@ async fn real_departure_then_disband_projects_after_mls_deletion() {
 
     bob.leave_group(&group).await.unwrap();
     deliver_new(&mut alice, &relay, &mut alice_cursor).await;
-    alice.sync().await.unwrap();
+    // Delivery has already ingested the signed SelfRemove. An explicit sync
+    // may consume its due timer before the command under test runs.
     let delay = alice
         .runtime
         .scheduled_self_remove_auto_commit_delay_ms(&group)
@@ -673,7 +674,8 @@ async fn sibling_selfremove_through_author_command(profile_command: bool) {
         .unwrap();
     sibling.leave_group(&group).await.unwrap();
     deliver_new(&mut alice, &relay, &mut alice_cursor).await;
-    alice.sync().await.unwrap();
+    // Delivery has already ingested the signed SelfRemove. An explicit sync
+    // may consume its due timer before the command under test runs.
     let delay = alice
         .runtime
         .scheduled_self_remove_auto_commit_delay_ms(&group)

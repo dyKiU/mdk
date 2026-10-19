@@ -609,3 +609,70 @@ def late_first_counter_inverse(source):
     old = match[0]
     new = match['indent'] + 'gate.cancel();\n' + old
     return old, new
+
+
+# Manual-only canonical membership cleanup counterfactual. No historical case changes.
+CANONICAL_CASES = {'canonical-leaf-cleanup-default', 'canonical-leaf-cleanup-experimental'}
+CANONICAL_FIXTURE = 'crates/marmot-app/src/tests/canonical_membership.rs'
+CANONICAL_SIBLINGS = [
+    'tests::canonical_membership::sibling_selfremove_preserves_surviving_app_device_after_reopen',
+    'tests::canonical_membership::own_group_command_observes_retained_sibling_departure',
+]
+CANONICAL_NAMES = CANONICAL_SIBLINGS + [
+    'tests::canonical_membership::real_departure_then_disband_projects_after_mls_deletion',
+]
+CANONICAL_LABEL = "the public command must observe the author's leaf cleanup"
+CANONICAL_CLEANUP = """                self.app.remove_group_push_tokens_for_leaves(
+                    &self.state.label,
+                    &hex::encode(group_id.as_slice()),
+                    leaves,
+                    departed_members,
+                )?;"""
+CANONICAL_EMPTY = CANONICAL_CLEANUP.replace('                    leaves,', '                    &leaves[..0],')
+
+
+def canonical_leaf_assertion_line(fixture):
+    if fixture.count('"' + CANONICAL_LABEL + '"') != 1:
+        raise ValueError('canonical-one-owned-cleanup-label')
+    label = fixture.index('"' + CANONICAL_LABEL + '"')
+    call = fixture.rfind('assert_eq!(', 0, label)
+    if call < 0 or label - call > 256 or 'assert_eq!(author_tokens.len(),1,' not in re.sub(r'\s+', '', fixture[call:label]):
+        raise ValueError('canonical-original-token-count-assertion')
+    for name in CANONICAL_NAMES:
+        if fixture.count('async fn ' + name.rsplit('::', 1)[1] + '(') != 1:
+            raise ValueError('canonical-original-three-bodies')
+    return fixture[:call].count('\n') + 1
+
+
+def canonical_leaf_oracle(output, fixture, phase):
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    if phase not in {'baseline', 'mutant', 'restored-control'}:
+        raise ValueError('canonical-owned-phase')
+    site = canonical_leaf_assertion_line(fixture)
+    selected = CANONICAL_SIBLINGS if phase == 'mutant' else CANONICAL_NAMES
+    failed = phase == 'mutant'
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode(), cargo_test_context=('marmot-app', '--lib'))
+    compiler_zero = not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0
+    named = sorted(statuses) == sorted((name, 'FAILED' if failed else 'ok') for name in selected)
+    counts = (len(summaries) == 1 and summaries[0][:5] == (('FAILED', '0', '2', '0', '0') if failed else ('ok', '3', '0', '0', '0')) and running == [str(len(selected))])
+    headers = re.findall(r"(?m)^[ \t]{0,8}thread '([^'\r\n]+)'(?: \([0-9]+\))? panicked at ([^\r\n]+):([0-9]+):([0-9]+):\r?$", text)
+    exact = []
+    for name in CANONICAL_SIBLINGS:
+        pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(name) + r"'(?: \([0-9]+\))? panicked at "
+                   + re.escape(CANONICAL_FIXTURE) + ':' + str(site) + r':\d+:\r?\n(?:[ \t]{0,8}\r?\n){0,2}[ \t]{0,8}'
+                   + re.escape('assertion `left == right` failed: ' + CANONICAL_LABEL)
+                   + r'\r?\n[ \t]{0,8}left: 2\r?\n[ \t]{0,8}right: 1[ \t]*\r?$')
+        exact.append(len(re.findall(pattern, text)) == 1)
+    own = (len(headers) == 2 and text.count('panicked at ') == 2 and all(exact)
+           and sorted(item[0] for item in headers) == sorted(CANONICAL_SIBLINGS))
+    clean = not headers and text.count('panicked at ') == 0
+    return {'selected_tests': selected, 'actual_exact_named_set': named,
+            'expected_original_assertion_line': site, 'compiler_diagnostics': diagnostics,
+            'compiler_error_count': diagnostics['compiler_header_count'],
+            'panic_header_count': text.count('panicked at '),
+            'each_sibling_own_token_count_2_vs_1': own,
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and counts and named and compiler_zero and (own if failed else clean))}
