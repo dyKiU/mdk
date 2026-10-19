@@ -8,13 +8,21 @@ on:
         description: Generate canonical source before final qualification without running product tests
         type: boolean
         default: false
+      source_sha:
+        description: Exact merged91e-or-descendant source for dedicated source-regeneration preview
+        type: string
+        required: false
+      require_zero_diff:
+        description: Dedicated regeneration route must produce no formatting/header/reference changes
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
   group: upstream-artifact-repair-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref_name, 'ci/upstream-source-regeneration-') }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -154,3 +162,163 @@ jobs:
           path: repair/
           retention-days: 7
           if-no-files-found: error
+
+  source-regeneration:
+    if: github.event_name == 'workflow_dispatch' && inputs.generation_only && startsWith(github.ref_name, 'ci/upstream-source-regeneration-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      REQUIRE_ZERO_DIFF: ${{ inputs.require_zero_diff && 'true' || 'false' }}
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Require exact source and explicit owned manual route before checkout
+        run: |
+          python3 - <<'PY_REQUEST'
+          import os,re
+          assert os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk'
+          assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-source-regeneration-')
+          assert re.fullmatch('[0-9a-f]{40}',os.environ['SOURCE_SHA'])
+          assert re.fullmatch('[0-9a-f]{40}',os.environ['GITHUB_SHA'])
+          assert os.environ['REQUIRE_ZERO_DIFF'] in ['true','false']
+          PY_REQUEST
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Admit exact merged source and retain compact source inputs
+        id: admit
+        run: |
+          python3 - <<'PY_ADMIT'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          git=lambda *args:subprocess.check_output(['git',*args],text=True).strip()
+          source=os.environ['SOURCE_SHA']
+          assert git('rev-parse','HEAD')==source
+          subprocess.run(['git','merge-base','--is-ancestor','91e32220dafef5338734b504e10a8a4892691abd',source],check=True)
+          assert not git('status','--porcelain')
+          for key in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTDOCFLAGS','CARGO_ENCODED_RUSTDOCFLAGS',
+                      'RUSTC_BOOTSTRAP','RUSTC','RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER']:
+              assert not os.environ.get(key)
+          directory=Path(os.environ['RUNNER_TEMP'])/'source-regeneration-evidence'
+          assert not directory.exists()
+          directory.mkdir(mode=0o700)
+          names=['Cargo.lock','rust-toolchain.toml','Justfile','crates/marmot-c/cbindgen.toml',
+                 'scripts/check_binding_docs.py']
+          inputs={name:hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in names}
+          record=dict(source=source,source_tree=git('rev-parse','HEAD^{tree}'),
+                      workflow_sha=os.environ['GITHUB_SHA'],workflow_ref=os.environ['GITHUB_WORKFLOW_REF'],
+                      run_id=os.environ['GITHUB_RUN_ID'],input_sha256=inputs,
+                      command_inputs=['cargo fmt --all','just c-header','just binding-docs-update'],
+                      product_test_bodies=0,sdk_packaging=False,release_or_deployment=False,
+                      source_qualification=False)
+          (directory/'inputs.json').write_text(json.dumps(record,indent=2)+'\n')
+          PY_ADMIT
+      - name: Install exact repository Rust toolchain and formatter
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          printf 'RUSTUP_TOOLCHAIN=%s\n' "$toolchain" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: just,cbindgen@0.29.4
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-merge-artifact-repair
+          cache-on-failure: true
+      - name: Existing read-only capacity preflight and actual tool versions
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Canonical source regeneration only' --output "$RUNNER_TEMP/source-regeneration-capacity.json"
+          python3 - <<'PY_TOOLS'
+          import json,os,subprocess
+          from pathlib import Path
+          commands={'rustc':['rustc','-Vv'],'cargo':['cargo','-V'],'rustfmt':['rustfmt','--version'],
+                    'just':['just','--version'],'cbindgen':['cbindgen','--version']}
+          versions={name:subprocess.check_output(command,text=True).strip() for name,command in commands.items()}
+          assert versions['cbindgen']=='cbindgen 0.29.4'
+          assert ('release: '+os.environ['RUSTUP_TOOLCHAIN']) in versions['rustc'].splitlines()
+          versions['repository_toolchain']=os.environ['RUSTUP_TOOLCHAIN']
+          output=Path(os.environ['RUNNER_TEMP'])/'source-regeneration-evidence'
+          (output/'tools.json').write_text(json.dumps(versions,indent=2)+'\n')
+          PY_TOOLS
+      - name: Generate exact formatting patch with the repository formatter
+        id: formatting
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          cargo fmt --all
+          git diff --binary -- '*.rs' > "$RUNNER_TEMP/source-regeneration-evidence/formatting.patch"
+      - name: Canonical C header recipe (macro expansion only; no test body)
+        id: header
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: just c-header
+      - name: Canonical binding signature/source-anchor update (authored prose preserved)
+        id: references
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: just binding-docs-update
+      - name: Export only exact patches and compact immutable-source receipt
+        if: always() && steps.admit.outcome == 'success'
+        env:
+          FORMAT_OUTCOME: ${{ steps.formatting.outcome }}
+          HEADER_OUTCOME: ${{ steps.header.outcome }}
+          REFERENCES_OUTCOME: ${{ steps.references.outcome }}
+        run: |
+          python3 - <<'PY_EXPORT'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          directory=Path(os.environ['RUNNER_TEMP'])/'source-regeneration-evidence'
+          record=json.loads((directory/'inputs.json').read_text())
+          git=lambda *args:subprocess.check_output(['git',*args],text=True).strip()
+          changes=set(git('diff','HEAD','--name-only').splitlines())
+          header='crates/marmot-c/include/marmot.h'
+          references=['crates/marmot-c/API-REFERENCE.md','crates/marmot-uniffi/API-REFERENCE.md']
+          allowed=all(name.endswith('.rs') or name in [header,*references] for name in changes)
+          record['source_head_unchanged']=git('rev-parse','HEAD')==record['source']
+          record['cargo_lock_unchanged']=hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest()==record['input_sha256']['Cargo.lock']
+          record['only_allowed_tracked_changes']=allowed
+          record['index_and_untracked_pristine']=not git('diff','--cached','--name-only') and not git('ls-files','--others','--exclude-standard')
+          record['step_outcomes']={name:os.environ[name] for name in ['FORMAT_OUTCOME','HEADER_OUTCOME','REFERENCES_OUTCOME']}
+          definitions={'formatting.patch':['*.rs'],'header.patch':[header],'api-reference.patch':references}
+          record['patches']={}
+          rust_after=subprocess.check_output(['git','diff','--binary','--','*.rs'])
+          formatting=directory/'formatting.patch'
+          record['only_formatter_changed_rust']=formatting.is_file() and formatting.read_bytes()==rust_after
+          for name,paths in definitions.items():
+              patch=directory/name
+              patch.write_bytes(subprocess.check_output(['git','diff','--binary','--',*paths]))
+              data=patch.read_bytes()
+              record['patches'][name]=dict(sha256=hashlib.sha256(data).hexdigest(),bytes=len(data),empty=not data)
+          tools=directory/'tools.json'
+          record['tool_versions']=json.loads(tools.read_text()) if tools.is_file() else None
+          record['require_zero_diff']=os.environ['REQUIRE_ZERO_DIFF']=='true'
+          record['zero_diff']=all(row['empty'] for row in record['patches'].values())
+          record['generation_preview_complete']=(all(record['step_outcomes'][name]=='success' for name in record['step_outcomes'])
+              and record['source_head_unchanged'] and record['cargo_lock_unchanged'] and allowed
+              and record['index_and_untracked_pristine'] and record['only_formatter_changed_rust'] and record['tool_versions'] is not None)
+          record['gate_passed']=record['generation_preview_complete'] and (not record['require_zero_diff'] or record['zero_diff'])
+          (directory/'result.json').write_text(json.dumps(record,indent=2)+'\n')
+          if not record['gate_passed']:raise SystemExit(1)
+          PY_EXPORT
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && steps.admit.outcome == 'success'
+        with:
+          name: source-regeneration-${{ inputs.source_sha }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/source-regeneration-evidence/formatting.patch
+            ${{ runner.temp }}/source-regeneration-evidence/header.patch
+            ${{ runner.temp }}/source-regeneration-evidence/api-reference.patch
+            ${{ runner.temp }}/source-regeneration-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
