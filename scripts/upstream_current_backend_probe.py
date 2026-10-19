@@ -27,6 +27,7 @@ AVATAR = {'sender_clear_present', 'receiver_present', 'sync_events',
           'clear_published', 'clear_message_count'}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 LIMIT = 16 * 1024 * 1024
+PRIOR_COLLECTOR = '9d24755e3f48cc19fd0643c85b3e00f771e25da4'
 
 
 def uint(value):
@@ -93,7 +94,7 @@ def parse_core(case, raw):
         return int(matches[0]) if matches else 0
     counts = {'executed': int(executed), 'passed': count('passed'), 'failed': count('failed'),
               'skipped': count('skipped')}
-    named = re.findall(r'^\s*(PASS|FAIL)\s+\[[^\]]+\]\s+' + r'(?:' + re.escape(package) + r'::)?' + re.escape(binary) + r'\s+' + re.escape(test) + r'\s*$', text, re.M)
+    named = re.findall(r'^\s*(PASS|FAIL)\s+\[[^\]]+\]\s+(?:\([ \t]{0,8}1/1\)[ \t]+)?' + r'(?:' + re.escape(package) + r'::)?' + re.escape(binary) + r'\s+' + re.escape(test) + r'\s*$', text, re.M)
     if counts['executed'] != 1 or counts['passed'] + counts['failed'] != 1 or len(named) != 1:
         raise ValueError('actual-one-named-body')
     if (named[0] == 'PASS') != (counts['passed'] == 1):
@@ -151,6 +152,10 @@ def parser_controls():
     # Authored controls execute only on the remote preflight lane.
     positives = 0
     negatives = 0
+    historical = {'__name__': 'historical_closed_collector'}
+    prior = git('show', PRIOR_COLLECTOR + ':scripts/upstream_current_backend_probe.py')
+    exec(compile(prior, '<immutable-prior-collector>', 'exec'), historical)
+    counter_regressions = 0
     for case in CASES:
         values = ({'observed': False, 'elapsed_ms': 10000, 'setup_finished': False,
                    'journal_read_ok': True, 'journal_phase': 'local_state_created'}
@@ -162,6 +167,18 @@ def parser_controls():
         result = parse(case, raw)
         assert result['compiler_header_count'] == 0 and 'PRIVATE' not in json.dumps(result)
         positives += 1
+        counter = raw.replace(('] ' + binary + ' ').encode(), ('] (  1/1) ' + package + '::' + binary + ' ').encode())
+        # Real prior helper accepts its old envelope, rejects the pinned nextest
+        # progress-counter envelope, and the corrected helper accepts that envelope.
+        assert historical['parse_core'](case, raw)['counts']['failed'] == 1
+        try:
+            historical['parse_core'](case, counter)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('historical-counter-regression-not-reproduced')
+        assert parse(case, counter)['counts']['failed'] == 1
+        counter_regressions += 1
         assert parse(case, raw.replace(('] ' + binary + ' ').encode(), ('] ' + package + '::' + binary + ' ').encode()))['named_case_observed']
         positives += 1
         missing = raw.replace(prefix.encode(), b'uncollected-control ')
@@ -169,7 +186,8 @@ def parser_controls():
         assert partial['counts']['failed'] == 1 and partial['compiler_header_count'] == 0
         assert 'observation' not in partial and 'PRIVATE' not in json.dumps(partial)
         positives += 1
-        altered = [raw.replace(prefix.encode(), b'private-control '), raw + raw,
+        altered = [counter.replace(b'1/1)', b'2/1)'), counter.replace(b'1/1)', b'1/2)'),
+                   raw.replace(prefix.encode(), b'private-control '), raw + raw,
                    raw.replace(prefix.encode(), b'PRIVATE ' + prefix.encode()),
                    raw.replace(prefix.encode(), b'{\"private\":\"PRIVATE\"} ' + prefix.encode()),
                    raw.replace(test.encode(), b'wrong_test'), raw.replace(b'1 test run', b'0 test run'),
@@ -200,7 +218,9 @@ def parser_controls():
     assert closure_report['git_pristine'] is False
     assert closure_report['closure_exception_class'] == 'FileNotFoundError'
     assert 'PRIVATE' not in json.dumps(closure_report)
-    return {'positive': positives, 'negative': negatives, 'closure_fault_controls': 1}
+    return {'positive': positives, 'negative': negatives, 'closure_fault_controls': 1,
+            'historical_counter_regressions': counter_regressions,
+            'historical_collector': PRIOR_COLLECTOR}
 
 
 def close_inputs(report, before, input_probe=frozen_inputs, diff_probe=None):
@@ -229,6 +249,7 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     report = {'case': options.case, 'source': git('rev-parse', 'HEAD'), 'qualification_passed': False,
               'automatic_retries': 0, 'profile': 'ci', 'features': ['test-policy-overrides'],
+              'status_level': 'pass', 'final_status_level': 'none',
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'diagnostic_only': True,
               'expected_package': CASES[options.case][0], 'expected_binary': CASES[options.case][1],
               'expected_test': CASES[options.case][2], 'trusted_test_source': CASES[options.case][3]}
@@ -271,6 +292,7 @@ def main():
                 raise ValueError('inventory-source-changed')
             report['selected_nonignored'] = 1
             code, raw, elapsed, _ = capture(base + ['run'] + flags + ['--retries', '0', '--test-threads', '1',
+                                      '--status-level', 'pass', '--final-status-level', 'none',
                                       '--no-fail-fast', '--success-output', 'immediate', '-E', selection], 1200)
             report['body'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                               'raw_sha256': hashlib.sha256(raw).hexdigest(), 'raw_bytes': len(raw)}
