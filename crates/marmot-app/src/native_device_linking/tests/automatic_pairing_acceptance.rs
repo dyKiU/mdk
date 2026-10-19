@@ -488,7 +488,8 @@ async fn public_third_device_enrollment_from_initial_joiner_with_existing_chat()
 
 async fn public_third_device_enrollment(reverse_initial_roles: bool) {
     let relay = public_enrollment_relay();
-    four_device_enrollment_with_relay(HeldPublication::None, Some(&relay), reverse_initial_roles).await;
+    four_device_enrollment_with_relay(HeldPublication::None, Some(&relay), reverse_initial_roles)
+        .await;
 }
 
 fn public_enrollment_relay() -> String {

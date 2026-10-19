@@ -69,27 +69,28 @@ impl AppClient {
         else {
             return Ok(());
         };
+        // A completed predecessor is still the waiting state of this original.
+        // It cannot authorize the successor's durable sharing approval.
+        let candidate = roster.candidate();
+        let predecessor = &original.context.predecessor;
+        let exact_predecessor = candidate.account.as_slice() == original.scope.account
+            && candidate.group_id == group
+            && candidate.epoch.0 == predecessor.epoch
+            && candidate.epoch_authenticator_digest == predecessor.epoch_authenticator_digest
+            && candidate.leaves.len() == predecessor.leaves.len()
+            && candidate
+                .leaves
+                .iter()
+                .zip(&predecessor.leaves)
+                .all(|(actual, expected)| {
+                    actual.leaf_index == expected.leaf_index
+                        && actual.signature_public_key.as_slice()
+                            == expected.signature_public_key
+                });
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        {
-            // Observe the existing Core read against this exact live original.
-            // This cannot select a roster, create approval or change the result.
-            let candidate = roster.candidate();
-            let predecessor = &original.context.predecessor;
-            let exact_predecessor = candidate.account.as_slice() == original.scope.account
-                && candidate.group_id == group
-                && candidate.epoch.0 == predecessor.epoch
-                && candidate.epoch_authenticator_digest == predecessor.epoch_authenticator_digest
-                && candidate.leaves.len() == predecessor.leaves.len()
-                && candidate
-                    .leaves
-                    .iter()
-                    .zip(&predecessor.leaves)
-                    .all(|(actual, expected)| {
-                        actual.leaf_index == expected.leaf_index
-                            && actual.signature_public_key.as_slice()
-                                == expected.signature_public_key
-                    });
-            original.record_exact_predecessor_for_test(exact_predecessor);
+        original.record_exact_predecessor_for_test(exact_predecessor);
+        if exact_predecessor {
+            return Ok(());
         }
         let peer = if original.scope.local_device == original.context.approver {
             original.context.recipient
