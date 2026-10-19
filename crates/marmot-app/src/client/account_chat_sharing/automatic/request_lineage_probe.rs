@@ -184,7 +184,11 @@ pub(crate) struct RecipientWait<'a> {
 }
 impl Drop for RecipientWait<'_> {
     fn drop(&mut self) {
-        let mut progress = self.probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+        let mut progress = self
+            .probe
+            .progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let end = &mut progress.recipient_step_ms[self.recipient][1];
         if end.is_none() {
             *end = self.probe.elapsed();
@@ -203,7 +207,10 @@ impl Probe {
             return None;
         }
         *start = self.elapsed();
-        Some(RecipientWait { probe: self, recipient })
+        Some(RecipientWait {
+            probe: self,
+            recipient,
+        })
     }
     fn elapsed(&self) -> Option<u64> {
         Instant::now()
@@ -404,7 +411,8 @@ pub(crate) fn primary_committed(
     if local_device != context_recipient {
         return;
     }
-    let Some(probe) = current(root).filter(|probe| probe.account == *account && probe.group == *group)
+    let Some(probe) =
+        current(root).filter(|probe| probe.account == *account && probe.group == *group)
     else {
         return;
     };
