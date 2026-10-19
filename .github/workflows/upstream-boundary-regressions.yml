@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [storage-ownership-current-omissions, storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       current_ownership_stage:
         description: Separately pinned current five-test cohort; RED never overrides failures
@@ -639,6 +639,57 @@ jobs:
         if: always()
         with:
           name: storage-ownership-boundary-${{ matrix.cohort }}-${{ github.sha }}
+          path: storage-boundary-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  current-ownership-omissions:
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-ownership-current-omissions' && startsWith(github.ref_name, 'ci/upstream-storage-boundary-')
+    name: Current ownership omission (${{ matrix.cohort }}, ${{ matrix.chain }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+        chain: [module, table]
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: storage-ownership-boundary-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Frozen current source and closed omission parser controls
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --current-cohort green --current-omission '${{ matrix.chain }}' --preflight
+      - name: Five real controls, one exact runtime assertion failure, fresh five restored controls
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Current ownership exact omission chain' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --current-cohort green --current-omission '${{ matrix.chain }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: current-ownership-${{ matrix.cohort }}-${{ matrix.chain }}-${{ github.sha }}
           path: storage-boundary-evidence/result.json
           if-no-files-found: error
           retention-days: 7
