@@ -290,7 +290,13 @@ fn paired_expiry_delay(rows: &[AccountChatRow], now: u64) -> std::time::Duration
                 .latest_message
                 .as_ref()
                 .filter(|message| !message.deleted)
-                .and_then(|message| message.expires_at),
+                .and_then(|message| {
+                    message
+                        .expires_at
+                        .into_iter()
+                        .chain(message.next_edit_expiry)
+                        .min()
+                }),
             AccountChatRow::LocalMls(_) => None,
         })
         .min();
@@ -330,6 +336,8 @@ mod tests {
                 content: "synthetic".into(),
                 tags: Vec::new(),
                 media_attachments: Vec::new(),
+                edit: None,
+                next_edit_expiry: None,
                 source,
             }),
         };
@@ -339,6 +347,9 @@ mod tests {
                 now,
             )
         };
+        summary.latest_message.as_mut().unwrap().next_edit_expiry = Some(17);
+        assert_eq!(delay(&summary, 15), std::time::Duration::from_secs(2));
+        summary.latest_message.as_mut().unwrap().next_edit_expiry = None;
         assert_eq!(delay(&summary, 15), std::time::Duration::from_secs(5));
         assert_eq!(delay(&summary, 20), std::time::Duration::ZERO);
         assert_eq!(delay(&summary, 25), std::time::Duration::ZERO);

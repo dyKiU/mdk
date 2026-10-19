@@ -597,3 +597,156 @@ fn mirrored_presentation_conversation_union_has_one_limit_and_real_ordinary_prec
             .is_some()
     );
 }
+
+#[test]
+fn mirrored_edits_update_the_original_message_without_creating_activity() {
+    let storage = stored();
+    let scope = scope(3);
+    let group = GroupId::new(vec![1]);
+    catalog(&storage, &scope, &[1], MirroredChatState::Active);
+    let original = record(1, 10);
+    let mut edit = record(2, 20);
+    edit.kind = 1009;
+    edit.payload = serde_json::to_vec(&(
+        "corrected text",
+        vec![vec!["e".to_owned(), hex::encode(original.event_id)]],
+    ))
+    .unwrap();
+    edit.content_digest = Some(Sha256::digest(&edit.payload).into());
+    storage
+        .apply_mirrored_chat_messages(&scope, &group, &[original.clone(), edit], 0, &|| Ok(()))
+        .unwrap();
+    let page = storage
+        .app_storage().mirrored_message_observation_page(std::slice::from_ref(&scope), &group, None, 128, 0)
+        .unwrap();
+    assert_eq!(
+        page.len(),
+        1,
+        "an edit modifies its target, never adds a conversation row"
+    );
+    assert_eq!(page[0].record.event_id, original.event_id);
+    assert_eq!(page[0].record.created_at, original.created_at);
+    assert_eq!(
+        page[0].record.payload, original.payload,
+        "canonical source bytes stay immutable"
+    );
+    let accepted = page[0].edit.as_ref().expect("edit metadata");
+    assert_eq!(accepted.plaintext, "corrected text");
+    assert_eq!(accepted.summary.edit_count, 1);
+    assert_eq!(accepted.summary.edited_at, 20);
+    let activity = storage
+        .app_storage().mirrored_catalog_activity_page(&[scope], None, 1, 0)
+        .unwrap();
+    assert_eq!(
+        activity[0].latest_message.as_ref().unwrap().record.event_id,
+        original.event_id
+    );
+}
+
+fn edit_record(id: u8, at: u64, target: [u8; 32], text: &str) -> MirroredChatRecord {
+    let mut edit = record(id, at);
+    edit.kind = 1009;
+    edit.payload =
+        serde_json::to_vec(&(text, vec![vec!["e".to_owned(), hex::encode(target)]])).unwrap();
+    edit.content_digest = Some(Sha256::digest(&edit.payload).into());
+    edit
+}
+
+#[test]
+fn mirrored_edits_require_author_and_exact_target_and_survive_out_of_order_arrival() {
+    let storage = stored();
+    let scope = scope(3);
+    let group = GroupId::new(vec![1]);
+    catalog(&storage, &scope, &[1], MirroredChatState::Active);
+    let original = record(1, 10);
+    let valid = edit_record(2, 20, original.event_id, "corrected");
+    let mut impostor = edit_record(3, 30, original.event_id, "wrong author");
+    impostor.author = [8; 32];
+    let mut ambiguous = edit_record(4, 40, original.event_id, "ambiguous");
+    ambiguous.payload = serde_json::to_vec(&(
+        "ambiguous",
+        vec![
+            vec!["e", &hex::encode(original.event_id)],
+            vec!["e", &hex::encode([5; 32])],
+        ],
+    ))
+    .unwrap();
+    ambiguous.content_digest = Some(Sha256::digest(&ambiguous.payload).into());
+    storage
+        .apply_mirrored_chat_messages(&scope, &group, &[valid, impostor, ambiguous], 0, &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .app_storage().mirrored_message_observation_page(std::slice::from_ref(&scope), &group, None, 1, 0)
+            .unwrap()
+            .is_empty()
+    );
+    storage
+        .apply_mirrored_chat_messages(&scope, &group, &[original], 0, &|| Ok(()))
+        .unwrap();
+    let page = storage
+        .app_storage().mirrored_message_observation_window(&[scope], &group, None, 1, 0)
+        .unwrap();
+    assert_eq!(page.len(), 1);
+    let edit = page[0].edit.as_ref().unwrap();
+    assert_eq!(edit.plaintext, "corrected");
+    assert_eq!(edit.summary.edit_count, 1);
+}
+
+#[test]
+fn mirrored_edits_deduplicate_sources_and_honor_global_retraction_and_expiry() {
+    let storage = stored();
+    let a = scope(3);
+    let b = scope(4);
+    let group = GroupId::new(vec![1]);
+    for scope in [&a, &b] {
+        catalog(&storage, scope, &[1], MirroredChatState::Active);
+    }
+    let original = record(1, 10);
+    let first = edit_record(2, 20, original.event_id, "first correction");
+    let mut latest = edit_record(3, 20, original.event_id, "second correction");
+    latest.expires_at = Some(30);
+    for scope in [&a, &b] {
+        storage
+            .apply_mirrored_chat_messages(
+                scope,
+                &group,
+                &[original.clone(), first.clone(), latest.clone()],
+                0,
+                &|| Ok(()),
+            )
+            .unwrap();
+    }
+    let scopes = [a.clone(), b.clone()];
+    let read = |now| {
+        storage
+            .app_storage().mirrored_message_observation_page(&scopes, &group, None, 1, now)
+            .unwrap()
+            .remove(0)
+    };
+    let edit = read(0).edit.unwrap();
+    assert_eq!(edit.plaintext, "second correction");
+    assert_eq!(edit.summary.edit_count, 2);
+    assert_eq!(edit.next_expiry, Some(30));
+    assert_eq!(read(30).edit.unwrap().plaintext, "first correction");
+    latest.deleted = true;
+    latest.payload.clear();
+    latest.source_sequence += 1;
+    storage
+        .apply_mirrored_chat_messages(&a, &group, &[latest], 0, &|| Ok(()))
+        .unwrap();
+    assert_eq!(read(0).edit.unwrap().plaintext, "first correction");
+    let mut deleted = original;
+    deleted.deleted = true;
+    deleted.payload.clear();
+    deleted.source_sequence += 1;
+    storage
+        .apply_mirrored_chat_messages(&b, &group, &[deleted], 0, &|| Ok(()))
+        .unwrap();
+    let row = read(0);
+    assert!(row.record.deleted);
+    assert!(
+        row.edit.is_none(),
+        "an edit cannot restore deleted plaintext"
+    );
+}

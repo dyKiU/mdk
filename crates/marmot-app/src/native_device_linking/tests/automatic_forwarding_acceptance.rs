@@ -15,7 +15,7 @@ pub(super) async fn verify(
     runtime: &MarmotAppRuntime,
     group: &crate::GroupId,
     scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
-) {
+) -> String {
     let token = "paired-source-forwarding-original-token".to_owned();
     let text = "message from the paired mirror".to_owned();
     let accepted = runtime
@@ -74,6 +74,61 @@ pub(super) async fn verify(
         apps[2].load_state("test").unwrap().groups.is_empty(),
         "forwarding never creates synthetic ordinary membership"
     );
+    accepted.message_id_hex
+}
+
+/// A mirror-originated own message is edited on its actual ordinary source.
+/// The original open mirror window must update from encrypted stream delivery.
+pub(super) async fn verify_source_edit(
+    source: &MarmotAppRuntime,
+    mirror: &MarmotAppRuntime,
+    group: &crate::GroupId,
+    target: &str,
+) {
+    let mut window = mirror
+        .open_account_conversation_window("test", group, 128)
+        .await
+        .unwrap();
+    let original_time = window
+        .snapshot
+        .rows
+        .iter()
+        .find_map(|row| match row {
+            crate::AccountConversationRow::PairedSource(row)
+                if hex::encode(row.event_id) == target =>
+            {
+                Some(row.created_at)
+            }
+            _ => None,
+        })
+        .expect("forwarded original is in the mirror before edit");
+    let result = source
+        .edit_message("test", group, target, "corrected on the source device")
+        .await
+        .unwrap();
+    assert_eq!(result.published, 1);
+    let edit_id = result
+        .message_ids
+        .first()
+        .expect("canonical edit event")
+        .clone();
+    tokio::time::timeout(std::time::Duration::from_secs(90), async {
+        loop {
+            let snapshot = window.recv().await.unwrap().expect("original mirror window remains live");
+            if let Some(row) = snapshot.rows.iter().find_map(|row| match row {
+                crate::AccountConversationRow::PairedSource(row) if hex::encode(row.event_id) == target && row.content == "corrected on the source device" => Some(row),
+                _ => None,
+            }) {
+                assert_eq!(row.created_at, original_time);
+                let edit = row.edit.as_ref().expect("edited marker accompanies the corrected text");
+                assert_eq!(edit.latest_edit_message_id_hex, edit_id);
+                assert_eq!(edit.edit_count, 1);
+                assert!(!snapshot.rows.iter().any(|row| matches!(row, crate::AccountConversationRow::PairedSource(row) if hex::encode(row.event_id) == edit_id)));
+                break;
+            }
+        }
+    }).await.expect("canonical source edit must wake and update the existing mirror window");
+    window.window_handle().cancel();
 }
 
 pub(super) async fn verify_cancelled_host_admission(

@@ -23,6 +23,7 @@ pub struct MirroredCatalogObservation {
 pub struct MirroredMessageObservation {
     pub scope: MirroredChatScope,
     pub record: MirroredChatRecord,
+    pub edit: Option<crate::MirroredMessageEdit>,
 }
 
 /// Ordinary materialized rows keep their authenticated local provenance.
@@ -272,7 +273,7 @@ impl SqliteAppStorage {
               FROM eligible e JOIN mirrored_chat_messages m ON m.scope=e.scope
               JOIN mirrored_chat_live_catalog c ON c.scope=m.scope AND c.group_id=m.group_id
               JOIN mirrored_chat_scopes s ON s.scope=m.scope
-              WHERE m.group_id=? AND c.state=0 AND m.origin_id IS c.origin_id AND m.origin_order IS c.origin_order
+              WHERE m.kind<>1009 AND m.group_id=? AND c.state=0 AND m.origin_id IS c.origin_id AND m.origin_order IS c.origin_order
               AND NOT EXISTS(SELECT 1 FROM user_blocks blocked WHERE blocked.public_key=lower(hex(m.author)))
               AND NOT EXISTS(SELECT 1 FROM app_events live WHERE live.group_id_hex=? AND live.message_id_hex=lower(hex(m.event_id)))
               AND (m.deleted=1 OR NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=m.group_id AND terminal.event_id=m.event_id AND terminal.deleted=1))
@@ -321,6 +322,9 @@ impl SqliteAppStorage {
                     observed.push(AccountConversationObservation::PairedSource(Box::new(
                         MirroredMessageObservation {
                             scope: scope.clone(),
+                            edit: crate::mirrored_chat_edits::resolve(
+                                &conn, scopes, group, &record, now,
+                            )?,
                             record,
                         },
                     )));
@@ -406,7 +410,7 @@ impl SqliteAppStorage {
           FROM eligible e JOIN mirrored_chat_messages m ON m.scope=e.scope
           JOIN mirrored_chat_live_catalog c ON c.scope=m.scope AND c.group_id=m.group_id
           JOIN mirrored_chat_scopes s ON s.scope=m.scope
-          WHERE m.group_id=? AND (?=0 OR (m.created_at,m.event_id){comparison}(?,?)) AND c.state=0 AND m.origin_id IS c.origin_id AND m.origin_order IS c.origin_order
+          WHERE m.kind<>1009 AND m.group_id=? AND (?=0 OR (m.created_at,m.event_id){comparison}(?,?)) AND c.state=0 AND m.origin_id IS c.origin_id AND m.origin_order IS c.origin_order
           AND NOT EXISTS(SELECT 1 FROM user_blocks blocked WHERE blocked.public_key=lower(hex(m.author)))
           AND NOT EXISTS(SELECT 1 FROM app_events live WHERE live.group_id_hex=? AND live.message_id_hex=lower(hex(m.event_id)))
           AND (m.deleted=1 OR NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=m.group_id AND terminal.event_id=m.event_id AND terminal.deleted=1))
@@ -435,6 +439,7 @@ impl SqliteAppStorage {
                 let scope = scopes.get(position).ok_or_else(invalid)?;
                 Ok(MirroredMessageObservation {
                     scope: scope.clone(),
+                    edit: crate::mirrored_chat_edits::resolve(&conn, scopes, group, &record, now)?,
                     record,
                 })
             })

@@ -74,7 +74,35 @@ fn paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_p
 
         accepted_origin: None,
     };
-    let row = storage_sqlite::MirroredMessageObservation { scope, record };
+    let row = storage_sqlite::MirroredMessageObservation {
+        scope,
+        record,
+        edit: None,
+    };
+    let mut edited = row.clone();
+    edited.edit = Some(storage_sqlite::MirroredMessageEdit {
+        summary: crate::TimelineEditSummary {
+            edit_count: 1,
+            latest_edit_message_id_hex: hex::encode([10; 32]),
+            edited_at: 20,
+        },
+        plaintext: "corrected".into(),
+        next_expiry: Some(30),
+    });
+    let corrected = present_message(edited.clone(), false).unwrap();
+    assert_eq!(corrected.content, "corrected");
+    assert_eq!(corrected.event_id, row.record.event_id);
+    assert_eq!(corrected.created_at, row.record.created_at);
+    assert_eq!(corrected.edit.as_ref().unwrap().edit_count, 1);
+    assert_eq!(corrected.next_edit_expiry, Some(30));
+    edited.record.deleted = true;
+    edited.record.payload.clear();
+    let deleted_edit = present_message(edited, false).unwrap();
+    assert!(
+        deleted_edit.content.is_empty()
+            && deleted_edit.edit.is_none()
+            && deleted_edit.next_edit_expiry.is_none()
+    );
     let presented = present_message(row.clone(), false).unwrap();
     assert!(presented.tags == tags);
     assert_eq!(presented.media_attachments.len(), 2);
@@ -451,6 +479,7 @@ fn paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer()
         let mut activity = storage_sqlite::MirroredChatActivityObservation {
             catalog: observation,
             latest_message: Some(storage_sqlite::MirroredMessageObservation {
+                edit: None,
                 scope: body_scope,
                 record,
             }),

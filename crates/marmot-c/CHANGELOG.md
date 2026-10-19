@@ -17,6 +17,13 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
   106–120 stay unused. Earlier private C clients must regenerate and recompile
   with the matching header and library. Published upstream statuses are unchanged.
 
+### Changed
+
+- Appends nullable owned `edit` metadata to `MarmotPairedChatMessage`. Shared
+  messages retain their original ID/time while displaying the latest accepted
+  canonical edit. The record layout requires the matching generated header and
+  library; it is not compatible with an older binary.
+
 ### Added
 
 - Add `marmot_client_new_with_deployment` and the opaque `MarmotDeployment` (`marmot_deployment_white_noise`, `marmot_deployment_neutral`, the `marmot_deployment_set_*` setters, `marmot_deployment_free`): a host passes its recovery relays, discovery indexers, media and image servers, Open Ranking, KeyPackage client preference, moderation label namespace and keychain service at construction. A NULL deployment, and every other constructor, still uses White Noise's until the neutral default lands (host-configuration brief, PR 2). `MarmotClientOptions` is unchanged. Use matching regenerated headers and libraries.

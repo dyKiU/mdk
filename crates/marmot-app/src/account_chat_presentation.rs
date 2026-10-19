@@ -103,6 +103,9 @@ pub struct PairedChatMessage {
     pub content: String,
     pub tags: Vec<Vec<String>>,
     pub media_attachments: Vec<MediaAttachmentOutcome>,
+    pub edit: Option<crate::TimelineEditSummary>,
+    /// Scheduling only; expiry can revert to an earlier accepted version.
+    pub next_edit_expiry: Option<u64>,
     pub source: PairedChatSource,
 }
 
@@ -160,7 +163,7 @@ pub(crate) fn present_message(
     if record.payload.len() > cgka_traits::mirrored_chat_messages::MAX_MIRRORED_MESSAGE_PAYLOAD {
         return Err(AccountChatReadError::InvalidRecord);
     }
-    let (content, tags) = if record.deleted {
+    let (mut content, tags) = if record.deleted {
         if !record.payload.is_empty() {
             return Err(AccountChatReadError::InvalidRecord);
         }
@@ -177,6 +180,11 @@ pub(crate) fn present_message(
         }
         logical
     };
+    let edit = row.edit.filter(|_| !record.deleted && record.kind == 9);
+    if let Some(edit) = &edit {
+        content.clone_from(&edit.plaintext);
+    }
+    let next_edit_expiry = edit.as_ref().and_then(|edit| edit.next_expiry);
     let media_attachments = crate::media_attachment_outcomes_from_tags(&tags, None, allow_loopback);
     Ok(PairedChatMessage {
         content_kind: if record.kind == 9 {
@@ -192,6 +200,8 @@ pub(crate) fn present_message(
         content,
         tags,
         media_attachments,
+        edit: edit.map(|edit| edit.summary),
+        next_edit_expiry,
         source: PairedChatSource {
             device: row.scope.source_device,
             policy_digest: row.scope.policy_digest,

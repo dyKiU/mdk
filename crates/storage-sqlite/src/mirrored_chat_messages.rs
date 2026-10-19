@@ -164,6 +164,20 @@ fn write(
         ],
     )
     .storage()?;
+    if record.kind == 1009
+        && let Some(target) = crate::mirrored_chat_edits::target(&record.payload)
+    {
+        conn.execute(
+            "INSERT OR IGNORE INTO mirrored_chat_edit_targets VALUES(?1,?2,?3,?4)",
+            params![
+                key,
+                group.as_slice(),
+                record.event_id.as_slice(),
+                target.as_slice()
+            ],
+        )
+        .storage()?;
+    }
     Ok(())
 }
 
