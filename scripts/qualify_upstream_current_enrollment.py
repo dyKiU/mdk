@@ -375,7 +375,7 @@ def approval_snapshot(value):
         'last_failure':None if m[4]=='None' else m[5],'publication_stage':None if m[6]=='None' else m[7]}
 
 def observed_approvals(raw):
-    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control existing_index=' in line]
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control existing_index=' in line and ' child_channel=' in line]
     ensure(len(lines)<=128,'bounded-existing-approval-rows');rows=[]
     for line in lines:
         ensure(len(line.encode())<=512,'bounded-existing-approval-line')
@@ -419,6 +419,10 @@ def approval_controls():
     ensure(bind_fifth_approvals(observed_approvals(raw),original,{'rows':[]})['fixture_installations_by_index'] is None,'missing-right-expected-not-role-bound-positive')
     ensure(bind_fifth_approvals(observed_approvals('\n'.join(raw.splitlines()[:2])),original,sides)['fixture_installations_by_index'] is None,'partial-rows-not-role-bound-positive')
     ensure(bind_fifth_approvals(observed_approvals(''),original,sides)['partial_or_unknown'] is True,'missing-rows-unknown-positive')
+    notifications=['automatic-enrollment-control existing_index='+str(i)+' latest_prepared_id_available=true recipient_notification=None' for i in range(3)]
+    mixed='\n'.join(line for pair in zip(raw.splitlines(),notifications) for line in pair)
+    ensure(observed_approvals(mixed)==observed_approvals(raw),'mixed-child-and-notification-namespaces-positive')
+    ensure(observed_approvals('\n'.join(notifications))['available'] is False,'notification-only-not-child-evidence-positive')
     maximum='Some((255, 18446744073709551615, 18446744073709551615, Some(PrivateInvite), Some(BeforeCoreWrap)))'
     ensure(approval_snapshot(maximum)['periodic_visits']==(1<<64)-1,'approval-width-maximum-positive')
     invalid=[value.replace('255','256'),value.replace('3, 1','1, 2'),value.replace('Some(Engine)','Some(PRIVATE)'),value.replace('Some(AfterRelayPublication)','Some(PRIVATE)'),value.replace('Some((255','Some(255'),value.replace('3, 1','18446744073709551616, 1'),value.replace('255','-1'),value.replace('255','true'),value+' PRIVATE',value.replace(', 3, 1',', 3')]
@@ -427,13 +431,14 @@ def approval_controls():
         except (ValueError,TypeError,OverflowError):accepted=False
         ensure(not accepted,'invalid-approval-schema-not-exported')
     bad_rows=[raw+'\n'+raw.splitlines()[0],raw.replace('existing_index=1','existing_index=0'),raw.replace('existing_index=1','existing_index=3'),raw.replace('existing_index=2','existing_index=128'),raw.replace(' child_channel=',' account=PRIVATE child_channel='),raw.replace(value,'PRIVATE'),raw+' PRIVATE']
+    bad_rows.append(mixed.replace('existing_index=1 child_channel='+value,'existing_index=1 child_channel=PRIVATE'))
     for bad in bad_rows:
         try:observed_approvals(bad);accepted=True
         except (ValueError,TypeError,OverflowError):accepted=False
         ensure(not accepted,'invalid-approval-records-not-exported')
     for facts,sample in [({'facts':{'completed_steps':True}},sides),(original,{'rows':[{'side':'left'},{'side':'right','completion':{'expected':True}}]})]:
         ensure(bind_fifth_approvals(observed_approvals(raw),facts,sample)['fixture_installations_by_index'] is None,'bool-not-fifth-count')
-    return {'positive':10,'negative':len(invalid)+len(bad_rows)+2,'runtime_bodies':0,'raw_private_export':False}
+    return {'positive':12,'negative':len(invalid)+len(bad_rows)+2,'runtime_bodies':0,'raw_private_export':False}
 
 # Exact already-printed Option<Vec<SiblingMaintenanceSnapshot>> only.
 # Vector iteration order is not a source-peer identity or transport FIFO.
