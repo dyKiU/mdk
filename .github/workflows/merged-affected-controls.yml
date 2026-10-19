@@ -34,6 +34,44 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify owned physical Cargo cache target mapping
+        id: cargo-cache-target
+        shell: bash
+        run: |
+          python3 - <<'PY_CACHE_TARGET'
+          import os, stat
+          from pathlib import Path
+          try:
+              workspace = Path(os.environ['GITHUB_WORKSPACE']).absolute()
+              temporary = Path(os.environ['RUNNER_TEMP']).absolute()
+              for path in [workspace, temporary]:
+                  if path.resolve(strict=True) != path or not path.is_dir() or path.is_symlink() or path.stat().st_uid != os.getuid():
+                      raise ValueError()
+              target = temporary / 'merged-affected-target'
+              try:
+                  target.mkdir(mode=0o700)
+              except FileExistsError:
+                  pass
+              info = target.lstat()
+              if not stat.S_ISDIR(info.st_mode) or target.resolve(strict=True) != target or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                  raise ValueError()
+              relative = os.path.relpath(target, workspace)
+              if os.path.isabs(relative) or '\n' in relative or '\r' in relative or (workspace / relative).resolve(strict=True) != target:
+                  raise ValueError()
+              fd = os.open(os.environ['GITHUB_OUTPUT'], os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+              try:
+                  output = os.fstat(fd)
+                  if not stat.S_ISREG(output.st_mode) or output.st_uid != os.getuid():
+                      raise ValueError()
+                  payload = ('relative=' + relative + '\n').encode()
+                  if os.write(fd, payload) != len(payload):
+                      raise ValueError()
+              finally:
+                  os.close(fd)
+          except Exception:
+              raise SystemExit(1) from None
+          print('cache-target-mapping-verified')
+          PY_CACHE_TARGET
       - name: Exact complete source and synthetic parser controls (zero Rust bodies)
         run: python3 scripts/qualify_upstream_merged_affected.py --mode preflight
       # No Rust source is added or reformatted by these two metadata paths.
@@ -55,6 +93,44 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify owned physical Cargo cache target mapping
+        id: cargo-cache-target
+        shell: bash
+        run: |
+          python3 - <<'PY_CACHE_TARGET'
+          import os, stat
+          from pathlib import Path
+          try:
+              workspace = Path(os.environ['GITHUB_WORKSPACE']).absolute()
+              temporary = Path(os.environ['RUNNER_TEMP']).absolute()
+              for path in [workspace, temporary]:
+                  if path.resolve(strict=True) != path or not path.is_dir() or path.is_symlink() or path.stat().st_uid != os.getuid():
+                      raise ValueError()
+              target = temporary / 'merged-affected-target'
+              try:
+                  target.mkdir(mode=0o700)
+              except FileExistsError:
+                  pass
+              info = target.lstat()
+              if not stat.S_ISDIR(info.st_mode) or target.resolve(strict=True) != target or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                  raise ValueError()
+              relative = os.path.relpath(target, workspace)
+              if os.path.isabs(relative) or '\n' in relative or '\r' in relative or (workspace / relative).resolve(strict=True) != target:
+                  raise ValueError()
+              fd = os.open(os.environ['GITHUB_OUTPUT'], os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+              try:
+                  output = os.fstat(fd)
+                  if not stat.S_ISREG(output.st_mode) or output.st_uid != os.getuid():
+                      raise ValueError()
+                  payload = ('relative=' + relative + '\n').encode()
+                  if os.write(fd, payload) != len(payload):
+                      raise ValueError()
+              finally:
+                  os.close(fd)
+          except Exception:
+              raise SystemExit(1) from None
+          print('cache-target-mapping-verified')
+          PY_CACHE_TARGET
       - name: Exact pinned toolchain
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
@@ -62,9 +138,10 @@ jobs:
           rustup default "$toolchain"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
-          workspaces: . -> ${{ runner.temp }}/merged-affected-target
-          shared-key: merged-affected-full-workspace
+          workspaces: . -> ${{ steps.cargo-cache-target.outputs.relative }}
+          shared-key: merged-affected-full-workspace-v2
           cache-on-failure: true
+          cache-workspace-crates: true
       - name: Capacity preflight (owned target; no cleanup)
         run: |
           available=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
@@ -92,6 +169,44 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify owned physical Cargo cache target mapping
+        id: cargo-cache-target
+        shell: bash
+        run: |
+          python3 - <<'PY_CACHE_TARGET'
+          import os, stat
+          from pathlib import Path
+          try:
+              workspace = Path(os.environ['GITHUB_WORKSPACE']).absolute()
+              temporary = Path(os.environ['RUNNER_TEMP']).absolute()
+              for path in [workspace, temporary]:
+                  if path.resolve(strict=True) != path or not path.is_dir() or path.is_symlink() or path.stat().st_uid != os.getuid():
+                      raise ValueError()
+              target = temporary / 'merged-affected-target'
+              try:
+                  target.mkdir(mode=0o700)
+              except FileExistsError:
+                  pass
+              info = target.lstat()
+              if not stat.S_ISDIR(info.st_mode) or target.resolve(strict=True) != target or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                  raise ValueError()
+              relative = os.path.relpath(target, workspace)
+              if os.path.isabs(relative) or '\n' in relative or '\r' in relative or (workspace / relative).resolve(strict=True) != target:
+                  raise ValueError()
+              fd = os.open(os.environ['GITHUB_OUTPUT'], os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+              try:
+                  output = os.fstat(fd)
+                  if not stat.S_ISREG(output.st_mode) or output.st_uid != os.getuid():
+                      raise ValueError()
+                  payload = ('relative=' + relative + '\n').encode()
+                  if os.write(fd, payload) != len(payload):
+                      raise ValueError()
+              finally:
+                  os.close(fd)
+          except Exception:
+              raise SystemExit(1) from None
+          print('cache-target-mapping-verified')
+          PY_CACHE_TARGET
       - name: Exact pinned toolchain
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
@@ -99,9 +214,10 @@ jobs:
           rustup default "$toolchain"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
-          workspaces: . -> ${{ runner.temp }}/merged-affected-target
-          shared-key: merged-affected-full-workspace
+          workspaces: . -> ${{ steps.cargo-cache-target.outputs.relative }}
+          shared-key: merged-affected-full-workspace-v2
           cache-on-failure: true
+          cache-workspace-crates: true
       - name: Capacity preflight (owned target; no cleanup)
         run: |
           available=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
@@ -134,6 +250,44 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify owned physical Cargo cache target mapping
+        id: cargo-cache-target
+        shell: bash
+        run: |
+          python3 - <<'PY_CACHE_TARGET'
+          import os, stat
+          from pathlib import Path
+          try:
+              workspace = Path(os.environ['GITHUB_WORKSPACE']).absolute()
+              temporary = Path(os.environ['RUNNER_TEMP']).absolute()
+              for path in [workspace, temporary]:
+                  if path.resolve(strict=True) != path or not path.is_dir() or path.is_symlink() or path.stat().st_uid != os.getuid():
+                      raise ValueError()
+              target = temporary / 'merged-affected-target'
+              try:
+                  target.mkdir(mode=0o700)
+              except FileExistsError:
+                  pass
+              info = target.lstat()
+              if not stat.S_ISDIR(info.st_mode) or target.resolve(strict=True) != target or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                  raise ValueError()
+              relative = os.path.relpath(target, workspace)
+              if os.path.isabs(relative) or '\n' in relative or '\r' in relative or (workspace / relative).resolve(strict=True) != target:
+                  raise ValueError()
+              fd = os.open(os.environ['GITHUB_OUTPUT'], os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+              try:
+                  output = os.fstat(fd)
+                  if not stat.S_ISREG(output.st_mode) or output.st_uid != os.getuid():
+                      raise ValueError()
+                  payload = ('relative=' + relative + '\n').encode()
+                  if os.write(fd, payload) != len(payload):
+                      raise ValueError()
+              finally:
+                  os.close(fd)
+          except Exception:
+              raise SystemExit(1) from None
+          print('cache-target-mapping-verified')
+          PY_CACHE_TARGET
       - name: Exact pinned toolchain
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
@@ -141,9 +295,10 @@ jobs:
           rustup default "$toolchain"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
-          workspaces: . -> ${{ runner.temp }}/merged-affected-target
-          shared-key: merged-affected-full-workspace
+          workspaces: . -> ${{ steps.cargo-cache-target.outputs.relative }}
+          shared-key: merged-affected-full-workspace-v2
           cache-on-failure: true
+          cache-workspace-crates: true
       - name: Capacity preflight (owned target; no cleanup)
         run: |
           available=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
