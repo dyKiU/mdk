@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import stat
@@ -87,18 +88,48 @@ def diagnostics(raw):
     return result
 
 
+def fixture_paths():
+    declaration_source = Path('crates/storage-sqlite/src/base/migrations.rs').read_text()
+    declared = re.findall(r'#\[path = "([^"]+)"\]\s*mod private_migration_ledger_tests;', declaration_source)
+    if declared != ['../private_migration_ledger_tests.rs']:
+        raise ValueError('fixture-module-path')
+    lexical = 'crates/storage-sqlite/src/base/' + declared[0]
+    if posixpath.normpath(lexical) != FIXTURE:
+        raise ValueError('fixture-module-path')
+    return (FIXTURE, lexical)
+
+
+def panic_facts(raw, fixture):
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', raw.decode('utf-8', errors='replace'))
+    paths = fixture_paths()
+    headers = list(re.finditer(
+        r"(?m)^[ \t]{0,8}thread '([^'\r\n]{1,4096})'(?: \(\d+\))? panicked at ([^\r\n]{1,4096}):(\d+):(\d+):\r?\n", text))
+    total = text.count('panicked at ')
+    facts = []
+    unknown = max(0, total - len(headers))
+    for header in headers:
+        thread, path, line, column = header.groups()
+        if path not in paths or not (1 <= int(line) <= 1_000_000 and 1 <= int(column) <= 1_000_000):
+            unknown += 1
+            continue
+        label = re.match(r'(?:\r?\n){0,2}' + re.escape(LABEL) + r'\s*(?:\n|$)', text[header.end():]) is not None
+        facts.append(dict(source=path, line=int(line), column=int(column),
+            expected_thread=thread == DENIAL, expected_assertion_line=int(line) == assertion_line(fixture),
+            label_class='missing-permanent-denial' if label else 'unknown'))
+    return dict(header_count=total, known_positions=facts[:8], known_positions_overflow=len(facts) > 8,
+                unknown_header_or_position_count=unknown,
+                intended_denial_assertion=(total == 1 and unknown == 0 and len(facts) == 1
+                    and facts[0]['expected_thread'] and facts[0]['expected_assertion_line']
+                    and facts[0]['label_class'] == 'missing-permanent-denial'))
+
+
 def oracle(raw, names, failure, fixture):
     text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', raw.decode('utf-8', errors='replace'))
     summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;[^\n]*$', text, re.M)
     actual = re.findall(r'^test ([a-zA-Z0-9_:]+) \.\.\. (ok|FAILED|ignored)\s*$', text, re.M)
     running = re.findall(r'^running (\d+) tests?\s*$', text, re.M)
     expected = [('FAILED', '0', '1', '0')] if failure else [('ok', str(len(names)), '0', '0')]
-    own = False
-    if failure:
-        own = (text.count('panicked at ') == 1 and re.search(
-            r"thread '" + re.escape(DENIAL) + r"'(?: \(\d+\))? panicked at " + re.escape(FIXTURE)
-            + ':' + str(assertion_line(fixture)) + r':\d+:\n(?:\n){0,2}'
-            + re.escape(LABEL) + r'\s*(?:\n|$)', text) is not None)
+    own = panic_facts(raw, fixture)['intended_denial_assertion'] if failure else False
     diag = diagnostics(raw)
     counts = None if len(summaries) != 1 else dict(passed=int(summaries[0][1]),
         failed=int(summaries[0][2]), ignored=int(summaries[0][3]))
@@ -119,8 +150,10 @@ def controls(fixture):
         + FIXTURE + ':' + str(assertion_line(fixture)) + ':5:\n' + LABEL + '\n' + end).encode()
     good = (prefix + 'ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n').encode()
     threaded = failure.replace(("thread '" + DENIAL + "' panicked at").encode(), ("thread '" + DENIAL + "' (123) panicked at").encode())
+    lexical = failure.replace(FIXTURE.encode(), fixture_paths()[1].encode())
     if (not oracle(failure, [DENIAL], True, fixture)['oracle_qualified']
         or not oracle(threaded, [DENIAL], True, fixture)['oracle_qualified']
+        or not oracle(lexical, [DENIAL], True, fixture)['oracle_qualified']
         or not oracle(good, [DENIAL], False, fixture)['oracle_qualified']):
         raise ValueError('parser-positive')
     negatives = [failure + failure, failure.replace(LABEL.encode(), b'unknown'),
@@ -132,10 +165,11 @@ def controls(fixture):
         failure + b"thread 'unknown' panicked at unknown.rs:1:1:\nunknown\n",
         failure + b'error: test failed, to rerun pass `-p storage-sqlite --lib`\n' * 2,
         failure.replace(b'running 1 test', b'running 0 tests'),
-        failure.replace(b'0 ignored;', b'1 ignored;')]
+        failure.replace(b'0 ignored;', b'1 ignored;'),
+        failure.replace(("thread '" + DENIAL).encode(), ("PRIVATE_PREFIX thread '" + DENIAL).encode())]
     if any(oracle(raw, [DENIAL], True, fixture)['oracle_qualified'] for raw in negatives):
         raise ValueError('parser-negative')
-    return dict(positive=3, negative=len(negatives), metadata_only=True)
+    return dict(positive=4, negative=len(negatives), metadata_only=True)
 
 
 def main():
@@ -245,6 +279,8 @@ def main():
                 body['observed_summary_counts'] = [dict(passed=int(p), failed=int(f), ignored=int(i)) for p, f, i in summary_rows]
                 body['compiler_diagnostics'] = diagnostics(raw)
                 save()
+                body['runtime_panic_facts'] = panic_facts(raw, fixture)
+                save()
                 body.update(oracle(raw, [name], failure, fixture))
                 save()
                 if code != (101 if failure else 0) or not body['oracle_qualified']:
@@ -264,7 +300,7 @@ def main():
         report['error_category'] = type(error).__name__
         report['failure_category'] = (error.args[0] if type(error) is ValueError and len(error.args) == 1
             and error.args[0] in {'expected-two-validation-loops','expected-private-validation-loop',
-            'unknown-fixture-cfg','fixture-inventory-shape','denial-assertion-label','denial-assertion-shape',
+            'fixture-module-path','unknown-fixture-cfg','fixture-inventory-shape','denial-assertion-label','denial-assertion-shape',
             'parser-positive','parser-negative','self-baseline-required','manual-workflow-identity',
             'compiler-environment','toolchain-release','source-parent-symlink','phase-source',
             'inventory-compile','inventory-exact','body-source','body-unqualified','positive-controls'} else 'unknown')
