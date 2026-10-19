@@ -230,6 +230,13 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         // New installations B,C,D,E join through already-authorized A,B,C,B.
         for (newcomer, sponsor) in [(1usize, 0usize), (2, 1), (3, 2), (4, 1)] {
+            #[cfg(feature = "test-policy-overrides")]
+            let _recipient_trace = (newcomer == 4).then(|| {
+                crate::client::AppClient::test_capture_account_chat_progress(
+                    apps[newcomer].account_home().root(),
+                    "recipient",
+                )
+            });
             let (source, recipient, approvals) = join_installation(&apps, &managers, &account, sponsor, newcomer).await;
             // Reuse the integration helper:15s for every phase;
             // no deadline override, packets or extra host finalization calls.

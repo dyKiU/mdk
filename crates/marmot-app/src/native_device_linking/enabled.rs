@@ -12,6 +12,10 @@ use std::sync::{
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) type PreparedPublicationNotificationForTest =
+    ([u64; 8], [u64; 6], Option<(usize, usize)>, u64, bool, bool);
+
 pub(super) struct SessionState {
     manager: AccountManager,
     account: String,
@@ -421,6 +425,17 @@ impl DeviceLinkingSession {
             .completed_consent_progress_for_test(identity, policies)
     }
     // COMPLETION_TEST_END
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn prepared_publication_notification_for_test(
+        &self,
+        publication: &cgka_traits::MessageId,
+    ) -> Option<PreparedPublicationNotificationForTest> {
+        let account = cgka_traits::MemberId::new(self.inner.scope.account.to_vec());
+        let (plane, _) = self.inner.manager.device_pairing_transport();
+        plane
+            .account_notification_timing_for_test(&account, &hex::encode(publication.as_slice()))
+            .map(|row| (row.0, row.2, row.4.0, row.4.1, row.4.2.is_some(), row.4.3))
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_child_diagnostics_for_test(
         &self,

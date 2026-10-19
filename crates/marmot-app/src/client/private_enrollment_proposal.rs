@@ -53,6 +53,14 @@ impl OriginalSiblingSharingApproval {
             .snapshot()
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn latest_prepared_publication_for_test(&self) -> Option<cgka_traits::MessageId> {
+        self.state
+            .sibling_publication_for_test
+            .lock()
+            .expect("sibling publication")
+            .clone()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn status_for_test(&self) -> (bool, bool) {
         (self.state.live(), self.complete())
     }

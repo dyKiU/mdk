@@ -1747,6 +1747,19 @@ async fn wait_for_automatic_phase_with_approvals(
                     .sharing_original_for_test()
                     .map(|original| original.channel_diagnostics_for_test()),
             );
+            // The temporary borrowed original is dropped before recipient lookup.
+            // Only its existing last prepared key is copied; no identity is printed.
+            let publication = approval
+                .sharing_original_for_test()
+                .and_then(|original| original.latest_prepared_publication_for_test());
+            let notification = publication
+                .as_ref()
+                .and_then(|id| b.prepared_publication_notification_for_test(id));
+            eprintln!(
+                "automatic-enrollment-control existing_index={index} latest_prepared_id_available={} recipient_notification={:?}",
+                publication.is_some(),
+                notification,
+            );
         }
         #[cfg(not(feature = "test-policy-overrides"))]
         let _ = approvals;
