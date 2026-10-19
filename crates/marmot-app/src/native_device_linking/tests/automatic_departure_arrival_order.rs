@@ -4,9 +4,12 @@
 use super::*;
 use cgka_traits::message::{MessageState, StoredMessagePayload};
 use cgka_traits::{EpochId, MessageId};
-use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
+use openmls::prelude::{
+    ContentType, MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent, Proposal,
+    ProtocolMessage, Sender,
+};
 use sha2::{Digest, Sha256};
-use tls_codec::Deserialize;
+use tls_codec::{Deserialize, Serialize};
 
 pub(super) struct HeldProposal {
     hold: crate::relay_plane::held_delivery::Hold,
@@ -15,6 +18,7 @@ pub(super) struct HeldProposal {
     prior: EpochId,
     own_leave_before_arrival: bool,
     actual_proposal_received: bool,
+    authentication: std::sync::Arc<cgka_engine::canonical_probe_observer::Probe>,
 }
 
 impl HeldProposal {
@@ -56,15 +60,50 @@ impl HeldProposal {
                 continue;
             }
             let canonical = MessageId::new(Sha256::digest(&wire.payload).to_vec());
-            assert_eq!(
-                peer.app
-                    .account_storage("test")
+            let administrator = peer.app.account_storage("test").unwrap();
+            let retained = administrator.get_message(&canonical).unwrap();
+            assert!(
+                StoredMessagePayload::decode(&retained.payload)
                     .unwrap()
-                    .get_message(&canonical)
-                    .unwrap()
-                    .state,
-                MessageState::Processed,
-                "D must have authenticated A's actual proposal before its held A-only commit"
+                    .as_openmls_wire()
+                    .is_some_and(|message| message.payload == wire.payload),
+                "D must retain the exact A public proposal wire"
+            );
+            administrator.with_read_snapshot(|storage| -> Result<(), cgka_traits::StorageError> {
+                let crypto = openmls_rust_crypto::RustCrypto::default();
+                let provider = cgka_engine::provider::EngineOpenMlsProvider::<storage_sqlite::SqliteAccountStorage>::new(
+                    &crypto, storage.mls_storage(),
+                );
+                let mut group = openmls::group::MlsGroup::load(
+                    storage.mls_storage(), &openmls::group::GroupId::from_slice(peer.group.as_slice()),
+                ).unwrap().unwrap();
+                assert_eq!(group.epoch().as_u64(),prior.0);
+                // Public-only authentication reads no receive ratchet and the
+                // query-only snapshot refuses writes. Never store or apply it.
+                let public = match MlsMessageIn::tls_deserialize_exact(&wire.payload).unwrap().extract() {
+                    MlsMessageBodyIn::PublicMessage(public) => public,
+                    _ => panic!("arrival fixture requires a public SelfRemove"),
+                };
+                let processed = group.process_message(&provider, ProtocolMessage::from(public)).unwrap();
+                let ProcessedMessageContent::ProposalMessage(proposal) = processed.into_content() else {
+                    panic!("arrival fixture requires an authenticated proposal");
+                };
+                assert!(matches!(proposal.proposal(),Proposal::SelfRemove));
+                assert!(matches!(proposal.sender(),Sender::Member(index) if index.u32()==peer.a_index));
+                let reference = proposal.proposal_reference_ref().tls_serialize_detached().unwrap();
+                let staged = group.pending_commit().unwrap();
+                let references:Vec<_> = staged.queued_proposals()
+                    .filter(|proposal|matches!((proposal.proposal(),proposal.sender()),
+                        (Proposal::SelfRemove,Sender::Member(index)) if index.u32()==peer.a_index))
+                    .map(|proposal|proposal.proposal_reference_ref().tls_serialize_detached().unwrap())
+                    .collect();
+                assert!(references.len()==1 && references[0]==reference,
+                    "D actual pending commit must consume this exact authenticated A proposal");
+                Ok(())
+            }).unwrap();
+            eprintln!(
+                "account_departure_arrival_d_exact_authenticated_pending_proposal=true canonical_state={:?}",
+                retained.state
             );
             let event =
                 nostr_relay_builder::prelude::EventId::from_slice(exact.id.as_slice()).unwrap();
@@ -80,6 +119,11 @@ impl HeldProposal {
             "arrival fixture requires one exact actual A proposal"
         );
         let (outer, canonical) = candidates.pop().unwrap();
+        let authentication = cgka_engine::canonical_probe_observer::Probe::arm(
+            peer.group.clone(),
+            peer.b_index,
+            canonical.clone(),
+        );
         let account = cgka_traits::MemberId::new(
             hex::decode(
                 recipient
@@ -100,6 +144,7 @@ impl HeldProposal {
             prior,
             own_leave_before_arrival: false,
             actual_proposal_received: false,
+            authentication,
         };
         fixture.assert_not_received(recipient);
         eprintln!("account_departure_arrival_exact_a_proposal_armed=true");
@@ -167,7 +212,13 @@ impl HeldProposal {
             self.hold.release();
         }
         match store.get_message(&self.canonical) {
-            Ok(row) if row.state == MessageState::Processed => {
+            Ok(_) => {
+                let authenticated = self.authentication.snapshot();
+                if authenticated.authenticated_self_remove == 0
+                    || !authenticated.self_remove_scheduling_refused_for_own_leave
+                {
+                    return;
+                }
                 let (held, finished, enqueued) = self.hold.observed();
                 // Another runtime worker may finish ingest immediately after
                 // send, before the routing task publishes its final counters.
@@ -190,7 +241,7 @@ impl HeldProposal {
                 self.actual_proposal_received = true;
                 eprintln!("account_departure_arrival_a_authenticated_after_b_own_leave=true");
             }
-            Ok(_) | Err(cgka_traits::StorageError::NotFound) => {}
+            Err(cgka_traits::StorageError::NotFound) => {}
             Err(_) => panic!("arrival fixture received storage state Unknown"),
         }
     }
@@ -201,6 +252,12 @@ impl HeldProposal {
             self.own_leave_before_arrival,
             self.actual_proposal_received,
             self.hold.observed()
+        );
+        let authenticated = self.authentication.snapshot();
+        eprintln!(
+            "account_departure_arrival_actual_engine_authentications={} own_leave_schedule_refused={}",
+            authenticated.authenticated_self_remove,
+            authenticated.self_remove_scheduling_refused_for_own_leave
         );
         assert!(
             self.own_leave_before_arrival && self.actual_proposal_received,

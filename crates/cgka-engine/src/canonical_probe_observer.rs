@@ -11,6 +11,8 @@ use std::sync::{
 
 #[derive(Clone, Debug, Default)]
 pub struct Observation {
+    pub authenticated_self_remove: u64,
+    pub self_remove_scheduling_refused_for_own_leave: bool,
     pub replay_failures: u64,
     pub failed_kind: Option<&'static str>,
     pub failed_source_epoch: Option<u64>,
@@ -79,6 +81,21 @@ fn visit(group: &GroupId, own_leaf: u32, mut f: impl FnMut(&Probe, &mut Observat
             f(&probe, &mut observed);
         }
     }
+}
+pub(crate) fn self_remove_authenticated(group: &GroupId, own_leaf: u32, content: &MessageId) {
+    visit(group, own_leaf, |probe, observed| {
+        if probe.content == *content {
+            observed.authenticated_self_remove =
+                observed.authenticated_self_remove.saturating_add(1);
+        }
+    });
+}
+pub(crate) fn self_remove_scheduling_refused(group: &GroupId, own_leaf: u32, content: &MessageId) {
+    visit(group, own_leaf, |probe, observed| {
+        if probe.content == *content {
+            observed.self_remove_scheduling_refused_for_own_leave = true;
+        }
+    });
 }
 pub(crate) fn replay_failure(
     group: &GroupId,

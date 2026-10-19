@@ -1457,8 +1457,19 @@ impl<S: StorageProvider> Engine<S> {
         proposal_id: &MessageId,
         source_epoch: EpochId,
         now_ms: u64,
+        #[cfg(feature = "test-policy-overrides")] observed_own_leaf: Option<u32>,
     ) -> Result<(), EngineError> {
         if self.load_leave_request_state(group_id)?.is_some() {
+            #[cfg(feature = "test-policy-overrides")]
+            if let Some(own_leaf) = observed_own_leaf {
+                // Observe the actual existing refusal; never change its result,
+                // reconstruct a proposal or turn an observation into authority.
+                crate::canonical_probe_observer::self_remove_scheduling_refused(
+                    group_id,
+                    own_leaf,
+                    proposal_id,
+                );
+            }
             return Ok(());
         }
         let due_at_ms =
@@ -1536,7 +1547,14 @@ impl<S: StorageProvider> Engine<S> {
             {
                 continue;
             }
-            self.schedule_self_remove_auto_commit(group_id, &record.id, source_epoch, now_ms)?;
+            self.schedule_self_remove_auto_commit(
+                group_id,
+                &record.id,
+                source_epoch,
+                now_ms,
+                #[cfg(feature = "test-policy-overrides")]
+                None,
+            )?;
             restored = true;
         }
         Ok(restored)
