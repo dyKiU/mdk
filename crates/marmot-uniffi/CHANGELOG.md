@@ -8,6 +8,12 @@
   keep enrollment gated. Regenerate Swift/Kotlin alongside the matching library.
 ### Breaking changes
 
+- `AttachmentStorageUsageFfi` adds `migration` (`AttachmentMigrationStateFfi`:
+  `NotNeeded`, `Running`, `Paused`, `Complete`) and `migration_bytes`: where
+  the background move of legacy database bodies into the media store stands
+  (mdk#2314 step 6). Regenerate bindings; update code that constructs or
+  exhaustively destructures the record.
+
 - `MarmotKitError` adds `InvalidPublicEventReferences`: a cached public event preview read named more than 16 references. Regenerate bindings and update exhaustive Swift `switch` / Kotlin `when` handling.
 - `MarmotKitError` adds `DirectoryLookupIncomplete { account }` (mdk#2302): a recipient's or
   account's relay-list or KeyPackage lookup ran out of time or relay coverage, so nothing is
@@ -34,6 +40,13 @@
 - `MarmotKitError` adds `GroupCommitUndelivered`: a group change was refused because the group's last change has not reached every group relay yet (mdk#2255). Regenerate bindings and update exhaustive Swift `switch` / Kotlin `when` handling.
 
 ### Added
+
+- Manage storage (mdk#2314 step 5): `attachment_storage_usage`,
+  `attachment_storage_by_chat`, `largest_retained_attachments` (paged largest
+  first with opaque `ChatStorageCursor` / `RetainedAttachmentsCursor` handles),
+  `remove_chat_attachments` and `remove_attachments_older_than`. Removal is
+  `control_attachment` Remove, and released media-store files are deleted
+  before the call returns. See [Manage storage](ATTACHMENT-ACCESS.md#manage-storage).
 
 - `MarmotOptions.deployment` takes a `MarmotDeploymentFfi` (with `OpenRankingProviderFfi`) for the deployment's recovery relays, discovery indexers, media and image servers, Open Ranking, KeyPackage client preference, moderation label namespace and keychain service; `marmot_deployment_white_noise()` and `marmot_deployment_neutral()` build one. Without a `SecretStore`, the platform keychain now opens under the deployment's `keychain_service`. An omitted deployment is White Noise's, unchanged, until the neutral default lands, when every constructor will require one (host-configuration brief, PR 2).
 - `open_attachment_handoff` and `release_attachment_handoff`, with record

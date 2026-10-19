@@ -27,6 +27,7 @@ mod account_chat_presentation;
 pub mod account_chat_sharing;
 pub mod attachment_access;
 pub mod attachment_history;
+pub mod attachment_storage;
 pub mod commands;
 pub mod deployment;
 pub mod device_linking;
