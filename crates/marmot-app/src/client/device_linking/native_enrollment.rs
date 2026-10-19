@@ -84,8 +84,7 @@ impl AppClient {
                 .zip(&predecessor.leaves)
                 .all(|(actual, expected)| {
                     actual.leaf_index == expected.leaf_index
-                        && actual.signature_public_key.as_slice()
-                            == expected.signature_public_key
+                        && actual.signature_public_key.as_slice() == expected.signature_public_key
                 });
         #[cfg(all(test, feature = "test-policy-overrides"))]
         original.record_exact_predecessor_for_test(exact_predecessor);
