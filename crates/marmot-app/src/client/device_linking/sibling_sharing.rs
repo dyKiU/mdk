@@ -39,12 +39,17 @@ pub(crate) enum NativeObservationReason {
 pub(crate) type NativeObservationSnapshot =
     ([usize; 6], [u64; 6], Option<(NativeObservationReason, u64)>);
 #[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type NativeReceiveGuardSnapshot = ([u64; 4], Option<(u8, u64)>, bool);
+#[cfg(all(test, feature = "test-policy-overrides"))]
 struct NativeObservationProbe {
     origin: Instant,
     counts: [usize; 6],
     elapsed_ms: [u64; 6],
     reason: Option<(NativeObservationReason, u64)>,
     exact_predecessor_observed: bool,
+    receive_guard_counts: [u64; 4],
+    receive_guard_last: Option<(u8, u64)>,
+    receive_guard_overflow: bool,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Default for NativeObservationProbe {
@@ -55,6 +60,9 @@ impl Default for NativeObservationProbe {
             elapsed_ms: [0; 6],
             reason: None,
             exact_predecessor_observed: false,
+            receive_guard_counts: [0; 4],
+            receive_guard_last: None,
+            receive_guard_overflow: false,
         }
     }
 }
@@ -408,6 +416,34 @@ impl OriginalEnrollmentSharingChoice {
             .lock()
             .expect("native observation probe");
         (probe.counts, probe.elapsed_ms, probe.reason)
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_receive_guards_for_test(&self, effects: bool, refresh: bool) {
+        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let mask = u8::from(effects) | (u8::from(refresh) << 1);
+        if let Some(count) = probe.receive_guard_counts[usize::from(mask)].checked_add(1) {
+            probe.receive_guard_counts[usize::from(mask)] = count;
+        } else {
+            probe.receive_guard_overflow = true;
+        }
+        probe.receive_guard_last = Instant::now().checked_duration_since(probe.origin)
+            .and_then(|elapsed| u64::try_from(elapsed.as_millis()).ok()).map(|elapsed| (mask, elapsed));
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn receive_guard_snapshot_for_test(&self) -> NativeReceiveGuardSnapshot {
+        let probe = self.native_observation_probe.lock().expect("native observation probe");
+        (probe.receive_guard_counts, probe.receive_guard_last, probe.receive_guard_overflow)
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn notification_times_for_test(&self, accepted: Option<Instant>, dequeued: Option<Instant>)
+        -> (Option<u64>, Option<u64>, Option<u64>)
+    {
+        let probe = self.native_observation_probe.lock().expect("native observation probe");
+        let capture = Instant::now();
+        let elapsed = |instant: Instant| instant.checked_duration_since(probe.origin)
+            .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+        (accepted.and_then(elapsed), dequeued.and_then(elapsed), elapsed(capture))
     }
 
     // COMPLETION_TEST_BEGIN

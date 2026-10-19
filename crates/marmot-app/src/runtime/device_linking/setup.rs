@@ -274,6 +274,10 @@ pub(super) async fn handle(
             let result = client.linking_native_observation(&scope);
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(observer) = &observer {
+                observer.record_receive_guards_for_test(
+                    client.has_pending_effect_projections(),
+                    client.has_pending_runtime_group_subscription_refresh(),
+                );
                 observer.record_observation_stage_for_test(
                     crate::client::device_linking::sibling_sharing::NativeObservationStage::WorkerReturned,
                 );
