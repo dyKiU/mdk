@@ -122,6 +122,83 @@ def intended(row):
         and row.get('intended_failure_header') is True and row.get('exact_dependency_assertion_site') is True
         and all((case['status']=='FAIL')==(case['name']==TARGET) for case in row['cases']))
 
+MOCK_ORDER_SOURCE_SHA='c7d7866d9e852cbe47287a81f7a6eedd7183379928942da576b7a599d7fbd718'
+MOCK_ORDER_LINE=151
+MOCK_ORDER_ASSERTION='self.assertIn("renewal", commands[0][commands[0].index("-E") + 1])'
+MOCK_ORDER_SCOPE='pairing-departure-staggered'
+MOCK_ORDER_DEPARTURE='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race)'
+
+def mock_order_diagnostic(raw,code,source_sha,source_assertion_at_site):
+    # Independent finite metadata observation; NEVER called by green/intended/parse.
+    clean=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
+    name=NAMES[0];description=name+' (__main__.PairingReplayDispatchTests.'+name+')'
+    subtest=description+" (scope='"+MOCK_ORDER_SCOPE+"')"
+    lines=clean.splitlines()
+    parent_count=sum(line.rstrip()==description+' ...' for line in lines)
+    subtest_count=sum(line in {subtest+' ... FAIL','  '+subtest+' ... FAIL'} for line in lines)
+    other_ok=sum(lines.count(other+' (__main__.PairingReplayDispatchTests.'+other+') ... ok') for other in NAMES[1:])
+    allowed={description+' ...',subtest+' ... FAIL','  '+subtest+' ... FAIL'}|{other+' (__main__.PairingReplayDispatchTests.'+other+') ... ok' for other in NAMES[1:]}
+    status_lines=[line for line in lines if re.match(r'^(?:  )?test_[A-Za-z0-9_]+ \(',line) and ' ...' in line]
+    status_shape=(len(status_lines)==5 and all(line.rstrip() in allowed for line in status_lines)
+        and all(lines.count(other+' (__main__.PairingReplayDispatchTests.'+other+') ... ok')==1 for other in NAMES[1:]))
+    summaries=re.findall(r'(?m)^Ran ([0-9]{1,3}) tests? in [0-9]+(?:\.[0-9]+)?s$',clean)
+    failure_headers=re.findall(r'(?m)^FAIL: [^\n]*$',clean)
+    error_headers=re.findall(r'(?m)^ERROR: [^\n]*$',clean)
+    failed_summaries=re.findall(r'(?m)^FAILED \([^\n]*\)$',clean)
+    source_site=re.findall(r'(?m)^  File "(?:[^"\n]*/)?scripts/test_pairing_replay_dispatch\.py", line ([0-9]{1,5}), in '+re.escape(name)+r'$',clean)
+    source_assert_count=sum(line.strip()==MOCK_ORDER_ASSERTION for line in lines)
+    expected_payload="AssertionError: 'renewal' not found in '"+MOCK_ORDER_DEPARTURE+"'"
+    payload_count=lines.count(expected_payload)
+    assertion_payload_count=sum(line.startswith('AssertionError:') for line in lines)
+    row={'diagnostic_kind':'controlled_staggered_mock_order_regression','source_test_sha_verified':source_sha==MOCK_ORDER_SOURCE_SHA,
+        'source_assertion_literal_verified':source_assertion_at_site is True,'expected_source_site':{'file':TEST,'line':MOCK_ORDER_LINE},
+        'exact_parent_header_count':parent_count,'exact_staggered_failed_subtest_status_count':subtest_count,
+        'other_known_method_OK_count':other_ok,'strict_known_status_inventory':status_shape,
+        'summary_test_count':int(summaries[0]) if len(summaries)==1 else None,
+        'sole_exact_failed_subtest_header':failure_headers==['FAIL: '+subtest],
+        'failure_header_count':len(failure_headers),'error_header_count':len(error_headers),
+        'sole_failure_summary':failed_summaries==['FAILED (failures=1)'] and not re.search(r'(?m)^OK(?:\s|$)',clean),
+        'exact_original_order_assertion_site':source_site==[str(MOCK_ORDER_LINE)],
+        'exact_original_order_assertion_source_count':source_assert_count,
+        'exact_static_departure_first_payload_count':payload_count,'assertion_payload_count':assertion_payload_count,
+        'body_exit_code':code if type(code)is int else None,'separate_metadata_RED_verified':False,
+        'strict_selector_PFP_credit':False,'protocol_RED':False,'raw_message_or_command_exported':False,
+        'child_statuses_separately_observed':False,'both_children_zero_and_two_rows_source_implied':False}
+    row['separate_metadata_RED_verified']=(type(code)is int and code==1 and row['source_test_sha_verified']
+        and row['source_assertion_literal_verified'] and parent_count==subtest_count==1 and other_ok==3 and status_shape
+        and summaries==['4'] and row['sole_exact_failed_subtest_header'] and not error_headers
+        and row['sole_failure_summary'] and row['exact_original_order_assertion_site'] and source_assert_count==1
+        and payload_count==assertion_payload_count==1 and clean.count('Traceback (most recent call last):')==1)
+    # Reaching this exact assertion in the pinned source follows the unchanged
+    # both-process-zero gate and its result/count/argument assertions. It is NOT
+    # a separately exported child-process status observation.
+    row['both_children_zero_and_two_rows_source_implied']=row['separate_metadata_RED_verified']
+    row['separate_metadata_RED_counts']=({'executed':4,'passed':3,'failed':1,'errors':0,'skipped':0} if row['separate_metadata_RED_verified'] else {key:None for key in ['executed','passed','failed','errors','skipped']})
+    return row
+
+def mock_order_parser_controls():
+    name=NAMES[0];description=name+' (__main__.PairingReplayDispatchTests.'+name+')'
+    subtest=description+" (scope='"+MOCK_ORDER_SCOPE+"')"
+    body=description+' ... \n  '+subtest+' ... FAIL\n'+''.join(other+' (__main__.PairingReplayDispatchTests.'+other+') ... ok\n' for other in NAMES[1:])
+    trace='\nFAIL: '+subtest+'\nTraceback (most recent call last):\n  File "/public/scripts/test_pairing_replay_dispatch.py", line 151, in '+name+'\n    '+MOCK_ORDER_ASSERTION+"\nAssertionError: 'renewal' not found in '"+MOCK_ORDER_DEPARTURE+"'\n\nRan 4 tests in 0.123s\n\nFAILED (failures=1)\n"
+    raw=body+trace
+    def check(text,code=1,sha=MOCK_ORDER_SOURCE_SHA,site=True):return mock_order_diagnostic(text,code,sha,site)['separate_metadata_RED_verified']
+    ensure(check(raw) and check(raw.replace('  '+subtest+' ... FAIL',subtest+' ... FAIL')),'closed-mock-subtest-known-verbose-forms')
+    negative=[raw.replace("scope='pairing-departure-staggered'","scope='PRIVATE'"),raw.replace('line 151','line 152'),
+        raw.replace(MOCK_ORDER_ASSERTION,'self.assertTrue(False)'),raw.replace(MOCK_ORDER_DEPARTURE,'PRIVATE'),
+        raw.replace('Ran 4 tests','Ran 3 tests'),raw.replace('failures=1','failures=2'),raw+'ERROR: PRIVATE\n',
+        raw.replace(' ... ok',' ... skipped reason',1),raw.replace(' ... FAIL',' ... ERROR'),raw+trace,
+        raw.replace('  '+subtest+' ... FAIL\n',''),raw.replace(description+' ... \n',''),
+        raw.replace(NAMES[1]+' (__main__.PairingReplayDispatchTests.'+NAMES[1]+') ... ok\n',''),
+        raw.replace("AssertionError: 'renewal' not found in '","AssertionError: 'setup98' not found in '"),
+        raw.replace('  '+subtest+' ... FAIL','   '+subtest+' ... FAIL'),raw.replace(name,'test_foreign')]
+    for text in negative:
+        row=mock_order_diagnostic(text,1,MOCK_ORDER_SOURCE_SHA,True)
+        ensure(not row['separate_metadata_RED_verified'] and 'PRIVATE' not in json.dumps(row),'closed-mock-subtest-unknown-or-wrong-failure-rejected')
+    ensure(not check(raw,0) and not check(raw,98) and not check(raw,True) and not check(raw,sha='0'*64) and not check(raw,site=False),'closed-mock-subtest-exit-and-source-required')
+    ensure(mock_order_diagnostic(raw,1,MOCK_ORDER_SOURCE_SHA,True)['strict_selector_PFP_credit']is False,'closed-mock-regression-never-selector-PFP-credit')
+    return {'positive':2,'negative':len(negative)+5,'actual_target_processes':0,'strict_selector_parser_unchanged':True,'metadata_only':True}
+
 def parser_controls():
     prefix=''.join(name+' (__main__.PairingReplayDispatchTests.'+name+') ... '+('FAIL' if name==TARGET else 'ok')+'\n' for name in NAMES)
     bad=prefix+'\nFAIL: '+TARGET+' (__main__.PairingReplayDispatchTests.'+TARGET+')\nTraceback (most recent call last):\n  File "/public/scripts/test_pairing_replay_dispatch.py", line '+str(assertion_line())+', in '+TARGET+'\n    '+ASSERTION+'\nAssertionError: False is not true\n\nRan 4 tests in 1.234s\n\nFAILED (failures=1)\n'
@@ -139,7 +216,7 @@ def parser_controls():
     repo={'full_name':'dyKiU/mdk'};head='1'*40;merge='2'*40
     event={'repository':repo,'pull_request':{'head':{'sha':head,'repo':repo},'base':{'repo':repo}}}
     ensure(event_identity('pull_request','dyKiU/mdk',event,head,merge)['event_SHA_equals_checkout'] is False,'real-PR-head-not-merge-control')
-    return {'positive':3,'negative':len(negatives)+3,'actual_unittest_executions':0,'compiler_or_protocol_bodies':0}
+    return {'positive':3,'negative':len(negatives)+3,'mock_order_diagnostic_controls':mock_order_parser_controls(),'actual_unittest_executions':0,'compiler_or_protocol_bodies':0}
 
 def fresh_write(path,data,mode):
     ensure(not path.is_symlink() and (not path.exists() or path.is_file()),'owned-workflow-path')
@@ -151,6 +228,9 @@ def phase(label,expected,save,report):
     try:
         ensure(freeze()==expected,'before-unittest-whole-source-pristine')
         code,raw,seconds=bounded.capture([sys.executable,TEST,'-v'],120,limit=256*1024)
+        source_lines=Path(TEST).read_text().splitlines()
+        source_at_site=len(source_lines)>=MOCK_ORDER_LINE and source_lines[MOCK_ORDER_LINE-1].strip()==MOCK_ORDER_ASSERTION
+        row['mock_order_diagnostic']=mock_order_diagnostic(raw,code,digest(Path(TEST).read_bytes()),source_at_site);save()
         row['body']=parse(raw,code);row['seconds']=seconds;save()
         row['verified']=(intended if label=='mutant' else green)(row['body'])
     except bounded.GateFailure as error:
