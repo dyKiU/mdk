@@ -161,7 +161,17 @@ impl AppClient {
             ))?;
         self.commit_policy_with_legacy_chats(&policy, &capture, &validator)
             .map_err(|error| ClientLinkingError::Engine(error.into()))?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let request_context_recipient = original.context.recipient;
         self.mark_primary_sharing_committed();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        crate::client::account_chat_sharing::automatic::request_lineage_probe::primary_committed(
+            self.app.account_home().root(),
+            &policy.account,
+            &policy.protected_group,
+            &policy.local_device,
+            &request_context_recipient,
+        );
         Ok(())
     }
 

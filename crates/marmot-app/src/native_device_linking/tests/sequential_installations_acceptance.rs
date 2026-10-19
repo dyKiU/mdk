@@ -271,7 +271,11 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             let (source, recipient, approvals) = join_installation(&apps, &managers, &account, sponsor, newcomer).await;
             // Reuse the integration helper:15s for every phase;
             // no deadline override, packets or extra host finalization calls.
-            wait_for_automatic_phase_with_approvals(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete, &approvals).await;
+            {
+                #[cfg(feature = "test-policy-overrides")]
+                let _recipient_wait = request_lineage.as_ref().and_then(|probe| probe.recipient_wait(newcomer));
+                wait_for_automatic_phase_with_approvals(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete, &approvals).await;
+            }
             tokio::time::timeout(Duration::from_secs(20), async {
                 loop {
                     if complete_roster_and_bilateral_policies(&apps[..=newcomer], &account) { break; }

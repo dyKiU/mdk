@@ -69,6 +69,8 @@ struct Progress {
     rolling: Vec<(usize, Observation)>,
     dropped: [usize; 6],
     receive_dropped: [usize; 5],
+    // Shared Request origin: wait start, wait end (also unwind), first primary SQL commit.
+    recipient_step_ms: [[Option<u64>; 3]; 5],
 }
 pub(crate) struct Probe {
     account: [u8; 32],
@@ -175,7 +177,34 @@ impl Record {
         true
     }
 }
+/// Borrows only passive diagnostic storage; never an action/lease/session owner.
+pub(crate) struct RecipientWait<'a> {
+    probe: &'a Probe,
+    recipient: usize,
+}
+impl Drop for RecipientWait<'_> {
+    fn drop(&mut self) {
+        let mut progress = self.probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+        let end = &mut progress.recipient_step_ms[self.recipient][1];
+        if end.is_none() {
+            *end = self.probe.elapsed();
+        }
+    }
+}
 impl Probe {
+    /// Scope immediately around the unchanged helper await, including panic unwind.
+    pub(crate) fn recipient_wait(&self, recipient: usize) -> Option<RecipientWait<'_>> {
+        if !(2..=4).contains(&recipient) || Instant::now() >= self.deadline {
+            return None;
+        }
+        let mut progress = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        let start = &mut progress.recipient_step_ms[recipient][0];
+        if start.is_some() {
+            return None;
+        }
+        *start = self.elapsed();
+        Some(RecipientWait { probe: self, recipient })
+    }
     fn elapsed(&self) -> Option<u64> {
         Instant::now()
             .checked_duration_since(self.origin)
@@ -285,6 +314,9 @@ impl Probe {
                 admission_flags: None,
                 prepared_ms: None,
                 sdk_ack_ms: None,
+                recipient_wait_start_ms: progress.recipient_step_ms[recipient_slot][0],
+                recipient_wait_end_ms: progress.recipient_step_ms[recipient_slot][1],
+                recipient_primary_commit_ms: progress.recipient_step_ms[recipient_slot][2],
                 consent: [0; 3],
                 consent_ms: [None; 3],
                 queue: None,
@@ -352,11 +384,41 @@ pub(crate) struct Summary {
     admission_flags: Option<[bool; 4]>,
     prepared_ms: Option<u64>,
     sdk_ack_ms: Option<u64>,
+    recipient_wait_start_ms: Option<u64>,
+    recipient_wait_end_ms: Option<u64>,
+    recipient_primary_commit_ms: Option<u64>,
     consent: [usize; 3],
     consent_ms: [Option<u64>; 3],
     queue: Option<ProofQueueFacts>,
     ambiguous: bool,
     incomplete: bool,
+}
+/// Observation only, called after the actual guarded primary policy transaction succeeded.
+pub(crate) fn primary_committed(
+    root: &Path,
+    account: &[u8; 32],
+    group: &GroupId,
+    local_device: &[u8; 32],
+    context_recipient: &[u8; 32],
+) {
+    if local_device != context_recipient {
+        return;
+    }
+    let Some(probe) = current(root).filter(|probe| probe.account == *account && probe.group == *group)
+    else {
+        return;
+    };
+    let Some(recipient) = probe.index(root).filter(|index| (2..=4).contains(index)) else {
+        return;
+    };
+    if probe.peers[recipient].device != *local_device {
+        return;
+    }
+    let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+    let first = &mut progress.recipient_step_ms[recipient][2];
+    if first.is_none() {
+        *first = probe.elapsed();
+    }
 }
 pub(crate) fn enabled(root: &Path) -> bool {
     current(root).is_some()
