@@ -779,7 +779,7 @@ def controls():
     require(not mode_accepted('unrecognized', good_gdb, probe=True))
     negative += 1
     return {'positive': positive, 'negative': negative, 'actual_rust_bodies': 0,
-            'raw_private_export': False, 'owned_synthetic_processes_only': True, 'embedded_gdb': gdb_controls(), 'ownership_eof': ownership_controls(), 'tool_inventory': inventory_controls(), 'gdb_signal_policy': gdb_signal_controls()}
+            'raw_private_export': False, 'owned_synthetic_processes_only': True, 'embedded_gdb': gdb_controls(), 'ownership_eof': ownership_controls(), 'tool_inventory': inventory_controls(), 'gdb_signal_policy': gdb_signal_controls(), 'gdb_simple_argv': gdb_argv_controls()}
 
 
 STAGE_RULES = (
@@ -902,6 +902,80 @@ def gdb_controls():
         else: sys.modules['gdb'] = previous
 
 
+
+# GDB15's shell-off inferior parser splits whitespace without quote processing.
+# This diagnostic needs only these simple original test arguments, not arbitrary argv.
+def gdb_inferior_commands(command, output_fd, admission_fd):
+    args = [str(Path(__file__).absolute()), '--exec-target', str(output_fd), str(admission_fd), *command]
+    tokens = [sys.executable, *args]
+    require(type(command) is list and 1 <= len(command) <= 16)
+    require(type(output_fd) is int and type(admission_fd) is int
+            and output_fd > 2 and admission_fd > 2 and output_fd != admission_fd)
+    require(all(type(arg) is str and 0 < len(arg) <= 4096
+                and re.fullmatch(r'[A-Za-z0-9_./:=+,\-]+', arg) for arg in tokens))
+    require(sum(map(len, tokens)) <= 16384)
+    return '-file-exec-and-symbols ' + tokens[0], '-exec-arguments ' + ' '.join(args)
+
+
+def harmless_python_output(text):
+    # Harmless setup only; discard messages/source/paths. Never classify Rust output.
+    if type(text) is not str or len(text) > 65536:
+        return 'unknown'
+    categories = set()
+    for line in text.splitlines():
+        match = re.fullmatch(r'(SyntaxError|IndentationError|ModuleNotFoundError|ImportError):[^\r\n]*', line)
+        if match:
+            categories.add({'SyntaxError': 'python_syntax_error',
+                            'IndentationError': 'python_indentation_error',
+                            'ModuleNotFoundError': 'python_import_error',
+                            'ImportError': 'python_import_error'}[match[1]])
+        elif re.fullmatch(r'Fatal Python error:[^\r\n]*', line):
+            categories.add('python_startup_error')
+    return next(iter(categories)) if len(categories) == 1 else 'unknown'
+
+
+def gdb_argv_controls():
+    positive = negative = 0
+    original = ['/tmp/owned-test', '--exact', 'native::strict_five', '--nocapture', '--test-threads=1']
+    file_command, args_command = gdb_inferior_commands(original, 71, 72)
+    require(file_command == '-file-exec-and-symbols ' + sys.executable
+            and args_command.split(' ')[-len(original):] == original)
+    positive += 1
+    fixed = [sys.executable, str(Path(__file__).absolute()), '--harmless-target']
+    require(gdb_inferior_commands(fixed, 71, 72)[1].endswith(' --harmless-target'))
+    positive += 1
+    for bad in ['', 'with space', 'with\ttab', 'with\nnewline', 'quote"', "quote'", 'back\\slash',
+                '$SHELL', ';command', '`command`', 'PRIVATE\x00VALUE', '\u2603', 'x' * 4097]:
+        try: gdb_inferior_commands([bad], 71, 72)
+        except SamplerFailure: negative += 1
+        else: require(False)
+    for fds in [(True, 72), (2, 72), (71, 71)]:
+        try: gdb_inferior_commands(original, *fds)
+        except SamplerFailure: negative += 1
+        else: require(False)
+    for line, expected in [('SyntaxError: PRIVATE', 'python_syntax_error'),
+                           ('IndentationError: PRIVATE', 'python_indentation_error'),
+                           ('ModuleNotFoundError: PRIVATE', 'python_import_error'),
+                           ('ImportError: PRIVATE', 'python_import_error'),
+                           ('Fatal Python error: PRIVATE', 'python_startup_error')]:
+        result = harmless_python_output(line)
+        require(result == expected and 'PRIVATE' not in result)
+        positive += 1
+    for text in ['PRIVATE', 'PRIVATE SyntaxError: message', 'SyntaxError',
+                 'SyntaxError: private\nImportError: private', 'x' * 65537]:
+        require(harmless_python_output(text) == 'unknown')
+        negative += 1
+    return {'positive': positive, 'negative': negative, 'rust_bodies': 0,
+            'argv_admission_and_finite_reduction_only': True}
+
+
+def harmless_target():
+    stop = time.monotonic() + 1
+    while time.monotonic() < stop:
+        pass
+    print('sampler-synthetic-ok')
+
+
 def gdb_capture(command, timeout):
     """Explicit alternative: interrupted stack presence, NOT CPU-time samples."""
     require(Path('/usr/bin/gdb').is_file() and not Path('/usr/bin/gdb').is_symlink())
@@ -929,8 +1003,8 @@ def gdb_capture(command, timeout):
     closed = None
     gdb_bins = {}
     try:
-        argv = ['/usr/bin/gdb', '--quiet', '--nx', '--interpreter=mi2', '--args',
-                sys.executable, str(Path(__file__).absolute()), '--exec-target', str(wr), str(admission[0]), *command]
+        file_command, args_command = gdb_inferior_commands(command, wr, admission[0])
+        argv = ['/usr/bin/gdb', '--quiet', '--nx', '--interpreter=mi2']
         process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, pass_fds=(wr, admission[0]), start_new_session=True)
         owned_admission, admission = admission, None
@@ -1025,6 +1099,9 @@ def gdb_capture(command, timeout):
                         '-gdb-set print frame-arguments none', '-gdb-set print address off',
                         '-gdb-set print thread-events off', '-gdb-set mi-async on']:
             done(setting)
+        finite['capture_stage'] = 'gdb_inferior_arguments'
+        done(file_command)
+        done(args_command)
         done('-interpreter-exec console "handle SIGINT stop print nopass"')
         finite['capture_stage'] = 'gdb_python_install'
         done('-interpreter-exec console ' + json.dumps('python exec(' + repr(embedded) + ')'))
@@ -1112,6 +1189,7 @@ def gdb_capture(command, timeout):
         finite['cleanup_complete'] = process is None or process.poll() is not None
         finite['elapsed_seconds'] = round(time.monotonic() - started, 3)
         finite['paused_wall_seconds'] = round(finite['paused_wall_seconds'], 6)
+        finite['target_bytes_discarded'] = len(target)
         finite['mi_bytes_discarded'] = total_bytes
         finite['stderr_bytes_discarded'] = error_bytes
     return finite, target.decode('utf-8', 'replace')
@@ -1155,12 +1233,16 @@ def mode_probe(mode, *, inventory=None, capture=None):
                 return result
         command = [sys.executable, '-c',
             'import time; stop=time.monotonic()+1\nwhile time.monotonic()<stop: pass\nprint("sampler-synthetic-ok")']
+        if mode == 'gdb':
+            command = [sys.executable, str(Path(__file__).absolute()), '--harmless-target']
         result['capture_invoked'] = True
         capture = mode_capture if capture is None else capture
         stats, text = capture(mode, command, 15)
         result['capture'] = stats
         if mode == 'gdb':
             result['harmless_launcher_failure'] = harmless_launcher_failure(stats.get('target_exit'))
+            result['harmless_python_output_category'] = harmless_python_output(text)
+            result['harmless_target_output_bytes'] = stats.get('target_bytes_discarded')
         result['synthetic_output_verified'] = text == 'sampler-synthetic-ok\n'
         if not mode_accepted(mode, stats, probe=True):
             result['setup_category'] = 'tool_probe_unsupported'
@@ -1199,4 +1281,7 @@ def launcher_main(args):
 
 
 if __name__ == '__main__':
-    launcher_main(sys.argv[1:])
+    if sys.argv[1:] == ['--harmless-target']:
+        harmless_target()
+    else:
+        launcher_main(sys.argv[1:])
