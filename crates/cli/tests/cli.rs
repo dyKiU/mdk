@@ -7480,8 +7480,23 @@ fn groups_set_avatar_url_round_trips_through_sync_and_show() {
     );
     assert_eq!(cleared["group"]["avatar_url"]["present"], false);
 
-    run_json(home.path(), &["--account", &bob, "sync"]);
+    let cleared_sync = run_json(home.path(), &["--account", &bob, "sync"]);
     let bob_cleared = run_json(home.path(), &["--account", &bob, "chats", "show", group_id]);
+    // Copy closed facts from the existing outputs only; no additional command,
+    // protocol operation, retry or wait can alter the original assertion.
+    eprintln!(
+        "avatar-clear-control {}",
+        serde_json::json!({
+            "sender_clear_present": cleared["group"]["avatar_url"]["present"].as_bool(),
+            "receiver_present": bob_cleared["group"]["avatar_url"]["present"].as_bool(),
+            "sync_events": cleared_sync["events"].as_u64(),
+            "sync_projection_updates": cleared_sync["projection_updates"].as_u64(),
+            "sync_epoch_stall_escalations": cleared_sync["epoch_stall_escalations"].as_u64(),
+            "clear_published": cleared["published"].as_u64(),
+            "clear_message_count": cleared["message_ids"].as_array()
+                .and_then(|ids| u64::try_from(ids.len()).ok()),
+        })
+    );
     assert_eq!(bob_cleared["group"]["avatar_url"]["present"], false);
 
     // A non-HTTPS URL surfaces the stable typed error code.

@@ -2201,9 +2201,40 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     let first_setup = setup(&secret);
     let attempt =
         tokio::spawn(async move { attempt_runtime.create_or_import_account(first_setup).await });
-    timeout(Duration::from_secs(10), entered.notified())
-        .await
-        .expect("KeyPackage publication must reach the blocking relay");
+    let gate_started = std::time::Instant::now();
+    let gate_result = timeout(Duration::from_secs(10), entered.notified()).await;
+    let gate_elapsed_ms = u64::try_from(gate_started.elapsed().as_millis()).ok();
+    let setup_finished = attempt.is_finished();
+    // Observe only after the original verdict. A later journal snapshot cannot
+    // identify the setup phase at the deadline, and never changes that verdict.
+    let (journal_read_ok, journal_phase) =
+        match AccountHome::open(dir.path()).account_setup_state(&account_id) {
+            Ok(Some(state)) => (
+                true,
+                Some(match state.phase {
+                    AccountSetupPhase::LocalStateCreated => "local_state_created",
+                    AccountSetupPhase::LocalReady => "local_ready",
+                    AccountSetupPhase::BootstrapPublicationStarted => "bootstrap_publication_started",
+                    AccountSetupPhase::BootstrapPublicationConfirmed => "bootstrap_publication_confirmed",
+                    AccountSetupPhase::KeyPackagePublicationStarted => "key_package_publication_started",
+                    AccountSetupPhase::KeyPackagePublicationConfirmed => "key_package_publication_confirmed",
+                    AccountSetupPhase::CompanionReady => "companion_ready",
+                }),
+            ),
+            Ok(None) => (true, None),
+            Err(_) => (false, None),
+        };
+    eprintln!(
+        "key-package-cancel-control {}",
+        serde_json::json!({
+            "observed": gate_result.is_ok(),
+            "elapsed_ms": gate_elapsed_ms,
+            "setup_finished": setup_finished,
+            "journal_read_ok": journal_read_ok,
+            "journal_phase": journal_phase,
+        })
+    );
+    gate_result.expect("KeyPackage publication must reach the blocking relay");
     attempt.abort();
     assert!(attempt.await.unwrap_err().is_cancelled());
 
