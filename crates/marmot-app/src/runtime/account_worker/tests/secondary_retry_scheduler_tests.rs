@@ -7,6 +7,9 @@ enum Observation {
         pending: usize,
         buffered: usize,
         yielded: bool,
+        due: bool,
+        owed: bool,
+        retry_ready: bool,
     },
     Command(bool),
     Drain(TokioInstant),
@@ -31,12 +34,18 @@ pub(in crate::runtime::account_worker) fn record_turn(
     pending: usize,
     buffered: usize,
     yielded: bool,
+    due: bool,
+    owed: bool,
+    retry_ready: bool,
 ) {
     if let Some(probe) = probe(account) {
         probe.observations.lock().unwrap().push(Observation::Turn {
             pending,
             buffered,
             yielded,
+            due,
+            owed,
+            retry_ready,
         });
     }
 }
@@ -260,7 +269,7 @@ async fn overdue_secondary_groups_service_durable_send(deferred_count: usize) {
     sleep(Duration::from_millis(700)).await;
     // A loaded machine may fit fewer drains into that sleep than the
     // assertions below need; hold admission until two have run.
-    timeout(Duration::from_secs(5), async {
+    let retry_result = timeout(Duration::from_secs(5), async {
         while probe
             .observations
             .lock()
@@ -273,8 +282,27 @@ async fn overdue_secondary_groups_service_durable_send(deferred_count: usize) {
             sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .expect("the held admission gate makes the durable drain retry");
+    .await;
+    if retry_result.is_err() {
+        // Read existing observations only after the original timeout verdict.
+        // No account keys, command data, raw trace or timestamps leave the fixture.
+        let observations = probe.observations.lock().unwrap();
+        let last_turn = observations.iter().rev().find_map(|event| match event {
+            Observation::Turn { pending, buffered, yielded, due, owed, retry_ready } => Some(serde_json::json!({
+                "pending": pending, "buffered": buffered, "yielded": yielded,
+                "due": due, "owed": owed, "retry_ready": retry_ready,
+            })),
+            _ => None,
+        });
+        eprintln!("secondary-retry-control {}", serde_json::json!({
+            "deferred_count": deferred_count,
+            "drain_count": observations.iter().filter(|event| matches!(event, Observation::Drain(_))).count(),
+            "pass_count": observations.iter().filter(|event| matches!(event, Observation::Pass)).count(),
+            "turn_count": observations.iter().filter(|event| matches!(event, Observation::Turn { .. })).count(),
+            "last_turn": last_turn,
+        }));
+    }
+    retry_result.expect("the held admission gate makes the durable drain retry");
     let admission_released = TokioInstant::now();
     drop(held_admission);
     let observed = timeout(Duration::from_secs(3), async {
@@ -318,7 +346,7 @@ async fn overdue_secondary_groups_service_durable_send(deferred_count: usize) {
     if deferred_count > 0 {
         assert!(observations.iter().any(|event| matches!(event, Observation::Turn { pending, .. } if *pending >= deferred_count)), "fixture must exercise the deferred FIFO");
     } else {
-        assert!(observations.iter().any(|event| matches!(event, Observation::Turn { pending: 0, buffered, yielded: true } if *buffered > 0)), "fixture must exercise a buffered predecessor while the command arm is fairness-gated");
+        assert!(observations.iter().any(|event| matches!(event, Observation::Turn { pending: 0, buffered, yielded: true, .. } if *buffered > 0)), "fixture must exercise a buffered predecessor while the command arm is fairness-gated");
     }
     let blocked_drains = observations
         .iter()

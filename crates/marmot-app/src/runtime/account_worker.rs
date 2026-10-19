@@ -2084,6 +2084,9 @@ async fn run_app_runtime_account_worker(
             pending.len(),
             commands.len(),
             yield_to_convergence,
+            local_submission_due,
+            local_submission_service_owed,
+            TokioInstant::now() >= local_submission_retry_at,
         );
         // A new due quantum gives one other ready branch its turn. If that
         // branch wins, the next turn is unconditionally ready for the debt,
