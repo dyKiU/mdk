@@ -649,6 +649,10 @@ pages use canonical group order; message pages use canonical event time/ID.
 Ordinary stored groups and live event identities take precedence over mirrors.
 Cross-source terminal and restrictive expiry fences still hide mirrored payloads.
 These read-only scopes and cursors carry no membership, consent or media grant.
+`mirrored_catalog_activity_page` adds each catalog row's latest eligible message
+in the same query-only snapshot, preserving the catalog page bound/order and
+source deduplication, block, ordinary-identity, terminal and expiry fences.
+Expired/deleted tails expose scrubbed markers; this read creates no unread state.
 See `docs/account-chat-presentation-storage-verification.json` for the synthetic
 storage controls; App worker and native presentation require separate qualification.
 

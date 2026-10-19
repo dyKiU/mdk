@@ -5,9 +5,138 @@ use cgka_traits::{
     group::ProtocolProfile,
     mirrored_chat_catalog::{MirroredChatCatalogStorage, MirroredChatState},
     mirrored_chat_messages::MirroredChatMessageStorage,
-    storage::{AccountDeviceSignerBinding, AccountDeviceSignerStorage},
+    storage::{AccountDeviceSignerBinding, AccountDeviceSignerStorage, GroupStorage},
 };
 use sha2::{Digest, Sha256};
+
+#[test]
+fn mirrored_activity_page_is_bounded_latest_deduplicated_and_read_only() {
+    let storage = stored();
+    let a = scope(3);
+    let b = scope(4);
+    let group = GroupId::new(vec![1]);
+    catalog(&storage, &a, &[1, 2, 3], MirroredChatState::Active);
+    catalog(&storage, &b, &[1], MirroredChatState::Active);
+    storage
+        .apply_mirrored_chat_messages(&a, &group, &[record(1, 10), record(2, 20)], 0, &|| Ok(()))
+        .unwrap();
+    storage
+        .apply_mirrored_chat_messages(&b, &group, &[record(2, 20), record(3, 20)], 0, &|| Ok(()))
+        .unwrap();
+    let scopes = [a, b];
+    let changes = storage.lock().unwrap().total_changes();
+    let page = storage
+        .mirrored_catalog_activity_page(&scopes, None, 2, 0)
+        .unwrap();
+    assert_eq!(page.len(), 2);
+    assert!(page[0].catalog.entry.group_id == group);
+    let latest = page[0].latest_message.as_ref().unwrap();
+    assert_eq!(latest.record.event_id, [3; 32]);
+    assert_eq!(latest.record.created_at, 20);
+    assert_eq!(latest.scope.source_device, [4; 32]);
+    assert!(page[1].latest_message.is_none());
+    let tail = storage
+        .mirrored_catalog_activity_page(&scopes, Some(&page[1].catalog.entry.group_id), 2, 0)
+        .unwrap();
+    assert_eq!(tail.len(), 1);
+    assert!(tail[0].catalog.entry.group_id == GroupId::new(vec![3]));
+    assert_eq!(storage.lock().unwrap().total_changes(), changes);
+    assert!(matches!(
+        storage.get_group(&group),
+        Err(StorageError::NotFound)
+    ));
+}
+
+#[test]
+fn mirrored_activity_preserves_block_expiry_and_global_terminal_fences() {
+    let storage = stored();
+    let a = scope(3);
+    let b = scope(4);
+    let group = GroupId::new(vec![1]);
+    catalog(&storage, &a, &[1], MirroredChatState::Active);
+    catalog(&storage, &b, &[1], MirroredChatState::Active);
+    let mut older = record(1, 10);
+    older.author = [8; 32];
+    older.expires_at = Some(20);
+    storage
+        .apply_mirrored_chat_messages(&a, &group, &[older.clone(), record(2, 30)], 0, &|| Ok(()))
+        .unwrap();
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO user_blocks(public_key,is_private,created_at_ms) VALUES(?1,0,0)",
+            [hex::encode([7; 32])],
+        )
+        .unwrap();
+    older.expires_at = Some(15);
+    older.source_sequence = 2;
+    storage
+        .apply_mirrored_chat_messages(&b, &group, &[older.clone()], 0, &|| Ok(()))
+        .unwrap();
+    let page = storage
+        .mirrored_catalog_activity_page(std::slice::from_ref(&a), None, 1, 15)
+        .unwrap();
+    let latest = page[0].latest_message.as_ref().unwrap();
+    assert_eq!(latest.record.event_id, [1; 32]);
+    assert!(latest.record.deleted && latest.record.payload.is_empty());
+    older.deleted = true;
+    older.payload.clear();
+    older.source_sequence = 3;
+    storage
+        .apply_mirrored_chat_messages(&b, &group, &[older], 0, &|| Ok(()))
+        .unwrap();
+    let page = storage
+        .mirrored_catalog_activity_page(std::slice::from_ref(&a), None, 1, 0)
+        .unwrap();
+    assert!(page[0].latest_message.is_none());
+    let page = storage
+        .mirrored_catalog_activity_page(&[a, b], None, 1, 0)
+        .unwrap();
+    assert!(page[0].latest_message.as_ref().unwrap().record.deleted);
+}
+
+#[test]
+fn mirrored_activity_rejects_invalid_or_closed_inputs_and_omits_retired_sources() {
+    let storage = stored();
+    let a = scope(3);
+    catalog(&storage, &a, &[1], MirroredChatState::Active);
+    assert!(
+        storage
+            .mirrored_catalog_activity_page(&[a.clone(), a.clone()], None, 1, 0)
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_catalog_activity_page(std::slice::from_ref(&a), None, 0, 0)
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_catalog_activity_page(std::slice::from_ref(&a), None, 1, u64::MAX)
+            .is_err()
+    );
+    let mut wrong = a.clone();
+    wrong.account = [9; 32];
+    assert!(
+        storage
+            .mirrored_catalog_activity_page(&[wrong], None, 1, 0)
+            .is_err()
+    );
+    catalog(&storage, &a, &[1], MirroredChatState::Deleted);
+    assert!(
+        storage
+            .mirrored_catalog_activity_page(std::slice::from_ref(&a), None, 1, 0)
+            .unwrap()
+            .is_empty()
+    );
+    storage.close().unwrap();
+    assert!(
+        storage
+            .mirrored_catalog_activity_page(&[a], None, 1, 0)
+            .is_err()
+    );
+}
 
 fn scope(source: u8) -> MirroredChatScope {
     MirroredChatScope {
@@ -256,6 +385,10 @@ fn mirrored_presentation_real_ordinary_id_precedence_even_after_invalidation() {
         .apply_mirrored_chat_messages(&a, &group, &[record(1, 10)], 0, &|| Ok(()))
         .unwrap();
     storage.lock().unwrap().execute("INSERT INTO app_events(group_id_hex,message_id_hex,direction,sender,plaintext,kind,tags_json,recorded_at,received_at,invalidated) VALUES(?1,?2,'inbound','synthetic','',9,'[]',10,10,1)",rusqlite::params![hex::encode(group.as_slice()),hex::encode([1;32])]).unwrap();
+    let activity = storage
+        .mirrored_catalog_activity_page(std::slice::from_ref(&a), None, 1, 0)
+        .unwrap();
+    assert!(activity[0].latest_message.is_none());
     assert!(
         storage
             .mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 128, 0)
@@ -272,7 +405,13 @@ fn mirrored_presentation_real_ordinary_id_precedence_even_after_invalidation() {
         .unwrap();
     assert!(
         storage
-            .mirrored_catalog_observation_page(&[a], None, 128)
+            .mirrored_catalog_observation_page(std::slice::from_ref(&a), None, 128)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        storage
+            .mirrored_catalog_activity_page(&[a], None, 128, 0)
             .unwrap()
             .is_empty()
     );
