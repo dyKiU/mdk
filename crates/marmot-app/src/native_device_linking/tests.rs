@@ -354,21 +354,40 @@ pub(super) mod actual {
         AutomaticHeldRecipientInitiates,
         AutomaticForwardingReceiptRetry,
     }
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum DepartureArrangement {
+        AsGenerated,
+        AscendingSigners,
+        OwnLeaveBeforeProposal,
+    }
+
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
-        run_native_public_three_device_enrollment_with_departure_order(scenario, false).await;
+        run_native_public_three_device_enrollment_with_departure_order(
+            scenario,
+            DepartureArrangement::AsGenerated,
+        )
+        .await;
+    }
+
+    pub(super) async fn run_departure_with_own_leave_first() {
+        run_native_public_three_device_enrollment_with_departure_order(
+            ApprovalScenario::AutomaticAccountDepartureSourceWins,
+            DepartureArrangement::OwnLeaveBeforeProposal,
+        )
+        .await;
     }
 
     pub(super) async fn run_departure_with_original_signer_order() {
         run_native_public_three_device_enrollment_with_departure_order(
             ApprovalScenario::AutomaticAccountDepartureSourceWins,
-            true,
+            DepartureArrangement::AscendingSigners,
         )
         .await;
     }
 
     async fn run_native_public_three_device_enrollment_with_departure_order(
         scenario: ApprovalScenario,
-        departure_signers_ascending: bool,
+        arrangement: DepartureArrangement,
     ) {
         use cgka_traits::StorageProvider;
         let relay_database = Arc::new(nostr_relay_builder::prelude::MemoryDatabase::with_opts(
@@ -390,7 +409,7 @@ pub(super) mod actual {
                 .unwrap();
             MarmotApp::with_relay(dirs[i].path(), &url)
         });
-        if departure_signers_ascending {
+        if arrangement != DepartureArrangement::AsGenerated {
             assert!(scenario == ApprovalScenario::AutomaticAccountDepartureSourceWins);
             // Reuse genuine Core signer initialization before any ordinary
             // group or public pairing. This helper yields [highest, lowest,
@@ -1187,7 +1206,7 @@ pub(super) mod actual {
             return;
         }
         if let Some(peer) = two_source_peer {
-            if departure_signers_ascending {
+            if arrangement != DepartureArrangement::AsGenerated {
                 let devices = apps.each_ref().map(|app| {
                     app.account_storage("test")
                         .unwrap()
@@ -1367,6 +1386,7 @@ pub(super) mod actual {
                             &peer,
                             &url,
                             relay_database.as_ref(),
+                            arrangement == DepartureArrangement::OwnLeaveBeforeProposal,
                         ),
                     ))
                     .catch_unwind()

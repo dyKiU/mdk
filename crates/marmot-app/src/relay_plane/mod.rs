@@ -47,7 +47,7 @@ mod directory;
     feature = "test-policy-overrides"
 ))]
 #[path = "tests/held_delivery.rs"]
-mod held_delivery;
+pub(crate) mod held_delivery;
 #[cfg(all(
     test,
     feature = "experimental-device-sync",

@@ -62,6 +62,7 @@ pub(super) async fn verify_or_depart(
     peer: &TwoSourcePeer,
     url: &str,
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
+    own_leave_first: bool,
 ) {
     let fresh_rejoin = scenario == actual::ApprovalScenario::AutomaticAccountDepartureFreshRejoin;
     let ordered = matches!(
@@ -154,7 +155,10 @@ pub(super) async fn verify_or_depart(
         peer,
         url,
         relay_database,
-        ordered,
+        super::automatic_account_departure_acceptance::DepartureOrdering {
+            competing_commit: ordered,
+            own_leave_first,
+        },
         duplicate_probe.as_ref(),
     ))
     .await;

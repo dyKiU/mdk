@@ -8,6 +8,24 @@ use cgka_traits::StorageProvider;
 use cgka_traits::storage::{GroupStorage, LeaveRequestStorage, MessageStorage};
 use futures::FutureExt;
 
+#[path = "automatic_departure_arrival_order.rs"]
+mod arrival_order;
+
+pub(super) struct DepartureOrdering {
+    pub(super) competing_commit: bool,
+    pub(super) own_leave_first: bool,
+}
+
+#[test]
+fn account_departure_source_wins_when_own_leave_precedes_replayed_proposal() {
+    crate::tests::run_composed_app_runtime_test(
+        "account-wide-departure-own-leave-first",
+        || async {
+            Box::pin(actual::run_departure_with_own_leave_first()).await;
+        },
+    );
+}
+
 #[test]
 fn mirrored_account_departure_waits_for_offline_actual_source_and_public_removal() {
     crate::tests::run_composed_app_runtime_test("account-wide-two-source-departure", || async {
@@ -64,9 +82,14 @@ pub(super) async fn verify(
     peer: &TwoSourcePeer,
     relay_url: &str,
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
-    ordered: bool,
+    ordering: DepartureOrdering,
     duplicate_probe: Option<&std::sync::Arc<crate::client::DuplicateDepartureProbe>>,
 ) {
+    let DepartureOrdering {
+        competing_commit: ordered,
+        own_leave_first,
+    } = ordering;
+    assert!(!own_leave_first || ordered);
     wait_for_paired_records(&runtimes[2], &peer.group, &peer.initial_ids, None).await;
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 3);
     assert!(
@@ -242,6 +265,11 @@ pub(super) async fn verify(
                 eprintln!("account_departure_nonordered_commit_observers_armed=true");
                 if duplicate_probe.is_some() { eprintln!("account_departure_duplicate_actual_administrator_commit_observer_armed=true"); }
             }
+            let mut arrival = if own_leave_first {
+                Some(arrival_order::HeldProposal::arm(
+                    &apps[0], &reopened_app, &reopened, peer, epoch_before, relay_database,
+                ).await)
+            } else { None };
             reopened.reconcile_accounts().await.unwrap();
             if ordered {
                 let mut publication_wait_polls = 0_u64;
@@ -257,6 +285,9 @@ pub(super) async fn verify(
                         publication_wait_empty += u64::from(work.is_empty());
                         publication_wait_queued += work.iter().filter(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Queued).count() as u64;
                         publication_wait_published += work.iter().filter(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published).count() as u64;
+                        if let Some(arrival) = &mut arrival {
+                            arrival.advance(&reopened_app, peer, relay_database).await;
+                        }
                         if work.iter().any(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published) {
                             let current = store.get_group(&peer.group).unwrap().epoch;
                             let proposed = store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch;
@@ -277,6 +308,9 @@ pub(super) async fn verify(
                         store.leave_request(&peer.group).map(|request|request.map(|request|request.last_proposed_epoch.map(|epoch|epoch.0))).map_err(|_|"Unknown"),
                     )).map_err(|_|"Unknown");
                     eprintln!("account_departure_publication_timeout_expected_prior_epoch={} current_and_own_leave_proposed_epoch={observation:?}",epoch_before.0);
+                }
+                if let Some(arrival) = &arrival {
+                    arrival.assert_actual_order();
                 }
                 publication.expect(&format!("B must independently commit A and actually publish SelfRemove before the competing D commit: polls={publication_wait_polls}, empty={publication_wait_empty}, queued_rows={publication_wait_queued}, published_rows={publication_wait_published}"));
                 assert_administrator_holds_only_a(peer,epoch_before);

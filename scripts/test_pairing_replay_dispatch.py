@@ -33,6 +33,9 @@ EXPECTED = {
     "pairing-departure-middle-signer": {
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
     },
+    "pairing-departure-arrival-order": {
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_when_own_leave_precedes_replayed_proposal",
+    },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
         PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
