@@ -306,6 +306,7 @@ async fn overdue_secondary_groups_service_durable_send(deferred_count: usize) {
             serde_json::json!({
                 "deferred_count": deferred_count,
                 "drain_count": observations.iter().filter(|event| matches!(event, Observation::Drain(_))).count(),
+                "predecessor_command_count": observations.iter().filter(|event| matches!(event, Observation::Command(_))).count(),
                 "pass_count": observations.iter().filter(|event| matches!(event, Observation::Pass)).count(),
                 "turn_count": observations.iter().filter(|event| matches!(event, Observation::Turn { .. })).count(),
                 "last_turn": last_turn,

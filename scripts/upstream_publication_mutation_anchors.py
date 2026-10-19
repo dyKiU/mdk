@@ -192,7 +192,7 @@ SECONDARY_CASES = {
 }
 SECONDARY_ASSERTION = '.expect("the held admission gate makes the durable drain retry");'
 SECONDARY_MARKER = 'secondary-retry-control '
-SECONDARY_NUMBERS = {'deferred_count', 'drain_count', 'pass_count', 'turn_count'}
+SECONDARY_NUMBERS = {'deferred_count', 'drain_count', 'pass_count', 'turn_count', 'predecessor_command_count'}
 SECONDARY_TURN_BOOLEANS = {'yielded', 'due', 'owed', 'retry_ready'}
 SECONDARY_TURN_NUMBERS = {'pending', 'buffered'}
 

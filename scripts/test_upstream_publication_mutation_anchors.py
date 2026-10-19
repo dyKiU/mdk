@@ -320,7 +320,7 @@ class SecondarySchedulerOracles(unittest.TestCase):
         line = fixture[:fixture.index(SECONDARY_ASSERTION)].count('\n') + 1
         for case, name in SECONDARY_CASES.items():
             facts = {'deferred_count': 2 if case == 'secondary-deferred' else 0,
-                     'drain_count': 1, 'pass_count': 3, 'turn_count': 12,
+                     'drain_count': 1, 'pass_count': 3, 'turn_count': 12, 'predecessor_command_count': 4,
                      'last_turn': {'pending': 0, 'buffered': 0, 'yielded': False,
                                    'due': True, 'owed': False, 'retry_ready': True}}
             marker = SECONDARY_MARKER + json.dumps(facts) + '\n'
