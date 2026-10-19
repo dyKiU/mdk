@@ -8,17 +8,22 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='92b71ec76fb084c0d14d068152f53623c8907e40'
+BASE='07ce8a812e7caca491ca5a1b3cf24e7302b1f73e'
 RAW_SOURCE='0b1481fe25ee68fb201ff1a3beb95f73dcc4e52f'
 SOURCE_PARENT='0cae96b7a44858b213a2ae1e2703893ff998a945'
 DIAGNOSTIC_SOURCE_PINS={'crates/marmot-app/src/client/private_enrollment_proposal.rs': {'before_sha256': 'caf4a6946bf91094db597f4c326df4fc497813b6bdf6a3f358752e0eb9b290e8', 'raw_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'canonical_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': 'e41d1015ef565db7d79df7438ffa92d83a888f45a98dc0b73641c69dd3a3db0d', 'raw_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'canonical_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': '674912b2606b11ab735b947fdab2b8f9e28597f07f406ab8cff8b6e7c8733fe9', 'raw_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'canonical_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before_sha256': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'raw_sha256': '9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7', 'canonical_sha256': '61685e03fa5838da5c85d0aa3f1a959117d20d8b67a8e531eddc9f1d43eea35d', 'mode': '100644'}}
 INTERVENING_METADATA_SOURCE='d2ca397dc0f0bdf795a8c6a5927704733f1b9796'
 INTERVENING_METADATA_PINS={'scripts/qualify_upstream_current_enrollment.py': {'sha256': '9d56eaf9ddca2645afc65e2ff426bdc3748bf77d7e7e65c83efcf5dbd75d67b9', 'mode': '100644'}, '.github/workflows/current-enrollment.yml': {'sha256': '93734757b76eb15d87576a4d90b24403fda0ebde50f92f191b07564655023943', 'mode': '100644'}}
 LIFETIME_REPAIR_PATH='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
+LIFETIME_SOURCE='92b71ec76fb084c0d14d068152f53623c8907e40'
+SOURCEWITNESS_PARENT='cff9d4e7ff0807c6d96bc7a72f5ecfda0d69b32f'
+SOURCEWITNESS_RAW='07ce8a812e7caca491ca5a1b3cf24e7302b1f73e'
+SOURCEWITNESS_METADATA_PINS={'scripts/qualify_upstream_current_enrollment.py': {'sha256': '2724537340103ea94d65d19aa12329585d55b0e2f7be9b91a05693b14853c4a6', 'mode': '100644'}, '.github/workflows/current-enrollment.yml': {'sha256': '7095092db3a4e4b3d36ca8819195ad1b51ffe902c70e7d0bccc6893a76f9e282', 'mode': '100644'}}
+SOURCEWITNESS_PINS={'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before_sha256': '61e9f70051fcec4ebe9bb69d45845938d17d877896425918ff0040568b9fb251', 'raw_sha256': '96d78673a644fc324958876fc5670eab2fca4df14f172fd290d6616f04f0c563', 'canonical_sha256': '96d78673a644fc324958876fc5670eab2fca4df14f172fd290d6616f04f0c563', 'mode': '100644'}, 'crates/marmot-app/src/runtime/device_linking/setup.rs': {'before_sha256': '460dca11b2a23a92bd9678540e5a37d95aecb641ad11c09f2aec5a4fc78a2725', 'raw_sha256': '351780e43db921299397457f7fa5c50fc1d9b033547a8a96ad18266aa2e358a7', 'canonical_sha256': '351780e43db921299397457f7fa5c50fc1d9b033547a8a96ad18266aa2e358a7', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'raw_sha256': '5420aec4c7a77e5df40bab54bd9df93a8bd8a38d1d53645343e2bec581c79b73', 'canonical_sha256': '5420aec4c7a77e5df40bab54bd9df93a8bd8a38d1d53645343e2bec581c79b73', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'raw_sha256': '9aeee9b761dfce8d3d31789793cb6b94e05e07bccc5d61c0b1b58316f1722701', 'canonical_sha256': '9aeee9b761dfce8d3d31789793cb6b94e05e07bccc5d61c0b1b58316f1722701', 'mode': '100644'}}
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
 APPROVED_BASE_TEST_DELTAS={'crates/marmot-app/src/native_device_linking/tests.rs': {'before': 'b50bb5dc83643286212e4edee84b91e0cf0ae3a210818bf07cf39617833a31a4', 'after': 'ef450d4a6e6de0d2989cce96ad87f550529282e433590629270bae25e0000168', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs': {'before': '1eeb59aff6dea7791d9970c68ef1227da9de678d05664fda4fc238a50c25e7e0', 'after': 'a6da36ab13def9b3c443bc3a55facd536fede8c3cdea4875d32d2888542d47ec', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs': {'before': '5a89b3cc3e70cb608b78546c993e332f30feb6ab59576195e6656323f161582c', 'after': '8706544aa426d6a945e880089c95d5a5ab6b4ef3d55ef9dbf7dc2d2487e2c1c5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before': 'a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca', 'after': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'mode': '100644'}}
-WORKFLOW_SHA='7095092db3a4e4b3d36ca8819195ad1b51ffe902c70e7d0bccc6893a76f9e282'
+WORKFLOW_SHA='80f65dc181b6db99e64f604ea1e4c6650c21d56b4c369eb67325d9f3f6dddf8d'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -28,9 +33,9 @@ OUT=Path(os.environ.get('RUNNER_TEMP','/tmp'))/'current-enrollment-evidence'
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 FIXTURE_SHA='61685e03fa5838da5c85d0aa3f1a959117d20d8b67a8e531eddc9f1d43eea35d'
-PARENT_SHA='b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5'
+PARENT_SHA='9aeee9b761dfce8d3d31789793cb6b94e05e07bccc5d61c0b1b58316f1722701'
 STRICT_WAIT_LOOP_SHA='29255c02115551856e1c5f84bf9203e79818211564ac41cb1bb9804cc082e5ca'
-STRICT_HELPER_SHA='8b1635d8c4230ace397374462dbdd504110dc032ccc1e6dd89541a33b8d1eb93'
+STRICT_HELPER_SHA='049ee9def31b9bc6ff72ac44941e64049b7227c88584cf573693c14f3abac22b'
 ORACLE_SHA='88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72'
 NATIVE_HELPER='scripts/qualify_upstream_pure_native5.py'
 ACK_HELPER='scripts/qualify_upstream_request_retry_ack.py'
@@ -92,31 +97,42 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
-    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);intervening=layout(INTERVENING_METADATA_SOURCE);baseline=layout(BASE);current=layout('HEAD')
+    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);intervening=layout(INTERVENING_METADATA_SOURCE);lifetime=layout(LIFETIME_SOURCE);witness_parent=layout(SOURCEWITNESS_PARENT);witness_raw=layout(SOURCEWITNESS_RAW);baseline=layout(BASE);current=layout('HEAD')
     differences={path for path in set(pure)|set(prior) if pure.get(path)!=prior.get(path)}
     ensure(differences==REVIEWED_PRODUCT_METADATA|set(APPROVED_BASE_TEST_DELTAS),'pure-to-source-parent-nine-metadata-four-reviewed-tests')
     for path,pin in APPROVED_BASE_TEST_DELTAS.items():
         ensure(pure[path][0]==prior[path][0]==pin['mode']=='100644' and digest(git('show',PURE_PRODUCT_BASE+':'+path))==pin['before'] and digest(git('show',SOURCE_PARENT+':'+path))==pin['after'],'exact-approved-source-parent-test-before-after-modes')
-    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,INTERVENING_METADATA_SOURCE),(INTERVENING_METADATA_SOURCE,BASE)]:
+    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,INTERVENING_METADATA_SOURCE),(INTERVENING_METADATA_SOURCE,LIFETIME_SOURCE),(LIFETIME_SOURCE,SOURCEWITNESS_PARENT),(SOURCEWITNESS_PARENT,SOURCEWITNESS_RAW),(SOURCEWITNESS_RAW,BASE)]:
         ensure(subprocess.run(['git','merge-base','--is-ancestor',ancestor,descendant]).returncode==0,'reviewed-diagnostic-source-ancestry')
-    ensure(set(prior)==set(raw_source)==set(intervening)==set(baseline),'diagnostic-source-inventory-fixed')
+    ensure(set(prior)==set(raw_source)==set(intervening)==set(lifetime)==set(witness_parent)==set(witness_raw)==set(baseline),'diagnostic-source-inventory-fixed')
     ensure({p for p in prior if prior[p]!=raw_source[p]}==set(DIAGNOSTIC_SOURCE_PINS),'exact-four-raw-diagnostic-source-paths')
     ensure({p for p in raw_source if raw_source[p]!=intervening[p]}==set(INTERVENING_METADATA_PINS),'raw-to-intervening-exact-two-metadata-same-Rust')
     for path,pin in INTERVENING_METADATA_PINS.items():
         ensure(raw_source[path][0]==intervening[path][0]==pin['mode']=='100644'
             and digest(git('show',INTERVENING_METADATA_SOURCE+':'+path))==pin['sha256'],'exact-intervening-metadata-content-modes')
-    ensure({p for p in intervening if intervening[p]!=baseline[p]}=={LIFETIME_REPAIR_PATH},'intervening-to-BASE-exact-cfg-test-diagnostic-lifetime-repair')
-    ensure(intervening[LIFETIME_REPAIR_PATH][0]==baseline[LIFETIME_REPAIR_PATH][0]=='100644'
+    ensure({p for p in intervening if intervening[p]!=lifetime[p]}=={LIFETIME_REPAIR_PATH},'intervening-to-BASE-exact-cfg-test-diagnostic-lifetime-repair')
+    ensure(intervening[LIFETIME_REPAIR_PATH][0]==lifetime[LIFETIME_REPAIR_PATH][0]=='100644'
         and digest(git('show',INTERVENING_METADATA_SOURCE+':'+LIFETIME_REPAIR_PATH))==DIAGNOSTIC_SOURCE_PINS[LIFETIME_REPAIR_PATH]['raw_sha256']
-        and digest(git('show',BASE+':'+LIFETIME_REPAIR_PATH))==DIAGNOSTIC_SOURCE_PINS[LIFETIME_REPAIR_PATH]['canonical_sha256'],'exact-reviewed-lifetime-repair-before-after-modes')
+        and digest(git('show',LIFETIME_SOURCE+':'+LIFETIME_REPAIR_PATH))==DIAGNOSTIC_SOURCE_PINS[LIFETIME_REPAIR_PATH]['canonical_sha256'],'exact-reviewed-lifetime-repair-before-after-modes')
     for path,pin in DIAGNOSTIC_SOURCE_PINS.items():
-        ensure(prior[path][0]==raw_source[path][0]==baseline[path][0]==pin['mode']=='100644'
+        ensure(prior[path][0]==raw_source[path][0]==lifetime[path][0]==pin['mode']=='100644'
             and digest(git('show',SOURCE_PARENT+':'+path))==pin['before_sha256']
             and digest(git('show',RAW_SOURCE+':'+path))==pin['raw_sha256']
-            and digest(git('show',BASE+':'+path))==pin['canonical_sha256'],'reviewed-four-full-before-raw-canonical-source-hashes')
+            and digest(git('show',LIFETIME_SOURCE+':'+path))==pin['canonical_sha256'],'reviewed-four-full-before-raw-canonical-source-hashes')
+    ensure({p for p in lifetime if lifetime[p]!=witness_parent[p]}==set(SOURCEWITNESS_METADATA_PINS),'lifetime-to-witness-parent-exact-two-metadata-same-Rust')
+    for path,pin in SOURCEWITNESS_METADATA_PINS.items():
+        ensure(lifetime[path][0]==witness_parent[path][0]==pin['mode']=='100644'
+            and digest(git('show',SOURCEWITNESS_PARENT+':'+path))==pin['sha256'],'exact-witness-parent-metadata-pins-modes')
+    ensure({p for p in witness_parent if witness_parent[p]!=witness_raw[p]}==set(SOURCEWITNESS_PINS),'exact-four-raw-observation-witness-source-paths')
+    ensure({p for p in witness_raw if witness_raw[p]!=baseline[p]}<=set(SOURCEWITNESS_PINS),'hosted-canonical-witness-four-paths-only')
+    for path,pin in SOURCEWITNESS_PINS.items():
+        ensure(witness_parent[path][0]==witness_raw[path][0]==baseline[path][0]==pin['mode']=='100644'
+            and digest(git('show',SOURCEWITNESS_PARENT+':'+path))==pin['before_sha256']
+            and digest(git('show',SOURCEWITNESS_RAW+':'+path))==pin['raw_sha256']
+            and digest(git('show',BASE+':'+path))==pin['canonical_sha256'],'exact-witness-before-raw-canonical-full-hashes-modes')
     full_differences={path for path in set(pure)|set(baseline) if pure.get(path)!=baseline.get(path)}
-    reviewed_Rust=set(APPROVED_BASE_TEST_DELTAS)|set(DIAGNOSTIC_SOURCE_PINS)
-    ensure(len(reviewed_Rust)==7 and full_differences==REVIEWED_PRODUCT_METADATA|reviewed_Rust,'pure-to-BASE-nine-metadata-seven-reviewed-Rust-deltas')
+    reviewed_Rust=set(APPROVED_BASE_TEST_DELTAS)|set(DIAGNOSTIC_SOURCE_PINS)|set(SOURCEWITNESS_PINS)
+    ensure(len(reviewed_Rust)==9 and full_differences==REVIEWED_PRODUCT_METADATA|reviewed_Rust,'pure-to-BASE-nine-metadata-nine-reviewed-Rust-deltas')
     ensure(SELF in baseline and WORKFLOW in baseline and set(current)==set(baseline),'exact-BASE-inventory-two-existing-owned-metadata')
     ensure(all(baseline[path][0]=='100644' for path in [SELF,WORKFLOW]),'owned-existing-regular-metadata-modes')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -138,7 +154,7 @@ def source_guard(preflight=False):
     ensure(text.count(begin)==text.count(endmark)==1 and digest(text.split(begin,1)[1].split(endmark,1)[0].encode())==ORACLE_SHA,'immutable-five-oracle-region')
     ensure(git_closure()['verified'],'tracked-index-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
-        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'intervening_metadata_source':INTERVENING_METADATA_SOURCE,'intervening_metadata_pins':INTERVENING_METADATA_PINS,'cfg_test_diagnostic_lifetime_repair_source':BASE,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
+        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'intervening_metadata_source':INTERVENING_METADATA_SOURCE,'intervening_metadata_pins':INTERVENING_METADATA_PINS,'cfg_test_diagnostic_lifetime_repair_source':LIFETIME_SOURCE,'sourcewitness_parent':SOURCEWITNESS_PARENT,'sourcewitness_raw':SOURCEWITNESS_RAW,'sourcewitness_pins':SOURCEWITNESS_PINS,'canonical_source_pending_hosted_format':BASE==SOURCEWITNESS_RAW,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
         'owned_existing_metadata_content_bound_to_HEAD':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
 
 def compile_app(report,cohort,tracked,save_report):
@@ -500,17 +516,29 @@ def child_controls():
     return {'positive':10,'negative':len(bad_values)+len(bad_rows),'runtime_bodies':0,'raw_private_export':False,'max_vector_entries':128,'max_value_bytes':32768}
 
 # Existing observer projection only: never exports its MessageId or Instants.
+def notification_times(value):
+    if value=='None':return None
+    opt=r'(?:None|Some\('+NUM+r'\))'
+    m=re.fullmatch(r'Some\(\(('+opt+'), ('+opt+'), ('+opt+r')\)\)',value)
+    ensure(m is not None,'closed-optional-same-origin-notification-times')
+    parsed=[None if item=='None' else observation_uint(item[5:-1]) for item in m.groups()]
+    accepted,dequeued,capture=parsed
+    ensure(capture is None or all(item is None or item<=capture for item in [accepted,dequeued]),'each-known-notification-time-within-capture')
+    return {'first_accepted_ms':accepted,'first_dequeued_ms':dequeued,'capture_ms':capture,
+        'origin':'existing-recipient-Choice-probe','accepted_dequeued_order_not_claimed':True,'missing_or_preorigin_or_overflow_is_unknown':True}
+
 def notification_entry(value):
     if value=='None':return None
     arr8=r'\['+', '.join([NUM]*8)+r'\]';arr6=r'\['+', '.join([NUM]*6)+r'\]'
-    m=re.fullmatch(r'Some\(\(('+arr8+'), ('+arr6+r'), (None|Some\(\(('+NUM+'), ('+NUM+r')\)\)), ('+NUM+r'), (true|false), (true|false)\)\)',value)
+    m=re.fullmatch(r'Some\(\(('+arr8+'), ('+arr6+r'), (None|Some\(\(('+NUM+'), ('+NUM+r')\)\)), ('+NUM+r'), (true|false), (true|false), (.+)\)\)',value)
     ensure(m is not None,'closed-existing-notification-entry')
     dispatch=observation_array(m[1],8);placement=observation_array(m[2],6)
     depth=None if m[3]=='None' else [observation_uint(m[4]),observation_uint(m[5])]
-    dequeued=observation_uint(m[6]);first=m[7]=='true';invalid=m[8]=='true'
+    dequeued=observation_uint(m[6]);first=m[7]=='true';invalid=m[8]=='true';timing=notification_times(m[9])
     ensure(depth is None or (max(depth)<=1025 and placement[0]>0),'source-queue-depth-bounds-and-actual-acceptance')
     ensure(first==(dequeued>0),'actual-dequeue-and-first-callback-presence')
-    return {'dispatch_counts':dispatch,'placement_counts':placement,'first_accepted_depths':depth,'Delivery_dequeue_callbacks':dequeued,'first_dequeue_present':first,'invalid':invalid}
+    ensure(timing is None or ((timing['first_accepted_ms'] is None or placement[0]>0) and (timing['first_dequeued_ms'] is None or first)),'timing-presence-requires-actual-queue-fact')
+    return {'dispatch_counts':dispatch,'placement_counts':placement,'first_accepted_depths':depth,'Delivery_dequeue_callbacks':dequeued,'first_dequeue_present':first,'invalid':invalid,'same_origin_timing':timing}
 
 def observed_notifications(raw):
     lines=[line for line in raw.splitlines() if 'automatic-enrollment-control existing_index=' in line and ' latest_prepared_id_available=' in line]
@@ -551,10 +579,10 @@ def observed_ingress_trace(raw):
         'existing_optional_catalog_SQL_diagnostics_may_run':True,'new_Core_queries':False,'raw_output_exported':False}
 
 def boundary_controls():
-    value='Some(([0, 0, 0, 0, 0, 1, 0, 1], [1, 0, 0, 0, 0, 0], Some((0, 1)), 1, true, false))'
+    value='Some(([0, 0, 0, 0, 0, 1, 0, 1], [1, 0, 0, 0, 0, 0], Some((0, 1)), 1, true, false, None))'
     ensure(notification_entry(value)['Delivery_dequeue_callbacks']==1,'existing-notification-positive')
     ensure(notification_entry('None') is None,'missing-entry-unknown-positive')
-    zero='Some(([0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], None, 0, false, false))'
+    zero='Some(([0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], None, 0, false, false, None))'
     ensure(notification_entry(zero)['Delivery_dequeue_callbacks']==0,'typed-zero-entry-not-missing-positive')
     none='automatic-enrollment-control existing_index=0 latest_prepared_id_available=false recipient_notification=None'
     true_none=none.replace('=false','=true')
@@ -563,9 +591,9 @@ def boundary_controls():
     row=none.replace('=false','=true').replace('notification=None','notification='+value)
     ensure(observed_notifications(row)['rows'][0]['entry']['first_accepted_depths']==[0,1],'captured-key-real-entry-positive')
     max_array=lambda n:'['+', '.join(['18446744073709551615']*n)+']'
-    maximum='Some(('+max_array(8)+', '+max_array(6)+', Some((1025, 1025)), 18446744073709551615, true, true))'
+    maximum='Some(('+max_array(8)+', '+max_array(6)+', Some((1025, 1025)), 18446744073709551615, true, true, None))'
     ensure(notification_entry(maximum)['invalid'] is True and len(row.replace(value,maximum).encode())<=2048,'maxwidth-closed-notification-positive')
-    bad_values=[value+' PRIVATE',value.replace('Some((0, 1))','Some(0, 1)'),value.replace('Some((0, 1))','Some((0, 1026))'),value.replace('[1, 0, 0, 0, 0, 0]','[0, 0, 0, 0, 0, 0]'),value.replace('1, true, false))','0, true, false))'),value.replace('1, true, false))','1, false, false))'),value.replace('1, true, false))','18446744073709551616, true, false))'),value.replace('true','True'),value.replace('[1, 0, 0, 0, 0, 0]','[1, 0]')]
+    bad_values=[value+' PRIVATE',value.replace('Some((0, 1))','Some(0, 1)'),value.replace('Some((0, 1))','Some((0, 1026))'),value.replace('[1, 0, 0, 0, 0, 0]','[0, 0, 0, 0, 0, 0]'),value.replace('1, true, false, None))','0, true, false, None))'),value.replace('1, true, false, None))','1, false, false, None))'),value.replace('1, true, false, None))','18446744073709551616, true, false, None))'),value.replace('true','True'),value.replace('[1, 0, 0, 0, 0, 0]','[1, 0]')]
     for bad in bad_values:
         try:notification_entry(bad);accepted=True
         except (ValueError,TypeError,OverflowError):accepted=False
@@ -589,6 +617,69 @@ def boundary_controls():
         ensure(not accepted,'private-or-incoherent-selected-trace-rejected')
     return {'positive':11,'negative':len(bad_values)+len(bad_rows)+len(bad_trace),'runtime_bodies':0,'raw_private_export':False}
 
+def guard_entry(value):
+    if value=='None':return None
+    array=r'\['+', '.join([NUM]*4)+r'\]'
+    m=re.fullmatch(r'Some\(\(('+array+r'), (None|Some\(\(('+NUM+'), ('+NUM+r')\)\)), (true|false)\)\)',value)
+    ensure(m is not None,'closed-native-post-Observe-guard-entry')
+    values=observation_array(m[1],4);last=None if m[2]=='None' else {'mask':observation_uint(m[3]),'elapsed_ms':observation_uint(m[4])};overflow=m[5]=='true'
+    ensure(values[1]==0 and (last is None or (last['mask'] in (0,2,3) and values[last['mask']]>0)),'pure-refresh-includes-effects-mask-coherence')
+    ensure(not overflow or (1<<64)-1 in values,'checked-overflow-requires-saturated-counter')
+    return {'counts_by_mask':values,'last':last,'overflow':overflow,'sample_after_Observe_before_WorkerReturned':True,
+        'full_receive_eligibility_or_continuous_state_proven':False,'separate_from_RPC_and_notification_samples':True}
+
+def observed_guards(raw):
+    lines=[line for line in raw.splitlines() if 'automatic-enrollment-control side=' in line and ' receive_guard_counts/last/overflow=' in line]
+    ensure(len(lines) in (0,2),'zero-or-two-post-Observe-guard-side-records');rows=[]
+    for index,side in enumerate(('left','right')):
+        entry=None
+        if lines:
+            prefix='automatic-enrollment-control side='+side+' receive_guard_counts/last/overflow='
+            ensure(lines[index].startswith(prefix) and len(lines[index].encode())<=1024,'ordered-bounded-native-guard-side-record')
+            entry=guard_entry(lines[index][len(prefix):])
+        rows.append({'side':side,'record_present':bool(lines),'entry':entry})
+    return {'schema_known':True,'available':bool(lines),'rows':rows,'after_timeout_not_predeadline_or_continuous_guard_proof':True}
+
+def guard_timing_controls():
+    g='Some(([2, 0, 1, 4], Some((3, 123)), false))'
+    ensure(guard_entry(g)['last']['mask']==3,'actual-guard-shape-positive')
+    ensure(guard_entry('None') is None,'missing-choice-guard-unknown-positive')
+    ensure(guard_entry('Some(([0, 0, 0, 0], None, false))')['last'] is None,'unobserved-zero-guard-positive')
+    ensure(guard_entry('Some(([1, 0, 0, 0], None, false))')['counts_by_mask'][0]==1,'clock-overflow-last-None-positive')
+    maximum='Some(([18446744073709551615, 0, 0, 0], Some((0, 18446744073709551615)), true))'
+    ensure(guard_entry(maximum)['overflow'] is True,'checked-count-overflow-positive')
+    pair='automatic-enrollment-control side=left receive_guard_counts/last/overflow='+g+'\nautomatic-enrollment-control side=right receive_guard_counts/last/overflow=None'
+    ensure(observed_guards(pair)['rows'][1]['entry'] is None,'ordered-guard-side-pair-positive')
+    ensure(observed_guards('')['available'] is False,'missing-guard-lines-unknown-positive')
+    ensure(notification_times('None') is None,'missing-timing-origin-positive')
+    ensure(notification_times('Some((None, None, None))')['capture_ms'] is None,'independent-unknown-times-positive')
+    ensure(notification_times('Some((Some(5), Some(3), Some(5)))')['first_dequeued_ms']==3,'callback-race-not-false-order-rejected-positive')
+    ensure(notification_times('Some((None, Some(0), Some(0)))')['first_accepted_ms'] is None,'preorigin-unknown-not-zero-positive')
+    ensure(notification_times('Some((Some(18446744073709551615), None, None))')['capture_ms'] is None,'elapsed-max-capture-unknown-positive')
+    timed='Some(([0, 0, 0, 0, 0, 1, 0, 1], [1, 0, 0, 0, 0, 0], Some((0, 1)), 1, true, false, Some((Some(5), Some(3), Some(5)))))'
+    ensure(notification_entry(timed)['same_origin_timing']['first_accepted_ms']==5,'full-seven-tuple-nested-option-positive')
+    bad_full=[timed.replace(', Some((Some(5), Some(3), Some(5))))',')'),timed.replace('Some(5), Some(3), Some(5)','PRIVATE, Some(3), Some(5)'),timed.replace('Some(5), Some(3), Some(5)','Some(6), Some(3), Some(5)'),timed.replace('[1, 0, 0, 0, 0, 0]','[0, 0, 0, 0, 0, 0]')]
+    for bad in bad_full:
+        try:notification_entry(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'old-six-tuple-private-incoherent-full-notification-rejected')
+    bad_g=[g+' PRIVATE',g.replace('[2, 0, 1, 4]','[2, 1, 1, 4]'),g.replace('Some((3, 123))','Some((1, 123))'),g.replace('Some((3, 123))','Some((4, 123))'),g.replace('Some((3, 123))','Some(3, 123)'),g.replace('123','18446744073709551616'),g.replace('false','true'),g.replace('false','PRIVATE'),g.replace('[2, 0, 1, 4]','[2, 0, 1]'),g.replace('[2, 0, 1, 4]','[2, 0, 1, 0]')]
+    for bad in bad_g:
+        try:guard_entry(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'unknown-private-incoherent-guard-rejected')
+    bad_rows=[pair+'\n'+pair.splitlines()[0],pair.splitlines()[0],pair.replace('side=right','side=left'),pair+' PRIVATE']
+    for bad in bad_rows:
+        try:observed_guards(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'duplicate-partial-malformed-guard-side-rejected')
+    bad_times=['Some((Some(6), None, Some(5)))','Some((None, Some(6), Some(5)))','Some((Some(18446744073709551616), None, None))','Some((Some(-1), None, None))','Some((Some(true), None, None))','Some((PRIVATE, None, None))','Some((None, None))','Some(None, None, None)','Some((None, None, None)) PRIVATE']
+    for bad in bad_times:
+        try:notification_times(bad);accepted=True
+        except (ValueError,TypeError,OverflowError):accepted=False
+        ensure(not accepted,'unknown-private-malformed-notification-time-rejected')
+    return {'positive':13,'negative':len(bad_full)+len(bad_g)+len(bad_rows)+len(bad_times),'authored_only_until_remote_preflight':True,'runtime_bodies':0,'raw_private_export':False}
+
 def finite_observations(raw,name,tracked,include_approvals=False):
     text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
     prefix=r'(?m)^test '+re.escape(name)+r' \.\.\. '
@@ -605,6 +696,8 @@ def finite_observations(raw,name,tracked,include_approvals=False):
         except (ValueError,TypeError,OverflowError):result['recipient_child_snapshots']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True,'peer_labels_available':False}
         try:result['source_publication_notifications']=observed_notifications(text)
         except (ValueError,TypeError,OverflowError):result['source_publication_notifications']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
+        try:result['native_post_observe_guards']=observed_guards(text)
+        except (ValueError,TypeError,OverflowError):result['native_post_observe_guards']={'schema_known':False,'available':None,'rows':None,'closed_schema_rejected':True}
         try:result['recipient_ingress_trace']=observed_ingress_trace(text)
         except (ValueError,TypeError,OverflowError):result['recipient_ingress_trace']={'schema_known':False,'available':None,'records':None,'closed_schema_rejected':True}
     return result
@@ -689,7 +782,7 @@ def parser_controls(mode):
         labels=OBSERVATION_FIVE_LABELS if mode=='observations-five' else OBSERVATION_LABELS
         ensure(tuple(row[0] for row in names)==labels,'fixed-original-observation-order')
         supplemental_controls=observation_controls()
-        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls(),'recipient_boundaries':boundary_controls()}
+        if mode=='observations-five':supplemental_controls={'existing_observations':supplemental_controls,'approval_rows':approval_controls(),'child_vectors':child_controls(),'recipient_boundaries':boundary_controls(),'guard_timing':guard_timing_controls()}
     ensure(len(names)==required_count(mode),'exact-selected-case-count')
     if mode=='both':ensure(names[0][2]==native.NAME and names[1:]==list(ack.CASES) and len({row[2] for row in names})==17,'both-exact-order-no-duplicate-controls')
     ensure(closed_oracle({'facts':{'closed':True},'compiler_headers':['PRIVATE'],'message':'PRIVATE'})=={'facts':{'closed':True},'observations':None},'closed-projection-no-private-strings')
