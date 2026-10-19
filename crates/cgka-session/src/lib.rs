@@ -622,12 +622,19 @@ impl AccountDeviceSession {
             .await
     }
 
-    #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     pub fn owned_settlement_guard_is_current_and_live_for_test(
-        &self, group: &GroupId,
-        expected: &std::sync::Arc<dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard>,
+        &self,
+        group: &GroupId,
+        expected: &std::sync::Arc<
+            dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard,
+        >,
     ) -> Result<bool, cgka_traits::EngineError> {
-        self.engine.owned_settlement_guard_is_current_and_live_for_test(group, expected)
+        self.engine
+            .owned_settlement_guard_is_current_and_live_for_test(group, expected)
     }
 
     #[cfg(feature = "experimental-device-sync")]

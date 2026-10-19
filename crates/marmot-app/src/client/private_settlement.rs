@@ -213,48 +213,92 @@ impl AppClient {
         use cgka_traits::private_roster_settlement::PrivateSettlementAnchor;
         struct NeverAuthorizes;
         impl TrustedPrivateSettlementGuard for NeverAuthorizes {
-            fn validate(&self, _: &PrivateSettlementAnchor) -> Result<std::time::Instant, cgka_traits::EngineError> {
-                Err(cgka_traits::EngineError::Other("negative guard has no permission".into()))
+            fn validate(
+                &self,
+                _: &PrivateSettlementAnchor,
+            ) -> Result<std::time::Instant, cgka_traits::EngineError> {
+                Err(cgka_traits::EngineError::Other(
+                    "negative guard has no permission".into(),
+                ))
             }
         }
-        let attempt = self.linking_owner.settlement_attempt.as_ref().ok_or_else(denied)?;
-        if !attempt.selected || !attempt.guard.is_live() { return Err(denied()); }
+        let attempt = self
+            .linking_owner
+            .settlement_attempt
+            .as_ref()
+            .ok_or_else(denied)?;
+        if !attempt.selected || !attempt.guard.is_live() {
+            return Err(denied());
+        }
         let own: Arc<dyn TrustedPrivateSettlementGuard> = attempt.guard.clone();
         let group = attempt.guard.group();
         let session = self.runtime.session();
-        if !session.owned_settlement_guard_is_current_and_live_for_test(&group, &own)
-            .map_err(ClientLinkingError::Engine)? { return Err(denied()); }
-        let storage = self.app.account_storage(&self.state.label)
-            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
-        let store = storage.private_roster_settlement_storage().ok_or_else(denied)?;
-        let before = store.read_round().map_err(|error| ClientLinkingError::Engine(error.into()))?
-            .ok_or_else(denied)?;
-        if before.phase != cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed {
+        if !session
+            .owned_settlement_guard_is_current_and_live_for_test(&group, &own)
+            .map_err(ClientLinkingError::Engine)?
+        {
             return Err(denied());
         }
-        eprintln!("cancel-real-guard-control {{\"selected_original\":true,\"current_guard_pointer\":true,\"original_live\":true,\"actual_round_present\":true}}");
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        let store = storage
+            .private_roster_settlement_storage()
+            .ok_or_else(denied)?;
+        let before = store
+            .read_round()
+            .map_err(|error| ClientLinkingError::Engine(error.into()))?
+            .ok_or_else(denied)?;
+        if before.phase != cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed
+        {
+            return Err(denied());
+        }
+        eprintln!(
+            "cancel-real-guard-control {{\"selected_original\":true,\"current_guard_pointer\":true,\"original_live\":true,\"actual_round_present\":true}}"
+        );
         let foreign: Arc<dyn TrustedPrivateSettlementGuard> = Arc::new(NeverAuthorizes);
         // Both operations target exactly the SAME actual group. The foreign
         // guard never authorizes anything and is never installed in the Engine.
         let foreign_result = session.cancel_owned_private_roster_settlement(&group, &foreign);
-        eprintln!("cancel-real-guard-result {{\"foreign_cancel_returned_ok\":{}}}", foreign_result.is_ok());
+        eprintln!(
+            "cancel-real-guard-result {{\"foreign_cancel_returned_ok\":{}}}",
+            foreign_result.is_ok()
+        );
         if foreign_result.is_ok()
             || !attempt.guard.is_live()
-            || !session.owned_settlement_guard_is_current_and_live_for_test(&group, &own)
+            || !session
+                .owned_settlement_guard_is_current_and_live_for_test(&group, &own)
                 .map_err(ClientLinkingError::Engine)?
-            || store.read_round().map_err(|error| ClientLinkingError::Engine(error.into()))?.as_ref() != Some(&before)
-        { return Err(denied()); }
+            || store
+                .read_round()
+                .map_err(|error| ClientLinkingError::Engine(error.into()))?
+                .as_ref()
+                != Some(&before)
+        {
+            return Err(denied());
+        }
         // Intentional negative control on this SAME real original guard. A
         // completed round must remain valid durable provenance after memory
         // publication admission is withdrawn; no guard is reconstructed.
-        session.cancel_owned_private_roster_settlement(&group, &own)
+        session
+            .cancel_owned_private_roster_settlement(&group, &own)
             .map_err(ClientLinkingError::Engine)?;
-        if session.owned_settlement_guard_is_current_and_live_for_test(&group, &own)
+        if session
+            .owned_settlement_guard_is_current_and_live_for_test(&group, &own)
+            .map_err(ClientLinkingError::Engine)?
+            || store
+                .read_round()
+                .map_err(|error| ClientLinkingError::Engine(error.into()))?
+                .as_ref()
+                != Some(&before)
+            || session
+                .validated_settled_device_roster(&group)
                 .map_err(ClientLinkingError::Engine)?
-            || store.read_round().map_err(|error| ClientLinkingError::Engine(error.into()))?.as_ref() != Some(&before)
-            || session.validated_settled_device_roster(&group)
-                .map_err(ClientLinkingError::Engine)?.is_none()
-        { return Err(denied()); }
+                .is_none()
+        {
+            return Err(denied());
+        }
         Ok(())
     }
 

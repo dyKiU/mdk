@@ -3352,7 +3352,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_foreign_guard_cannot_cancel_real_guarded_same_group_admission() {
-        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAddRetryGuardIdentity).await;
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAddRetryGuardIdentity)
+            .await;
     }
 
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -3384,7 +3385,8 @@ mod tests {
         let cancel_after_maintenance = check
             == ThirdDeviceCheck::LocalProposalTrustedAddRetryCancelMaintenance
             || newer_terminal_after_maintenance;
-        let test_guard_identity = check == ThirdDeviceCheck::LocalProposalTrustedAddRetryGuardIdentity;
+        let test_guard_identity =
+            check == ThirdDeviceCheck::LocalProposalTrustedAddRetryGuardIdentity;
         let check = if cancel_after_maintenance || test_guard_identity {
             ThirdDeviceCheck::LocalProposalTrustedAddRetry
         } else {
@@ -3418,9 +3420,15 @@ mod tests {
         if test_guard_identity {
             // A's original actual SDK Welcome/join guard is selected here;
             // a later Wrapped A/C Add cannot yet supply a selected +1 guard.
-            workers.a.verifier_command("test", |respond|
-                VerifierCommand::RejectForeignSettlementGuardForTest { respond })
-                .await.expect("foreign negative guard must not revoke the real original guarded admission");
+            workers
+                .a
+                .verifier_command("test", |respond| {
+                    VerifierCommand::RejectForeignSettlementGuardForTest { respond }
+                })
+                .await
+                .expect(
+                    "foreign negative guard must not revoke the real original guarded admission",
+                );
         }
         let candidate = workers
             .a

@@ -14,7 +14,9 @@ async fn fixture() -> (
     [GroupId; 2],
 ) {
     let dir = tempfile::tempdir().unwrap();
-    AccountHome::open(dir.path()).create_account("alice").unwrap();
+    AccountHome::open(dir.path())
+        .create_account("alice")
+        .unwrap();
     let relay = Arc::new(ScriptedPushRelayClient::default());
     let app = crate::MarmotApp::with_relay(dir.path(), "wss://relay.example")
         .with_test_relay_client(relay.clone());
@@ -62,8 +64,15 @@ async fn retain_real_probe(
     );
     assert!(!ingested.left_object_unpersisted);
     client.remember_pending_convergence_groups(&ingested.effects);
-    client.observe_drained_session_events(&ingested.effects).await.unwrap();
-    let record = app.account_storage("alice").unwrap().get_message(&id).unwrap();
+    client
+        .observe_drained_session_events(&ingested.effects)
+        .await
+        .unwrap();
+    let record = app
+        .account_storage("alice")
+        .unwrap()
+        .get_message(&id)
+        .unwrap();
     assert_eq!(record.state, MessageState::PeelDeferred);
     assert_eq!(record.group_id, *group);
     let lifecycle = record.deferred_peel.unwrap();
@@ -97,14 +106,16 @@ async fn retain_both(
 
 fn rows(app: &crate::MarmotApp, ids: &[MessageId; 2]) -> [MessageRecord; 2] {
     let storage = app.account_storage("alice").unwrap();
-    [storage.get_message(&ids[0]).unwrap(), storage.get_message(&ids[1]).unwrap()]
+    [
+        storage.get_message(&ids[0]).unwrap(),
+        storage.get_message(&ids[1]).unwrap(),
+    ]
 }
 
 fn actual_attempt(record: &MessageRecord) -> bool {
     record.state == MessageState::Failed
         || record.deferred_peel.as_ref().is_some_and(|lifecycle| {
-            lifecycle.distinct_context_attempts > 0
-                && lifecycle.last_context_fingerprint.is_some()
+            lifecycle.distinct_context_attempts > 0 && lifecycle.last_context_fingerprint.is_some()
         })
 }
 
@@ -113,17 +124,37 @@ async fn one_ready_turn_advances_only_one_real_retained_group() {
     let (_dir, app, mut client, _relay, groups) = fixture().await;
     let ids = retain_both(&mut client, &app, &groups).await;
     let before = rows(&app, &ids);
-    client.advance_one_ready_explicit_sync_group().await.unwrap();
+    client
+        .advance_one_ready_explicit_sync_group()
+        .await
+        .unwrap();
     let after = rows(&app, &ids);
-    assert!(actual_attempt(&after[0]), "selected real retained row was not retried");
-    assert_eq!(after[1], before[1], "one owner turn must not retry the second group");
+    assert!(
+        actual_attempt(&after[0]),
+        "selected real retained row was not retried"
+    );
+    assert_eq!(
+        after[1], before[1],
+        "one owner turn must not retry the second group"
+    );
     assert!(client.pending_convergence_groups.contains(&groups[1]));
-    assert!(app.messages("alice").unwrap().is_empty(), "malformed input grants no plaintext");
+    assert!(
+        app.messages("alice").unwrap().is_empty(),
+        "malformed input grants no plaintext"
+    );
 
     // The unchanged fingerprint normally parks the first probe. Do not move a
     // clock or manufacture readiness if the real Core says otherwise.
-    assert!(!matches!(client.convergence_schedule_state(&groups[0]).unwrap(),
-                      ConvergenceScheduleState::Ready));
-    client.advance_one_ready_explicit_sync_group().await.unwrap();
-    assert!(actual_attempt(&rows(&app, &ids)[1]), "next ready group must get its turn");
+    assert!(!matches!(
+        client.convergence_schedule_state(&groups[0]).unwrap(),
+        ConvergenceScheduleState::Ready
+    ));
+    client
+        .advance_one_ready_explicit_sync_group()
+        .await
+        .unwrap();
+    assert!(
+        actual_attempt(&rows(&app, &ids)[1]),
+        "next ready group must get its turn"
+    );
 }
