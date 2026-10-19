@@ -8,14 +8,17 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='0b1481fe25ee68fb201ff1a3beb95f73dcc4e52f'
+BASE='92b71ec76fb084c0d14d068152f53623c8907e40'
 RAW_SOURCE='0b1481fe25ee68fb201ff1a3beb95f73dcc4e52f'
 SOURCE_PARENT='0cae96b7a44858b213a2ae1e2703893ff998a945'
-DIAGNOSTIC_SOURCE_PINS={'crates/marmot-app/src/client/private_enrollment_proposal.rs': {'before_sha256': 'caf4a6946bf91094db597f4c326df4fc497813b6bdf6a3f358752e0eb9b290e8', 'raw_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'canonical_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': 'e41d1015ef565db7d79df7438ffa92d83a888f45a98dc0b73641c69dd3a3db0d', 'raw_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'canonical_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': '674912b2606b11ab735b947fdab2b8f9e28597f07f406ab8cff8b6e7c8733fe9', 'raw_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'canonical_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before_sha256': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'raw_sha256': '9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7', 'canonical_sha256': '9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7', 'mode': '100644'}}
+DIAGNOSTIC_SOURCE_PINS={'crates/marmot-app/src/client/private_enrollment_proposal.rs': {'before_sha256': 'caf4a6946bf91094db597f4c326df4fc497813b6bdf6a3f358752e0eb9b290e8', 'raw_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'canonical_sha256': '478f08af1f1e22904593af295d40d629e8940a6232260d323f28f7b30bd189fa', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/enabled.rs': {'before_sha256': 'e41d1015ef565db7d79df7438ffa92d83a888f45a98dc0b73641c69dd3a3db0d', 'raw_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'canonical_sha256': 'eb45c461ae251e545a982a53db5d298e650ea7b51cf7776e1b16f9cf118c0893', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': {'before_sha256': '674912b2606b11ab735b947fdab2b8f9e28597f07f406ab8cff8b6e7c8733fe9', 'raw_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'canonical_sha256': 'b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before_sha256': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'raw_sha256': '9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7', 'canonical_sha256': '61685e03fa5838da5c85d0aa3f1a959117d20d8b67a8e531eddc9f1d43eea35d', 'mode': '100644'}}
+INTERVENING_METADATA_SOURCE='d2ca397dc0f0bdf795a8c6a5927704733f1b9796'
+INTERVENING_METADATA_PINS={'scripts/qualify_upstream_current_enrollment.py': {'sha256': '9d56eaf9ddca2645afc65e2ff426bdc3748bf77d7e7e65c83efcf5dbd75d67b9', 'mode': '100644'}, '.github/workflows/current-enrollment.yml': {'sha256': '93734757b76eb15d87576a4d90b24403fda0ebde50f92f191b07564655023943', 'mode': '100644'}}
+LIFETIME_REPAIR_PATH='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PURE_PRODUCT_BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
 REVIEWED_PRODUCT_METADATA={'scripts/qualify_upstream_c1_body_restart.py', 'scripts/qualify_upstream_current_enrollment.py', 'scripts/test_pairing_replay_dispatch.py', '.github/workflows/native-predecessor-readiness-pfp.yml', '.github/workflows/experimental-sync-ci.yml', 'scripts/qualify_upstream_native_predecessor_readiness.py', '.github/workflows/c1-body-restart.yml', '.github/workflows/current-enrollment.yml', 'scripts/qualify_pairing_replay_dispatch_pfp.py'}
 APPROVED_BASE_TEST_DELTAS={'crates/marmot-app/src/native_device_linking/tests.rs': {'before': 'b50bb5dc83643286212e4edee84b91e0cf0ae3a210818bf07cf39617833a31a4', 'after': 'ef450d4a6e6de0d2989cce96ad87f550529282e433590629270bae25e0000168', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs': {'before': '1eeb59aff6dea7791d9970c68ef1227da9de678d05664fda4fc238a50c25e7e0', 'after': 'a6da36ab13def9b3c443bc3a55facd536fede8c3cdea4875d32d2888542d47ec', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/public_chat_delivery_acceptance.rs': {'before': '5a89b3cc3e70cb608b78546c993e332f30feb6ab59576195e6656323f161582c', 'after': '8706544aa426d6a945e880089c95d5a5ab6b4ef3d55ef9dbf7dc2d2487e2c1c5', 'mode': '100644'}, 'crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs': {'before': 'a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca', 'after': '88431d9c40c8c91ad5cdf6eb59e9155e6aed0a366640044e96c4944930cda0b5', 'mode': '100644'}}
-WORKFLOW_SHA='93734757b76eb15d87576a4d90b24403fda0ebde50f92f191b07564655023943'
+WORKFLOW_SHA='7095092db3a4e4b3d36ca8819195ad1b51ffe902c70e7d0bccc6893a76f9e282'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261019'
@@ -24,7 +27,7 @@ EXPECTED_GRAPH={'marmot_app': ['default', 'experimental-device-sync', 'otlp-expo
 OUT=Path(os.environ.get('RUNNER_TEMP','/tmp'))/'current-enrollment-evidence'
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
-FIXTURE_SHA='9f3ca5baf9013ddcf6e754759f87c5e6a9060e3db42de86aabbe4f0c5a694fd7'
+FIXTURE_SHA='61685e03fa5838da5c85d0aa3f1a959117d20d8b67a8e531eddc9f1d43eea35d'
 PARENT_SHA='b77d8e7d945b851f2749e6e7a72a8785647e17a7d78100fbcb8ea825819570e5'
 STRICT_WAIT_LOOP_SHA='29255c02115551856e1c5f84bf9203e79818211564ac41cb1bb9804cc082e5ca'
 STRICT_HELPER_SHA='8b1635d8c4230ace397374462dbdd504110dc032ccc1e6dd89541a33b8d1eb93'
@@ -89,16 +92,23 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
-    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);baseline=layout(BASE);current=layout('HEAD')
+    pure=layout(PURE_PRODUCT_BASE);prior=layout(SOURCE_PARENT);raw_source=layout(RAW_SOURCE);intervening=layout(INTERVENING_METADATA_SOURCE);baseline=layout(BASE);current=layout('HEAD')
     differences={path for path in set(pure)|set(prior) if pure.get(path)!=prior.get(path)}
     ensure(differences==REVIEWED_PRODUCT_METADATA|set(APPROVED_BASE_TEST_DELTAS),'pure-to-source-parent-nine-metadata-four-reviewed-tests')
     for path,pin in APPROVED_BASE_TEST_DELTAS.items():
         ensure(pure[path][0]==prior[path][0]==pin['mode']=='100644' and digest(git('show',PURE_PRODUCT_BASE+':'+path))==pin['before'] and digest(git('show',SOURCE_PARENT+':'+path))==pin['after'],'exact-approved-source-parent-test-before-after-modes')
-    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,BASE)]:
+    for ancestor,descendant in [(SOURCE_PARENT,RAW_SOURCE),(RAW_SOURCE,INTERVENING_METADATA_SOURCE),(INTERVENING_METADATA_SOURCE,BASE)]:
         ensure(subprocess.run(['git','merge-base','--is-ancestor',ancestor,descendant]).returncode==0,'reviewed-diagnostic-source-ancestry')
-    ensure(set(prior)==set(raw_source)==set(baseline),'diagnostic-source-inventory-fixed')
+    ensure(set(prior)==set(raw_source)==set(intervening)==set(baseline),'diagnostic-source-inventory-fixed')
     ensure({p for p in prior if prior[p]!=raw_source[p]}==set(DIAGNOSTIC_SOURCE_PINS),'exact-four-raw-diagnostic-source-paths')
-    ensure({p for p in raw_source if raw_source[p]!=baseline[p]}<=set(DIAGNOSTIC_SOURCE_PINS),'canonical-format-only-owned-four-source-paths')
+    ensure({p for p in raw_source if raw_source[p]!=intervening[p]}==set(INTERVENING_METADATA_PINS),'raw-to-intervening-exact-two-metadata-same-Rust')
+    for path,pin in INTERVENING_METADATA_PINS.items():
+        ensure(raw_source[path][0]==intervening[path][0]==pin['mode']=='100644'
+            and digest(git('show',INTERVENING_METADATA_SOURCE+':'+path))==pin['sha256'],'exact-intervening-metadata-content-modes')
+    ensure({p for p in intervening if intervening[p]!=baseline[p]}=={LIFETIME_REPAIR_PATH},'intervening-to-BASE-exact-cfg-test-diagnostic-lifetime-repair')
+    ensure(intervening[LIFETIME_REPAIR_PATH][0]==baseline[LIFETIME_REPAIR_PATH][0]=='100644'
+        and digest(git('show',INTERVENING_METADATA_SOURCE+':'+LIFETIME_REPAIR_PATH))==DIAGNOSTIC_SOURCE_PINS[LIFETIME_REPAIR_PATH]['raw_sha256']
+        and digest(git('show',BASE+':'+LIFETIME_REPAIR_PATH))==DIAGNOSTIC_SOURCE_PINS[LIFETIME_REPAIR_PATH]['canonical_sha256'],'exact-reviewed-lifetime-repair-before-after-modes')
     for path,pin in DIAGNOSTIC_SOURCE_PINS.items():
         ensure(prior[path][0]==raw_source[path][0]==baseline[path][0]==pin['mode']=='100644'
             and digest(git('show',SOURCE_PARENT+':'+path))==pin['before_sha256']
@@ -128,7 +138,7 @@ def source_guard(preflight=False):
     ensure(text.count(begin)==text.count(endmark)==1 and digest(text.split(begin,1)[1].split(endmark,1)[0].encode())==ORACLE_SHA,'immutable-five-oracle-region')
     ensure(git_closure()['verified'],'tracked-index-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
-        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
+        'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False,'pure_product_source':PURE_PRODUCT_BASE,'pure_to_BASE_reviewed_metadata_test_and_diagnostic_union_verified':True,'reviewed_product_metadata_paths':sorted(REVIEWED_PRODUCT_METADATA),'approved_immutable_source_parent_test_deltas':APPROVED_BASE_TEST_DELTAS,'diagnostic_source_parent':SOURCE_PARENT,'raw_source':RAW_SOURCE,'intervening_metadata_source':INTERVENING_METADATA_SOURCE,'intervening_metadata_pins':INTERVENING_METADATA_PINS,'cfg_test_diagnostic_lifetime_repair_source':BASE,'diagnostic_source_lineage_verified':True,'original_positive_wait_loop_sha256':STRICT_WAIT_LOOP_SHA,'diagnostic_observation_overhead_present':True,'existing_optional_trace_SQL_reads_possible':True,'new_Core_queries_or_product_fix_claimed':False,'all_HEAD_Rust_exact_BASE':True,
         'owned_existing_metadata_content_bound_to_HEAD':[SELF,WORKFLOW],'readiness_PFP_rerun_on_this_HEAD_claimed':False}
 
 def compile_app(report,cohort,tracked,save_report):
