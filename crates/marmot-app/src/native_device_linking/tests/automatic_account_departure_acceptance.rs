@@ -39,6 +39,13 @@ fn account_departure_completes_when_source_branch_wins_same_epoch_race() {
 }
 
 #[test]
+fn account_departure_source_wins_with_reopened_middle_signer() {
+    crate::tests::run_composed_app_runtime_test("account-wide-departure-middle-signer", || async {
+        Box::pin(actual::run_departure_with_original_signer_order()).await;
+    });
+}
+
+#[test]
 fn authenticated_identical_departure_retry_preserves_completion_receipt_delivery() {
     crate::tests::run_composed_app_runtime_test(
         "account-wide-departure-duplicate-receipt",

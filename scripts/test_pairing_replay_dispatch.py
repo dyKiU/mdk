@@ -30,6 +30,9 @@ EXPECTED = {
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race",
         "native_device_linking::tests::actual::automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent",
     },
+    "pairing-departure-middle-signer": {
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
+    },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
         PREFIX + "body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition",
@@ -77,7 +80,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 root = Path(directory)
                 cargo = root / "cargo"
                 cargo.write_text("#!" + sys.executable + "\n" + textwrap.dedent(r'''
-                    import json, os, re, sys
+                    import json, os, re, sys, time
                     from pathlib import Path
                     args = sys.argv[1:]
                     if args[:2] == ['nextest', 'list']:
@@ -85,6 +88,14 @@ class PairingReplayDispatchTests(unittest.TestCase):
                         cases = {n: {'ignored': False, 'filter-match': {'status': 'matches'}} for n in names}
                         print(json.dumps({'rust-suites': {'marmot-app': {'testcases': cases}}}))
                     elif args[:2] == ['nextest', 'run']:
+                        ready_name = os.environ.get('PAIRING_MOCK_SLEEP_READY')
+                        if ready_name and 'renewal' in args[args.index('-E') + 1]:
+                            deadline = time.monotonic() + 5
+                            command = Path(os.environ['PAIRING_COMMAND'])
+                            while not Path(ready_name).exists() and not (command.is_file() and command.read_bytes().endswith(b'\n')):
+                                if time.monotonic() >= deadline:
+                                    raise SystemExit(98)
+                                time.sleep(0.001)
                         with Path(os.environ['PAIRING_COMMAND']).open('a') as output:
                             output.write(json.dumps(args) + '\n')
                         if os.environ.get('PAIRING_FAIL_RENEWAL') and 'renewal' in args[args.index('-E') + 1]:
@@ -94,14 +105,30 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 '''))
                 cargo.chmod(0o700)
                 sleep = root / "sleep"
-                sleep.write_text("#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$PAIRING_DELAY\"\n")
+                sleep.write_text("#!" + sys.executable + "\n" + textwrap.dedent(r'''
+                    import os, sys, time
+                    from pathlib import Path
+                    Path(os.environ['PAIRING_DELAY']).write_text(sys.argv[1] + '\n')
+                    Path(os.environ['PAIRING_MOCK_SLEEP_READY']).touch()
+                    command = Path(os.environ['PAIRING_COMMAND'])
+                    deadline = time.monotonic() + 5
+                    while not (command.is_file() and command.read_bytes().endswith(b'\n')):
+                        if time.monotonic() >= deadline:
+                            raise SystemExit(98)
+                        time.sleep(0.001)
+                '''))
                 sleep.chmod(0o700)
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                            REPLAY_SCOPE=scope, SYNC_FEATURES=EXPERIMENTAL_FEATURES,
-                           SLOTS=("6" if scope.startswith("pairing-departure-") else
+                           SLOTS=("6" if scope in ("pairing-departure-contention", "pairing-departure-staggered") else
                                   "1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3"),
                            PAIRING_COMMAND=str(command), PAIRING_DELAY=str(root / "delay"))
+                ready = root / "mock-sleep-ready"
+                env.pop("PAIRING_MOCK_SLEEP_READY", None)
+                if scope == "pairing-departure-staggered":
+                    env["PAIRING_MOCK_SLEEP_READY"] = str(ready)
+                ready.unlink(missing_ok=True)
                 result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -124,6 +151,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                     self.assertEqual((root / "delay").read_text().strip(), "60.625453")
                     self.assertIn("renewal", commands[0][commands[0].index("-E") + 1])
                     command.unlink()
+                    ready.unlink(missing_ok=True)
                     failed = subprocess.run(["bash", "-c", script], cwd=root,
                                             env=dict(env, PAIRING_FAIL_RENEWAL="1"),
                                             text=True, capture_output=True)
