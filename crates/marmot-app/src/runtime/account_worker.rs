@@ -491,6 +491,8 @@ pub(crate) enum AccountWorkerCommand {
     Drain {
         respond: oneshot::Sender<()>,
     },
+    /// Internal finite-prefix barrier; only the owner loop inserts/consumes it.
+    LocalSubmissionFence,
     RetryHydrateQuarantinedGroup {
         group_id: GroupId,
         respond: oneshot::Sender<Result<bool, AppError>>,
@@ -2293,7 +2295,10 @@ async fn run_app_runtime_account_worker(
                             Some(command) => Some((command, true)),
                             None => commands.recv().await.map(|command| (command, false)),
                         }
-                    }, if !yield_to_convergence || !scheduled_convergence.has_ready() || scheduled_convergence_held_for_test(&account_id_hex) => {
+                    }, if (!yield_to_convergence || !scheduled_convergence.has_ready() || scheduled_convergence_held_for_test(&account_id_hex))
+                        && !(local_submission_service_owed && local_submission_due
+                            && local_submission_fence_at_front(&pending)
+                            && TokioInstant::now() >= local_submission_retry_at) => {
                         yield_to_convergence = true;
                         match command {
                             Some((command, approved_pending)) => {
@@ -2305,6 +2310,13 @@ async fn run_app_runtime_account_worker(
                                 // before the CatchUp barrier. Apply this extra gate only
                                 // to fresh channel arrivals, or the earlier work would
                                 // be requeued behind CatchUp after capacity returns.
+                                if !approved_pending
+                                    && pending.iter().any(|command| matches!(command, AccountWorkerCommand::LocalSubmissionFence))
+                                    && !command.readable_during_comparison_catch_up()
+                                {
+                                    pending.push_back(command);
+                                    continue;
+                                }
                                 if comparison_recovery.is_some() && !approved_pending
                                     && (command.waits_for_recovery_job()
                                         || (pending.iter().any(AccountWorkerCommand::waits_for_recovery_job)
@@ -2407,11 +2419,14 @@ async fn run_app_runtime_account_worker(
                     // command/convergence alternation, including blocked predecessors.
                     _ = tokio::time::sleep_until(local_submission_retry_at),
                         if local_submission_service_owed && local_submission_due
-                            && pending.is_empty() && commands.is_empty()
+                            && local_submission_prefix_ready(&pending, &commands)
                             && !lifecycle.is_stopping() => {
-                        // Recheck after polling the deadline: a buffered command may
-                        // have arrived while the normal command arm was fairness-gated.
-                        if !pending.is_empty() || !commands.is_empty() { continue 'worker; }
+                        // Later arrivals cannot extend the captured predecessor prefix.
+                        // The quiescent case retains the original admission condition.
+                        if !local_submission_prefix_ready(&pending, &commands) { continue 'worker; }
+                        if local_submission_fence_at_front(&pending) {
+                            pending.pop_front();
+                        }
                         let retry = publish_next_local_submission(
                             &mut client, &app, &shared, &events,
                             &account_id_hex, &account_label,
@@ -2603,6 +2618,9 @@ async fn run_app_runtime_account_worker(
                         }
                         #[cfg(test)]
                         tests::secondary_retry_scheduler_tests::pass_tail(&account_id_hex).await;
+                        if local_submission_service_owed && local_submission_due {
+                            capture_local_submission_prefix(&mut pending, &mut commands);
+                        }
 
                         if let Some(phase) = phase {
                             phase.finish(TelemetryOutcome::Success);
@@ -4526,6 +4544,40 @@ fn spawn_media_http<T>(
     });
 }
 
+fn local_submission_fence_at_front(pending: &VecDeque<AccountWorkerCommand>) -> bool {
+    matches!(pending.front(), Some(AccountWorkerCommand::LocalSubmissionFence))
+}
+
+fn local_submission_prefix_ready(
+    pending: &VecDeque<AccountWorkerCommand>,
+    commands: &mpsc::Receiver<AccountWorkerCommand>,
+) -> bool {
+    local_submission_fence_at_front(pending) || (pending.is_empty() && commands.is_empty())
+}
+
+fn capture_local_submission_prefix(
+    pending: &mut VecDeque<AccountWorkerCommand>,
+    commands: &mut mpsc::Receiver<AccountWorkerCommand>,
+) {
+    if pending.iter().any(|command| matches!(command, AccountWorkerCommand::LocalSubmissionFence)) {
+        return;
+    }
+    // One bounded committed-channel snapshot follows the full pass tail.
+    // Mutations received later remain after the barrier; never chase new arrivals.
+    let buffered = commands.len();
+    for _ in 0..buffered {
+        match commands.try_recv() {
+            Ok(command) => pending.push_back(command),
+            // The sole receiver cannot exhaust Tokio's counted prefix early:
+            // try_recv waits for a claimed slot and Empty is non-spurious.
+            // If that invariant fails, do not cross an unknown predecessor.
+            Err(mpsc::error::TryRecvError::Empty) => return,
+            Err(mpsc::error::TryRecvError::Disconnected) => break,
+        }
+    }
+    pending.push_back(AccountWorkerCommand::LocalSubmissionFence);
+}
+
 fn ready_command_index(
     pending: &VecDeque<AccountWorkerCommand>,
     media_http: &MediaHttpContext,
@@ -4540,8 +4592,14 @@ fn ready_command_index(
                 .position(AccountWorkerCommand::waits_for_recovery_job)
         })
         .flatten();
+    let local_fence = pending
+        .iter()
+        .position(|command| matches!(command, AccountWorkerCommand::LocalSubmissionFence));
     pending.iter().enumerate().position(|(index, command)| {
-        (!comparison_waiting
+        !matches!(command, AccountWorkerCommand::LocalSubmissionFence)
+            && (local_fence.is_none_or(|fence| index < fence)
+                || command.readable_during_comparison_catch_up())
+            && (!comparison_waiting
             || (deferred_catch_up.is_none_or(|barrier| index < barrier)
                 || command.readable_during_comparison_catch_up()))
             && (has_capacity || !command.needs_media_slot())
@@ -5236,6 +5294,10 @@ fn account_worker_command_future<'a>(
         AccountWorkerCommand::Drain { respond } => Box::pin(async move {
             let _ = respond.send(());
             true
+        }),
+        AccountWorkerCommand::LocalSubmissionFence => Box::pin(async move {
+            pending.push_front(AccountWorkerCommand::LocalSubmissionFence);
+            false
         }),
         AccountWorkerCommand::RetryRuntimeGroupSubscriptions { respond } => Box::pin(async move {
             let pending = match client
