@@ -2205,6 +2205,46 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     let gate_result = timeout(Duration::from_secs(10), entered.notified()).await;
     let gate_elapsed_ms = u64::try_from(gate_started.elapsed().as_millis()).ok();
     let setup_finished = attempt.is_finished();
+    // One read-only process-wide snapshot after the frozen verdict. Rows are
+    // sampled sequentially; none identifies the exact stage at the deadline.
+    let telemetry = first_runtime.app_performance_snapshot();
+    let runtime_row = |operation: marmot_app::RuntimePerformanceOperation| {
+        telemetry.runtime_operations.iter().find(|row| row.operation == operation).map(|row| {
+            serde_json::json!({
+                "started": row.started,
+                "completed": row.completed,
+                "in_flight": row.in_flight,
+                "oldest_tracked_in_flight_ms": row.oldest_tracked_in_flight_ms,
+                "untracked_in_flight": row.untracked_in_flight,
+                "sum_ms": row.duration_ms.sum_ms,
+            })
+        })
+    };
+    use marmot_app::RuntimePerformanceOperation as RuntimeOp;
+    let setup_telemetry = serde_json::json!({
+        "runtime_operations": {
+            "worker_acquire": runtime_row(RuntimeOp::WorkerAcquire),
+            "lifecycle_lock_wait": runtime_row(RuntimeOp::LifecycleLockWait),
+            "account_startup_open_queued": runtime_row(RuntimeOp::AccountStartupOpenQueued),
+            "account_startup_account_state": runtime_row(RuntimeOp::AccountStartupAccountState),
+            "account_startup_session_open": runtime_row(RuntimeOp::AccountStartupSessionOpen),
+            "account_startup_client_restore": runtime_row(RuntimeOp::AccountStartupClientRestore),
+            "account_startup_ready_handoff": runtime_row(RuntimeOp::AccountStartupReadyHandoff),
+            "worker_hydration": runtime_row(RuntimeOp::WorkerHydration),
+        },
+        "account_worker_readiness": {
+            "attempts": telemetry.account_worker_readiness.attempts,
+            "successes": telemetry.account_worker_readiness.successes,
+            "failures": telemetry.account_worker_readiness.failures,
+            "sum_ms": telemetry.account_worker_readiness.duration_ms.sum_ms,
+        },
+        "account_initial_key_package_publish": {
+            "attempts": telemetry.account_initial_key_package_publish.attempts,
+            "successes": telemetry.account_initial_key_package_publish.successes,
+            "failures": telemetry.account_initial_key_package_publish.failures,
+            "sum_ms": telemetry.account_initial_key_package_publish.duration_ms.sum_ms,
+        },
+    });
     // Observe only after the original verdict. A later journal snapshot cannot
     // identify the setup phase at the deadline, and never changes that verdict.
     let (journal_read_ok, journal_phase) = match AccountHome::open(dir.path())
@@ -2239,6 +2279,7 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
             "setup_finished": setup_finished,
             "journal_read_ok": journal_read_ok,
             "journal_phase": journal_phase,
+            "telemetry": setup_telemetry,
         })
     );
     gate_result.expect("KeyPackage publication must reach the blocking relay");

@@ -34,11 +34,68 @@ def uint(value):
     return type(value) is int and 0 <= value <= 2**64 - 1
 
 
+KP_RUNTIME_OPERATIONS = {
+    'worker_acquire', 'lifecycle_lock_wait', 'account_startup_open_queued',
+    'account_startup_account_state', 'account_startup_session_open',
+    'account_startup_client_restore', 'account_startup_ready_handoff', 'worker_hydration',
+}
+KP_RUNTIME_FIELDS = {'started', 'completed', 'in_flight', 'oldest_tracked_in_flight_ms',
+                     'untracked_in_flight', 'sum_ms'}
+KP_APP_OPERATIONS = {'account_worker_readiness', 'account_initial_key_package_publish'}
+KP_APP_FIELDS = {'attempts', 'successes', 'failures', 'sum_ms'}
+
+
+def closed_key_package_telemetry(value):
+    if not isinstance(value, dict) or set(value) != {'runtime_operations'} | KP_APP_OPERATIONS:
+        raise ValueError('kp-telemetry-keys')
+    runtime = value['runtime_operations']
+    if not isinstance(runtime, dict) or set(runtime) != KP_RUNTIME_OPERATIONS:
+        raise ValueError('kp-telemetry-inventory')
+    for row, fields in [(runtime[name], KP_RUNTIME_FIELDS) for name in sorted(KP_RUNTIME_OPERATIONS)] + [
+            (value[name], KP_APP_FIELDS) for name in sorted(KP_APP_OPERATIONS)]:
+        # A missing/unknown row is not a fabricated zero. Refuse collection,
+        # preserving independently parsed actual test counts before this call.
+        if not isinstance(row, dict) or set(row) != fields or not all(uint(item) for item in row.values()):
+            raise ValueError('kp-telemetry-row')
+    return value
+
+
+def telemetry_fixture():
+    return {'runtime_operations': {name: {field: 0 for field in KP_RUNTIME_FIELDS}
+                                   for name in KP_RUNTIME_OPERATIONS},
+            **{name: {field: 0 for field in KP_APP_FIELDS} for name in KP_APP_OPERATIONS}}
+
+
+def telemetry_controls():
+    valid = telemetry_fixture()
+    assert closed_key_package_telemetry(valid) == valid
+    bad = []
+    def changed():
+        return json.loads(json.dumps(valid))
+    row = changed(); del row['runtime_operations']['worker_acquire']; bad.append(row)
+    row = changed(); row['runtime_operations']['PRIVATE'] = {}; bad.append(row)
+    row = changed(); row['runtime_operations']['worker_acquire'] = None; bad.append(row)
+    row = changed(); row['runtime_operations']['worker_acquire']['started'] = True; bad.append(row)
+    row = changed(); row['runtime_operations']['worker_acquire']['sum_ms'] = 2**64; bad.append(row)
+    row = changed(); row['runtime_operations']['worker_acquire']['private'] = 'PRIVATE'; bad.append(row)
+    row = changed(); row['account_worker_readiness']['attempts'] = 'PRIVATE'; bad.append(row)
+    row = changed(); del row['account_initial_key_package_publish']; bad.append(row)
+    for value in bad:
+        try:
+            closed_key_package_telemetry(value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('kp-telemetry-negative-accepted')
+    assert 'PRIVATE' not in json.dumps(closed_key_package_telemetry(valid))
+    return {'positive': 1, 'negative': len(bad)}
+
+
 def closed_marker(case, value):
     if not isinstance(value, dict):
         raise ValueError('marker-shape')
     if case == 'key-package':
-        if set(value) != {'observed', 'elapsed_ms', 'setup_finished', 'journal_read_ok', 'journal_phase'}:
+        if set(value) != {'observed', 'elapsed_ms', 'setup_finished', 'journal_read_ok', 'journal_phase', 'telemetry'}:
             raise ValueError('marker-keys')
         if any(type(value[k]) is not bool for k in ('observed', 'setup_finished', 'journal_read_ok')):
             raise ValueError('marker-bool')
@@ -46,6 +103,7 @@ def closed_marker(case, value):
             raise ValueError('marker-duration')
         if value['journal_phase'] is not None and value['journal_phase'] not in PHASES:
             raise ValueError('marker-phase')
+        closed_key_package_telemetry(value['telemetry'])
     else:
         if set(value) != AVATAR:
             raise ValueError('marker-keys')
@@ -158,7 +216,8 @@ def parser_controls():
     counter_regressions = 0
     for case in CASES:
         values = ({'observed': False, 'elapsed_ms': 10000, 'setup_finished': False,
-                   'journal_read_ok': True, 'journal_phase': 'local_state_created'}
+                   'journal_read_ok': True, 'journal_phase': 'local_state_created',
+                   'telemetry': telemetry_fixture()}
                   if case == 'key-package' else {key: None for key in AVATAR})
         package, binary, test, source, prefix = CASES[case]
         raw = (prefix + json.dumps(values) + '\nFAIL [1s] ' + binary + ' ' + test + '\n'
@@ -220,7 +279,8 @@ def parser_controls():
     assert 'PRIVATE' not in json.dumps(closure_report)
     return {'positive': positives, 'negative': negatives, 'closure_fault_controls': 1,
             'historical_counter_regressions': counter_regressions,
-            'historical_collector': PRIOR_COLLECTOR}
+            'historical_collector': PRIOR_COLLECTOR,
+            'key_package_telemetry_controls': telemetry_controls()}
 
 
 def close_inputs(report, before, input_probe=frozen_inputs, diff_probe=None):
