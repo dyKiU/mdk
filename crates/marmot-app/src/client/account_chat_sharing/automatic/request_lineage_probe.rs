@@ -428,7 +428,10 @@ impl std::fmt::Debug for Summary {
             .field("sdk_ack_ms", &self.sdk_ack_ms)
             .field("recipient_wait_start_ms", &self.recipient_wait_start_ms)
             .field("recipient_wait_end_ms", &self.recipient_wait_end_ms)
-            .field("recipient_primary_commit_ms", &self.recipient_primary_commit_ms)
+            .field(
+                "recipient_primary_commit_ms",
+                &self.recipient_primary_commit_ms,
+            )
             .field("consent", &self.consent)
             .field("consent_ms", &self.consent_ms)
             .field("queue", &self.queue)
