@@ -4,6 +4,11 @@ on:
     branches: [ci/upstream-native-predecessor-readiness-pfp-20261019]
   workflow_dispatch:
     inputs:
+      final_source:
+        description: Optional explicit reviewed final source F (full 40-hex commit)
+        type: string
+        required: false
+        default: ''
       scope:
         type: choice
         options: [preflight, runtime]
@@ -19,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   preflight:
-    if: github.ref == 'refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: (github.ref == 'refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_dispatch' && inputs.final_source && startsWith(github.ref, 'refs/heads/ci/upstream-develop-dy-'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -38,7 +43,11 @@ jobs:
       - name: Whole source and closed parser controls; zero bodies
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_native_predecessor_readiness.py --preflight
+          FINAL_SOURCE: ${{ inputs.final_source }}
+        run: |
+          args=(--preflight)
+          if [[ -n "$FINAL_SOURCE" ]]; then args+=(--final-source "$FINAL_SOURCE"); fi
+          python3 scripts/qualify_upstream_native_predecessor_readiness.py "${args[@]}"
       - name: Hosted formatting; exact patch on failure
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
@@ -57,7 +66,7 @@ jobs:
           retention-days: 7
   runtime:
     needs: preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019'
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && ((github.ref == 'refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019' && !inputs.final_source) || (inputs.final_source && startsWith(github.ref, 'refs/heads/ci/upstream-develop-dy-')))
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.expected == 'pfp' && 240 || 90 }}
     env:
@@ -86,7 +95,11 @@ jobs:
         env:
           CARGO_INCREMENTAL: '1'
           CASE_EXPECTED: ${{ inputs.expected }}
-        run: python3 scripts/qualify_upstream_native_predecessor_readiness.py --expected "$CASE_EXPECTED"
+          FINAL_SOURCE: ${{ inputs.final_source }}
+        run: |
+          args=(--expected "$CASE_EXPECTED")
+          if [[ -n "$FINAL_SOURCE" ]]; then args+=(--final-source "$FINAL_SOURCE"); fi
+          python3 scripts/qualify_upstream_native_predecessor_readiness.py "${args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

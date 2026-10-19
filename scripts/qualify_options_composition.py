@@ -7,7 +7,7 @@ BASE='580c1730836e4236d552bd85b6a25cdfce5c9e31'
 REF='refs/heads/ci/upstream-integration-refresh-20261018'
 SELF='scripts/qualify_options_composition.py'
 WORKFLOW='.github/workflows/options-composition-pfp.yml'
-WORKFLOW_SHA256='31acad353d9b4c1a2eb16c32ad6cc5ebf39ce5cf85720bd9e935d2483cd22734'
+WORKFLOW_SHA256='dc5ebcad62c735aaa15e90a021ee169124649bdb2bf2be06c273bf697ab26c90'
 PRODUCT='crates/marmot-uniffi/src/lib.rs'
 NAME='tests::runtime_options_compose_deployment_and_dedicated_pairing_routes'
 PAYLOAD='combined_deployment_must_preserve_explicit_pairing_routes'
@@ -84,7 +84,8 @@ def workflow_metadata_controls():
     return {'synthetic_metadata_positive':3,'malformed_union_negative':len(bad),
         'owned_body_normalized':1,'foreign_outside_comparison_mismatch':1,'actual_runtime_bodies':0}
 
-def source_guard():
+def source_guard(final_source=None):
+    if final_source is not None:return final_source_guard(final_source)
     head=git('rev-parse','HEAD')
     ensure(type(BASE) is str and re.fullmatch('[0-9a-f]{40}',BASE),'signed-formatted-BASE-unpinned')
     ensure(type(WORKFLOW_SHA256) is str and re.fullmatch('[0-9a-f]{64}',WORKFLOW_SHA256),'workflow-unpinned')
@@ -116,6 +117,127 @@ def source_guard():
         'peer_metadata_commit_bound_only':sorted(PEER_METADATA),'peer_workflow_only_two_blocks_normalized':True,
         'all_other_metadata_and_workflow_bytes_BASE_exact':True,'peer_guards_main_globals_called_or_mutated':False}
 
+
+# Explicit final-source mode: this pair alone may overlay the immutable source.
+FINAL_SOURCE_FLOOR='1497415b4712c63ce56b60934089c535333a03f1'
+FINAL_REF_PATTERN=r'refs/heads/ci/upstream-develop-dy-[a-z0-9][a-z0-9-]{0,119}'
+
+def _final_git(*args):return subprocess.check_output(['git',*args])
+def _final_layout(ref):
+    result={}
+    for item in _final_git('ls-tree','-rz',ref).split(b'\0'):
+        if not item:continue
+        meta,path=item.split(b'\t',1);mode,kind,oid=meta.decode().split();path=os.fsdecode(path)
+        ensure(kind=='blob' and mode in {'100644','100755','120000'},'final-ordinary-layout')
+        ensure(not Path(path).is_absolute() and '..' not in Path(path).parts,'final-relative-path')
+        result[path]=(mode,oid)
+    return result
+
+def _final_physical(current):
+    root=Path.cwd();rows={}
+    ensure(root.resolve()==Path(_final_git('rev-parse','--show-toplevel').decode().strip()).resolve(),'final-physical-root')
+    for name,(mode,_) in current.items():
+        path=Path(name);parent=path.parent
+        while parent!=Path('.'):
+            s=parent.lstat();ensure(stat.S_ISDIR(s.st_mode) and not stat.S_ISLNK(s.st_mode),'final-parent-not-link')
+            parent=parent.parent
+        s=path.lstat()
+        ensure((mode=='120000' and stat.S_ISLNK(s.st_mode)) or
+               (mode!='120000' and stat.S_ISREG(s.st_mode) and stat.S_IMODE(s.st_mode)==(0o755 if mode=='100755' else 0o644)), 'final-physical-mode')
+        data=os.fsencode(os.readlink(path)) if mode=='120000' else path.read_bytes()
+        oid=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+        rows[name]=(mode,oid)
+    return rows
+
+def _final_admission_check(source,head,env,baseline,current,physical,ancestor,floor,index_clean,untracked):
+    ensure(type(source) is str and re.fullmatch('[0-9a-f]{40}',source) and
+           type(head) is str and re.fullmatch('[0-9a-f]{40}',head),'final-full-commit-input')
+    ref=env.get('GITHUB_REF','')
+    ensure(env.get('GITHUB_ACTIONS')=='true' and env.get('GITHUB_REPOSITORY')=='dyKiU/mdk'
+           and env.get('GITHUB_EVENT_NAME')=='workflow_dispatch' and re.fullmatch(FINAL_REF_PATTERN,ref)
+           and env.get('GITHUB_SHA')==head and env.get('GITHUB_WORKFLOW_SHA')==head
+           and env.get('GITHUB_WORKFLOW_REF')=='dyKiU/mdk/'+WORKFLOW+'@'+ref,'final-exact-manual-workflow')
+    ensure(ancestor is True and floor is True,'final-reviewed-source-ancestor')
+    owned={SELF,WORKFLOW}
+    ensure(set(baseline)==set(current) and owned<=set(current),'final-exact-path-inventory')
+    for path,(mode,oid) in current.items():
+        ensure(mode in {'100644','100755','120000'} and re.fullmatch('[0-9a-f]{40}',oid),'final-Git-mode-object')
+        ensure(mode=='100644' if path in owned else (mode,oid)==baseline[path],'final-only-own-two-metadata')
+    ensure(physical==current and index_clean is True and not untracked,'final-physical-index-untracked')
+    return True
+
+def final_source_guard(source):
+    head=_final_git('rev-parse','HEAD').decode().strip()
+    ensure(type(source) is str and re.fullmatch('[0-9a-f]{40}',source),'final-full-commit-input')
+    ensure(_final_git('rev-parse',source+'^{commit}').decode().strip()==source,'final-exact-commit-object')
+    baseline=_final_layout(source);current=_final_layout('HEAD')
+    allowed={str(OUT/'result.json')} if not Path(OUT).is_absolute() else set()
+    untracked={os.fsdecode(path) for path in _final_git('ls-files','--others','--exclude-standard','-z').split(b'\0') if path}
+    _final_admission_check(source,head,dict(os.environ),baseline,current,_final_physical(current),
+        subprocess.run(['git','merge-base','--is-ancestor',source,head]).returncode==0,
+        subprocess.run(['git','merge-base','--is-ancestor',FINAL_SOURCE_FLOOR,source]).returncode==0,
+        subprocess.run(['git','diff','--cached','--quiet','HEAD']).returncode==0,untracked-allowed)
+    ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'final-whole-HEAD-pristine')
+    ensure(os.environ.get('CARGO_INCREMENTAL')=='1' and os.environ.get('CARGO_BUILD_JOBS')=='2'
+           and os.environ.get('RUST_MIN_STACK')=='4194304'
+           and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
+           and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP',
+               'RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL'])
+           and not any(value for key,value in os.environ.items() if re.fullmatch(r'CARGO_TARGET_.+_RUSTFLAGS',key)), 'final-exact-build-profile')
+    return {'mode':'explicit-final-source','head':head,'source':source,'source_tree':_final_git('rev-parse',source+'^{tree}').decode().strip(),
+        'workflow_sha':os.environ['GITHUB_WORKFLOW_SHA'],'own_metadata_only':sorted({SELF,WORKFLOW}),
+        'workflow_Git_blob':current[WORKFLOW][1],'helper_Git_blob':current[SELF][1],
+        'whole_source_modes_verified':True,'Rust_exceptions':[],'historical_runtime_reused':False}
+
+def final_admission_close(report,probe):
+    try:accepted=probe() is True
+    except Exception as error:
+        accepted=False;report['final_admission_error_type']=type(error).__name__
+    report['final_source_admission_exact']=accepted
+    if not accepted:
+        for key in ['qualified','component_PFP_verified','expected_outcome_verified']:report[key]=False
+    return accepted
+
+def final_admission_controls():
+    # Pure metadata runs on the remote worker. Exercise the exact admission check.
+    f='1'*40;t='2'*40;ref='refs/heads/ci/upstream-develop-dy-final-controls-20261019'
+    env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'dyKiU/mdk','GITHUB_EVENT_NAME':'workflow_dispatch',
+         'GITHUB_REF':ref,'GITHUB_SHA':t,'GITHUB_WORKFLOW_SHA':t,'GITHUB_WORKFLOW_REF':'dyKiU/mdk/'+WORKFLOW+'@'+ref}
+    base={SELF:('100644','a'*40),WORKFLOW:('100644','b'*40),'product.rs':('100644','c'*40),
+          'Cargo.lock':('100644','d'*40),'.cargo/config.toml':('100644','e'*40),'foreign.yml':('100644','f'*40)}
+    peer_helper=('scripts/qualify_upstream_native_predecessor_readiness.py' if SELF.endswith('qualify_options_composition.py') else 'scripts/qualify_options_composition.py')
+    peer_workflow=('.github/workflows/native-predecessor-readiness-pfp.yml' if WORKFLOW.endswith('options-composition-pfp.yml') else '.github/workflows/options-composition-pfp.yml')
+    base[peer_helper]=('100644','6'*40);base[peer_workflow]=('100644','7'*40)
+    current=dict(base);current[SELF]=('100644','0'*40);current[WORKFLOW]=('100644','3'*40)
+    def check(source=f,head=t,environment=None,before=None,after=None,physical=None,ancestor=True,floor=True,index=True,untracked=()):
+        selected=current if after is None else after
+        return _final_admission_check(source,head,env if environment is None else environment,base if before is None else before,
+            selected,selected if physical is None else physical,ancestor,floor,index,untracked)
+    ensure(check(),'final-owned-metadata-positive')
+    ensure(check(source=t,before=current),'final-source-equals-tool-head-positive')
+    negatives=[]
+    for key,value in [('GITHUB_ACTIONS','false'),('GITHUB_REPOSITORY','foreign/mdk'),('GITHUB_EVENT_NAME','push'),
+                      ('GITHUB_REF','refs/heads/master'),('GITHUB_WORKFLOW_SHA',f),('GITHUB_SHA',f),('GITHUB_WORKFLOW_REF','foreign')]:
+        changed=dict(env);changed[key]=value;negatives.append({'environment':changed})
+    negatives += [{'source':'1'*39},{'source':'A'*40},{'head':'2'*39},{'ancestor':False},{'floor':False},{'index':False},{'untracked':['extra.rs']}]
+    for path in ['product.rs','Cargo.lock','.cargo/config.toml','foreign.yml',peer_helper,peer_workflow]:
+        changed=dict(current);changed[path]=('100644','4'*40);negatives.append({'after':changed})
+    for changed in [dict(current,extra=('100644','5'*40)),{k:v for k,v in current.items() if k!='product.rs'},
+                    dict(current,**{SELF:('100755','0'*40)}),dict(current,**{WORKFLOW:('120000','3'*40)})]:
+        negatives.append({'after':changed})
+    wrong=dict(current);wrong['product.rs']=('100644','4'*40);negatives.append({'physical':wrong})
+    for values in negatives:
+        try:check(**values);accepted=True
+        except ValueError:accepted=False
+        ensure(not accepted,'final-source-adversary-rejected')
+    saved={'qualified':True,'component_PFP_verified':True,'expected_outcome_verified':True,'actual_body_count':3}
+    ensure(final_admission_close(saved,lambda:True) and saved['qualified'],'final-closure-positive')
+    def throwing():raise FileNotFoundError('synthetic')
+    for probe in [lambda:False,throwing]:
+        failed=dict(saved);ensure(not final_admission_close(failed,probe) and failed['actual_body_count']==3
+            and all(failed[key] is False for key in ['qualified','component_PFP_verified','expected_outcome_verified']), 'final-closure-failure-retains-counts-no-credit')
+    return {'positive':2,'negative':len(negatives),'closure_positive':1,'closure_negative':2,'metadata_only':True,'actual_product_bodies':0}
+
 def parse(raw,code,line):
     raw=re.sub(r'\x1b\[[0-9;]*m','',raw)
     summaries=re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;',raw,re.M)
@@ -144,12 +266,15 @@ def write_owned(data,mode):
     if p.is_symlink():p.unlink()
     p.write_bytes(data);p.chmod(mode);fresh=max(time.time_ns(),previous+1);os.utime(p,ns=(fresh,fresh))
 
-def main(cohort):
+def main(cohort,final_source=None,preflight=False):
     os.umask(0o077);OUT.mkdir(exist_ok=True);report={'scope':'one Rust options-conversion test PFP','cohort':cohort,'qualified':False,'protocol_native_qualification':False,'automatic_retries':0,'phases':{}}
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     initial=None;original=None;mode=None;binary=None;backup=None;binary_mode=None;baseline_binary=None
     try:
-        report['source_guard']=source_guard();report['parser_controls']=controls();save()
+        report['source_guard']=source_guard(final_source);report['parser_controls']=controls();report['final_admission_controls']=final_admission_controls();save()
+        if preflight:
+            ensure(Path(PRODUCT).read_text().count(BEFORE)==1 and Path(PRODUCT).read_text().count('fn '+NAME.split('::')[-1]+'()')==1,'sole-owned-anchors')
+            report.update(metadata_only=True,preflight_passed=True);save();return
         initial=freeze();original=Path(PRODUCT).read_bytes();mode=Path(PRODUCT).stat().st_mode&0o777
         text=original.decode();ensure(text.count(BEFORE)==1 and text.count('fn '+NAME.split('::')[-1]+'()')==1,'sole-owned-anchors')
         mutated=text.replace(BEFORE,AFTER,1).encode();lines=mutated.decode().splitlines();site=next(i for i,value in enumerate(lines,1) if 'config.pairing_relay_urls == pairing' in value)-1
@@ -202,15 +327,23 @@ def main(cohort):
         if isinstance(error,bounded.GateFailure) and re.fullmatch('[a-z0-9-]{1,100}',str(error)):report['failure_gate']=str(error)
         save();raise
     finally:
-        if original is not None:
-            write_owned(original,mode);report['source_final_pristine']=freeze()==initial
-        if binary is not None and backup is not None:
-            if not binary.exists() or binary.is_symlink() or not binary.is_file() or sha(binary.read_bytes())!=baseline_binary or binary.stat().st_mode&0o777!=binary_mode:
-                if binary.is_symlink():binary.unlink()
-                binary.write_bytes(backup);binary.chmod(binary_mode);report['binary_fallback_used']=True;report['qualified']=False
-            report['binary_final_pristine']=binary.is_file() and not binary.is_symlink() and sha(binary.read_bytes())==baseline_binary and binary.stat().st_mode&0o777==binary_mode
-        if report.get('source_final_pristine') is False or report.get('binary_final_pristine') is False:report['qualified']=False
+        try:
+            if original is not None:
+                write_owned(original,mode);report['source_final_pristine']=freeze()==initial
+            if binary is not None and backup is not None:
+                if not binary.exists() or binary.is_symlink() or not binary.is_file() or sha(binary.read_bytes())!=baseline_binary or binary.stat().st_mode&0o777!=binary_mode:
+                    if binary.is_symlink():binary.unlink()
+                    binary.write_bytes(backup);binary.chmod(binary_mode);report['binary_fallback_used']=True;report['qualified']=False
+                report['binary_final_pristine']=binary.is_file() and not binary.is_symlink() and sha(binary.read_bytes())==baseline_binary and binary.stat().st_mode&0o777==binary_mode
+            if report.get('source_final_pristine') is False or report.get('binary_final_pristine') is False:report['qualified']=False
+        except Exception as error:
+            if final_source is not None:
+                report.update(qualified=False,final_source_admission_exact=False,final_admission_error_type=type(error).__name__);save()
+            raise
+        if final_source is not None:
+            final_admission_close(report,lambda:final_source_guard(final_source)['whole_source_modes_verified'])
         save()
-        if sys.exc_info()[0] is None:ensure(report['qualified'],'final-exact-closure-required')
+        if final_source is not None:ensure(report.get('final_source_admission_exact') is True,'final-source-admission-closure')
+        if sys.exc_info()[0] is None and not preflight:ensure(report['qualified'],'final-exact-closure-required')
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--cohort',choices=['default','experimental'],required=True);main(parser.parse_args().cohort)
+    parser=argparse.ArgumentParser();parser.add_argument('--cohort',choices=['default','experimental'],required=True);parser.add_argument('--final-source');parser.add_argument('--preflight',action='store_true');args=parser.parse_args();main(args.cohort,args.final_source,args.preflight)

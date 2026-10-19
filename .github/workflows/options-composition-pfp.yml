@@ -1,6 +1,16 @@
 name: Options composition PFP
 on:
   workflow_dispatch:
+    inputs:
+      final_source:
+        description: Optional explicit reviewed final source F (full 40-hex commit)
+        type: string
+        required: false
+        default: ''
+      preflight_only:
+        description: Source admission and synthetic metadata only; zero Rust bodies
+        type: boolean
+        default: false
   push:
     branches: [ci/upstream-integration-refresh-20261018]
 permissions:
@@ -21,7 +31,7 @@ jobs:
       - name: Register manual options workflow without runtime execution
         run: printf '%s\n' 'options_workflow_registration=true runtime_bodies=0 compiler_invoked=false'
   focused-options:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/upstream-integration-refresh-20261018'
+    if: github.event_name == 'workflow_dispatch' && ((github.ref == 'refs/heads/ci/upstream-integration-refresh-20261018' && !inputs.final_source) || (inputs.final_source && startsWith(github.ref, 'refs/heads/ci/upstream-develop-dy-')))
     runs-on: ubuntu-latest
     timeout-minutes: 65
     strategy:
@@ -34,20 +44,46 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Rust toolchain
-        run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-        with:
-          shared-key: options-composition-${{ matrix.cohort }}
-      - name: Three actual focused Rust bodies with exact omission restoration
+      - name: Whole source admission and remote metadata controls; zero Rust bodies
         env:
           CARGO_INCREMENTAL: "1"
-        run: python3 scripts/qualify_options_composition.py --cohort '${{ matrix.cohort }}'
+          FINAL_SOURCE: ${{ inputs.final_source }}
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          args=(--cohort "$COHORT" --preflight)
+          if [[ -n "$FINAL_SOURCE" ]]; then args+=(--final-source "$FINAL_SOURCE"); fi
+          python3 scripts/qualify_options_composition.py "${args[@]}"
+      - name: Rust toolchain
+        if: inputs.preflight_only != true
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        if: inputs.preflight_only != true
+        with:
+          shared-key: options-composition-${{ matrix.cohort }}
+      - name: Post-cache capacity admission for the explicit final source
+        if: inputs.final_source && inputs.preflight_only != true
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label options-final-source
+          --output "$RUNNER_TEMP/options-composition-capacity.json"
+      - name: Three actual focused Rust bodies with exact omission restoration
+        if: inputs.preflight_only != true
+        env:
+          CARGO_INCREMENTAL: "1"
+          FINAL_SOURCE: ${{ inputs.final_source }}
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          args=(--cohort "$COHORT")
+          if [[ -n "$FINAL_SOURCE" ]]; then args+=(--final-source "$FINAL_SOURCE"); fi
+          python3 scripts/qualify_options_composition.py "${args[@]}"
       - name: Upload closed evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: options-composition-${{ matrix.cohort }}
-          path: options-composition-evidence/result.json
+          path: |
+            options-composition-evidence/result.json
+            ${{ runner.temp }}/options-composition-capacity.json
           if-no-files-found: warn
           retention-days: 7

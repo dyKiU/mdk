@@ -7,7 +7,7 @@ import qualify_upstream_storage_app_handles as counts
 import upstream_completion_ci as completion
 ensure=bounded.ensure
 BASE='68c93c7b147fdce1911bb857f1b5b2982477ece9'
-WORKFLOW_SHA='a23cc4a34751a8263a4407f222baecf2b7c828d0d05203afc1b5704579d47639'
+WORKFLOW_SHA='91a5415e2eda074fa46266ad04f6186859eff60b2de0170b4f0925f8c20a21ae'
 SELF='scripts/qualify_upstream_native_predecessor_readiness.py'
 WORKFLOW='.github/workflows/native-predecessor-readiness-pfp.yml'
 REF='refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019'
@@ -51,9 +51,9 @@ def git_closure(mutant=False):
     quiet=subprocess.run(['git','diff','--quiet','HEAD']).returncode==0
     return {'tracked_HEAD_pristine':quiet,'index_pristine':index_clean,'nonignored_untracked_count':len(untracked),
         'expected_tracked_change_only':set(changed)==({PRODUCT} if mutant else set()),
-        'verified':index_clean and not untracked and (set(changed)=={PRODUCT} if mutant else quiet)}
+        'verified':index_clean and not untracked and (set(changed)=={PRODUCT} if mutant else quiet) and (_FINAL_ADMISSION is None or git('rev-parse','HEAD').decode().strip()==_FINAL_ADMISSION['head'])}
 
-def source_matches(expected):return physical()==expected and git_closure(expected[PRODUCT][2]!=PRODUCT_SHA)['verified']
+def source_matches(expected):return physical()==expected and git_closure(expected[PRODUCT][2]!=(_FINAL_ADMISSION['product_sha256'] if _FINAL_ADMISSION is not None else PRODUCT_SHA))['verified']
 
 def without_fallback(report):return not report.get('fallback_source_restore_used',False) and not report.get('fallback_binary_copy_used',False)
 
@@ -74,7 +74,17 @@ def physical():
         rows[path]=(mode,stat.S_IMODE(s.st_mode),digest(data))
     return rows
 
-def source_guard(preflight=False):
+def source_guard(preflight=False,final_source=None):
+    if final_source is not None:
+        admission=final_source_guard(final_source)
+        ensure(digest(Path(PRODUCT).read_bytes())==FINAL_PRODUCT_SHA
+            and digest(Path(FIXTURE).read_bytes())==FIXTURE_SHA
+            and Path(PRODUCT).read_bytes().count(GATE.encode())==1
+            and digest(Path(PRODUCT).read_bytes().replace(GATE.encode(),b'',1))==FINAL_MUTANT_SHA,'final-reviewed-product-and-sole-mutant')
+        ensure(subprocess.run(['git','merge-base','--is-ancestor',PRIOR_RED['source'],final_source]).returncode==0
+            and digest(git('show',PRIOR_RED['source']+':'+FIXTURE))==FIXTURE_SHA,'final-retains-genuine-prior-RED-fixture')
+        admission.update(product_sha256=FINAL_PRODUCT_SHA,mutant_sha256=FINAL_MUTANT_SHA,fixture_sha256=FIXTURE_SHA)
+        return admission
     ensure(type(BASE) is str and re.fullmatch('[0-9a-f]{40}',BASE) and type(WORKFLOW_SHA) is str and re.fullmatch('[0-9a-f]{64}',WORKFLOW_SHA),'root-source-pins-required')
     ensure(Path.cwd().resolve()==Path(git('rev-parse','--show-toplevel').decode().strip()).resolve(),'physical-checkout-root')
     ensure(bool(os.environ.get('RUNNER_TEMP')) and Path(os.environ['RUNNER_TEMP']).is_dir()
@@ -115,6 +125,131 @@ def source_guard(preflight=False):
     ensure(git_closure()['verified'],'tracked-index-and-untracked-admission-closure')
     return {'head':head,'baseline':BASE,'whole_source_modes_verified':True,'Rust_exceptions':[],
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False}
+
+
+FINAL_PRODUCT_SHA='c57a40e65edf5802614bf8759a2c6b1f36715e9033753c8941db3293a8a8ca93'
+FINAL_MUTANT_SHA='c3a0e05b5c88c83c8b487f3c9f255fe61cad8745d41e23b5b7cc4e50f4db75c5'
+_FINAL_ADMISSION=None
+
+# Explicit final-source mode: this pair alone may overlay the immutable source.
+FINAL_SOURCE_FLOOR='1497415b4712c63ce56b60934089c535333a03f1'
+FINAL_REF_PATTERN=r'refs/heads/ci/upstream-develop-dy-[a-z0-9][a-z0-9-]{0,119}'
+
+def _final_git(*args):return subprocess.check_output(['git',*args])
+def _final_layout(ref):
+    result={}
+    for item in _final_git('ls-tree','-rz',ref).split(b'\0'):
+        if not item:continue
+        meta,path=item.split(b'\t',1);mode,kind,oid=meta.decode().split();path=os.fsdecode(path)
+        ensure(kind=='blob' and mode in {'100644','100755','120000'},'final-ordinary-layout')
+        ensure(not Path(path).is_absolute() and '..' not in Path(path).parts,'final-relative-path')
+        result[path]=(mode,oid)
+    return result
+
+def _final_physical(current):
+    root=Path.cwd();rows={}
+    ensure(root.resolve()==Path(_final_git('rev-parse','--show-toplevel').decode().strip()).resolve(),'final-physical-root')
+    for name,(mode,_) in current.items():
+        path=Path(name);parent=path.parent
+        while parent!=Path('.'):
+            s=parent.lstat();ensure(stat.S_ISDIR(s.st_mode) and not stat.S_ISLNK(s.st_mode),'final-parent-not-link')
+            parent=parent.parent
+        s=path.lstat()
+        ensure((mode=='120000' and stat.S_ISLNK(s.st_mode)) or
+               (mode!='120000' and stat.S_ISREG(s.st_mode) and stat.S_IMODE(s.st_mode)==(0o755 if mode=='100755' else 0o644)), 'final-physical-mode')
+        data=os.fsencode(os.readlink(path)) if mode=='120000' else path.read_bytes()
+        oid=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+        rows[name]=(mode,oid)
+    return rows
+
+def _final_admission_check(source,head,env,baseline,current,physical,ancestor,floor,index_clean,untracked):
+    ensure(type(source) is str and re.fullmatch('[0-9a-f]{40}',source) and
+           type(head) is str and re.fullmatch('[0-9a-f]{40}',head),'final-full-commit-input')
+    ref=env.get('GITHUB_REF','')
+    ensure(env.get('GITHUB_ACTIONS')=='true' and env.get('GITHUB_REPOSITORY')=='dyKiU/mdk'
+           and env.get('GITHUB_EVENT_NAME')=='workflow_dispatch' and re.fullmatch(FINAL_REF_PATTERN,ref)
+           and env.get('GITHUB_SHA')==head and env.get('GITHUB_WORKFLOW_SHA')==head
+           and env.get('GITHUB_WORKFLOW_REF')=='dyKiU/mdk/'+WORKFLOW+'@'+ref,'final-exact-manual-workflow')
+    ensure(ancestor is True and floor is True,'final-reviewed-source-ancestor')
+    owned={SELF,WORKFLOW}
+    ensure(set(baseline)==set(current) and owned<=set(current),'final-exact-path-inventory')
+    for path,(mode,oid) in current.items():
+        ensure(mode in {'100644','100755','120000'} and re.fullmatch('[0-9a-f]{40}',oid),'final-Git-mode-object')
+        ensure(mode=='100644' if path in owned else (mode,oid)==baseline[path],'final-only-own-two-metadata')
+    ensure(physical==current and index_clean is True and not untracked,'final-physical-index-untracked')
+    return True
+
+def final_source_guard(source):
+    head=_final_git('rev-parse','HEAD').decode().strip()
+    ensure(type(source) is str and re.fullmatch('[0-9a-f]{40}',source),'final-full-commit-input')
+    ensure(_final_git('rev-parse',source+'^{commit}').decode().strip()==source,'final-exact-commit-object')
+    baseline=_final_layout(source);current=_final_layout('HEAD')
+    allowed={str(OUT/'result.json')} if not Path(OUT).is_absolute() else set()
+    untracked={os.fsdecode(path) for path in _final_git('ls-files','--others','--exclude-standard','-z').split(b'\0') if path}
+    _final_admission_check(source,head,dict(os.environ),baseline,current,_final_physical(current),
+        subprocess.run(['git','merge-base','--is-ancestor',source,head]).returncode==0,
+        subprocess.run(['git','merge-base','--is-ancestor',FINAL_SOURCE_FLOOR,source]).returncode==0,
+        subprocess.run(['git','diff','--cached','--quiet','HEAD']).returncode==0,untracked-allowed)
+    ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'final-whole-HEAD-pristine')
+    ensure(os.environ.get('CARGO_INCREMENTAL')=='1' and os.environ.get('CARGO_BUILD_JOBS')=='2'
+           and os.environ.get('RUST_MIN_STACK')=='4194304'
+           and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
+           and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP',
+               'RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL'])
+           and not any(value for key,value in os.environ.items() if re.fullmatch(r'CARGO_TARGET_.+_RUSTFLAGS',key)), 'final-exact-build-profile')
+    return {'mode':'explicit-final-source','head':head,'source':source,'source_tree':_final_git('rev-parse',source+'^{tree}').decode().strip(),
+        'workflow_sha':os.environ['GITHUB_WORKFLOW_SHA'],'own_metadata_only':sorted({SELF,WORKFLOW}),
+        'workflow_Git_blob':current[WORKFLOW][1],'helper_Git_blob':current[SELF][1],
+        'whole_source_modes_verified':True,'Rust_exceptions':[],'historical_runtime_reused':False}
+
+def final_admission_close(report,probe):
+    try:accepted=probe() is True
+    except Exception as error:
+        accepted=False;report['final_admission_error_type']=type(error).__name__
+    report['final_source_admission_exact']=accepted
+    if not accepted:
+        for key in ['qualified','component_PFP_verified','expected_outcome_verified']:report[key]=False
+    return accepted
+
+def final_admission_controls():
+    # Pure metadata runs on the remote worker. Exercise the exact admission check.
+    f='1'*40;t='2'*40;ref='refs/heads/ci/upstream-develop-dy-final-controls-20261019'
+    env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'dyKiU/mdk','GITHUB_EVENT_NAME':'workflow_dispatch',
+         'GITHUB_REF':ref,'GITHUB_SHA':t,'GITHUB_WORKFLOW_SHA':t,'GITHUB_WORKFLOW_REF':'dyKiU/mdk/'+WORKFLOW+'@'+ref}
+    base={SELF:('100644','a'*40),WORKFLOW:('100644','b'*40),'product.rs':('100644','c'*40),
+          'Cargo.lock':('100644','d'*40),'.cargo/config.toml':('100644','e'*40),'foreign.yml':('100644','f'*40)}
+    peer_helper=('scripts/qualify_upstream_native_predecessor_readiness.py' if SELF.endswith('qualify_options_composition.py') else 'scripts/qualify_options_composition.py')
+    peer_workflow=('.github/workflows/native-predecessor-readiness-pfp.yml' if WORKFLOW.endswith('options-composition-pfp.yml') else '.github/workflows/options-composition-pfp.yml')
+    base[peer_helper]=('100644','6'*40);base[peer_workflow]=('100644','7'*40)
+    current=dict(base);current[SELF]=('100644','0'*40);current[WORKFLOW]=('100644','3'*40)
+    def check(source=f,head=t,environment=None,before=None,after=None,physical=None,ancestor=True,floor=True,index=True,untracked=()):
+        selected=current if after is None else after
+        return _final_admission_check(source,head,env if environment is None else environment,base if before is None else before,
+            selected,selected if physical is None else physical,ancestor,floor,index,untracked)
+    ensure(check(),'final-owned-metadata-positive')
+    ensure(check(source=t,before=current),'final-source-equals-tool-head-positive')
+    negatives=[]
+    for key,value in [('GITHUB_ACTIONS','false'),('GITHUB_REPOSITORY','foreign/mdk'),('GITHUB_EVENT_NAME','push'),
+                      ('GITHUB_REF','refs/heads/master'),('GITHUB_WORKFLOW_SHA',f),('GITHUB_SHA',f),('GITHUB_WORKFLOW_REF','foreign')]:
+        changed=dict(env);changed[key]=value;negatives.append({'environment':changed})
+    negatives += [{'source':'1'*39},{'source':'A'*40},{'head':'2'*39},{'ancestor':False},{'floor':False},{'index':False},{'untracked':['extra.rs']}]
+    for path in ['product.rs','Cargo.lock','.cargo/config.toml','foreign.yml',peer_helper,peer_workflow]:
+        changed=dict(current);changed[path]=('100644','4'*40);negatives.append({'after':changed})
+    for changed in [dict(current,extra=('100644','5'*40)),{k:v for k,v in current.items() if k!='product.rs'},
+                    dict(current,**{SELF:('100755','0'*40)}),dict(current,**{WORKFLOW:('120000','3'*40)})]:
+        negatives.append({'after':changed})
+    wrong=dict(current);wrong['product.rs']=('100644','4'*40);negatives.append({'physical':wrong})
+    for values in negatives:
+        try:check(**values);accepted=True
+        except ValueError:accepted=False
+        ensure(not accepted,'final-source-adversary-rejected')
+    saved={'qualified':True,'component_PFP_verified':True,'expected_outcome_verified':True,'actual_body_count':3}
+    ensure(final_admission_close(saved,lambda:True) and saved['qualified'],'final-closure-positive')
+    def throwing():raise FileNotFoundError('synthetic')
+    for probe in [lambda:False,throwing]:
+        failed=dict(saved);ensure(not final_admission_close(failed,probe) and failed['actual_body_count']==3
+            and all(failed[key] is False for key in ['qualified','component_PFP_verified','expected_outcome_verified']), 'final-closure-failure-retains-counts-no-credit')
+    return {'positive':2,'negative':len(negatives),'closure_positive':1,'closure_negative':2,'metadata_only':True,'actual_product_bodies':0}
 
 def clean(raw):return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',raw)
 FLAGS=['exact','live','primary','pending','no_policy','successor_policies','storage_closed','native_denial','waiting_ok']
@@ -279,9 +414,10 @@ def runtime(report,cohort,expected):
         if report['phases']['baseline']['phase_passed'] is not True:
             report['skipped_mutant_and_restored_reason']='baseline_unqualified_no_mutation_attempted';save(report)
             raise ValueError('PFP-baseline-must-qualify-before-mutation')
-        ensure(digest(original)==PRODUCT_SHA and type(GATE) is str and original.count(GATE.encode())==1,'exact-fixed-product-before-mutation')
-        mutant=omitted_gate(original,GATE,MUTANT_SHA)
-        ensure(digest(mutant)==MUTANT_SHA,'exact-reviewed-waiting-return-only-mutant')
+        product_sha=report['source_guard'].get('product_sha256',PRODUCT_SHA);mutant_sha=report['source_guard'].get('mutant_sha256',MUTANT_SHA)
+        ensure(digest(original)==product_sha and type(GATE) is str and original.count(GATE.encode())==1,'exact-fixed-product-before-mutation')
+        mutant=omitted_gate(original,GATE,mutant_sha)
+        ensure(digest(mutant)==mutant_sha,'exact-reviewed-waiting-return-only-mutant')
         expected_mutant=dict(frozen);expected_mutant[PRODUCT]=(frozen[PRODUCT][0],product_mode,digest(mutant))
         def attempt():
             nonlocal mutation_attempted
@@ -413,18 +549,32 @@ def controls():
     return {'filesystem_and_sequence_controls':lifecycle,'mutation_data_positive':1,'mutation_data_negative':3,'positive':3,'negative':len(negatives)+2,'body_count_controls':counts.parser_controls(),'runtime_bodies':0}
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--expected',choices=['green','pfp'],default='pfp');args=parser.parse_args()
+    global _FINAL_ADMISSION
+    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');parser.add_argument('--expected',choices=['green','pfp'],default='pfp');parser.add_argument('--final-source');args=parser.parse_args()
     report={'scope':'one real exact-predecessor waiting contract; gate omission PFP','preflight':args.preflight,'expected':args.expected,'runtime_attempted':False,
         'actual_executed_nonignored':0,'qualification_passed':False,'native_global_qualification':False,'automatic_retries':0,'fixture_Tokio_workers':2,'composed_runtime_stack_bytes':8388608,'RUST_MIN_STACK':4194304,
         'original_outer_body_seconds':900,'raw_output_retained':False,'original_fixture_waits_unchanged':True}
     try:
-        report['source_guard']=source_guard(args.preflight);save(report);report['parser_controls']=controls();save(report)
+        report['source_guard']=source_guard(args.preflight,args.final_source)
+        if args.final_source is not None:_FINAL_ADMISSION=report['source_guard']
+        save(report);report['parser_controls']=controls();report['final_admission_controls']=final_admission_controls();save(report)
         if not args.preflight:runtime(report,'experimental',args.expected)
         report['controller_completed']=True;save(report)
     except Exception as error:report['controller_failure_type']=type(error).__name__;save(report);raise
     finally:
-        report['final_git_closure']=git_closure();report['final_HEAD_git_pristine']=report['final_git_closure']['tracked_HEAD_pristine']
+        if args.final_source is not None:
+            def final_probe():
+                admitted=source_guard(args.preflight,args.final_source)['whole_source_modes_verified']
+                report['final_git_closure']=git_closure()
+                report['final_HEAD_git_pristine']=report['final_git_closure']['tracked_HEAD_pristine']
+                return admitted and report['final_git_closure']['verified']
+            if not final_admission_close(report,final_probe):
+                report['final_git_closure']={'verified':False,'tracked_HEAD_pristine':False}
+                report['final_HEAD_git_pristine']=False
+        else:
+            report['final_git_closure']=git_closure();report['final_HEAD_git_pristine']=report['final_git_closure']['tracked_HEAD_pristine']
         if not report['final_git_closure']['verified']:report['component_PFP_verified']=False;report['expected_outcome_verified']=False
         save(report)
+        if args.final_source is not None:ensure(report.get('final_source_admission_exact') is True,'final-source-admission-closure')
         ensure(report['final_git_closure']['verified'],'final-tracked-index-untracked-Git-closure')
 if __name__=='__main__':main()
