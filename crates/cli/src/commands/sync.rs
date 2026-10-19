@@ -18,10 +18,30 @@ pub(crate) async fn sync_command(
         Ok(summary) => summary,
         Err(failure) => return Err(sync_failure_error(app, account, failure)),
     };
+    #[cfg(feature = "test-policy-overrides")]
+    observe_avatar_sync_for_test(app, &client, &account.label);
     Ok(CommandOutput {
         plain: sync_plain(&summary),
         json: sync_json(app, account, summary)?,
     })
+}
+
+/// Opt-in fixture observations only; no new command, output field or transport action.
+#[cfg(feature = "test-policy-overrides")]
+fn observe_avatar_sync_for_test(app: &MarmotApp, client: &marmot_app::AppClient, label: &str) {
+    let Some(group_hex) = std::env::var("WN_TEST_AVATAR_SYNC_GROUP").ok()
+        .filter(|value| !value.is_empty() && value.len() <= 1024) else { return; };
+    let Ok(bytes) = hex::decode(&group_hex) else { return; };
+    if hex::encode(&bytes) != group_hex { return; }
+    let group_id = cgka_traits::GroupId::new(bytes);
+    let core_present = client.group_avatar_component_presence_for_test(&group_id).ok().flatten();
+    let core_epoch = client.group_mls_state(&group_id).ok().map(|state| state.epoch);
+    let app_present = app.group(label, &group_hex).ok().flatten().map(|group| group.avatar_url.present);
+    eprintln!("avatar-core-control {}", json!({
+        "core_avatar_present": core_present,
+        "app_avatar_present": app_present,
+        "core_epoch": core_epoch,
+    }));
 }
 
 fn sync_failure_error(

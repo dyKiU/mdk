@@ -24,7 +24,8 @@ PHASES = {'local_state_created', 'local_ready', 'bootstrap_publication_started',
           'key_package_publication_confirmed', 'companion_ready'}
 AVATAR = {'sender_clear_present', 'receiver_present', 'sync_events',
           'sync_projection_updates', 'sync_epoch_stall_escalations',
-          'clear_published', 'clear_message_count'}
+          'clear_published', 'clear_message_count', 'core_observation'}
+AVATAR_CORE = {'core_avatar_present', 'app_avatar_present', 'core_epoch'}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 LIMIT = 16 * 1024 * 1024
 PRIOR_COLLECTOR = '9d24755e3f48cc19fd0643c85b3e00f771e25da4'
@@ -108,6 +109,14 @@ def closed_marker(case, value):
         if set(value) != AVATAR:
             raise ValueError('marker-keys')
         for key, item in value.items():
+            if key == 'core_observation':
+                if not isinstance(item, dict) or set(item) != AVATAR_CORE:
+                    raise ValueError('avatar-core-shape')
+                for field, fact in item.items():
+                    valid = uint(fact) if field == 'core_epoch' else type(fact) is bool
+                    if fact is not None and not valid:
+                        raise ValueError('avatar-core-type')
+                continue
             valid = type(item) is bool if key in {'sender_clear_present', 'receiver_present'} else uint(item)
             if item is not None and not valid:
                 raise ValueError('marker-type')
@@ -218,7 +227,8 @@ def parser_controls():
         values = ({'observed': False, 'elapsed_ms': 10000, 'setup_finished': False,
                    'journal_read_ok': True, 'journal_phase': 'local_state_created',
                    'telemetry': telemetry_fixture()}
-                  if case == 'key-package' else {key: None for key in AVATAR})
+                  if case == 'key-package' else dict({key: None for key in AVATAR},
+                      core_observation={key: None for key in AVATAR_CORE}))
         package, binary, test, source, prefix = CASES[case]
         raw = (prefix + json.dumps(values) + '\nFAIL [1s] ' + binary + ' ' + test + '\n'
                + "thread 'PRIVATE' panicked at " + source + ':2206:10:\nPRIVATE_PAYLOAD\n'
@@ -257,6 +267,9 @@ def parser_controls():
             bad_values += [dict(values, journal_phase='PRIVATE'), dict(values, elapsed_ms=True)]
         else:
             bad_values += [dict(values, receiver_present='PRIVATE'), dict(values, sync_events=True)]
+            bad_values += [dict(values, core_observation=None),
+                           dict(values, core_observation={'private': 'PRIVATE'}),
+                           dict(values, core_observation=dict(values['core_observation'], core_epoch=True))]
         altered += [raw.replace(json.dumps(values).encode(), json.dumps(v).encode()) for v in bad_values]
         for invalid in altered:
             try:

@@ -3925,6 +3925,22 @@ impl AppClient {
         Ok(self.runtime.app_component(group_id, component_id)?)
     }
 
+    /// Test-only read of the fixed avatar component in the already-owned Core.
+    /// Malformed bytes remain unknown; this grants no generic protocol-space access.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn group_avatar_component_presence_for_test(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<bool>, AppError> {
+        self.ensure_group(group_id)?;
+        Ok(match self.runtime.app_component(group_id, GROUP_AVATAR_URL_COMPONENT_ID)? {
+            None => Some(false),
+            Some(bytes) => cgka_traits::app_components::decode_group_avatar_url_v1(&bytes)
+                .ok()
+                .map(|avatar| !avatar.url.is_empty()),
+        })
+    }
+
     /// Replace optional application-owned state through an admin MLS commit.
     pub async fn update_app_component(
         &mut self,
