@@ -3301,8 +3301,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_cancel_after_real_maintenance_retires_owned_invite() {
-        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAddRetryCancelMaintenance)
-            .await;
+        exercise_third_device_invite(
+            ThirdDeviceCheck::LocalProposalTrustedAddRetryCancelMaintenance,
+        )
+        .await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4000,7 +4002,9 @@ mod tests {
                             .unwrap()
                                 == c_purpose
                         );
-                        eprintln!("cancel-maintenance-control {{\"wrapped_owned\":true,\"same_retired_owned\":true,\"recipient_purpose_unchanged\":true,\"real_maintenance_completed\":true}}");
+                        eprintln!(
+                            "cancel-maintenance-control {{\"wrapped_owned\":true,\"same_retired_owned\":true,\"recipient_purpose_unchanged\":true,\"real_maintenance_completed\":true}}"
+                        );
                     }
                     workers
                         .a
