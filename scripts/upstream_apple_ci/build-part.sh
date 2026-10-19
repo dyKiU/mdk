@@ -31,4 +31,5 @@ case "$part" in
   *) exit 2 ;;
 esac
 python3 crates/marmot-uniffi/build-provenance.py record "$part" stage/build-provenance.json
+python3 scripts/upstream_apple_ci/sdk_profiles.py record-part stage/build-provenance.json
 git diff --exit-code

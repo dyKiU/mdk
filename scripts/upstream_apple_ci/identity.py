@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from sdk_profiles import artifact_name, features
 import re
 import subprocess
 
@@ -34,7 +35,11 @@ else:
     require(cohort['mdk_sha'] == head == os.environ['GITHUB_SHA'], 'Dispatch source must equal workflow commit')
 for key, sha in cohort.items():
     require(isinstance(sha, str) and re.fullmatch('[0-9a-f]{40}', sha), 'Full immutable SHA required: ' + key)
+profile = os.environ.get('REQUESTED_SDK_PROFILE') or 'experimental'
+features(profile)
 with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+    output.write(f'sdk_profile={profile}\n')
+    output.write(f'artifact_name={artifact_name(profile, head)}\n')
     for key in ['mdk_sha', 'mac_sha', 'ios_sha']:
         output.write(f'{key}={cohort[key]}\n')
 print(json.dumps(cohort, sort_keys=True))

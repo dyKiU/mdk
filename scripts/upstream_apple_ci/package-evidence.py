@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tomllib
+from sdk_profiles import environment_profile, features, release_id, validate_provenance
 
 
 def digest(path):
@@ -14,18 +15,25 @@ def digest(path):
 
 
 sha = os.environ['SOURCE_SHA']
-release = 'ci-' + sha
+profile = environment_profile()
+release = release_id(profile, sha)
 evidence = {
+    'schema_version': 2,
     'source_sha': sha, 'builder_sha': os.environ['WORKFLOW_HEAD_SHA'],
     'source_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
     'workflow_run_id': os.environ['GITHUB_RUN_ID'],
     'uniffi_version': tomllib.loads(Path('crates/marmot-uniffi/Cargo.toml').read_text())['dependencies']['uniffi']['version'],
-    'features': ['otlp-export', 'product-analytics-export', 'experimental-device-sync'],
+    'sdk_profile': profile,
+    'features': features(profile),
+    'cargo_lock_sha256': hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+    'release_profile_sha256': hashlib.sha256(Path('crates/marmot-uniffi/marmotkit-release-profile.env').read_bytes()).hexdigest(),
     'input_provenance': {part: json.loads(Path('inputs', part, 'build-provenance.json').read_text())
                          for part in ['swift', 'macos', 'ios-device', 'ios-simulator']},
     'platforms': {},
     'scope': 'Apple SDK artifacts and consumer checks; backend and app qualification are separate gates.',
 }
+first = evidence['input_provenance']['swift']
+evidence['compiler'] = {'rustc': first['rustc'], 'cargo': first['cargo']}
 for platform in ['macos', 'ios']:
     bundle = Path('dist', f'marmotkit-{platform}-{release}.zip')
     manifest = json.loads(Path('dist', f'marmotkit-{platform}-{release}.manifest.json').read_text())
@@ -41,4 +49,5 @@ for platform in ['macos', 'ios']:
     shutil.copy2(bundle, Path('packages', bundle.name))
     evidence['platforms'][platform] = {'bundle': bundle.name, 'sha256': digest(bundle),
                                       'files': inventory, 'manifest': manifest}
+validate_provenance(evidence, profile, sha, os.environ['GITHUB_RUN_ID'])
 Path('packages/qualification.json').write_text(json.dumps(evidence, indent=2) + '\n')

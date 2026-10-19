@@ -182,6 +182,7 @@ jobs:
         run: |
           python3 -m py_compile \
             scripts/upstream_apple_ci/acceptance-identity.py \
+            scripts/upstream_apple_ci/sdk_profiles.py \
             scripts/upstream_apple_ci/hosted-app-fixtures.py \
             scripts/upstream_apple_ci/hosted-app-unit.py \
             scripts/upstream_apple_ci/hosted-app-ui.py \
@@ -201,7 +202,7 @@ jobs:
           sys.path.insert(0,str(helper.parent))
           runpy.run_path(str(helper))['verify_helpers']()
           native_manifest=json.loads(helper.with_name('native').joinpath('SOURCE.json').read_text())
-          names=['acceptance-identity.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
+          names=['acceptance-identity.py','sdk_profiles.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py',
                  'summarize.py','test_summarize.py']

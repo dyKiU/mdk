@@ -44,7 +44,7 @@
     },
     "run-hosted-app-acceptance.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "b83a9582b94904fdf41985809a3dc8122056b76e514bed909d76524c4b6911e9",
+      "sha256": "088e8f51efb517947ae8242b328fa9a16ca2bdd291497f6dd4c2e7aea05363bf",
       "scope": "Genuine source-only paired recipient app acceptance; separate per-platform whole-old-adapter mutation scopes and immutable-cohort fan-in, no normal source/SDK guard overrides"
     },
     "paired_direct_mutation.py": {
@@ -61,6 +61,11 @@
       "source": "new additional manual public deployment gate over exact signed be04 native harness",
       "sha256": "3c10d37ae4702c69b62934ca37ed8ca0440097fb949356b5173b31f15cd32e4b",
       "scope": "Both90s frozen two-direction third-device/history/contact/direct-reuse journeys;10positive native process closes per route; no change to existinglocal22+setup1 or7supplement lanes"
+    },
+    "sdk_profiles.py": {
+      "source": "new closed SDK profile and trusted Git F provenance validator",
+      "sha256": "15c176c3b049032d857c05c0ff5e86952dbc81cb06efbff81f8dcf3efabfdd7f",
+      "scope": "Default two-feature and experimental three-feature Apple artifacts; no private sync authority or release adoption"
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

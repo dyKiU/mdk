@@ -100,7 +100,7 @@ class Runner:
                        'qualification_sha256': digest(args.packages / 'qualification.json'),
                        'tools': {name: digest(HERE / name) for name in (
                            'run-hosted-app-acceptance.py', 'hosted-app-ui.py', 'hosted-app-unit.py',
-                           'hosted-app-fixtures.py', 'build-hosted-simulator-agent.sh', 'install.py',
+                           'hosted-app-fixtures.py', 'build-hosted-simulator-agent.sh', 'install.py', 'sdk_profiles.py',
                            'prepare-hosted-agent.py', 'paired_direct_mutation.py', 'paired-direct-mutations.py',
                            'native/SOURCE.json', 'HOSTED-SOURCE.json')}}
         if self.state_path.exists():
