@@ -728,10 +728,14 @@ jobs:
           cache-on-failure: true
           cache-workspace-crates: true
       - name: Read-only capacity guard
+        env:
+          CARGO_INCREMENTAL: '1'
         run: >-
           python3 scripts/qualification_build_preflight.py --label secondary-cutoff-pfp
           --output "$RUNNER_TEMP/secondary-cutoff-capacity.json"
       - name: Real post-capture arrivals, sole fence omission, exact restored control
+        env:
+          CARGO_INCREMENTAL: '1'
         run: >-
           python3 scripts/upstream_secondary_cutoff.py --case "$CUTOFF_CASE"
           --cohort "$CUTOFF_COHORT" --source "$SOURCE_SHA" --output "$RUNNER_TEMP/secondary-cutoff-result.json"
