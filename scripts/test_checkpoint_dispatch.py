@@ -27,6 +27,15 @@ EXPERIMENTAL_FEATURES = (
     "cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync"
 )
 
+STACK_SCOPE = "pairing-stack-regression"
+STACK_FEATURES = "marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
+STACK_CASES = ["native_device_linking::tests::automatic_forwarding_acceptance::" + name for name in (
+    "automatic_forwarding_uses_original_client_token_and_real_ordinary_event",
+    "automatic_forwarding_preserves_actual_reply_reference_and_canonical_id",
+    "automatic_forwarding_queues_without_members_and_reopens_both_independent_stores",
+    "automatic_forwarding_retries_unacknowledged_receipt_after_recipient_sql_rollback",
+)] + ["native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_allow_" + direction + "_initiated_discovery" for direction in ("b", "c")]
+
 
 class CheckpointDispatchTests(unittest.TestCase):
     def test_scope_routes_to_the_focused_job(self):
@@ -35,7 +44,7 @@ class CheckpointDispatchTests(unittest.TestCase):
         job = workflow.split("  core-regressions:\n", 1)[1].split("    name:", 1)[0]
         self.assertIn("github.event_name == 'workflow_dispatch'", job)
         routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
-        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, CHAT_SCOPE):
+        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, CHAT_SCOPE, STACK_SCOPE):
             self.assertIn(scope, options)
             self.assertIn(scope, routes)
 
@@ -51,12 +60,22 @@ class CheckpointDispatchTests(unittest.TestCase):
     def test_chat_scope_executes_only_the_exact_ignored_delivery_case(self):
         self.check_inventory(CHAT_SCOPE, CHAT_CASE, EXPERIMENTAL_FEATURES, ignored_only=True)
 
+    def test_stack_scope_keeps_six_real_cases_and_original_stack_limit(self):
+        self.check_inventory(STACK_SCOPE, STACK_CASES, STACK_FEATURES)
+        workflow = WORKFLOW.read_text()
+        job = workflow.split("  core-regressions:\n", 1)[1].split("  experimental-inventory:\n", 1)[0]
+        self.assertNotIn("RUST_MIN_STACK", job)
+        self.assertIn('RUST_MIN_STACK: "4194304"', workflow)
+
     def check_inventory(self, scope, required_case, features, ignored_only=False):
         workflow = WORKFLOW.read_text()
         start = workflow.index("      - name: Run selected affected regressions without retries\n")
         step = workflow[start:workflow.index("      - uses:", start)]
         script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        required_cases = required_case if isinstance(required_case, list) else [required_case]
         modes = ("exact", "empty", "extra", "not-ignored" if ignored_only else "ignored", "wrong-suite")
+        if len(required_cases) > 1:
+            modes += ("missing-one",)
         for mode in modes:
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -71,7 +90,8 @@ class CheckpointDispatchTests(unittest.TestCase):
                                             if os.environ['IGNORED_ONLY'] == '1'
                                             else os.environ['MODE'] == 'ignored'),
                                 'filter-match': {'status': 'matches'}}
-                        cases = {} if os.environ['MODE'] == 'empty' else {os.environ['CASE']: case}
+                        cases = {} if os.environ['MODE'] == 'empty' else {name: case for name in json.loads(os.environ['CASES'])}
+                        if os.environ['MODE'] == 'missing-one': cases.pop(next(iter(cases)))
                         if os.environ['MODE'] == 'extra': cases['extra'] = case
                         suite = 'wrong' if os.environ['MODE'] == 'wrong-suite' else 'marmot-app'
                         print(json.dumps({'rust-suites': {suite: {'testcases': cases}}}))
@@ -83,7 +103,7 @@ class CheckpointDispatchTests(unittest.TestCase):
                 '''))
                 cargo.chmod(0o700)
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
-                           REGRESSION_SCOPE=scope, MODE=mode, CASE=required_case,
+                           REGRESSION_SCOPE=scope, MODE=mode, CASES=json.dumps(required_cases),
                            SYNC_FEATURES=EXPERIMENTAL_FEATURES, IGNORED_ONLY=str(int(ignored_only)))
                 result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
                                         capture_output=True, text=True)
@@ -95,7 +115,12 @@ class CheckpointDispatchTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads(command.read_text())
                 listing = json.loads((root / 'list-command.json').read_text())
-                self.assertIn('--workspace', args)
+                if scope == STACK_SCOPE:
+                    self.assertNotIn('--workspace', args)
+                    self.assertEqual(args[args.index('-p') + 1], 'marmot-app')
+                    self.assertIn('--lib', args)
+                else:
+                    self.assertIn('--workspace', args)
                 if scope == SCOPE:
                     self.assertEqual(args[args.index('--exclude') + 1], 'cgka-conformance-simulator')
                 else:
@@ -103,7 +128,9 @@ class CheckpointDispatchTests(unittest.TestCase):
                 for option, value in (('--features', features), ('--retries', '0'),
                                       ('--test-threads', '1' if ignored_only else '6'), ('--profile', 'm5-bounded')):
                     self.assertEqual(args[args.index(option) + 1], value)
-                self.assertEqual(args[args.index('-E') + 1], f'package(marmot-app) & test(={required_case})')
+                expression = ('package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_))'
+                              if scope == STACK_SCOPE else f'package(marmot-app) & test(={required_case})')
+                self.assertEqual(args[args.index('-E') + 1], expression)
                 self.assertIn('--locked', args)
                 self.assertEqual(listing[listing.index('--features') + 1], features)
                 self.assertEqual(listing[listing.index('-E') + 1], args[args.index('-E') + 1])
