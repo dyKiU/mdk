@@ -3284,7 +3284,9 @@ impl AppClient {
                     let root = self.app.account_home().root().to_path_buf();
                     proof_lineage::proof_prepared(&root, &prepared);
                     let source_capture = request_lineage::source_proof::prepared(
-                        &root, &prepared, scope.approval_id,
+                        &root,
+                        &prepared,
+                        scope.approval_id,
                     );
                     Some((root, prepared, source_capture))
                 }

@@ -763,7 +763,12 @@ pub(crate) fn proof_stage(
         return;
     }
     super::request_lineage_probe::source_proof::owned(
-        root, owned_group, received, owned_nonce, digest, stage,
+        root,
+        owned_group,
+        received,
+        owned_nonce,
+        digest,
+        stage,
     );
     if let Some(probe) = current(root).filter(|probe| {
         probe.mode == Mode::PeerProof && probe.group == *owned_group && probe.index(root) == Some(2)

@@ -313,7 +313,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                 );
             }
             for row in probe.source_proof_summaries() {
-                eprintln!("enrollment-source-proof-lineage attempted_newcomer={attempted_newcomer:?} summary={row:?}");
+                eprintln!(
+                    "enrollment-source-proof-lineage attempted_newcomer={attempted_newcomer:?} summary={row:?}"
+                );
             }
         } else {
             eprintln!("enrollment-request-lineage unavailable=true");
