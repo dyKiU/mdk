@@ -42,6 +42,14 @@ STACK_CASES += [
     "native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal",
 ]
 
+QUEUE_SCOPE = "queued-intent-regression"
+QUEUE_CASES = ["subject::tests::" + name for name in (
+    "regenerated_queued_intent_retries_then_retires_through_outbound_acknowledgement",
+    "engine_subject_virtual_time_is_shared_while_participant_wakes_are_selected",
+    "scheduled_group_evolution_waits_for_public_outbound_acknowledgement",
+    "fixed_point_reports_manual_ack_blocker_then_settles",
+)]
+
 
 class CheckpointDispatchTests(unittest.TestCase):
     def test_scope_routes_to_the_focused_job(self):
@@ -50,7 +58,7 @@ class CheckpointDispatchTests(unittest.TestCase):
         job = workflow.split("  core-regressions:\n", 1)[1].split("    name:", 1)[0]
         self.assertIn("github.event_name == 'workflow_dispatch'", job)
         routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
-        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, CHAT_SCOPE, STACK_SCOPE):
+        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, CHAT_SCOPE, STACK_SCOPE, QUEUE_SCOPE):
             self.assertIn(scope, options)
             self.assertIn(scope, routes)
 
@@ -72,6 +80,9 @@ class CheckpointDispatchTests(unittest.TestCase):
         job = workflow.split("  core-regressions:\n", 1)[1].split("  experimental-inventory:\n", 1)[0]
         self.assertNotIn("RUST_MIN_STACK", job)
         self.assertIn('RUST_MIN_STACK: "4194304"', workflow)
+
+    def test_queue_scope_keeps_four_virtual_time_and_acknowledgement_cases(self):
+        self.check_inventory(QUEUE_SCOPE, QUEUE_CASES, STACK_FEATURES)
 
     def check_inventory(self, scope, required_case, features, ignored_only=False):
         workflow = WORKFLOW.read_text()
@@ -99,7 +110,7 @@ class CheckpointDispatchTests(unittest.TestCase):
                         cases = {} if os.environ['MODE'] == 'empty' else {name: case for name in json.loads(os.environ['CASES'])}
                         if os.environ['MODE'] == 'missing-one': cases.pop(next(iter(cases)))
                         if os.environ['MODE'] == 'extra': cases['extra'] = case
-                        suite = 'wrong' if os.environ['MODE'] == 'wrong-suite' else 'marmot-app'
+                        suite = 'wrong' if os.environ['MODE'] == 'wrong-suite' else os.environ['SUITE']
                         print(json.dumps({'rust-suites': {suite: {'testcases': cases}}}))
                     elif args[:2] == ['nextest', 'run']:
                         Path('command.json').write_text(json.dumps(args))
@@ -110,7 +121,8 @@ class CheckpointDispatchTests(unittest.TestCase):
                 cargo.chmod(0o700)
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                            REGRESSION_SCOPE=scope, MODE=mode, CASES=json.dumps(required_cases),
-                           SYNC_FEATURES=EXPERIMENTAL_FEATURES, IGNORED_ONLY=str(int(ignored_only)))
+                           SYNC_FEATURES=EXPERIMENTAL_FEATURES, IGNORED_ONLY=str(int(ignored_only)),
+                           SUITE="cgka-conformance-simulator" if scope == QUEUE_SCOPE else "marmot-app")
                 result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
                                         capture_output=True, text=True)
                 command = root / 'command.json'
@@ -121,9 +133,10 @@ class CheckpointDispatchTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads(command.read_text())
                 listing = json.loads((root / 'list-command.json').read_text())
-                if scope == STACK_SCOPE:
+                if scope in (STACK_SCOPE, QUEUE_SCOPE):
                     self.assertNotIn('--workspace', args)
-                    self.assertEqual(args[args.index('-p') + 1], 'marmot-app')
+                    self.assertEqual(args[args.index('-p') + 1],
+                                     'cgka-conformance-simulator' if scope == QUEUE_SCOPE else 'marmot-app')
                     self.assertIn('--lib', args)
                 else:
                     self.assertIn('--workspace', args)
@@ -136,6 +149,9 @@ class CheckpointDispatchTests(unittest.TestCase):
                     self.assertEqual(args[args.index(option) + 1], value)
                 expression = ('package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_) | test(native_device_linking::tests::automatic_held_original_acceptance::automatic_held_originals_) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_forwarding_reaches_independent_creator_through_non_admin_member) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure) | test(=native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal))'
                               if scope == STACK_SCOPE else f'package(marmot-app) & test(={required_case})')
+                if scope == QUEUE_SCOPE:
+                    expression = 'package(cgka-conformance-simulator) & (' + ' | '.join(
+                        f'test(={name})' for name in QUEUE_CASES) + ')'
                 self.assertEqual(args[args.index('-E') + 1], expression)
                 self.assertIn('--locked', args)
                 self.assertEqual(listing[listing.index('--features') + 1], features)

@@ -3731,14 +3731,30 @@ mod tests {
                 .is_empty()
         );
         subject
-            .advance_time(1_000)
+            .advance_time(999)
             .await
-            .expect("advance through the pinned settlement window");
-
+            .expect("advance before the pinned settlement cutoff");
         subject
-            .client_mut("carol")
-            .expect("carol exists")
-            .advance_convergence()
+            .tick(&labels[2..3])
+            .await
+            .expect("carol services convergence before the cutoff");
+        assert!(
+            subject
+                .poll_outbound("carol")
+                .expect("queued application is still held before the cutoff")
+                .is_empty()
+        );
+        subject
+            .advance_time(1)
+            .await
+            .expect("advance to the pinned settlement cutoff");
+
+        // AdvanceTime selects the injected clock, and Tick services the
+        // deterministic bounded work slice at that instant. The app entry
+        // point also has a cooperative wall-clock budget, so one call need
+        // not finish convergence on a loaded runner.
+        subject
+            .tick(&labels[2..3])
             .await
             .expect("carol settles and regenerates queued application");
         let first = subject
@@ -3756,9 +3772,7 @@ mod tests {
             .expect("definite failure re-arms the queued intent");
 
         subject
-            .client_mut("carol")
-            .expect("carol exists")
-            .advance_convergence()
+            .tick(&labels[2..3])
             .await
             .expect("carol retries the queued application");
         let retry = subject
@@ -3776,9 +3790,7 @@ mod tests {
             .await
             .expect("accepted retry retires the queued intent");
         subject
-            .client_mut("carol")
-            .expect("carol exists")
-            .advance_convergence()
+            .tick(&labels[2..3])
             .await
             .expect("no queued retry remains");
         assert!(

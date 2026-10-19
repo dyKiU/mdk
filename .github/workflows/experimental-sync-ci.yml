@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-five-devices, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, paired-presentation, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery, pairing-stack-regression]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-five-devices, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, paired-presentation, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery, pairing-stack-regression, queued-intent-regression]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -666,7 +666,7 @@ jobs:
           if-no-files-found: error
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","profile-edit-regression","default-checkpoint-diagnostic","experimental-departure-diagnostic","public-third-device-deployment","public-three-device-chat-delivery","pairing-stack-regression"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","profile-edit-regression","default-checkpoint-diagnostic","experimental-departure-diagnostic","public-third-device-deployment","public-three-device-chat-delivery","pairing-stack-regression","queued-intent-regression"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -718,6 +718,10 @@ jobs:
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p marmot-app --lib --features "$features")
             filter='package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_) | test(native_device_linking::tests::automatic_held_original_acceptance::automatic_held_originals_) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_forwarding_reaches_independent_creator_through_non_admin_member) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure) | test(=native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal))'
+          elif [[ "$REGRESSION_SCOPE" == queued-intent-regression ]]; then
+            features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+            args=(--locked -p cgka-conformance-simulator --lib --features "$features")
+            filter='package(cgka-conformance-simulator) & (test(=subject::tests::regenerated_queued_intent_retries_then_retires_through_outbound_acknowledgement) | test(=subject::tests::engine_subject_virtual_time_is_shared_while_participant_wakes_are_selected) | test(=subject::tests::scheduled_group_evolution_waits_for_public_outbound_acknowledgement) | test(=subject::tests::fixed_point_reports_manual_ack_blocker_then_settles))'
           elif [[ "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
             args=(--locked --workspace --features "$SYNC_FEATURES")
             filter='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race)'
@@ -794,6 +798,18 @@ jobs:
                         for name, case in suite["testcases"].items()
                         if case["filter-match"]["status"] == "matches" and not case["ignored"]}
               assert actual == {("marmot-app", name) for name in required}, "exact eleven forwarding/discovery/renewal cases required"
+          elif os.environ["REGRESSION_SCOPE"] == "queued-intent-regression":
+              required = ["subject::tests::" + name for name in (
+                  "regenerated_queued_intent_retries_then_retires_through_outbound_acknowledgement",
+                  "engine_subject_virtual_time_is_shared_while_participant_wakes_are_selected",
+                  "scheduled_group_evolution_waits_for_public_outbound_acknowledgement",
+                  "fixed_point_reports_manual_ack_blocker_then_settles",
+
+              )]
+              expected = 4
+              actual = {(suite_id, name, case["ignored"]) for suite_id, suite in inventory["rust-suites"].items()
+                        for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches"}
+              assert actual == {("cgka-conformance-simulator", name, False) for name in required}, "exact four nonignored virtual-time/acknowledgement cases required"
           elif os.environ["REGRESSION_SCOPE"] == "connector-regression":
               required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name"]
               expected = 1
@@ -831,7 +847,7 @@ jobs:
           print("qualification-selected-core-regression-cases:", len(selected))
           PYGUARD
           output_args=()
-          if [[ "$REGRESSION_SCOPE" == pairing-stack-regression || "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering || "$REGRESSION_SCOPE" == default-checkpoint-diagnostic || "$REGRESSION_SCOPE" == experimental-departure-diagnostic || "$REGRESSION_SCOPE" == public-third-device-deployment || "$REGRESSION_SCOPE" == public-three-device-chat-delivery ]]; then
+          if [[ "$REGRESSION_SCOPE" == queued-intent-regression || "$REGRESSION_SCOPE" == pairing-stack-regression || "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering || "$REGRESSION_SCOPE" == default-checkpoint-diagnostic || "$REGRESSION_SCOPE" == experimental-departure-diagnostic || "$REGRESSION_SCOPE" == public-third-device-deployment || "$REGRESSION_SCOPE" == public-three-device-chat-delivery ]]; then
             output_args=(--success-output immediate)
           fi
           cargo nextest run "${args[@]}" "${ignored_args[@]}" -E "$filter" --profile m5-bounded --test-threads "$test_threads" --retries 0 --no-fail-fast "${output_args[@]}"
