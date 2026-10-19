@@ -2323,6 +2323,19 @@ async fn run_app_runtime_account_worker(
                                     }
                                     command => command,
                                 };
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                if let AccountWorkerCommand::DeviceLinkingVerifier(verifier) = &command
+                                    && let Some(scope) = verifier.native_observe_scope_for_test()
+                                    && let Some(observer) = client.native_observation_original_for_test(scope)
+                                {
+                                    // Copy the worker-owned retry slots only for this admitted Observe.
+                                    // The temporary original is dropped before command handling awaits.
+                                    observer.record_retry_custody_for_test(
+                                        selected_welcome_retry.is_some(),
+                                        revoked_confirmation_retry.is_some(),
+                                        enrollment_capacity_retry.is_some(),
+                                    );
+                                }
                                 let may_change_push_registration_work =
                                     command.may_change_push_registration_work();
                                 match command {
@@ -2630,10 +2643,14 @@ async fn run_app_runtime_account_worker(
                         let _ = result;
                     }
                     received = async {
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::ArmPolled); }
                         #[cfg(feature = "experimental-device-sync")]
                         if let Some((_, _, retry_at)) = selected_welcome_retry.as_ref() {
                             // Commands can cancel this select future; retain the timer
                             // deadline so ordinary queries cannot postpone retry forever.
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::BeforeWelcomeSleep); }
                             tokio::time::sleep_until(*retry_at).await;
                             let (delivery, attempt, _) = selected_welcome_retry.take().expect("one original selected Welcome");
                             if attempt.is_live() {
@@ -2643,6 +2660,8 @@ async fn run_app_runtime_account_worker(
                         }
                         #[cfg(feature = "experimental-device-sync")]
                         if let Some((_, _, retry_at)) = revoked_confirmation_retry.as_ref() {
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::BeforeRevokedSleep); }
                             tokio::time::sleep_until(*retry_at).await;
                             let (delivery, control, _) = revoked_confirmation_retry.take().expect("one exact revoked confirmation");
                             if control.is_live()
@@ -2655,11 +2674,17 @@ async fn run_app_runtime_account_worker(
                             client.adapter.release_account_delivery(&delivery.message.id);
                         }
                         if enrollment_capacity_retry.is_some() {
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::BeforeCapacitySleep); }
                             tokio::time::sleep(Duration::from_millis(100)).await;
                             Ok(transport_nostr::AccountDeliveryReceive::Delivery(
                                 enrollment_capacity_retry.take().expect("one exact capacity envelope"),
                             ))
-                        } else { client.receive_next_delivery().await }
+                        } else {
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::BeforeOrdinaryReceive); }
+                            client.receive_next_delivery().await
+                        }
                     }, if !client.has_pending_effect_projections() => {
                         #[cfg(test)]
                         if let Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) = &received

@@ -416,6 +416,26 @@ impl DeviceLinkingSession {
             .map(|choice| choice.receive_guard_snapshot_for_test())
     }
 
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn native_retry_custody_for_test(
+        &self,
+    ) -> Option<crate::client::device_linking::sibling_sharing::NativeRetryCustodySnapshot> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.retry_custody_snapshot_for_test())
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn native_receive_poll_for_test(
+        &self,
+    ) -> Option<crate::client::device_linking::sibling_sharing::NativeReceivePollSnapshot> {
+        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+            .map(|choice| choice.receive_poll_snapshot_for_test())
+    }
+
     // PEER_PROOF_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn arm_late_peer_proof_for_test(

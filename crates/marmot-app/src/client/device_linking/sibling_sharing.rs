@@ -41,6 +41,20 @@ pub(crate) type NativeObservationSnapshot =
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) type NativeReceiveGuardSnapshot = ([u64; 4], Option<(u8, u64)>, bool);
 #[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type NativeRetryCustodySnapshot = ([u64; 8], Option<(u8, u64)>, bool);
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type NativeReceivePollSnapshot = ([u64; 5], Option<(u8, u64)>, bool);
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub(crate) enum NativeReceivePollStage {
+    ArmPolled = 0,
+    BeforeWelcomeSleep = 1,
+    BeforeRevokedSleep = 2,
+    BeforeCapacitySleep = 3,
+    BeforeOrdinaryReceive = 4,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
 struct NativeObservationProbe {
     origin: Instant,
     counts: [usize; 6],
@@ -50,6 +64,12 @@ struct NativeObservationProbe {
     receive_guard_counts: [u64; 4],
     receive_guard_last: Option<(u8, u64)>,
     receive_guard_overflow: bool,
+    retry_custody_counts: [u64; 8],
+    retry_custody_last: Option<(u8, u64)>,
+    retry_custody_overflow: bool,
+    receive_poll_counts: [u64; 5],
+    receive_poll_last: Option<(u8, u64)>,
+    receive_poll_overflow: bool,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Default for NativeObservationProbe {
@@ -63,6 +83,12 @@ impl Default for NativeObservationProbe {
             receive_guard_counts: [0; 4],
             receive_guard_last: None,
             receive_guard_overflow: false,
+            retry_custody_counts: [0; 8],
+            retry_custody_last: None,
+            retry_custody_overflow: false,
+            receive_poll_counts: [0; 5],
+            receive_poll_last: None,
+            receive_poll_overflow: false,
         }
     }
 }
@@ -448,6 +474,59 @@ impl OriginalEnrollmentSharingChoice {
         )
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_retry_custody_for_test(
+        &self,
+        welcome: bool,
+        revoked: bool,
+        capacity: bool,
+    ) {
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        let mask = u8::from(welcome) | (u8::from(revoked) << 1) | (u8::from(capacity) << 2);
+        if let Some(count) = probe.retry_custody_counts[usize::from(mask)].checked_add(1) {
+            probe.retry_custody_counts[usize::from(mask)] = count;
+        } else {
+            probe.retry_custody_overflow = true;
+        }
+        probe.retry_custody_last = Instant::now()
+            .checked_duration_since(probe.origin)
+            .and_then(|elapsed| u64::try_from(elapsed.as_millis()).ok())
+            .map(|elapsed| (mask, elapsed));
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn retry_custody_snapshot_for_test(&self) -> NativeRetryCustodySnapshot {
+        let probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        (
+            probe.retry_custody_counts,
+            probe.retry_custody_last,
+            probe.retry_custody_overflow,
+        )
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_receive_poll_for_test(&self, stage: NativeReceivePollStage) {
+        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let index = stage as usize;
+        if let Some(count) = probe.receive_poll_counts[index].checked_add(1) {
+            probe.receive_poll_counts[index] = count;
+        } else {
+            probe.receive_poll_overflow = true;
+        }
+        probe.receive_poll_last = Instant::now()
+            .checked_duration_since(probe.origin)
+            .and_then(|elapsed| u64::try_from(elapsed.as_millis()).ok())
+            .map(|elapsed| (stage as u8, elapsed));
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn receive_poll_snapshot_for_test(&self) -> NativeReceivePollSnapshot {
+        let probe = self.native_observation_probe.lock().expect("native observation probe");
+        (probe.receive_poll_counts, probe.receive_poll_last, probe.receive_poll_overflow)
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn notification_times_for_test(
         &self,
         accepted: Option<Instant>,
@@ -811,6 +890,12 @@ fn denied() -> ClientLinkingError {
 }
 
 impl AppClient {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_native_receive_poll_for_test(&self, stage: NativeReceivePollStage) {
+        if let Some(choice) = self.linking_owner.sharing_approval.as_ref() {
+            choice.record_receive_poll_for_test(stage);
+        }
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn native_observation_original_for_test(
         &self,

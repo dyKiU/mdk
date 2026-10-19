@@ -29,6 +29,15 @@ impl AccountManager {
         )
     }
 }
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl VerifierCommand {
+    pub(crate) fn native_observe_scope_for_test(&self) -> Option<&PurposeAttemptScope> {
+        match self {
+            Self::Setup(setup::SetupCommand::Observe { scope, .. }) => Some(scope),
+            _ => None,
+        }
+    }
+}
 pub(crate) enum VerifierCommand {
     #[cfg(all(
         test,

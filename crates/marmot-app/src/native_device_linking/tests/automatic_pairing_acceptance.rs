@@ -1742,6 +1742,14 @@ async fn wait_for_automatic_phase_with_approvals(
                 "automatic-enrollment-control side={side} receive_guard_counts/last/overflow={:?}",
                 original.native_receive_guards_for_test(),
             );
+            eprintln!(
+                "automatic-enrollment-control side={side} retry_custody_counts/last/overflow={:?}",
+                original.native_retry_custody_for_test(),
+            );
+            eprintln!(
+                "automatic-enrollment-control side={side} receive_poll_counts/last/overflow={:?}",
+                original.native_receive_poll_for_test(),
+            );
         }
         #[cfg(feature = "test-policy-overrides")]
         for (index, approval) in approvals.iter().enumerate() {
