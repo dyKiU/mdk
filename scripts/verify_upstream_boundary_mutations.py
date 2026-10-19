@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from upstream_avatar_ready_turn_chain import compiler_diagnostics
 from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -242,6 +243,7 @@ def execute(phase):
         runtime_signal = (bool(re.search(r'\bSIG(?:ABRT|SEGV)\b', output))
                           and 'running 1 test' in output and test in output)
     row = {'phase': phase, 'exit_code': result.returncode, 'counts': counts, 'log': path.name}
+    row['compiler_diagnostics'] = compiler_diagnostics(output.encode())
     proof['runs'].append(row)
     save()  # Preserve actual counts before supplementary oracle/physical checks.
     if cohort:

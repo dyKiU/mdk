@@ -37,6 +37,66 @@ HOOK = '''        if explicit {
 '''
 
 
+# Only exact literals raised by this source are exported. Arbitrary exception
+# messages, identifiers and paths remain unreported, including imported errors.
+FAILURE_CATEGORIES = frozenset({
+    'physical-source-ancestry', 'original-avatar-assertion-anchor',
+    'original-assertion-source-cardinality', 'positive-parser-control',
+    'negative-parser-control', 'output-must-be-outside-checkout',
+    'fresh-output-required', 'immutable-source-required', 'workflow-head-identity',
+    'tool-child-diff-allowlist', 'regular-source-required', 'tracked-product-mode',
+    'exact-product-hook-required', 'unchanged-original-test-required',
+    'tracked-parent-symlink', 'untracked-source-admission', 'pristine-admission',
+    'unexpected-compiler-environment', 'fixed-compiler-environment',
+    'exact-pinned-rustc-release', 'inventory-compile-failed',
+    'inventory-not-exactly-one-nonignored', 'phase-input-closure',
+    'runtime-phase-not-qualified', 'restore-physical-source',
+})
+COMPILER_SOURCES = frozenset({
+    SOURCE, TEST,
+    'crates/marmot-app/src/client/sync/explicit_ready_turn_tests.rs',
+    'crates/marmot-app/src/client/device_linking.rs',
+    'crates/marmot-app/src/runtime/private_commit.rs',
+    'crates/marmot-app/src/runtime/account_worker.rs',
+    'crates/marmot-app/src/runtime/device_linking.rs',
+    'crates/cgka-engine/src/private_roster_settlement_tests.rs',
+    'crates/marmot-app/src/tests.rs',
+    'crates/cgka-engine/src/private_roster_settlement.rs',
+    'crates/cgka-session/src/lib.rs',
+})
+
+
+def failure_category(error):
+    if (type(error) is ValueError and len(error.args) == 1
+            and type(error.args[0]) is str and error.args[0] in FAILURE_CATEGORIES):
+        return error.args[0]
+    return 'unknown'
+
+
+def compiler_diagnostics(raw):
+    # Raw capture is already bounded. Export fixed Rust error codes and only
+    # reviewed source positions, never diagnostic text or unreviewed paths.
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    codes = sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]', text)))
+    headers = [line for line in text.splitlines()
+               if re.match(r'^error(?:\[E[0-9]{4}\])?:', line)
+               and not re.match(r'^error: test run failed\s*$', line)]
+    sites = set()
+    unknown = 0
+    for path, line, column in re.findall(r'^\s*--> ([^\s]+\.rs):(\d+):(\d+)\s*$', text, re.M):
+        if path not in COMPILER_SOURCES or not (1 <= int(line) <= 1_000_000
+                                                and 1 <= int(column) <= 1_000_000):
+            unknown += 1
+        else:
+            sites.add((path, int(line), int(column)))
+    ordered = sorted(sites)
+    return {'compiler_codes': codes, 'compiler_header_count': len(headers),
+            'trusted_source_positions': [dict(source=p, line=line, column=column)
+                                         for p, line, column in ordered[:32]],
+            'trusted_positions_overflow': len(ordered) > 32,
+            'unreviewed_position_count': unknown}
+
+
 def git(*args):
     return subprocess.check_output(['git', *args]).decode().strip()
 
@@ -79,6 +139,10 @@ def intended_failure(raw, test_bytes):
     # assertion differs instead of broadening the accepted panic range.
     if len(anchors) != 1:
         raise ValueError('original-avatar-assertion-anchor')
+    # Count headers independently: the contextual body regex can consume a
+    # subsequent header. Duplicates or an unrelated panic never qualify.
+    if raw.count(b'panicked at ') != 1:
+        return False
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     panics = list(re.finditer(r'panicked at ([^\s]+\.rs):(\d+):(\d+):\n([^\n]*(?:\n[^\n]*){0,4})', text))
     if len(panics) != 1:
@@ -213,6 +277,7 @@ def main():
                                     'stdout_sha256': sha(raw), 'stderr_sha256': sha(stderr),
                                     'compiler_codes': sorted({item.decode('ascii') for item in
                                         re.findall(rb'error\[(E[0-9]{4})\]', stderr)})}
+                row['inventory']['compiler_diagnostics'] = compiler_diagnostics(stderr)
                 save()
                 if code != 0:
                     raise ValueError('inventory-compile-failed')
@@ -233,6 +298,7 @@ def main():
                     '-E', selection], 1200)
                 row['body'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                                'raw_sha256': sha(raw), 'raw_bytes': len(raw)}
+                row['body']['compiler_diagnostics'] = compiler_diagnostics(raw)
                 save()
                 row['body'].update(parse_core('avatar', raw))
                 save()
@@ -263,6 +329,7 @@ def main():
         report['complete'] = True
     except Exception as error:
         report['exception_class'] = type(error).__name__
+        report['failure_category'] = failure_category(error)
     finally:
         try:
             if original is not None:
@@ -282,6 +349,7 @@ def main():
         except Exception as error:
             report['complete'] = False
             report['closure_exception_class'] = type(error).__name__
+            report['closure_failure_category'] = failure_category(error)
         save()
     return 0 if report['complete'] else 1
 
