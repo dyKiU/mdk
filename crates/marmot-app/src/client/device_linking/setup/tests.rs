@@ -258,7 +258,11 @@ async fn predecessor_exchange(from: &DeviceLinkingSession, to: &DeviceLinkingSes
     }
 }
 #[cfg(feature = "test-policy-overrides")]
-async fn predecessor_complete_pair(a: &DeviceLinkingSession, b: &DeviceLinkingSession, broad: bool) {
+async fn predecessor_complete_pair(
+    a: &DeviceLinkingSession,
+    b: &DeviceLinkingSession,
+    broad: bool,
+) {
     b.receive_setup_packet(a.setup_packet()).await.unwrap();
     for _ in 0..8 {
         predecessor_exchange(a, b).await;

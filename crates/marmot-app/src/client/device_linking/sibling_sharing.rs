@@ -705,7 +705,8 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn predecessor_readiness_for_test(&self) -> (bool, bool, bool) {
-        let observed = self.native_observation_probe
+        let observed = self
+            .native_observation_probe
             .lock()
             .expect("native observation probe")
             .exact_predecessor_observed;

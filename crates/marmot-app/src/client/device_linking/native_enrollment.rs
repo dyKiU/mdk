@@ -80,10 +80,15 @@ impl AppClient {
                 && candidate.epoch.0 == predecessor.epoch
                 && candidate.epoch_authenticator_digest == predecessor.epoch_authenticator_digest
                 && candidate.leaves.len() == predecessor.leaves.len()
-                && candidate.leaves.iter().zip(&predecessor.leaves).all(|(actual, expected)| {
-                    actual.leaf_index == expected.leaf_index
-                        && actual.signature_public_key.as_slice() == expected.signature_public_key
-                });
+                && candidate
+                    .leaves
+                    .iter()
+                    .zip(&predecessor.leaves)
+                    .all(|(actual, expected)| {
+                        actual.leaf_index == expected.leaf_index
+                            && actual.signature_public_key.as_slice()
+                                == expected.signature_public_key
+                    });
             original.record_exact_predecessor_for_test(exact_predecessor);
         }
         let peer = if original.scope.local_device == original.context.approver {
