@@ -119,3 +119,68 @@ def publication_runtime_oracle(output, case, test, fixture):
             'parsed_panic_header_count': len(panics),
             'unsupported_panic_format': output.count('panicked at ') != len(panics),
             **closed_panic_facts(panics, test)}
+
+
+# Separate exact recipient timer-frontier evidence; old publication oracles unchanged.
+PRIORITY_FIXTURE = 'crates/marmot-app/src/native_device_linking/tests/recipient_retry_priority_acceptance.rs'
+PRIORITY_NAME = 'native_device_linking::automatic_pairing_acceptance::recipient_retry_priority_acceptance::older_recipient_proof_retry_precedes_later_consent_retry'
+PRIORITY_MESSAGE = 'older real recipient proof retry must precede a later Consent retry'
+PRIORITY_FACT_NAMES = ('source_proof_held', 'real_frontier', 'both_due_unchanged', 'next_real_ack',
+              'source_dispatch_ack_after_release', 'exact_peer_proof_authenticated', 'enrollment_complete',
+              'source_cancelled', 'recipient_cancelled', 'probe_custody_released')
+
+
+def retry_priority_oracle(output, phase, fixture, capture_complete=False):
+    if phase not in {'baseline', 'mutant', 'restored-control'}:
+        raise ValueError('unsupported-phase')
+    capture_complete = capture_complete if type(capture_complete) is bool else False
+    assertion = list(re.finditer(r'assert!\(\s*selected_proof,\s*"' + re.escape(PRIORITY_MESSAGE) + r'"\s*\);', fixture))
+    if len(assertion) != 1 or '#[ignore' in fixture:
+        raise ValueError('unique-nonignored-original-ordering-assertion-required')
+    line = fixture[:assertion[0].start()].count('\n') + 1
+    marker = 'recipient-retry-priority '
+    fields = ' '.join(name + r'=(true|false)' for name in PRIORITY_FACT_NAMES)
+    grammar = (r'[ \t]{0,8}' + marker + fields + r' selected_proof=(true|false)'
+               + r' runtime_closes=([0-9]+) storage_closes=([0-9]+) planes_shutdown=([0-9]+)'
+               + r' relay_closed=(true|false) attempt_completed=(true|false)[ \t]{0,8}')
+    rows = [text for text in output.splitlines() if marker in text]
+    match = re.fullmatch(grammar, rows[0]) if len(rows) == 1 and len(rows[0]) <= 2048 else None
+    prerequisites = bool(match and all(match[n] == 'true' for n in range(1, 11))
+                         and all(match[n] == '3' for n in range(12, 15)) and match[15] == match[16] == 'true')
+    selected = None if not match else match[11] == 'true'
+    summaries = re.findall(r'Summary\s+\[[^\]]+\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\r\n]*)', output)
+    counts = None
+    if len(summaries) == 1:
+        tail = summaries[0][1]
+        def count(label):
+            found = re.findall(r'([0-9]+) ' + label + r'\b', tail)
+            if len(found) > 1:
+                return None
+            if not found:
+                return 0
+            if len(found[0]) > 20 or (len(found[0]) > 1 and found[0].startswith('0')):
+                return None
+            value = int(found[0])
+            return value if value <= 2**64 - 1 else None
+        if summaries[0][0] == '1':
+            passed, failed = count('passed'), count('failed')
+            if passed is not None and failed is not None and passed <= 1 and failed <= 1 and passed + failed == 1:
+                counts = [1, passed, failed]
+    panics = list(re.finditer(r"(?m)^[ \t]{0,8}thread '([^'\r\n]+)'(?: \(\d+\))? panicked at ([^\r\n]+):(\d+):(\d+):\r?\n[ \t]{0,8}([^\r\n]+)", output))
+    compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$)|test run failed\r?$)[^\n]*', output)
+    exact_panic = bool(len(panics) == output.count('panicked at ') == 1
+                       and panics[0][1] == PRIORITY_NAME and panics[0][2] == PRIORITY_FIXTURE
+                       and panics[0][3] == str(line) and panics[0][5] == PRIORITY_MESSAGE
+                       and match and output.index(marker) < panics[0].start())
+    named = re.findall(r'(?m)^[ \t]{0,8}(PASS|FAIL)[ \t]+\[[^\]\r\n]+\][ \t]+(?:\([ \t]{0,8}1/1\)[ \t]+)?(?:marmot-app::)?marmot_app[ \t]+' + re.escape(PRIORITY_NAME) + r'[ \t]{0,8}\r?$', output)
+    named_exact = len(named) == 1 and named[0] == ('FAIL' if phase == 'mutant' else 'PASS')
+    good = bool(named_exact and capture_complete and prerequisites and not compiler and (
+        (phase == 'mutant' and selected is False and counts == [1, 0, 1] and exact_panic)
+        or (phase != 'mutant' and selected is True and counts == [1, 1, 0] and not output.count('panicked at '))))
+    return {'phase': phase, 'summary_counts': counts, 'prerequisites_and_closure_known': prerequisites,
+            'selected_proof': selected, 'exact_intended_panic': exact_panic,
+            'expected_file': PRIORITY_FIXTURE, 'expected_line': line, 'compiler_error_count': len(compiler), 'named_case_observed': named_exact,
+            'panic_header_count': output.count('panicked at '),
+            'parsed_panic_header_count': len(panics),
+            'unsupported_panic_format': output.count('panicked at ') != len(panics),
+            'evidence_passed': good, 'product_qualification': False}

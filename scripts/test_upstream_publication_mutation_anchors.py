@@ -180,5 +180,120 @@ class PublicationAnchors(unittest.TestCase):
         self.assertTrue(all(fact['line'] is None for fact in row['actual_panic_facts']))
 
 
+    def priority_output(self, phase, indent='', newline='\n'):
+        # New fixture-specific evidence only; historical reporter methods above
+        # remain independently runnable against their actual old helper modules.
+        from upstream_publication_mutation_anchors import (
+            retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME,
+            PRIORITY_MESSAGE, PRIORITY_FACT_NAMES,
+        )
+        fixture = Path(PRIORITY_FIXTURE).read_text()
+        line = retry_priority_oracle('', phase, fixture)['expected_line']
+        marker = 'recipient-retry-priority ' + ' '.join(name + '=true' for name in PRIORITY_FACT_NAMES)
+        selected = 'false' if phase == 'mutant' else 'true'
+        marker += ' selected_proof=' + selected + ' runtime_closes=3 storage_closes=3 planes_shutdown=3 relay_closed=true attempt_completed=true'
+        status, summary = ('FAIL', '0 passed, 1 failed') if phase == 'mutant' else ('PASS', '1 passed')
+        output = indent + marker + newline
+        if phase == 'mutant':
+            output += indent + f"thread '{PRIORITY_NAME}' (17) panicked at {PRIORITY_FIXTURE}:{line}:5:" + newline
+            output += indent + PRIORITY_MESSAGE + newline
+        output += indent + status + ' [1.0s] (1/1) marmot-app::marmot_app ' + PRIORITY_NAME + newline
+        output += 'Summary [1.0s] 1 test run: ' + summary + ', 103 skipped' + newline
+        return fixture, output
+
+    def test_recipient_priority_actual_source_route_and_exact_omission(self):
+        from upstream_publication_mutation_anchors import PRIORITY_NAME
+        runner = Path('scripts/verify_upstream_boundary_mutations.py').read_text()
+        branch = runner.split("elif args.case == 'sibling-retry-priority':", 1)[1].split('    else:', 1)[0]
+        self.assertIn('test = PRIORITY_NAME', branch)
+        self.assertIn("--final-status-level', 'none'", runner)
+        self.assertIn('retry_priority_oracle(output, phase, Path(PRIORITY_FIXTURE).read_text(), capture_complete=True)', runner)
+        self.assertIn("mutant['exit_code'] == 100 and mutant['evidence_passed']", runner)
+        self.assertIn("proof['restored_control_passed'] &= control['evidence_passed']", runner)
+        source = Path('crates/marmot-app/src/client/device_linking/sibling_sharing.rs').read_text()
+        old = ('                && (!entry.ready\n'
+               '                    || (entry.proof_published\n'
+               '                        && entry.handshake_retry_at <= entry.proof_retry_at)))')
+        self.assertEqual(source.count(old), 1)
+        new = '                )'
+        offset = source.index(old)
+        mutant = source[:offset] + new + source[offset + len(old):]
+        self.assertEqual(mutant[:offset] + old + mutant[offset + len(new):], source)
+        self.assertNotIn('third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts', branch)
+        self.assertEqual(PRIORITY_NAME.rsplit('::', 1)[-1], 'older_recipient_proof_retry_precedes_later_consent_retry')
+
+    def test_recipient_priority_controls_accept_real_source_shaped_envelopes(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle
+        for phase in ['baseline', 'restored-control']:
+            for indent in ['', '  ', '\t', '        ']:
+                for newline in ['\n', '\r\n']:
+                    fixture, output = self.priority_output(phase, indent, newline)
+                    for counter in ['(1/1)', '( 1/1)', '(        1/1)', '(\t1/1)']:
+                        decorated = output.replace('(1/1)', counter)
+                        row = retry_priority_oracle(decorated, phase, fixture, capture_complete=True)
+                        self.assertTrue(row['evidence_passed'])
+                    self.assertTrue(row['named_case_observed'])
+                    self.assertEqual(row['summary_counts'], [1, 1, 0])
+                    self.assertFalse(row['product_qualification'])
+
+    def test_recipient_priority_intended_mutant_requires_actual_final_assertion(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle
+        fixture, output = self.priority_output('mutant', '  ', '\r\n')
+        row = retry_priority_oracle(output, 'mutant', fixture, capture_complete=True)
+        self.assertTrue(row['evidence_passed'])
+        self.assertTrue(row['exact_intended_panic'])
+        self.assertEqual(row['summary_counts'], [1, 0, 1])
+        self.assertTrue(row['prerequisites_and_closure_known'])
+
+    def test_recipient_priority_every_prerequisite_and_closure_is_required(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle, PRIORITY_FACT_NAMES
+        fixture, output = self.priority_output('mutant')
+        bad = [output.replace(name + '=true', name + '=false') for name in PRIORITY_FACT_NAMES]
+        bad += [output.replace(name + '=3', name + '=' + value) for name in
+                ['runtime_closes', 'storage_closes', 'planes_shutdown'] for value in ['0', '2', '4', '03']]
+        bad += [output.replace(name + '=true', name + '=false') for name in ['relay_closed', 'attempt_completed']]
+        bad += [output.replace(' real_frontier=true', ''),
+                output.replace('real_frontier=true', 'real_frontier=PRIVATE'),
+                output.replace(' selected_proof=false', ' selected_proof=true'),
+                output.replace(' attempt_completed=true', ' attempt_completed=true private=PRIVATE'),
+                output + output.splitlines()[0] + '\n',
+                output.replace('recipient-retry-priority ', '         recipient-retry-priority ')]
+        for value in bad:
+            row = retry_priority_oracle(value, 'mutant', fixture, capture_complete=True)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(row))
+        self.assertFalse(retry_priority_oracle(output, 'mutant', fixture)['evidence_passed'])
+
+    def test_recipient_priority_wrong_named_body_panic_and_compiler_are_not_kills(self):
+        from upstream_publication_mutation_anchors import (
+            retry_priority_oracle, PRIORITY_NAME, PRIORITY_FIXTURE, PRIORITY_MESSAGE,
+        )
+        fixture, output = self.priority_output('mutant')
+        line = retry_priority_oracle(output, 'mutant', fixture)['expected_line']
+        bad = [output.replace(PRIORITY_NAME, 'wrong_test'),
+               output.replace(PRIORITY_FIXTURE, 'private/path.rs'),
+               output.replace(f':{line}:5:', f':{line+1}:5:'),
+               output.replace(PRIORITY_MESSAGE, 'real recipient retry prerequisites and cleanup must complete'),
+               output.replace(PRIORITY_MESSAGE, PRIORITY_MESSAGE + ' PRIVATE'),
+               output.replace("thread '", "         thread '"),
+               output.replace('1 test run:', '0 tests run:'),
+               output.replace('1 test run:', '2 tests run:'),
+               output.replace('0 passed, 1 failed', '0 passed, 1 failed, 1 failed'),
+               output.replace('FAIL [1.0s]', 'PASS [1.0s]'),
+               output.replace('(1/1)', '(2/2)'),
+               output.replace('(1/1)', '(2/1)'),
+               output.replace('(1/1)', '(1/2)'),
+               output.replace('(1/1)', '(         1/1)'),
+               output + 'error[E0308]: PRIVATE\n',
+               output + output[output.index("thread '"):output.index('FAIL [')]]
+        for value in bad:
+            row = retry_priority_oracle(value, 'mutant', fixture, capture_complete=True)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(row))
+        for terminal in ['error: test run failed\n', 'error: test failed, to rerun pass `--lib`\n']:
+            self.assertTrue(retry_priority_oracle(output + terminal, 'mutant', fixture, capture_complete=True)['evidence_passed'])
+        with self.assertRaises(ValueError):
+            retry_priority_oracle(output, 'mutant', fixture + '\n' + fixture, capture_complete=True)
+
 if __name__ == '__main__':
     unittest.main()

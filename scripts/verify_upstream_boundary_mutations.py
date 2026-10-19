@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE
+from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind'], required=True)
@@ -106,9 +106,9 @@ elif args.case in publication_cases:
                '                        && entry.handshake_retry_at <= entry.proof_retry_at)))')
         # Remove only the new ordering guard; preserve the original due timer.
         new = '                )'
-        test = prefix + 'third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'
-        held_marker = 'automatic-enrollment-control stage=fourth-device-completion'
-        failure_marker = 'automatic pairing did not reach required phase: expected=EnrollmentComplete'
+        test = PRIORITY_NAME
+        held_marker = 'recipient-retry-priority '
+        failure_marker = 'older real recipient proof retry must precede a later Consent retry'
     else:
         source = Path('crates/marmot-app/src/client/device_linking/sibling_sharing.rs')
         old, new = publication_mutation_anchor(args.case)
@@ -120,6 +120,8 @@ elif args.case in publication_cases:
                '--profile', 'm5-bounded', '--retries', '0', '--test-threads', '1', '--no-fail-fast',
                '--success-output', 'immediate', '-E',
                'package(marmot-app) & binary(=marmot_app) & test(=' + test + ')']
+    if args.case == 'sibling-retry-priority':
+        command.extend(['--status-level', 'pass', '--final-status-level', 'none'])
     expected = 1
 else:
     source = Path('crates/storage-sqlite/src/private_migration_ledger.rs')
@@ -187,6 +189,8 @@ def execute(phase):
         runtime_signal = (bool(re.search(r'\bSIG(?:ABRT|SEGV)\b', output))
                           and 'running 1 test' in output and test in output)
     row = {'phase': phase, 'exit_code': result.returncode, 'counts': counts, 'log': path.name}
+    proof['runs'].append(row)
+    save()  # Preserve actual counts before supplementary oracle/physical checks.
     if cohort:
         row['all_tracked_inputs_exact_for_phase'] = frozen_inputs() == expected_inputs
         if not row['all_tracked_inputs_exact_for_phase']:
@@ -209,6 +213,8 @@ def execute(phase):
         row['selected_nonignored_tests'] = 1 if counts else None
         if args.case in {'automatic-publication', 'sibling-publication'}:
             row.update(publication_runtime_oracle(output, args.case, test, Path(FIXTURE).read_text()))
+    if args.case == 'sibling-retry-priority':
+        row.update(retry_priority_oracle(output, phase, Path(PRIORITY_FIXTURE).read_text(), capture_complete=True))
     if args.case == 'outbound-mailbox-kind':
         own_location = str(source) + ':' + str(mailbox_assertion_line) + ':'
         row['own_assertion_location'] = own_location
@@ -218,7 +224,6 @@ def execute(phase):
             and "assertion `left == right` failed" in output
             and re.search(r'(?m)^\s*left: Ok\(\(\)\)\s*$', output) is not None
             and re.search(r'(?m)^\s*right: Err\(Invalid\)\s*$', output) is not None)
-    proof['runs'].append(row)
     save()
     return row
 
@@ -233,6 +238,8 @@ if (baseline['exit_code'] != 0 or not matches(baseline, expected, 0)
         or (args.case in {'automatic-publication', 'sibling-publication'}
             and (baseline['compiler_error_count'] != 0 or baseline['panic_header_count'] != 0))):
     raise SystemExit('Baseline did not execute the intended passing regression cohort')
+if args.case == 'sibling-retry-priority' and not baseline['evidence_passed']:
+    raise SystemExit('Recipient frontier baseline evidence incomplete')
 if args.case == 'worker-stack-regression':
     proof.update(control_only=True, runtime_mutation_qualification=False,
                  historical_outer_necessity_retired=True,
@@ -249,6 +256,8 @@ try:
     source.write_text(text.replace(old, new))
     mutant = execute('mutant')
     proof['runtime_mutant_killed'] = mutant['exit_code'] != 0 and matches(mutant, 0, expected)
+    if args.case == 'sibling-retry-priority':
+        proof['runtime_mutant_killed'] &= mutant['exit_code'] == 100 and mutant['evidence_passed']
     if args.case == 'outbound-mailbox-kind':
         proof['runtime_mutant_killed'] &= mutant['exact_wrong_kind_assertion_observed']
     if args.case == 'worker-spawn-stack':
@@ -275,6 +284,11 @@ proof['restored_control_passed'] = (control['exit_code'] == 0 and matches(contro
                                   and (args.case not in publication_cases or control['required_runtime_marker_observed'])
                                   and (args.case not in {'automatic-publication', 'sibling-publication'}
                                        or (control['compiler_error_count'] == 0 and control['panic_header_count'] == 0)))
+if args.case == 'sibling-retry-priority':
+    proof['restored_control_passed'] &= control['evidence_passed']
+    proof['historical_enrollment_survivor_retained'] = True
+    proof['historical_run_id'] = 39301330063
+    proof['current_fixture'] = PRIORITY_FIXTURE
 if args.case == 'worker-spawn-stack':
     proof['counterfactual_outcome'] = (
         'runtime-mutant-survived' if mutant['exit_code'] == 0 and matches(mutant, expected, 0)
