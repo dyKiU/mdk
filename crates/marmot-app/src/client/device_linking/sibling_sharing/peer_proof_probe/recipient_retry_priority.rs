@@ -455,7 +455,9 @@ pub(crate) fn acknowledged(capture: &Capture, id: &MessageId) {
 }
 
 // Called only after the existing Core open and all version/policy/digest/device checks.
-pub(in crate::client::device_linking::sibling_sharing) fn peer_authenticated(entry: &SiblingChannel) {
+pub(in crate::client::device_linking::sibling_sharing) fn peer_authenticated(
+    entry: &SiblingChannel,
+) {
     if entry.peer_committed
         && let Some(probe) = current(entry)
     {
