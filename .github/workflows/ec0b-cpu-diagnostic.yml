@@ -111,6 +111,14 @@ jobs:
         run: |
           available=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
           test "$available" -ge 50331648
+      - name: Provision standard GDB only for explicitly selected sample mode
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'sample' && inputs.sampler == 'gdb'
+        timeout-minutes: 8
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -n timeout --kill-after=15s 180s apt-get -o Acquire::Retries=0 update -qq
+          sudo -n timeout --kill-after=15s 180s apt-get -o Acquire::Retries=0 install -y --no-install-recommends gdb
       - name: Harmless tool admission, original fresh compile, ONE strict-five under selected sampler
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/merged-affected-target
