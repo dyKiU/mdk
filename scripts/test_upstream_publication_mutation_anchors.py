@@ -627,5 +627,50 @@ class PeerLeaveTimerControls(unittest.TestCase):
             self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
 
 
+
+
+class AutomaticBodyComplementaryPfp(unittest.TestCase):
+    def shape(self, failed):
+        from qualify_upstream_automatic_body import NAME, FILE, MESSAGE, STAGES, expected_panic
+        lines = ['running 1 test', 'test ' + NAME + ' ... ' + ('FAILED' if failed else 'ok')]
+        for index, stage in enumerate(STAGES):
+            lines.append('automatic-body-control stage=' + stage + (' responsive=' + ('false' if failed else 'true') if index == 4 else ' index=' + str(index - 8) if index in [8, 9] else ''))
+        if failed:
+            lines += ["thread '" + NAME + "' panicked at " + FILE + ':' + str(expected_panic()['line']) + ':5:', MESSAGE]
+        lines.append('test result: ' + ('FAILED. 0 passed; 1 failed;' if failed else 'ok. 1 passed; 0 failed;') + ' 0 ignored; 0 measured; 0 filtered out; finished in 0.1s')
+        return '\n'.join(lines) + '\n'
+
+    def test_actual_body_parser_green_own_red_restored(self):
+        from upstream_publication_mutation_anchors import automatic_body_pfp_oracle
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            row = automatic_body_pfp_oracle(self.shape(phase == 'mutant'), phase, 101 if phase == 'mutant' else 0)
+            self.assertTrue(row['evidence_passed'])
+            self.assertEqual(row['actual_body_counts'], [0, 1, 0] if phase == 'mutant' else [1, 0, 0])
+
+    def test_body_oracle_rejects_unknown_wrong_thread_site_duplicate_compile_and_nonown(self):
+        from upstream_publication_mutation_anchors import automatic_body_pfp_oracle
+        from qualify_upstream_automatic_body import NAME, FILE, MESSAGE, expected_panic
+        raw = self.shape(True)
+        bad = [raw + raw, raw.replace(NAME, 'private::unknown', 1),
+               raw.replace("thread '" + NAME + "'", "thread 'private::unknown'"),
+               raw.replace(FILE + ':' + str(expected_panic()['line']), FILE + ':' + str(expected_panic()['line'] + 1)),
+               raw.replace(MESSAGE, 'PRIVATE_VALUE'), raw + 'error[E0308]: PRIVATE_VALUE\n',
+               raw.replace('stage=peer-progress-control', 'stage=PRIVATE_VALUE'),
+               raw.replace('stage=positive-runtime-close index=1', 'stage=positive-runtime-close index=0'),
+               raw.replace('0 ignored;', '1 ignored;'), raw.replace('1 failed;', '0 failed;'),
+               raw.replace('running 1 test', 'running 0 tests'),
+               raw.replace('stage=actual-body-released', 'stage=PRIVATE_VALUE'),
+               raw.replace('responsive=false', 'responsive=true')]
+        for text in bad:
+            row = automatic_body_pfp_oracle(text, 'mutant', 101)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        start = raw.index("thread '")
+        end = raw.index('test result:', start)
+        moved_panic = raw[start:end] + raw[:start] + raw[end:]
+        self.assertFalse(automatic_body_pfp_oracle(moved_panic, 'mutant', 101)['evidence_passed'])
+        self.assertFalse(automatic_body_pfp_oracle(raw, 'mutant', 0)['evidence_passed'])
+        self.assertFalse(automatic_body_pfp_oracle(raw, 'baseline', 101)['evidence_passed'])
+
 if __name__ == '__main__':
     unittest.main()

@@ -701,3 +701,44 @@ def peer_leave_timer_control_oracle(output):
             'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and counts
                 and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0
                 and text.count('panicked at ') == 0)}
+
+
+# Complementary current-source actor responsiveness witness; old enrollment survivor stays historical.
+AUTOMATIC_BODY_CASE = 'automatic-body-publication-pfp'
+
+
+def automatic_body_pfp_oracle(output, phase, exit_code):
+    from qualify_upstream_automatic_body import parse, body_green, intended_red, NAME, FILE, MESSAGE
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    if phase not in {'baseline', 'mutant', 'restored-control'}:
+        raise ValueError('automatic-body-owned-phase')
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    # The imported parser is internal only: never export its arbitrary event/path arrays.
+    internal = parse(text)
+    internal['body_exit_code'] = exit_code
+    failed = phase == 'mutant'
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    named = statuses == [(NAME, 'FAILED' if failed else 'ok')]
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M) == ['1']
+    diagnostics = compiler_diagnostics(text.encode(), cargo_test_context=('marmot-app', '--lib'))
+    compiler_zero = not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0
+    site = internal['expected_panic']['line']
+    own_pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(NAME)
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(FILE) + ':' + str(site)
+        + r':([0-9]+):\r?\n(?:[ \t]{0,8}\r?\n){0,2}[ \t]{0,8}' + re.escape(MESSAGE) + r'[ \t]*\r?$')
+    own_matches = list(re.finditer(own_pattern, text))
+    close_marker = 'automatic-body-control stage=positive-runtime-close index=1'
+    closes_before_own = len(own_matches) == 1 and text.rfind(close_marker) >= 0 and text.rfind(close_marker) < own_matches[0].start()
+    own = text.count('panicked at ') == 1 and len(own_matches) == 1 and closes_before_own
+    valid = intended_red(internal) if failed else body_green(internal)
+    counts = None
+    if all(type(internal.get(k)) is int for k in ['passed', 'failed', 'ignored']):
+        counts = [internal[k] for k in ['passed', 'failed', 'ignored']]
+    return {'expected_test': NAME, 'expected_panic_file': FILE, 'expected_panic_line': site,
+            'actual_exact_named_body': named, 'actual_body_counts': counts,
+            'ordered_body_stages_and_two_positive_closes': internal['all_prerequisites_and_two_positive_closes'],
+            'responsive_while_held_when_valid': internal['responsive_while_held'],
+            'own_responsiveness_assertion': own, 'two_positive_closes_before_own_assertion': closes_before_own, 'compiler_error_count': diagnostics['compiler_header_count'],
+            'compiler_diagnostics': diagnostics, 'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and running and compiler_zero
+                and valid and (own if failed else text.count('panicked at ') == 0))}
