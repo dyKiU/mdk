@@ -155,6 +155,11 @@ mod tests {
                     created_at: 1,
                     expires_at: Some(100),
                     deleted: false,
+                    edit: Some(TimelineEditSummaryFfi {
+                        edit_count: 2,
+                        latest_edit_message_id_hex: "99".repeat(32),
+                        edited_at: 50,
+                    }),
                     content: "fixture".into(),
                     content_tokens: Default::default(),
                     tags: vec![MessageTagFfi {

@@ -333,9 +333,9 @@ fn expiry_delay_for_rows(rows: &[AccountConversationRow], now: u64) -> std::time
             AccountConversationRow::LocalMls(row) => {
                 (!row.deleted).then_some(row.retention_expires_at).flatten()
             }
-            AccountConversationRow::PairedSource(row) => {
-                (!row.deleted).then_some(row.expires_at).flatten()
-            }
+            AccountConversationRow::PairedSource(row) => (!row.deleted)
+                .then(|| row.expires_at.into_iter().chain(row.next_edit_expiry).min())
+                .flatten(),
         })
         .min();
     std::time::Duration::from_secs(
@@ -361,6 +361,8 @@ mod tests {
             content: "synthetic".into(),
             tags: Vec::new(),
             media_attachments: Vec::new(),
+            edit: None,
+            next_edit_expiry: None,
             source: crate::PairedChatSource {
                 device: [3; 32],
                 policy_digest: [4; 32],
@@ -370,6 +372,17 @@ mod tests {
                 source_digest: [5; 32],
             },
         };
+        message.next_edit_expiry = Some(7);
+        assert_eq!(
+            expiry_delay_for_rows(
+                &[AccountConversationRow::PairedSource(Box::new(
+                    message.clone()
+                ))],
+                5
+            ),
+            std::time::Duration::from_secs(2)
+        );
+        message.next_edit_expiry = None;
         let rows = [AccountConversationRow::PairedSource(Box::new(
             message.clone(),
         ))];

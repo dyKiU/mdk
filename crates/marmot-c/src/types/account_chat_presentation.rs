@@ -1,6 +1,7 @@
 //! Source-qualified paired observations, without ordinary MLS authority.
 use super::{
-    common::MarmotMessageTag, markdown::MarmotMarkdownDocument, media::MarmotMediaAttachmentOutcome,
+    common::MarmotMessageTag, markdown::MarmotMarkdownDocument,
+    media::MarmotMediaAttachmentOutcome, timeline::MarmotTimelineEditSummary,
 };
 use crate::macros::c_mirror;
 use marmot_uniffi::conversions::*;
@@ -21,6 +22,7 @@ c_mirror! { MarmotPairedChatMessage from PairedChatMessageFfi {
     vec tags/tags_len: MarmotMessageTag,
     vec media_attachments/media_attachments_len: MarmotMediaAttachmentOutcome,
     rec source: MarmotPairedChatSource,
+    opt_rec edit: MarmotTimelineEditSummary,
 } }
 c_mirror! { MarmotPairedChatMessageCursor from PairedChatMessageCursorFfi {
     copy created_at: u64, str message_id_hex,

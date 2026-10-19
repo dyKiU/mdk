@@ -1917,7 +1917,7 @@ pub(super) mod actual {
                     | ApprovalScenario::AutomaticFreshAcceptedRejoin
                     | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
             ) {
-                super::automatic_forwarding_acceptance::verify(
+                let forwarded_id = super::automatic_forwarding_acceptance::verify(
                     &apps,
                     &runtimes[2],
                     initial_shared_chat.as_ref().unwrap(),
@@ -1925,6 +1925,13 @@ pub(super) mod actual {
                 )
                 .await;
                 if scenario == ApprovalScenario::AutomaticForwarding {
+                    super::automatic_forwarding_acceptance::verify_source_edit(
+                        &runtimes[0],
+                        &runtimes[2],
+                        initial_shared_chat.as_ref().unwrap(),
+                        &forwarded_id,
+                    )
+                    .await;
                     super::automatic_forwarding_acceptance::verify_cancelled_host_admission(
                         &apps,
                         &runtimes[2],

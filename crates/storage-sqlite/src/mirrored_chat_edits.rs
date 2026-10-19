@@ -26,6 +26,8 @@ pub(crate) fn target(payload: &[u8]) -> Option<[u8; 32]> {
 pub struct MirroredMessageEdit {
     pub summary: crate::TimelineEditSummary,
     pub plaintext: String,
+    /// Earliest retained edit expiry, for the live projection refresh timer.
+    pub next_expiry: Option<u64>,
 }
 
 #[cfg(feature = "experimental-device-sync")]
@@ -57,7 +59,7 @@ pub(crate) fn resolve(
         Value::Integer(now as i64),
     ]);
     let sql = format!("WITH ranked AS (
-        SELECT m.*,row_number() OVER(PARTITION BY m.event_id ORDER BY m.scope) AS source_rank
+        SELECT m.*,(SELECT min(expiry.expires_at) FROM mirrored_chat_messages expiry WHERE expiry.group_id=m.group_id AND expiry.event_id=m.event_id) AS edit_expiry,row_number() OVER(PARTITION BY m.event_id ORDER BY m.scope) AS source_rank
         FROM mirrored_chat_messages m
         JOIN mirrored_chat_edit_targets t ON t.scope=m.scope AND t.group_id=m.group_id AND t.event_id=m.event_id
         JOIN mirrored_chat_live_catalog c ON c.scope=m.scope AND c.group_id=m.group_id
@@ -67,7 +69,7 @@ pub(crate) fn resolve(
         AND m.origin_id IS c.origin_id AND m.origin_order IS c.origin_order
         AND NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=m.group_id AND terminal.event_id=m.event_id AND terminal.deleted=1)
         AND NOT EXISTS(SELECT 1 FROM mirrored_chat_messages expired WHERE expired.group_id=m.group_id AND expired.event_id=m.event_id AND expired.expires_at<=?)
-    ) SELECT event_id,created_at,payload,count(*) OVER() FROM ranked WHERE source_rank=1
+    ) SELECT event_id,created_at,payload,count(*) OVER(),min(edit_expiry) OVER() FROM ranked WHERE source_rank=1
       ORDER BY created_at DESC,event_id DESC LIMIT 1");
     let row = conn
         .query_row(&sql, params_from_iter(values), |row| {
@@ -76,11 +78,12 @@ pub(crate) fn resolve(
                 row.get::<_, i64>(1)?,
                 row.get::<_, Vec<u8>>(2)?,
                 row.get::<_, i64>(3)?,
+                row.get::<_, Option<i64>>(4)?,
             ))
         })
         .optional()
         .storage()?;
-    row.map(|(id, at, payload, count)| {
+    row.map(|(id, at, payload, count, next_expiry)| {
         let logical: (String, Vec<Vec<String>>) =
             serde_json::from_slice(&payload).map_err(|_| {
                 cgka_traits::storage::StorageError::Serialization("invalid mirrored edit".into())
@@ -92,6 +95,7 @@ pub(crate) fn resolve(
                 edited_at: at as u64,
             },
             plaintext: logical.0,
+            next_expiry: next_expiry.map(|value| value as u64),
         })
     })
     .transpose()

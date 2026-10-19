@@ -200,6 +200,7 @@ mod accepted_device_group_anchor;
 mod accepted_device_group_anchor_tests;
 #[cfg(feature = "experimental-device-sync")]
 mod existing_device_group_anchor;
+mod mirrored_chat_edits;
 #[cfg(feature = "experimental-device-sync")]
 mod private_device_invite;
 #[cfg(all(test, feature = "experimental-device-sync"))]
@@ -208,7 +209,6 @@ mod private_device_invite_tests;
 mod revoked_device_group_anchor;
 #[cfg(feature = "experimental-device-sync")]
 mod selected_chat_key_package;
-mod mirrored_chat_edits;
 
 #[cfg(feature = "experimental-device-sync")]
 pub mod account_chat_departure;
@@ -231,12 +231,12 @@ mod mirrored_chat_messages;
 #[cfg(feature = "experimental-device-sync")]
 mod mirrored_chat_presentation;
 #[cfg(feature = "experimental-device-sync")]
+pub use mirrored_chat_edits::MirroredMessageEdit;
+#[cfg(feature = "experimental-device-sync")]
 pub use mirrored_chat_presentation::{
     AccountConversationObservation, MirroredCatalogObservation, MirroredChatActivityObservation,
     MirroredMessageObservation,
 };
-#[cfg(feature = "experimental-device-sync")]
-pub use mirrored_chat_edits::MirroredMessageEdit;
 
 #[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement;

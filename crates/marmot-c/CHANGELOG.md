@@ -12,6 +12,13 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ## [Unreleased]
 
+### Changed
+
+- Appends nullable owned `edit` metadata to `MarmotPairedChatMessage`. Shared
+  messages retain their original ID/time while displaying the latest accepted
+  canonical edit. The record layout requires the matching generated header and
+  library; it is not compatible with an older binary.
+
 ### Added
 
 - Appends owned nullable `latest_message` to `MarmotPairedChatSummary` for

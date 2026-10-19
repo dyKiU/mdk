@@ -1866,6 +1866,15 @@ typedef struct MarmotMediaAttachmentOutcome {
   };
 } MarmotMediaAttachmentOutcome;
 
+/**
+ * Compact accepted-edit metadata on an effective timeline row.
+ */
+typedef struct MarmotTimelineEditSummary {
+  uint64_t edit_count;
+  char *latest_edit_message_id_hex;
+  uint64_t edited_at;
+} MarmotTimelineEditSummary;
+
 typedef struct MarmotPairedChatMessage {
   uint16_t kind;
   bool canonical_chat;
@@ -1885,6 +1894,7 @@ typedef struct MarmotPairedChatMessage {
   struct MarmotMediaAttachmentOutcome *media_attachments;
   uintptr_t media_attachments_len;
   struct MarmotPairedChatSource source;
+  struct MarmotTimelineEditSummary *edit;
 } MarmotPairedChatMessage;
 
 typedef struct MarmotPairedChatSummary {
@@ -4142,15 +4152,6 @@ typedef struct MarmotTimelineReactionSummary {
   struct MarmotTimelineUserReaction *user_reactions;
   uintptr_t user_reactions_len;
 } MarmotTimelineReactionSummary;
-
-/**
- * Compact accepted-edit metadata on an effective timeline row.
- */
-typedef struct MarmotTimelineEditSummary {
-  uint64_t edit_count;
-  char *latest_edit_message_id_hex;
-  uint64_t edited_at;
-} MarmotTimelineEditSummary;
 
 /**
  * One materialized timeline row.

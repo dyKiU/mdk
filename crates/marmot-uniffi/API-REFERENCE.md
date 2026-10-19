@@ -5021,6 +5021,12 @@ Read a bounded authenticated paired-source catalog page without networking or re
 
 [Source](src/commands/account_chat_presentation.rs#L49)
 
+Paired message records expose optional `edit` metadata using the native
+`TimelineEditSummaryFfi` shape. `content` and its parsed tokens reflect the latest
+accepted edit; message ID and creation time still identify the original. Modifier
+events do not become separate rows. Reuse the ordinary Edited indicator, without
+implying an ordinary action handle or membership. The SDK owns expiry refreshes.
+
 ### `Marmot::paired_chat_message_page`
 
 ```rust

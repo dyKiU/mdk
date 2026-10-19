@@ -117,6 +117,45 @@ pub(super) fn apply(row: &mut TimelineRow, versions: &[TimelineEditVersion]) {
 }
 
 impl SqliteAccountStorage {
+    /// Source export uses the native accepted-edit resolver, not an edit-shaped
+    /// payload alone. Missing originals are deferred so out-of-order arrival
+    /// cannot create an irreversible modifier tombstone.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn message_edit_source_is_active(
+        &self,
+        group: &str,
+        edit_id: &str,
+    ) -> StorageResult<Option<bool>> {
+        self.connection.with_deferred_read(|conn| {
+            let Some(edit) = raw_app_event_tx(conn, group, edit_id)? else {
+                return Ok(None);
+            };
+            if edit.kind != MARMOT_APP_EVENT_KIND_EDIT {
+                return Ok(Some(false));
+            }
+            let mut targets = edit.tags.iter().filter(|tag| tag.first().is_some_and(|name| name == EVENT_REF_TAG));
+            let Some(target) = targets.next().and_then(|tag| tag.get(1)) else {
+                return Ok(Some(false));
+            };
+            if targets.next().is_some() {
+                return Ok(Some(false));
+            }
+            let Some(original) = raw_app_event_tx(conn, group, target)? else {
+                return Ok(None);
+            };
+            let visible: bool = conn.query_row_cached(
+                "SELECT EXISTS(SELECT 1 FROM visible_message_timeline WHERE group_id_hex=?1 AND message_id_hex=?2 AND kind=9 AND deleted=0 AND invalidation_status IS NULL)",
+                params![group, target], |row| row.get(0),
+            ).storage()?;
+            if !visible || original.invalidated {
+                return Ok(Some(false));
+            }
+            let row = timeline_row_from_chat(&original);
+            let deleted = deleted_reaction_ids_for_target_tx(conn, group, std::slice::from_ref(&edit))?;
+            Ok(Some(!resolve(&row, std::iter::once(&edit), &deleted).is_empty()))
+        })
+    }
+
     /// Read accepted edit history separately from the bounded screen payload.
     /// A cursor is an exclusive (timestamp, id) key, so it survives removal of its event.
     /// Output is capped at 100; resolution work is scoped to this target's retained edits.

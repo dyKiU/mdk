@@ -100,6 +100,8 @@ pub struct PairedChatMessageFfi {
     pub tags: Vec<super::MessageTagFfi>,
     pub media_attachments: Vec<MediaAttachmentOutcomeFfi>,
     pub source: PairedChatSourceFfi,
+    #[uniffi(default = None)]
+    pub edit: Option<super::TimelineEditSummaryFfi>,
 }
 redact!(PairedChatMessageFfi);
 impl From<PairedChatMessage> for PairedChatMessageFfi {
@@ -119,6 +121,7 @@ impl From<PairedChatMessage> for PairedChatMessageFfi {
             deleted: value.deleted,
             content: value.content,
             content_tokens,
+            edit: value.edit.map(Into::into),
             tags: message_tags_ffi(value.tags),
             media_attachments: value
                 .media_attachments
@@ -194,6 +197,12 @@ mod direct_route_tests {
                     content: "private preview".into(),
                     tags: Vec::new(),
                     media_attachments: Vec::new(),
+                    edit: Some(marmot_app::TimelineEditSummary {
+                        edit_count: 2,
+                        latest_edit_message_id_hex: "11".repeat(32),
+                        edited_at: 150,
+                    }),
+                    next_edit_expiry: None,
                     source: PairedChatSource {
                         device: [12; 32],
                         policy_digest: [13; 32],
@@ -229,6 +238,12 @@ mod direct_route_tests {
                 assert_eq!(conversation.source.protected_generation, 3);
                 assert_eq!(conversation.source.source_sequence, 5);
                 let latest = conversation.latest_message.unwrap();
+                assert_eq!(latest.edit.as_ref().unwrap().edit_count, 2);
+                assert_eq!(
+                    latest.edit.as_ref().unwrap().latest_edit_message_id_hex,
+                    "11".repeat(32)
+                );
+                assert_eq!(latest.edit.as_ref().unwrap().edited_at, 150);
                 assert_eq!(latest.content, "private preview");
                 assert_eq!(latest.created_at, 123);
                 assert_eq!(latest.expires_at, Some(200));

@@ -688,6 +688,7 @@ fn mirrored_edits_deduplicate_sources_and_honor_global_retraction_and_expiry() {
     let edit = read(0).edit.unwrap();
     assert_eq!(edit.plaintext, "second correction");
     assert_eq!(edit.summary.edit_count, 2);
+    assert_eq!(edit.next_expiry, Some(30));
     assert_eq!(read(30).edit.unwrap().plaintext, "first correction");
     latest.deleted = true;
     latest.payload.clear();

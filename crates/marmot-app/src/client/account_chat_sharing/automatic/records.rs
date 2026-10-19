@@ -536,13 +536,16 @@ impl AppClient {
             else {
                 return Ok(false);
             };
-            let current = self.automatic_record_from_source(
+            let Some(current) = self.automatic_record_from_source(
                 entry,
                 group,
                 epoch,
                 &row,
                 crate::unix_now_seconds(),
-            )?;
+            )?
+            else {
+                return Ok(false);
+            };
             let digest: [u8; 32] = Sha256::digest(
                 serde_json::to_vec(&current).map_err(|_| AccountSharingError::NotReady)?,
             )
@@ -624,7 +627,7 @@ impl AppClient {
                 .app_messages_page(
                     storage_sqlite::StoredAppMessageQuery {
                         group_id_hex: Some(hex::encode(group.as_slice())),
-                        kinds: Some(vec![9]),
+                        kinds: Some(vec![9, 1009]),
                         limit: Some(1),
                     },
                     entry.records.cursor.as_ref(),
@@ -636,13 +639,17 @@ impl AppClient {
                 entry.records.cursor = None;
                 return Ok(());
             };
-            let mut record = self.automatic_record_from_source(
+            let Some(mut record) = self.automatic_record_from_source(
                 entry,
                 &group,
                 epoch,
                 row,
                 crate::unix_now_seconds(),
-            )?;
+            )?
+            else {
+                entry.records.cursor = Some(row.replay_cursor());
+                return Ok(());
+            };
             let attestation: [u8; 32] = Sha256::digest(
                 serde_json::to_vec(&record).map_err(|_| AccountSharingError::NotReady)?,
             )
@@ -752,26 +759,50 @@ impl AppClient {
         epoch: u64,
         row: &storage_sqlite::StoredAppMessageRecord,
         now: u64,
-    ) -> Result<MirroredChatRecord, AccountSharingError> {
-        if row.group_id_hex != hex::encode(group.as_slice()) || row.kind != 9 {
+    ) -> Result<Option<MirroredChatRecord>, AccountSharingError> {
+        if row.group_id_hex != hex::encode(group.as_slice()) || !matches!(row.kind, 9 | 1009) {
             return Err(AccountSharingError::NotReady);
         }
         let storage = self
             .app
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        let (visible_id, active_edit) = if row.kind == 1009 {
+            let Some(active) = storage
+                .message_edit_source_is_active(&row.group_id_hex, &row.message_id_hex)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+            else {
+                return Ok(None);
+            };
+            (
+                row.tags
+                    .iter()
+                    .find(|tag| tag.first().is_some_and(|name| name == "e"))
+                    .and_then(|tag| tag.get(1))
+                    .map(String::as_str)
+                    .unwrap_or(""),
+                active,
+            )
+        } else {
+            (row.message_id_hex.as_str(), true)
+        };
         let visible = storage
-            .timeline_message(&row.group_id_hex, &row.message_id_hex)
+            .timeline_message(&row.group_id_hex, visible_id)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         let expires_at = visible
             .as_ref()
             .and_then(|message| message.retention_expires_at)
-            .or(row
-                .retention
-                .as_ref()
-                .and_then(|decision| decision.expires_at));
-        // Source visibility is checked before any logical plaintext encoding.
+            .into_iter()
+            .chain(
+                row.retention
+                    .as_ref()
+                    .and_then(|decision| decision.expires_at),
+            )
+            .min();
+        // Check the original's visibility and native edit validity before encoding
+        // any modifier plaintext; target retention also restricts edited content.
         let deleted = row.invalidated
+            || !active_edit
             || expires_at.is_some_and(|expiry| expiry <= now)
             || visible
                 .as_ref()
@@ -801,7 +832,7 @@ impl AppClient {
         } else {
             accepted_origin
         };
-        Ok(MirroredChatRecord {
+        Ok(Some(MirroredChatRecord {
             event_id: hex::decode(&row.message_id_hex)
                 .map_err(|_| AccountSharingError::NotReady)?
                 .as_slice()
@@ -823,6 +854,6 @@ impl AppClient {
             source_digest: [0; 32],
 
             accepted_origin,
-        })
+        }))
     }
 }
