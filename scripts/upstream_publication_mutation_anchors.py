@@ -262,3 +262,68 @@ def secondary_scheduler_oracle(output, case, fixture, expect_failure):
             'trusted_source_line': line, 'timeout_marker_complete': marker_complete,
             'timeout_observation': markers[0] if marker_complete else None,
             'evidence_passed': evidence}
+
+CANCEL_MAINTENANCE_FIXTURE = 'crates/marmot-app/src/runtime/device_linking.rs'
+CANCEL_MAINTENANCE_NAME = 'runtime::device_linking::tests::device_linking_original_sdk_cancel_after_real_maintenance_retires_owned_invite'
+CANCEL_MAINTENANCE_MARKER = 'cancel-maintenance-control '
+CANCEL_MAINTENANCE_FIELDS = {'wrapped_owned', 'same_retired_owned', 'recipient_purpose_unchanged', 'real_maintenance_completed'}
+CANCEL_MAINTENANCE_CHAIN = '''                    workers
+                        .a
+                        .cancel_device_linking("test", &a_scope)
+                        .await
+                        .unwrap();
+                    runtime_c.shutdown_and_close().await.unwrap();'''
+CANCEL_MAINTENANCE_MESSAGE = 'called `Result::unwrap()` on an `Err` value: Owner(Verifier(StaleFlow))'
+
+
+def cancel_maintenance_oracle(output, fixture):
+    import json
+    if fixture.count(CANCEL_MAINTENANCE_MARKER) != 1:
+        raise ValueError('Exact negative-maintenance fixture marker required')
+    start = fixture.index(CANCEL_MAINTENANCE_MARKER)
+    following = fixture[start:]
+    if CANCEL_MAINTENANCE_CHAIN not in following:
+        raise ValueError('Original manager cancel/unwrap chain must remain unchanged')
+    position = start + following.index(CANCEL_MAINTENANCE_CHAIN)
+    line = fixture[:position + CANCEL_MAINTENANCE_CHAIN.index('.unwrap();')].count('\n') + 1
+    counts = re.findall(r'test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', output)
+    statuses = re.findall(r'(?m)^test ' + re.escape(CANCEL_MAINTENANCE_NAME) + r'[ \t]+\.\.\.[ \t]+(ok|FAILED)[ \t]*\r?$', output)
+    compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$)|test run failed\r?$)[^\n]*', output)
+    panic = re.search(r"(?m)^[ \t]{0,8}thread '" + re.escape(CANCEL_MAINTENANCE_NAME)
+                      + r"'(?: \(\d+\))? panicked at " + re.escape(CANCEL_MAINTENANCE_FIXTURE)
+                      + ':' + str(line) + r':\d+:\r?\n[ \t]{0,8}'
+                      + re.escape(CANCEL_MAINTENANCE_MESSAGE) + r'[ \t]*\r?$', output)
+    markers = []
+    valid = True
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('duplicate-field')
+            value[key] = item
+        return value
+    for raw in output.splitlines():
+        if CANCEL_MAINTENANCE_MARKER not in raw:
+            continue
+        match = re.fullmatch(r'[ \t]{0,8}' + re.escape(CANCEL_MAINTENANCE_MARKER) + r'(\{[^\r\n]*\})[ \t]{0,8}', raw)
+        try:
+            if match is None or len(raw) > 4096:
+                raise ValueError('marker-envelope')
+            value = json.loads(match[1], object_pairs_hook=unique)
+            if type(value) is not dict or set(value) != CANCEL_MAINTENANCE_FIELDS or not all(item is True for item in value.values()):
+                raise ValueError('marker-fields')
+            markers.append(value)
+        except (ValueError, TypeError):
+            valid = False
+    closed = valid and len(markers) == 1
+    named = statuses == ['FAILED']
+    own = bool(panic and output.count('panicked at ') == 1)
+    prior = bool(closed and panic and output.index(CANCEL_MAINTENANCE_MARKER) < panic.start())
+    return {'expected_test': CANCEL_MAINTENANCE_NAME, 'trusted_source_line': line,
+            'actual_one_named_body': named, 'compiler_error_count': len(compiler),
+            'panic_header_count': output.count('panicked at '),
+            'own_cancel_stale_flow_observed': own, 'prerequisite_marker_complete': closed,
+            'prerequisites_before_cancel_panic': prior,
+            'prerequisite_observation': markers[0] if closed else None,
+            'evidence_passed': bool(named and counts == [('FAILED', '0', '1', '0')]
+                                    and not compiler and own and prior)}

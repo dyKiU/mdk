@@ -3300,6 +3300,12 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_original_sdk_cancel_after_real_maintenance_retires_owned_invite() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAddRetryCancelMaintenance)
+            .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_endorsed_recipient_arms_exact_original_purpose() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalRecipientAdmission).await;
     }
@@ -3335,6 +3341,7 @@ mod tests {
         LocalProposalCollection,
         LocalProposalTrustedAdd,
         LocalProposalTrustedAddRetry,
+        LocalProposalTrustedAddRetryCancelMaintenance,
         LocalProposalRecipientAdmission,
         LocalProposalRecipientJoin,
         LocalProposalExistingTransition,
@@ -3348,6 +3355,14 @@ mod tests {
     }
 
     async fn exercise_third_device_invite(check: ThirdDeviceCheck) {
+        // The new race case reuses every real original setup/approval step.
+        let cancel_after_maintenance =
+            check == ThirdDeviceCheck::LocalProposalTrustedAddRetryCancelMaintenance;
+        let check = if cancel_after_maintenance {
+            ThirdDeviceCheck::LocalProposalTrustedAddRetry
+        } else {
+            check
+        };
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
         let (workers, relay, group) = joined_live_workers().await;
         let a_storage = workers.a.app.account_storage("test").unwrap();
@@ -3950,6 +3965,43 @@ mod tests {
                         .unwrap()
                             == c_purpose
                     );
+                    if cancel_after_maintenance {
+                        use cgka_traits::private_device_invite::PrivateInvitePhase;
+                        assert!(fact.phase == PrivateInvitePhase::Wrapped);
+                        assert!(fact.raw.binding.approver_scope == a_scope);
+                        assert!(fact.transport.is_some());
+                        let account = workers.a.resolve("test").unwrap();
+                        {
+                            let active = workers.a.workers.lock().await;
+                            let worker = active.get(&account.account_id_hex).unwrap();
+                            worker.publication_control.revoke(&a_scope);
+                        }
+                        workers
+                            .a
+                            .maintain_device_linking_at_for_test("test", std::time::Instant::now())
+                            .await
+                            .unwrap();
+                        let retired =
+                            cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                                .unwrap()
+                                .private_invite()
+                                .unwrap()
+                                .unwrap();
+                        assert!(retired.phase == PrivateInvitePhase::Retired);
+                        assert!(retired.scope == fact.scope);
+                        assert!(retired.raw == fact.raw);
+                        assert!(retired.transport == fact.transport);
+                        assert!(
+                            cgka_traits::StorageProvider::device_linking_key_package_storage(
+                                &c_storage
+                            )
+                            .unwrap()
+                            .purpose_key_package()
+                            .unwrap()
+                                == c_purpose
+                        );
+                        eprintln!("cancel-maintenance-control {{\"wrapped_owned\":true,\"same_retired_owned\":true,\"recipient_purpose_unchanged\":true,\"real_maintenance_completed\":true}}");
+                    }
                     workers
                         .a
                         .cancel_device_linking("test", &a_scope)

@@ -351,5 +351,44 @@ class SecondarySchedulerOracles(unittest.TestCase):
                 self.assertFalse(result['evidence_passed'])
                 self.assertNotIn('PRIVATE', json.dumps(result))
 
+
+class CancelMaintenanceOracles(unittest.TestCase):
+    def test_real_scope_retirement_requires_own_cancel_failure(self):
+        from upstream_publication_mutation_anchors import (
+            CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME,
+            CANCEL_MAINTENANCE_MARKER, CANCEL_MAINTENANCE_CHAIN,
+            CANCEL_MAINTENANCE_FIELDS, CANCEL_MAINTENANCE_MESSAGE,
+            cancel_maintenance_oracle,
+        )
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        start = fixture.index(CANCEL_MAINTENANCE_MARKER)
+        position = fixture.index(CANCEL_MAINTENANCE_CHAIN, start)
+        line = fixture[:position + CANCEL_MAINTENANCE_CHAIN.index('.unwrap();')].count('\n') + 1
+        facts = {key: True for key in CANCEL_MAINTENANCE_FIELDS}
+        marker = CANCEL_MAINTENANCE_MARKER + json.dumps(facts) + '\n'
+        raw = (f'test {CANCEL_MAINTENANCE_NAME} ... FAILED\n' + marker
+               + f"thread '{CANCEL_MAINTENANCE_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n"
+               + CANCEL_MAINTENANCE_MESSAGE + '\n'
+               + 'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+        self.assertTrue(cancel_maintenance_oracle(raw, fixture)['evidence_passed'])
+        negatives = [raw.replace(CANCEL_MAINTENANCE_NAME, 'PRIVATE'),
+                     raw.replace(f':{line}:26:', f':{line+1}:26:'),
+                     raw.replace(CANCEL_MAINTENANCE_MESSAGE, 'PRIVATE'),
+                     raw.replace(marker, ''), raw + raw,
+                     raw.replace(marker, '') + marker,
+                     raw.replace('0 passed; 1 failed', '0 passed; 0 failed'),
+                     raw.replace('0 passed; 1 failed', '1 passed; 0 failed'),
+                     raw + 'error[E0308]: PRIVATE\n',
+                     raw.replace(json.dumps(facts), json.dumps(dict(facts, private='PRIVATE'))),
+                     raw.replace(json.dumps(facts), json.dumps(dict(facts, wrapped_owned=False))),
+                     raw.replace(json.dumps(facts), json.dumps(dict(facts, same_retired_owned=1))),
+                     raw.replace(CANCEL_MAINTENANCE_MARKER, 'PRIVATE ' + CANCEL_MAINTENANCE_MARKER)]
+        for output in negatives:
+            result = cancel_maintenance_oracle(output, fixture)
+            self.assertFalse(result['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(result))
+        with self.assertRaises(ValueError):
+            cancel_maintenance_oracle(raw, fixture.replace(CANCEL_MAINTENANCE_CHAIN, 'PRIVATE'))
+
 if __name__ == '__main__':
     unittest.main()
