@@ -35,6 +35,13 @@ use crate::directory::DirectorySyncBatch;
 
 use super::*;
 
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "tests/held_delivery_tests.rs"]
+mod held_delivery_tests;
+
 fn relay_telemetry_runtime_config() -> RelayTelemetryRuntimeConfig {
     RelayTelemetryRuntimeConfig {
         otlp_endpoint: Some("https://otlp.example.org/v1/metrics".to_owned()),

@@ -46,6 +46,13 @@ mod directory;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
+#[path = "tests/held_delivery.rs"]
+mod held_delivery;
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 mod ordinary_commit_gate;
 #[cfg(all(
     test,
@@ -240,6 +247,12 @@ impl NotificationDispositionObserver {
 
 struct RelayPlaneTransport {
     adapter: NostrTransportAdapter,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    held_delivery: std::sync::Mutex<Option<Weak<held_delivery::State>>>,
     sdk_relay_client: Option<NostrSdkRelayClient>,
     #[cfg(all(
         test,
@@ -1610,6 +1623,12 @@ impl MarmotRelayPlane {
     ) -> Self {
         let transport = Arc::new(RelayPlaneTransport {
             adapter,
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            held_delivery: std::sync::Mutex::new(None),
             sdk_relay_client,
             #[cfg(all(
                 test,
@@ -4951,12 +4970,21 @@ fn route_account_delivery(
     route.overflow.observe_queue_depth(queue_depth);
     let created_at = delivery.message.timestamp.0;
     let key = account_delivery_restart_key(&delivery);
-    match route.overflow.place(
+    let placement = route.overflow.place(
         route.epoch,
         key,
         route.sender.capacity() <= 1,
         route.spill.is_some(),
-    ) {
+    );
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let Some(delivery) = held_delivery::hold(transport, &route, delivery, placement) else {
+        return;
+    };
+    match placement {
         AccountDeliveryPlacement::Queue => {
             match route
                 .sender
