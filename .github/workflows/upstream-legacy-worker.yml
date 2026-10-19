@@ -1,0 +1,126 @@
+name: Exact real-worker legacy migration wiring gates
+on:
+  push:
+    branches: ["ci/upstream-legacy-worker-*"]
+    paths:
+      - .github/workflows/upstream-legacy-worker.yml
+      - scripts/qualify_upstream_legacy_worker.py
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Immutable product snapshot S, ancestor of this tool checkout (initial RED bd7394f038dd0278f5855d7d34fd3a59a94cee06)
+        type: string
+        required: true
+      mode:
+        description: Preparation only, genuine omitted-hook RED, wired GREEN, or wired baseline/omission/restored chain
+        type: choice
+        required: true
+        options: [preflight, red, green, chain]
+permissions:
+  contents: read
+concurrency:
+  group: upstream-legacy-worker-${{ github.ref }}-${{ inputs.mode || 'preflight' }}
+  cancel-in-progress: false
+jobs:
+  preparation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      source: ${{ steps.identity.outputs.source }}
+      mode: ${{ steps.identity.outputs.mode }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source/tool identity and helper syntax; zero product bodies
+        id: identity
+        env:
+          REQUESTED_SOURCE: ${{ inputs.source_sha }}
+          REQUESTED_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$REQUESTED_SOURCE"
+          mode="$REQUESTED_MODE"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            source_sha="$GITHUB_SHA"
+            mode=preflight
+          fi
+          python3 -m py_compile scripts/qualify_upstream_legacy_worker.py
+          python3 scripts/qualify_upstream_legacy_worker.py --source "$source_sha" --mode "$mode" --identity-only --output legacy-worker-preparation
+          echo "source=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: legacy-worker-preparation-${{ github.sha }}
+          path: legacy-worker-preparation/result.json
+          if-no-files-found: error
+          retention-days: 7
+  runtime:
+    needs: preparation
+    if: github.event_name == 'workflow_dispatch' && inputs.mode != 'preflight'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: storage-ownership-boundary-${{ matrix.cohort }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+      - name: Exact one-body inventory and genuine runtime gate
+        env:
+          # Explicit after rust-cache restore; this action can update Cargo env.
+          CARGO_INCREMENTAL: '1'
+          CARGO_BUILD_JOBS: '2'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_PROFILE_TEST_DEBUG: '0'
+          RUST_MIN_STACK: '4194304'
+        run: |
+          df -h .
+          python3 scripts/qualify_upstream_legacy_worker.py --source '${{ needs.preparation.outputs.source }}' --mode '${{ needs.preparation.outputs.mode }}' --cohort '${{ matrix.cohort }}' --output legacy-worker-runtime
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: legacy-worker-${{ matrix.cohort }}-${{ needs.preparation.outputs.source }}-${{ github.sha }}
+          path: legacy-worker-runtime/result.json
+          if-no-files-found: error
+          retention-days: 7
+  gate:
+    needs: [preparation, runtime]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.mode != 'preflight'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Both exact feature cohorts must actually complete
+        env:
+          PREPARATION: ${{ needs.preparation.result }}
+          RUNTIME: ${{ needs.runtime.result }}
+        run: |
+          test "$PREPARATION" = success
+          test "$RUNTIME" = success
+          echo 'Focused worker wiring evidence only; no full-suite, SDK, native or promotion qualification.'
