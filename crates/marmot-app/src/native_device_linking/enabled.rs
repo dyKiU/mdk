@@ -13,8 +13,15 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
-pub(super) type PreparedPublicationNotificationForTest =
-    ([u64; 8], [u64; 6], Option<(usize, usize)>, u64, bool, bool, Option<(Option<u64>, Option<u64>, Option<u64>)>);
+pub(super) type PreparedPublicationNotificationForTest = (
+    [u64; 8],
+    [u64; 6],
+    Option<(usize, usize)>,
+    u64,
+    bool,
+    bool,
+    Option<(Option<u64>, Option<u64>, Option<u64>)>,
+);
 
 pub(super) struct SessionState {
     manager: AccountManager,
@@ -398,10 +405,14 @@ impl DeviceLinkingSession {
     }
 
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn native_receive_guards_for_test(&self)
-        -> Option<crate::client::device_linking::sibling_sharing::NativeReceiveGuardSnapshot>
-    {
-        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+    pub(super) fn native_receive_guards_for_test(
+        &self,
+    ) -> Option<crate::client::device_linking::sibling_sharing::NativeReceiveGuardSnapshot> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
             .map(|choice| choice.receive_guard_snapshot_for_test())
     }
 
@@ -440,10 +451,24 @@ impl DeviceLinkingSession {
     ) -> Option<PreparedPublicationNotificationForTest> {
         let account = cgka_traits::MemberId::new(self.inner.scope.account.to_vec());
         let (plane, _) = self.inner.manager.device_pairing_transport();
-        let row = plane.account_notification_timing_for_test(&account, &hex::encode(publication.as_slice()))?;
-        let timing = self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+        let row = plane
+            .account_notification_timing_for_test(&account, &hex::encode(publication.as_slice()))?;
+        let timing = self
+            .inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
             .map(|choice| choice.notification_times_for_test(row.3[0], row.4.2));
-        Some((row.0, row.2, row.4.0, row.4.1, row.4.2.is_some(), row.4.3, timing))
+        Some((
+            row.0,
+            row.2,
+            row.4.0,
+            row.4.1,
+            row.4.2.is_some(),
+            row.4.3,
+            timing,
+        ))
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_child_diagnostics_for_test(
