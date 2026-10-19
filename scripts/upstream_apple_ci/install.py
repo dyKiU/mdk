@@ -11,6 +11,7 @@ import stat
 import subprocess
 import tempfile
 import zipfile
+from sdk_profiles import features as profile_features, release_id, validate_provenance
 
 
 FEATURES = ['otlp-export', 'product-analytics-export', 'experimental-device-sync']
@@ -26,12 +27,14 @@ def require(value, message):
         raise ValueError(message)
 
 
-def verified_package(packages, platform, source, run_id, destination):
+def verified_package(packages, platform, source, run_id, destination, profile='experimental'):
+    expected_features = profile_features(profile)
     proof = json.loads((packages / 'qualification.json').read_text())
+    validate_provenance(proof, profile, source, run_id)
     require(proof['source_sha'] == proof['builder_sha'] == source, 'SDK source/builder mismatch')
-    require(proof['workflow_run_id'] == run_id and proof['features'] == FEATURES, 'SDK run/cohort mismatch')
+    require(proof['workflow_run_id'] == run_id and proof['features'] == expected_features, 'SDK run/cohort mismatch')
     record = proof['platforms'][platform]
-    require(record['bundle'] == f'marmotkit-{platform}-ci-{source}.zip', 'Unexpected bundle name')
+    require(record['bundle'] == f'marmotkit-{platform}-{release_id(profile, source)}.zip', 'Unexpected bundle name')
     bundle = packages / record['bundle']
     require(digest(bundle) == record['sha256'], 'Bundle checksum mismatch')
     root_name = bundle.stem
@@ -49,7 +52,7 @@ def verified_package(packages, platform, source, run_id, destination):
     output = destination / root_name
     manifest = json.loads((output / 'manifest.json').read_text())
     require(manifest == record['manifest'], 'Embedded manifest mismatch')
-    require(manifest['source_sha'] == manifest['builder_sha'] == source and manifest['features'] == FEATURES,
+    require(manifest['source_sha'] == manifest['builder_sha'] == source and manifest['features'] == expected_features,
             'Embedded cohort mismatch')
     actual = {str(path.relative_to(output)): digest(path)
               for path in sorted(output.rglob('*')) if path.is_file() and path.name != 'manifest.json'}
@@ -64,11 +67,13 @@ def verified_package(packages, platform, source, run_id, destination):
             continue  # Standalone distribution ZIP is not part of this complete bundle.
         require(path.is_file() and digest(path) == value['sha256'], 'Manifest artifact mismatch')
     manifest['uniffi_version'] = proof['uniffi_version']
+    manifest['sdk_profile'] = profile
     return output, manifest
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--profile', choices=['default', 'experimental'], default='experimental')
     parser.add_argument('--packages', type=Path, required=True)
     parser.add_argument('--source', required=True)
     parser.add_argument('--run-id', required=True)
@@ -79,8 +84,19 @@ def main():
     args = parser.parse_args()
     require(re.fullmatch('[0-9a-f]{40}', args.source), 'Full source SHA required')
     require(bool(args.app) != bool(args.output), 'Choose app installation or validated output extraction')
+    # Default app capability is a prerequisite, not an artifact installation.
+    # Refuse an unsupported real app before reading a package or writing an
+    # overlay. This negative preflight cannot qualify a synthetic artifact.
+    if args.profile == 'default' and args.app:
+        app = args.app.resolve(strict=True)
+        require(re.fullmatch('[0-9a-f]{40}', args.app_sha or ''), 'Exact app SHA required')
+        head = subprocess.check_output(['git', '-C', str(app), 'rev-parse', 'HEAD'], text=True).strip()
+        require(head == args.app_sha, 'App source identity mismatch')
+        require(not subprocess.check_output(['git', '-C', str(app), 'status', '--porcelain']), 'App checkout must be pristine')
+        require((app / 'scripts/local-sdk-profile-settings.sh').is_file(),
+                'Default SDK app capability guard is not implemented')
     with tempfile.TemporaryDirectory() as temp:
-        output, manifest = verified_package(args.packages, args.platform, args.source, args.run_id, Path(temp))
+        output, manifest = verified_package(args.packages, args.platform, args.source, args.run_id, Path(temp), args.profile)
         if args.output:
             require(not args.output.exists(), 'Output already exists')
             shutil.copytree(output, args.output)
@@ -90,6 +106,9 @@ def main():
         head = subprocess.check_output(['git', '-C', str(app), 'rev-parse', 'HEAD'], text=True).strip()
         require(head == args.app_sha, 'App source identity mismatch')
         require(not subprocess.check_output(['git', '-C', str(app), 'status', '--porcelain']), 'App checkout must be pristine')
+        if args.profile == 'default':
+            require((app / 'scripts/local-sdk-profile-settings.sh').is_file(),
+                    'Default SDK app capability guard is not implemented')
         package = app / ('Vendored/MarmotKit' if args.platform == 'macos' else 'Packages/MarmotKit')
         artifact = package / 'Artifacts/MarmotKit.xcframework'
         require(not artifact.exists(), 'Existing local SDK overlay refused')
@@ -110,7 +129,7 @@ def main():
         manifest['installation'] = 'Ephemeral hosted CI overlay; never commit'
         manifest['workflow_run_id'] = args.run_id
         (package / 'LOCAL_BUILD.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        features = ','.join(FEATURES)
+        features = ','.join(profile_features(args.profile))
         # A verified ephemeral overlay follows the app's local-build convention;
         # the immutable producer identity remains in LOCAL_BUILD.json.
         (package / 'MARMOT_VERSION').write_text(f'mdk-sha: {args.source}\nmdk-branch: detached\nmdk-tag: local-{args.source}\nfeatures: {features}\n')
@@ -121,10 +140,22 @@ def main():
             '    public static let builtAt = "CI artifact"\n'
             f'    public static let uniffiVersion = "{manifest["uniffi_version"]}"\n'
             f'    public static let features = "{features}"\n' + '}\n')
-        # The app's independently maintained guard checks the actual installed bytes.
-        subprocess.run(['bash', '-c', 'repo_root=$1; source "$repo_root/scripts/local-device-sync-settings.sh"',
-                        'verify-overlay', str(app)], check=True,
-                       env=dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC='1'))
+        # Independent app guards are required for either profile. The default
+        # route fails closed until Root authors and qualifies its separate API-
+        # capability guard; it never enables private sync to obtain compilation.
+        if args.profile == 'default':
+            guard = app / 'scripts/local-sdk-profile-settings.sh'
+            require(guard.is_file(), 'Default SDK app capability guard is not implemented')
+            subprocess.run(['bash', '-c',
+                            'set -e; repo_root=$1; source "$repo_root/scripts/local-sdk-profile-settings.sh"; '
+                            'test "${WN_VERIFIED_SDK_PROFILE:-}" = default; '
+                            'test "$WN_EXPERIMENTAL_DEVICE_SYNC" = 0',
+                            'verify-default-overlay', str(app)], check=True,
+                           env=dict(os.environ, WN_SDK_PROFILE='default', WN_EXPERIMENTAL_DEVICE_SYNC='0'))
+        else:
+            subprocess.run(['bash', '-c', 'repo_root=$1; source "$repo_root/scripts/local-device-sync-settings.sh"',
+                            'verify-overlay', str(app)], check=True,
+                           env=dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC='1'))
 
 
 if __name__ == '__main__':

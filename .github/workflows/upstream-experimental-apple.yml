@@ -19,6 +19,11 @@ on:
         description: Exact dyKiU/whitenoise-ios candidate commit
         required: true
         type: string
+      sdk_profile:
+        description: Closed nonpublishing Apple feature cohort; defaults to the established experimental path
+        type: choice
+        options: [experimental, default]
+        default: experimental
       package_only:
         description: Build SDK artifacts; qualify apps and native scenarios in the separate consumer workflow
         type: boolean
@@ -28,14 +33,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: upstream-apple-${{ inputs.mdk_sha || github.event.pull_request.head.sha }}-${{ inputs.mac_sha || github.ref }}-${{ inputs.ios_sha || github.event_name }}
+  group: upstream-apple-${{ inputs.mdk_sha || github.event.pull_request.head.sha }}-${{ inputs.mac_sha || github.ref }}-${{ inputs.ios_sha || github.event_name }}-${{ inputs.sdk_profile || 'experimental' }}
   cancel-in-progress: false
 
 env:
   WORKFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   OTLP_EXPORT: "1"
   PRODUCT_ANALYTICS_EXPORT: "1"
-  EXPERIMENTAL_DEVICE_SYNC: "1"
+  SDK_PROFILE: ${{ inputs.sdk_profile || 'experimental' }}
+  EXPERIMENTAL_DEVICE_SYNC: ${{ inputs.sdk_profile == 'default' && '0' || '1' }}
   CARGO_INCREMENTAL: "1"
   CARGO_BUILD_JOBS: "2"
   IPHONEOS_DEPLOYMENT_TARGET: "18.0"
@@ -46,6 +52,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'ci/upstream-develop-dy-')
     runs-on: ubuntu-latest
     outputs:
+      sdk_profile: ${{ steps.identity.outputs.sdk_profile }}
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
       mdk_sha: ${{ steps.identity.outputs.mdk_sha }}
       mac_sha: ${{ steps.identity.outputs.mac_sha }}
       ios_sha: ${{ steps.identity.outputs.ios_sha }}
@@ -62,6 +70,7 @@ jobs:
           REQUESTED_MAC_SHA: ${{ inputs.mac_sha }}
           REQUESTED_IOS_SHA: ${{ inputs.ios_sha }}
           REQUESTED_PACKAGE_ONLY: ${{ inputs.package_only }}
+          REQUESTED_SDK_PROFILE: ${{ inputs.sdk_profile }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             test "$REQUESTED_PACKAGE_ONLY" = true
@@ -95,7 +104,7 @@ jobs:
           rustup default "$toolchain"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          shared-key: upstream-apple-experimental-${{ matrix.part }}
+          shared-key: upstream-apple-experimental-${{ matrix.part }}${{ needs.identity.outputs.sdk_profile == 'default' && '-default' || '' }}
           cache-on-failure: true
       - name: Build exact experimental Apple input
         env:
@@ -110,7 +119,7 @@ jobs:
           retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: upstream-apple-input-${{ matrix.part }}-${{ needs.identity.outputs.mdk_sha }}
+          name: upstream-apple-input-${{ needs.identity.outputs.sdk_profile == 'default' && 'default-' || '' }}${{ matrix.part }}-${{ needs.identity.outputs.mdk_sha }}
           path: stage/
           if-no-files-found: error
           retention-days: 7
@@ -140,19 +149,21 @@ jobs:
           python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
-          pattern: upstream-apple-input-*-${{ needs.identity.outputs.mdk_sha }}
+          pattern: upstream-apple-input-${{ needs.identity.outputs.sdk_profile == 'default' && 'default-' || '' }}*-${{ needs.identity.outputs.mdk_sha }}
           path: downloaded
       - name: Stage matching build inputs
         run: |
           mkdir inputs
+          prefix=''
+          if [ "$SDK_PROFILE" = default ]; then prefix=default-; fi
           for part in swift macos ios-device ios-simulator; do
-            mv "downloaded/upstream-apple-input-$part-$SOURCE_SHA" "inputs/$part"
+            mv "downloaded/upstream-apple-input-${prefix}$part-$SOURCE_SHA" "inputs/$part"
           done
       - name: Verify, assemble, validate and package both Apple SDKs
         run: bash scripts/upstream_apple_ci/assemble.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: upstream-experimental-apple-${{ needs.identity.outputs.mdk_sha }}
+          name: ${{ needs.identity.outputs.artifact_name }}
           path: packages/
           if-no-files-found: error
           retention-days: 7

@@ -32,7 +32,7 @@ bash "$crate/validate-macos-artifact.sh" "$crate/output/macos/MarmotKit.xcframew
 bash "$crate/validate-ios-artifact.sh" "$crate/output/MarmotKit.xcframework" 18.0
 bash "$crate/validate-swift-package-macos.sh" "$crate/output/macos/MarmotKit.xcframework" - "$crate/output/macos/MarmotKit.swift"
 bash "$crate/validate-swift-package.sh" "$crate/output/MarmotKit.xcframework" - "$crate/output/MarmotKit.swift"
-id=ci-$SOURCE_SHA
+id=$(python3 scripts/upstream_apple_ci/sdk_profiles.py release-id "$SOURCE_SHA")
 mkdir -p packages
 bash "$crate/package-macos-artifacts.sh" "$id" "$id" "$SOURCE_SHA" dist "$SOURCE_SHA"
 bash "$crate/package-ios-artifacts.sh" "$id" "$id" "$SOURCE_SHA" dist "$SOURCE_SHA"
