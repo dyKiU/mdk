@@ -136,9 +136,18 @@ impl PublicationControl {
     }
     /// Bounded actual handler result, only for the dropped-response regression.
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn record_prepare_reply_for_test(&self, scope: &PurposeAttemptScope, succeeded: bool) {
-        let mut value = self.prepare_reply_observation.lock().unwrap_or_else(|e| e.into_inner());
-        if value.1 { return; }
+    pub(super) fn record_prepare_reply_for_test(
+        &self,
+        scope: &PurposeAttemptScope,
+        succeeded: bool,
+    ) {
+        let mut value = self
+            .prepare_reply_observation
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if value.1 {
+            return;
+        }
         if let Some(next) = value.0.checked_add(1) {
             value.0 = next;
             value.2 = Some((scope.clone(), succeeded));
@@ -148,20 +157,34 @@ impl PublicationControl {
         }
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn prepare_reply_for_test(&self, scope: &PurposeAttemptScope) -> Option<(u64, bool)> {
-        let value = self.prepare_reply_observation.lock().unwrap_or_else(|e| e.into_inner());
-        if value.1 { return None; }
-        value.2.as_ref().filter(|(own, _)| own == scope).map(|(_, succeeded)| (value.0, *succeeded))
+    pub(super) fn prepare_reply_for_test(
+        &self,
+        scope: &PurposeAttemptScope,
+    ) -> Option<(u64, bool)> {
+        let value = self
+            .prepare_reply_observation
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if value.1 {
+            return None;
+        }
+        value
+            .2
+            .as_ref()
+            .filter(|(own, _)| own == scope)
+            .map(|(_, succeeded)| (value.0, *succeeded))
     }
 
     /// Opaque revision observation only; no SDK owner, epoch, or identity export.
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn unrevoked_invite_revision_for_test(
-        &self, scope: &PurposeAttemptScope,
+        &self,
+        scope: &PurposeAttemptScope,
     ) -> Option<crate::device_linking::settlement::SdkCancellationFence> {
         let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
-        let active = active.as_ref().filter(|active|
-            active.identity == PublicationIdentity::Scoped(scope.clone()) && !active.revoked)?;
+        let active = active.as_ref().filter(|active| {
+            active.identity == PublicationIdentity::Scoped(scope.clone()) && !active.revoked
+        })?;
         match &active.gate {
             PublicationGate::Invite(gate) => Some(gate.cancellation_fence()),
             _ => None,
@@ -704,7 +727,11 @@ mod late_revoke_tests {
     fn first_stale_revoke_cannot_cancel_a_later_gate_revision_or_create_ack_witness() {
         let control = PublicationControl::default();
         let gate = Arc::new(RuntimeInviteGate::new());
-        let old = PurposeAttemptScope { account: [1; 32], local_device: [2; 32], generation: 1 };
+        let old = PurposeAttemptScope {
+            account: [1; 32],
+            local_device: [2; 32],
+            generation: 1,
+        };
         control.install(old.clone(), gate.clone());
         // This is only negative custody, not SDK/native enrollment evidence.
         // The separate actual Runtime case performs new reservation+terminal.
@@ -713,7 +740,9 @@ mod late_revoke_tests {
         control.revoke(&old); // FIRST old-slot revoke, after the revision advanced.
         let revision_unchanged = later_revision.revision_matches_for_negative_completion();
         let no_ack_witness = !control.has_negative_invite(&old, &gate);
-        assert!(revision_unchanged && no_ack_witness,
-            "a first stale control must neither cancel the later revision nor mint an acknowledgement witness");
+        assert!(
+            revision_unchanged && no_ack_witness,
+            "a first stale control must neither cancel the later revision nor mint an acknowledgement witness"
+        );
     }
 }
