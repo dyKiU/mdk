@@ -18,6 +18,9 @@ FOURTH = PREFIX + "third_and_later_device_enrollment_need_no_extra_qr_or_manual_
 CONSENT = PREFIX + "blocked_sibling_consent_does_not_starve_another_approved_peer"
 EXPECTED = {
     "pairing-diagnostic": {FOURTH},
+    "pairing-five-devices": {
+        PREFIX + "sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing",
+    },
     "pairing-consent-fairness": {CONSENT},
     "pairing-restart-diagnostic": {
         "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent",

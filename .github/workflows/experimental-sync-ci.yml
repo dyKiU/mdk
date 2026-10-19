@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, paired-presentation, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-five-devices, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, paired-presentation, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-three-device-chat-delivery]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -102,7 +102,7 @@ jobs:
           if-no-files-found: error
 
   pairing-replay:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","pairing-departure-arrival-order","pairing-departure-orders","pairing-leave-schedule","paired-presentation","automatic-body-regression","automatic-body-negative"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic","pairing-five-devices","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","pairing-departure-arrival-order","pairing-departure-orders","pairing-leave-schedule","paired-presentation","automatic-body-regression","automatic-body-negative"]'), inputs.scope)
     name: Pairing replay (${{ matrix.slots }} slots)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -153,6 +153,8 @@ jobs:
           filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive) | test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer) | test(=native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion))'
           if [[ "$REPLAY_SCOPE" == pairing-diagnostic ]]; then
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+          elif [[ "$REPLAY_SCOPE" == pairing-five-devices ]]; then
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing)'
           elif [[ "$REPLAY_SCOPE" == pairing-consent-fairness ]]; then
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer)'
           elif [[ "$REPLAY_SCOPE" == pairing-restart-diagnostic ]]; then
@@ -194,6 +196,8 @@ jobs:
           }
           if os.environ['REPLAY_SCOPE'] == 'pairing-diagnostic':
               expected = {'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'}
+          elif os.environ['REPLAY_SCOPE'] == 'pairing-five-devices':
+              expected = {'native_device_linking::automatic_pairing_acceptance::sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing'}
           elif os.environ['REPLAY_SCOPE'] == 'pairing-consent-fairness':
               expected = {'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'}
           elif os.environ['REPLAY_SCOPE'] == 'pairing-restart-diagnostic':
