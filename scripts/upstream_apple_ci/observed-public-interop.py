@@ -12,6 +12,22 @@ spec = importlib.util.spec_from_file_location('pinned_public_controller', contro
 frozen = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(frozen)
 original_peer, original_wait = frozen.Peer, frozen.wait_for
+original_popen = frozen.subprocess.Popen
+relay_processes = []
+relay_binary = sys.argv[sys.argv.index('--relay-binary') + 1]
+
+
+def observed_popen(arguments, *args, **kwargs):
+    process = original_popen(arguments, *args, **kwargs)
+    # Observe the existing owned relay only; no additional process/SDK call,
+    # signal, wait, deadline or controller branch is introduced.
+    if (isinstance(arguments, list) and len(arguments) == 3
+            and arguments[0] == relay_binary and arguments[1] == '--port'):
+        relay_processes.append(process)
+    return process
+
+
+frozen.subprocess.Popen = observed_popen
 peers, waits = [], []
 
 
@@ -79,6 +95,7 @@ result['observed_peers'] = peers
 result['observed_waits'] = waits
 result['workers_created'] = len(peers)
 result['workers_closed'] = sum(peer['closed_successfully'] for peer in peers)
+result['owned_relay_exit_codes'] = [process.returncode for process in relay_processes]
 result['controller_sha256'] = hashlib.sha256(controller.read_bytes()).hexdigest()
 result['observer_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 result['diagnostic_scope'] = 'Original commands/replies only; fixed labels and counts, no payloads, identifiers, extra SDK calls or changed deadlines.'

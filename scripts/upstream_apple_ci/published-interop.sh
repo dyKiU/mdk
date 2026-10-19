@@ -2,21 +2,38 @@
 set -euo pipefail
 test "$(uname -m)" = arm64
 test "$(git -C ios rev-parse HEAD)" = "$IOS_SHA"
+peer_profile="${INTEROP_PEER_PROFILE:-historical}"
+case "$peer_profile" in historical|default) ;; *) exit 1 ;; esac
+if [[ "$peer_profile" == default ]]; then
+  test -n "$DEFAULT_SDK_RUN_ID"
+  test "$DEFAULT_SDK_RUN_ID" != "$SDK_RUN_ID"
+fi
 python3 scripts/upstream_apple_ci/install.py --packages packages \
   --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform ios \
   --output "$RUNNER_TEMP/interop-experimental-sdk"
 mkdir -p "$RUNNER_TEMP/published-assets" "$RUNNER_TEMP/interop-evidence"
-gh release download marmotkit-v0.13.0 --repo marmot-protocol/mdk \
-  --pattern MarmotKitFFI-0.13.0.xcframework.zip \
-  --pattern MarmotKit-0.13.0.swift --pattern marmotkit-ios-0.13.0.manifest.json \
-  --dir "$RUNNER_TEMP/published-assets"
-python3 scripts/upstream_apple_ci/published-sdk.py --assets "$RUNNER_TEMP/published-assets" \
-  --ios ios --output "$RUNNER_TEMP/interop-published-sdk"
-cp "$RUNNER_TEMP/interop-published-sdk/published-provenance.json" "$RUNNER_TEMP/interop-evidence/"
-bash ios/scripts/public-chat-acceptance/build.sh \
-  "$RUNNER_TEMP/published-assets/MarmotKit-0.13.0.swift" \
-  "$RUNNER_TEMP/interop-published-sdk/MarmotKit.xcframework/ios-arm64-simulator" \
-  "$RUNNER_TEMP/published-worker" "$RUNNER_TEMP/published-worker-modules"
+if [[ "$peer_profile" == historical ]]; then
+  gh release download marmotkit-v0.13.0 --repo marmot-protocol/mdk \
+    --pattern MarmotKitFFI-0.13.0.xcframework.zip \
+    --pattern MarmotKit-0.13.0.swift --pattern marmotkit-ios-0.13.0.manifest.json \
+    --dir "$RUNNER_TEMP/published-assets"
+  python3 scripts/upstream_apple_ci/published-sdk.py --assets "$RUNNER_TEMP/published-assets" \
+    --ios ios --output "$RUNNER_TEMP/interop-published-sdk"
+  cp "$RUNNER_TEMP/interop-published-sdk/published-provenance.json" "$RUNNER_TEMP/interop-evidence/"
+  bash ios/scripts/public-chat-acceptance/build.sh \
+    "$RUNNER_TEMP/published-assets/MarmotKit-0.13.0.swift" \
+    "$RUNNER_TEMP/interop-published-sdk/MarmotKit.xcframework/ios-arm64-simulator" \
+    "$RUNNER_TEMP/published-worker" "$RUNNER_TEMP/published-worker-modules"
+else
+  python3 scripts/upstream_apple_ci/install.py --profile default --packages packages-default \
+    --source "$SOURCE_SHA" --run-id "$DEFAULT_SDK_RUN_ID" --platform ios \
+    --output "$RUNNER_TEMP/interop-default-sdk"
+  python3 scripts/upstream_apple_ci/profile-interop-evidence.py prepare
+  bash ios/scripts/public-chat-acceptance/build.sh \
+    "$RUNNER_TEMP/interop-default-sdk/MarmotKit.swift" \
+    "$RUNNER_TEMP/interop-default-sdk/MarmotKit.xcframework/ios-arm64-simulator" \
+    "$RUNNER_TEMP/published-worker" "$RUNNER_TEMP/published-worker-modules"
+fi
 bash ios/scripts/public-chat-acceptance/build.sh \
   "$RUNNER_TEMP/interop-experimental-sdk/MarmotKit.swift" \
   "$RUNNER_TEMP/interop-experimental-sdk/MarmotKit.xcframework/ios-arm64-simulator" \
@@ -27,7 +44,11 @@ published_device=""
 experimental_device=""
 cleanup() {
   if [[ -f "$RUNNER_TEMP/published-interop-private/result.json" && ! -f "$RUNNER_TEMP/interop-evidence/result.json" ]]; then
-    cp "$RUNNER_TEMP/published-interop-private/result.json" "$RUNNER_TEMP/interop-evidence/result.json"
+    if [[ "$peer_profile" == default ]]; then
+      python3 scripts/upstream_apple_ci/profile-interop-evidence.py finalize || true
+    else
+      cp "$RUNNER_TEMP/published-interop-private/result.json" "$RUNNER_TEMP/interop-evidence/result.json"
+    fi
   fi
   for device in "$published_device" "$experimental_device"; do
     if [[ -n "$device" ]]; then
@@ -48,6 +69,10 @@ python3 scripts/upstream_apple_ci/observed-public-interop.py --scenario mixed-ve
   --published-device "$published_device" --experimental-device "$experimental_device" \
   --relay-binary "$PWD/ios/build/TestRelay/debug/white-noise-sync-test-relay" \
   --port 18525 --output "$RUNNER_TEMP/published-interop-private"
+if [[ "$peer_profile" == default ]]; then
+  python3 scripts/upstream_apple_ci/profile-interop-evidence.py finalize
+  exit 0
+fi
 cp "$RUNNER_TEMP/published-interop-private/result.json" "$RUNNER_TEMP/interop-evidence/result.json"
 python3 - <<'PY'
 import json,os

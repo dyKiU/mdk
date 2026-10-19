@@ -13,6 +13,7 @@ on:
           - history-pagination
           - automatic-history
           - published-interop
+          - default-interop
           - hosted-history
           - final-ios
           - final-mac
@@ -20,6 +21,10 @@ on:
       sdk_run_id:
         description: Existing Apple SDK producer run ID
         required: true
+        type: string
+      default_sdk_run_id:
+        description: Distinct existing default-profile producer for same F; required only all/default-interop
+        required: false
         type: string
       sdk_sha:
         description: Exact existing Apple SDK source commit
@@ -53,6 +58,7 @@ jobs:
     outputs:
       sdk_sha: ${{ steps.identity.outputs.sdk_sha }}
       sdk_run_id: ${{ steps.identity.outputs.sdk_run_id }}
+      default_sdk_run_id: ${{ steps.identity.outputs.default_sdk_run_id }}
       mac_sha: ${{ steps.identity.outputs.mac_sha }}
       ios_sha: ${{ steps.identity.outputs.ios_sha }}
       tools_sha: ${{ steps.identity.outputs.tools_sha }}
@@ -69,6 +75,7 @@ jobs:
           REQUESTED_LANE: ${{ inputs.lane }}
           REQUESTED_SDK_RUN_ID: ${{ inputs.sdk_run_id }}
           REQUESTED_SDK_SHA: ${{ inputs.sdk_sha }}
+          REQUESTED_DEFAULT_SDK_RUN_ID: ${{ inputs.default_sdk_run_id }}
           REQUESTED_MAC_SHA: ${{ inputs.mac_sha }}
           REQUESTED_IOS_SHA: ${{ inputs.ios_sha }}
         run: python3 scripts/upstream_apple_ci/acceptance-identity.py
@@ -88,6 +95,14 @@ jobs:
           SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
           SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
         run: python3 scripts/upstream_apple_ci/wait-sdk.py
+      - name: Wait for distinct exact default-profile artifact only for default interoperability
+        if: contains(fromJSON(needs.identity.outputs.lanes), 'default-interop')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
+          SDK_RUN_ID: ${{ needs.identity.outputs.default_sdk_run_id }}
+          SDK_PROFILE: default
+        run: python3 scripts/upstream_apple_ci/wait-sdk.py
 
   qualification:
     needs: [identity, sdk]
@@ -103,6 +118,7 @@ jobs:
       SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
       SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
       SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
+      DEFAULT_SDK_RUN_ID: ${{ needs.identity.outputs.default_sdk_run_id }}
       IOS_SHA: ${{ needs.identity.outputs.ios_sha }}
       MAC_SHA: ${{ needs.identity.outputs.mac_sha }}
       GH_TOKEN: ${{ github.token }}
@@ -139,12 +155,22 @@ jobs:
         run: |
           gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
             --name "upstream-experimental-apple-$SOURCE_SHA" --dir packages
+      - name: Download exact default-profile peer artifact for the same immutable F
+        if: matrix.lane == 'default-interop'
+        run: |
+          gh run download "$DEFAULT_SDK_RUN_ID" --repo dyKiU/mdk \
+            --name "upstream-default-apple-$SOURCE_SHA" --dir packages-default
       - name: Build isolated relay fixture
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
       - name: Published 0.13 versus experimental iOS native interoperability
         if: matrix.lane == 'published-interop'
+        run: bash scripts/upstream_apple_ci/published-interop.sh
+      - name: Patched default F versus experimental F independent-account interoperability
+        if: matrix.lane == 'default-interop'
+        env:
+          INTEROP_PEER_PROFILE: default
         run: bash scripts/upstream_apple_ci/published-interop.sh
       - name: Native original history, cancellation, departure and revocation
         if: matrix.lane == 'hosted-history'
@@ -251,6 +277,7 @@ jobs:
           path: |
             ${{ runner.temp }}/interop-evidence/result.json
             ${{ runner.temp }}/interop-evidence/published-provenance.json
+            ${{ runner.temp }}/interop-evidence/profile-provenance.json
             ${{ runner.temp }}/hosted-history-evidence/result.json
             ${{ runner.temp }}/hosted-history-pagination-evidence/result.json
             ${{ runner.temp }}/hosted-automatic-history-evidence/result.json
