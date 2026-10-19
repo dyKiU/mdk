@@ -452,5 +452,35 @@ class CancelMaintenanceGreenOracle(unittest.TestCase):
             finally:
                 leaf.close()
 
+class RealGuardPointerOracle(unittest.TestCase):
+    def test_real_guard_green_and_exact_pointer_omission(self):
+        from upstream_publication_mutation_anchors import REAL_GUARD_NAME, REAL_GUARD_EXPECT, REAL_GUARD_FIELDS, real_guard_oracle, CANCEL_MAINTENANCE_FIXTURE
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        literal = fixture.index('"' + REAL_GUARD_EXPECT + '"')
+        line = fixture[:fixture.rfind('.expect', 0, literal)].count('\n') + 1
+        marker = 'cancel-real-guard-control ' + json.dumps({key: True for key in REAL_GUARD_FIELDS}) + '\n'
+        result = 'cancel-real-guard-result {"foreign_cancel_returned_ok":true}\n'
+        failure = (f'test {REAL_GUARD_NAME} ... FAILED\n' + marker + result
+                   + f"thread '{REAL_GUARD_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n"
+                   + REAL_GUARD_EXPECT + ': Gate(NoLiveVerifier)\n'
+                   + 'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+        green = f'test {REAL_GUARD_NAME} ... ok\n' + marker + result.replace('true','false') + 'test result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'
+        self.assertTrue(real_guard_oracle(failure, fixture, True)['evidence_passed'])
+        self.assertTrue(real_guard_oracle(green, fixture, False)['evidence_passed'])
+        negatives = [failure + failure, failure.replace(marker, ''), failure.replace(result, ''), failure.replace(result, result.replace('true','false')),
+                     failure.replace(marker, marker.replace('true','false')), failure.replace(marker, marker.replace('true','1')),
+                     failure.replace(marker, marker.replace('}', ',"PRIVATE":true}')), failure.replace(marker, marker.replace('{', '{"selected_original":true,')),
+                     failure.replace(result, '{PRIVATE}'), failure.replace(marker, '') + marker, failure.replace('1 failed','0 failed'),
+                     failure.replace(': Gate(NoLiveVerifier)', ': PRIVATE'), failure.replace(f':{line}:26:',f':{line+1}:26:'),
+                     failure.replace(REAL_GUARD_NAME,'PRIVATE'), failure + 'error[E0308]: PRIVATE\n',
+                     failure.replace('cancel-real-guard-control ', 'PRIVATE cancel-real-guard-control '), failure.replace(marker,marker+marker)]
+        for raw in negatives:
+            row = real_guard_oracle(raw, fixture, True)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE',json.dumps(row))
+        self.assertFalse(real_guard_oracle(green + green, fixture, False)['evidence_passed'])
+        self.assertFalse(real_guard_oracle(green.replace('false','true'), fixture, False)['evidence_passed'])
+        with self.assertRaises(ValueError): real_guard_oracle(failure, fixture, 'mutant')
+
 if __name__ == '__main__':
     unittest.main()

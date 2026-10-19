@@ -8,10 +8,10 @@ from pathlib import Path
 import re
 import subprocess
 from upstream_avatar_ready_turn_chain import compiler_diagnostics
-from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission
+from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered', 'cancel-maintenance-red', 'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control', 'cancel-maintenance-real-guard-pfp'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 parser.add_argument('--secondary-stage', choices=['red', 'green'], default='red')
@@ -25,7 +25,8 @@ publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-re
 nextest_cases = publication_cases | {'worker-spawn-stack', 'worker-stack-regression'}
 held_marker = None
 failure_marker = None
-cancellation_cases = {'cancel-maintenance-pfp', 'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control'}
+cancellation_pfp_cases = {'cancel-maintenance-pfp', 'cancel-maintenance-real-guard-pfp'}
+cancellation_cases = cancellation_pfp_cases | {'cancel-maintenance-newer-owner', 'cancel-maintenance-slot-controls', 'cancel-maintenance-guard-control'}
 if args.case in cancellation_cases:
     if not cohort or os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('Cancellation controls require exact reviewed source and original stack')
@@ -35,7 +36,11 @@ if args.case in cancellation_cases:
     test = CANCEL_MAINTENANCE_NAME
     expected = 1
     package = 'marmot-app'
-    if args.case == 'cancel-maintenance-newer-owner':
+    if args.case == 'cancel-maintenance-real-guard-pfp':
+        source = Path('crates/cgka-engine/src/private_roster_settlement.rs')
+        old, new = REAL_GUARD_CHECK, REAL_GUARD_OMISSION
+        test = REAL_GUARD_NAME
+    elif args.case == 'cancel-maintenance-newer-owner':
         test = 'runtime::device_linking::tests::device_linking_retired_cancel_cannot_ack_after_a_newer_terminal_reservation'
     elif args.case == 'cancel-maintenance-slot-controls':
         test = 'runtime::private_commit::negative_cancel_tests::'
@@ -199,7 +204,7 @@ if args.case == 'outbound-mailbox-kind':
     if text.count(assertion) != 1:
         raise ValueError('Exact generic mailbox own assertion must remain unchanged')
     mailbox_assertion_line = text[:text.index(assertion)].count('\n') + 1
-cancellation_leaf = ExactCancellationMutation(source) if args.case == 'cancel-maintenance-pfp' else None
+cancellation_leaf = ExactCancellationMutation(source) if args.case in cancellation_pfp_cases else None
 cancellation_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() if args.case in cancellation_cases else None
 cancellation_index = hashlib.sha256(subprocess.check_output(['git', 'ls-files', '--stage', '-z'])).hexdigest() if args.case in cancellation_cases else None
 args.output.mkdir(parents=True, exist_ok=False)
@@ -277,7 +282,9 @@ def execute(phase):
         row.update(cancel_maintenance_oracle(output, source.read_text()))
     if args.case == 'cancel-maintenance-pfp':
         row.update(cancel_maintenance_oracle(output, Path(CANCEL_MAINTENANCE_FIXTURE).read_text(), phase == 'mutant'))
-    if args.case in cancellation_cases - {'cancel-maintenance-pfp'}:
+    if args.case == 'cancel-maintenance-real-guard-pfp':
+        row.update(real_guard_oracle(output, Path(CANCEL_MAINTENANCE_FIXTURE).read_text(), phase == 'mutant'))
+    if args.case in cancellation_cases - cancellation_pfp_cases:
         expected_names = ([test + name for name in ['first_revocation_is_not_renewed_by_repeats', 'foreign_gate_and_later_revision_cannot_acknowledge', 'shutdown_and_inherited_install_cannot_refresh_witness', 'exact_current_slot_is_consumed_only_once']]
                           if args.case == 'cancel-maintenance-slot-controls' else [test])
         statuses = re.findall(r'(?m)^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', output)
@@ -328,7 +335,7 @@ if args.case in SECONDARY_CASES and args.secondary_stage == 'red':
     raise SystemExit(0 if proof['completed'] else 1)
 if args.case in cancellation_cases and not baseline['evidence_passed']:
     raise SystemExit('Exact cancellation baseline evidence incomplete')
-if args.case in cancellation_cases - {'cancel-maintenance-pfp'}:
+if args.case in cancellation_cases - cancellation_pfp_cases:
     proof.update(control_only=True, runtime_mutation_qualification=False, completed=(baseline['exit_code'] == 0 and matches(baseline, expected, 0) and baseline['evidence_passed'] and frozen_inputs() == frozen))
     save()
     raise SystemExit(0 if proof['completed'] else 1)
@@ -360,7 +367,7 @@ try:
         source.write_text(text.replace(old, new))
     mutant = execute('mutant')
     proof['runtime_mutant_killed'] = mutant['exit_code'] != 0 and matches(mutant, 0, expected)
-    if args.case == 'cancel-maintenance-pfp':
+    if args.case in cancellation_pfp_cases:
         proof['runtime_mutant_killed'] &= mutant['exit_code'] == 101 and mutant['evidence_passed']
     if args.case in SECONDARY_CASES:
         proof['finite_predecessors_completed_before_mutant_timeout'] = (
@@ -407,9 +414,12 @@ proof['restored_control_passed'] = (control['exit_code'] == 0 and matches(contro
                                   and (args.case not in publication_cases or control['required_runtime_marker_observed'])
                                   and (args.case not in {'automatic-publication', 'sibling-publication'}
                                        or (control['compiler_error_count'] == 0 and control['panic_header_count'] == 0)))
-if args.case == 'cancel-maintenance-pfp':
+if args.case in cancellation_pfp_cases:
     proof['restored_control_passed'] &= control['evidence_passed']
-    proof['historical_real_red_run_id'] = 39313864372
+    if args.case == 'cancel-maintenance-pfp':
+        proof['historical_real_red_run_id'] = 39313864372
+    else:
+        proof['counterfactual'] = 'omit-only-Core-owned-guard-pointer-check'
 if args.case in SECONDARY_CASES:
     proof['restored_control_passed'] &= control['evidence_passed']
 if args.case == 'sibling-retry-priority':
@@ -426,7 +436,7 @@ if args.case == 'worker-spawn-stack':
 proof['final_source_sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
 proof['completed'] = (proof.get('runtime_mutant_killed', False) and proof['restored_control_passed']
                       and proof['final_source_sha256'] == proof['original_sha256'] and attempt_error is None)
-if args.case == 'cancel-maintenance-pfp':
+if args.case in cancellation_pfp_cases:
     try:
         proof['final_source_head_index_exact'] = (frozen_inputs() == frozen
             and subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == cancellation_head

@@ -395,3 +395,75 @@ def secondary_prefix_omission(source):
     if SECONDARY_PREFIX_OMISSION in source:
         raise ValueError('Finite-predecessor omission already present')
     return source.replace(SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION)
+
+
+REAL_GUARD_NAME = 'runtime::device_linking::tests::device_linking_foreign_guard_cannot_cancel_real_guarded_same_group_admission'
+REAL_GUARD_EXPECT = 'foreign negative guard must not revoke the real original guarded admission'
+REAL_GUARD_CHECK = """        if admission.anchor.group_id != *group
+            || !admission
+                .guard
+                .as_ref()
+                .is_some_and(|guard| Arc::ptr_eq(guard, expected))
+        {"""
+REAL_GUARD_OMISSION = '        if admission.anchor.group_id != *group {'
+REAL_GUARD_FIELDS = {'selected_original', 'current_guard_pointer', 'original_live', 'actual_round_present'}
+
+
+def real_guard_oracle(output, fixture, expect_failure):
+    import json
+    if type(expect_failure) is not bool:
+        raise ValueError('real-guard-phase')
+    if fixture.count('"' + REAL_GUARD_EXPECT + '"') != 1:
+        raise ValueError('real-guard-source-expect')
+    literal = fixture.index('"' + REAL_GUARD_EXPECT + '"')
+    call = fixture.rfind('.expect', 0, literal)
+    if call < 0 or literal - call > 256:
+        raise ValueError('real-guard-source-call')
+    line = fixture[:call].count('\n') + 1
+    prefixes = ('cancel-real-guard-control ', 'cancel-real-guard-result ')
+    observations = [[], []]
+    positions = [[], []]
+    invalid = len(output) > 16 * 1024 * 1024
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value: raise ValueError('duplicate-field')
+            value[key] = item
+        return value
+    for ordinal, raw in enumerate(output.splitlines()):
+        for index, prefix in enumerate(prefixes):
+            if prefix not in raw: continue
+            try:
+                match = re.fullmatch(r'[ \t]{0,8}' + re.escape(prefix) + r'(\{[^\r\n]*\})[ \t]{0,8}', raw)
+                if match is None or len(raw) > 4096: raise ValueError('envelope')
+                value = json.loads(match[1], object_pairs_hook=unique)
+                expected = REAL_GUARD_FIELDS if index == 0 else {'foreign_cancel_returned_ok'}
+                if type(value) is not dict or set(value) != expected or any(type(item) is not bool for item in value.values()):
+                    raise ValueError('fields')
+                if index == 0 and not all(value.values()): raise ValueError('prerequisites')
+                observations[index].append(value); positions[index].append(ordinal)
+            except (ValueError, TypeError): invalid = True
+    complete = not invalid and all(len(value) == 1 for value in observations)
+    ordered = complete and positions[0][0] < positions[1][0]
+    expected_result = complete and observations[1][0]['foreign_cancel_returned_ok'] is expect_failure
+    counts = re.findall(r'test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', output)
+    statuses = re.findall(r'(?m)^test ' + re.escape(REAL_GUARD_NAME) + r'[ \t]+\.\.\.[ \t]+(ok|FAILED)[ \t]*\r?$', output)
+    compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$)|test run failed\r?$)[^\n]*', output)
+    panic_count = output.count('panicked at ')
+    panic = re.search(r"(?m)^[ \t]{0,8}thread '" + re.escape(REAL_GUARD_NAME)
+        + r"'(?: \(\d+\))? panicked at " + re.escape(CANCEL_MAINTENANCE_FIXTURE)
+        + ':' + str(line) + r':\d+:\r?\n[ \t]{0,8}'
+        + re.escape(REAL_GUARD_EXPECT + ': Gate(NoLiveVerifier)') + r'[ \t]*\r?$', output)
+    before_panic = bool(ordered and panic and output.index(prefixes[1]) < panic.start())
+    own = bool(panic and panic_count == 1)
+    named = statuses == ['FAILED' if expect_failure else 'ok']
+    expected_counts = [('FAILED', '0', '1', '0')] if expect_failure else [('ok', '1', '0', '0')]
+    passed = (ordered and expected_result and named and counts == expected_counts and not compiler
+              and (own and before_panic if expect_failure else panic_count == 0))
+    return {'expected_test': REAL_GUARD_NAME, 'trusted_source_line': line,
+            'actual_one_named_body': named, 'compiler_error_count': len(compiler),
+            'panic_header_count': panic_count, 'prerequisite_marker_complete': complete,
+            'prerequisites_before_result': bool(ordered),
+            'foreign_cancel_returned_ok': observations[1][0]['foreign_cancel_returned_ok'] if complete else None,
+            'own_guard_rejection_panic': own, 'markers_before_own_panic': before_panic,
+            'evidence_passed': bool(passed)}
