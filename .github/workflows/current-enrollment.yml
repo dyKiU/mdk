@@ -1,0 +1,96 @@
+name: Current original enrollment five and sixteen
+on:
+  push:
+    branches: [ci/upstream-current-enrollment-20261019]
+  workflow_dispatch:
+    inputs:
+      scope:
+        type: choice
+        options: [preflight, runtime]
+        default: preflight
+      mode:
+        type: choice
+        options: [five, sixteen]
+        default: five
+permissions:
+  contents: read
+concurrency:
+  group: current-enrollment-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/ci/upstream-current-enrollment-20261019' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UPSTREAM_CURRENT_ENROLLMENT_BASELINE: c5a5c10ce0792a41c7feecc81bcd2efab2a8adda
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Whole source and closed parser controls; zero bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_current_enrollment.py --preflight --mode "${{ inputs.mode || 'five' }}"
+      - name: Hosted formatting; exact patch on failure
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" cargo fmt --all
+          git diff --binary > "$RUNNER_TEMP/current-enrollment-format.patch"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: current-enrollment-preflight
+          path: |
+            ${{ runner.temp }}/current-enrollment-evidence/result.json
+            ${{ runner.temp }}/current-enrollment-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  runtime:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-current-enrollment-20261019'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.mode == 'sixteen' && 180 || 90 }}
+    env:
+      UPSTREAM_CURRENT_ENROLLMENT_BASELINE: c5a5c10ce0792a41c7feecc81bcd2efab2a8adda
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: Original unchanged enrollment cases; no retries
+        env:
+          CARGO_INCREMENTAL: '1'
+          CASE_MODE: ${{ inputs.mode }}
+        run: python3 scripts/qualify_upstream_current_enrollment.py --mode "$CASE_MODE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: current-enrollment-${{ inputs.mode }}
+          path: ${{ runner.temp }}/current-enrollment-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
