@@ -282,7 +282,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     if attempt.is_err() {
         if let Some(probe) = &proof_lineage {
             for (source_slot, row) in probe.proof_summary().iter().enumerate() {
-                eprintln!("enrollment-peer-proof-lineage source_slot={source_slot} recipient_slot=3 attempted_newcomer={attempted_newcomer:?} summary={row:?}");
+                eprintln!(
+                    "enrollment-peer-proof-lineage source_slot={source_slot} recipient_slot=3 attempted_newcomer={attempted_newcomer:?} summary={row:?}"
+                );
             }
         } else {
             eprintln!("enrollment-peer-proof-lineage unavailable=true");
