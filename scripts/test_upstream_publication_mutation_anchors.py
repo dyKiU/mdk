@@ -760,5 +760,63 @@ class ProposalOnlyCancellationObservation(unittest.TestCase):
             with self.assertRaises(ValueError):
                 proposal_only_cancel_assertion_line(prefix+PROPOSAL_CANCEL_MESSAGE+'"\n);')
 
+
+class ProposalOnlyCancellationPositiveAndInverse(unittest.TestCase):
+    def good(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_CANCEL_NAME
+        fixture,raw=ProposalOnlyCancellationObservation().shape()
+        start=raw.index("thread '");end=raw.index('test result:',start)
+        raw=raw[:start]+raw[end:]
+        raw=raw.replace(' ... FAILED',' ... ok').replace('FAILED. 0 passed; 1 failed;','ok. 1 passed; 0 failed;')
+        raw=raw.replace('"cancel_ok":false','"cancel_ok":true').replace('"cancel_stale":true','"cancel_stale":false')
+        raw=raw.replace('"scope_check_passed":false','"scope_check_passed":true').replace('"durable_query_completed":false','"durable_query_completed":true').replace('"exact_retired":null','"exact_retired":false')
+        return fixture,raw
+    def test_unchanged_fixture_green_and_exact_own_red_restored(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_oracle
+        fixture,good=self.good();_,historical_red=ProposalOnlyCancellationObservation().shape()
+        red=historical_red.replace('"scope_check_passed":false','"scope_check_passed":true').replace('"durable_query_completed":false','"durable_query_completed":true').replace('"exact_retired":null','"exact_retired":false')
+        self.assertTrue(proposal_only_cancel_oracle(good,fixture,False,True)['evidence_passed'])
+        self.assertTrue(proposal_only_cancel_oracle(red,fixture,True,True)['evidence_passed'])
+        self.assertTrue(proposal_only_cancel_oracle(good,fixture,False,True)['evidence_passed'])
+        for bad in [good+good,good.replace('"cancel_ok":true','"cancel_ok":false'),good.replace('"scope_check_passed":true','"scope_check_passed":false'),good.replace('"durable_phase":null','"durable_phase":"retired"'),good.replace('"exact_retired":false','"exact_retired":true'),good.replace('"retired_proposal":true','"retired_proposal":false'),good+'error[E0308]: PRIVATE_VALUE\n',red]:
+            row=proposal_only_cancel_oracle(bad,fixture,False,True)
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE',json.dumps(row))
+    def test_pfp_does_not_credit_other_real_denial_boundaries(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_oracle
+        fixture,scope_denial=ProposalOnlyCancellationObservation().shape()
+        no_fact=scope_denial.replace('"scope_check_passed":false','"scope_check_passed":true').replace('"durable_query_completed":false','"durable_query_completed":true').replace('"exact_retired":null','"exact_retired":false')
+        context_denial=scope_denial.replace('"context_rejected":false','"context_rejected":true').replace('"scope_check_entered":true','"scope_check_entered":false')
+        self.assertTrue(proposal_only_cancel_oracle(scope_denial,fixture,True)['evidence_passed'])
+        for other in [scope_denial,context_denial,no_fact.replace('"durable_phase":null','"durable_phase":"confirmed"'),no_fact.replace('"durable_phase":null','"durable_phase":"raw_staged"'),no_fact.replace('"durable_phase":null','"durable_phase":"retired"').replace('"exact_retired":false','"exact_retired":true')]:
+            row=proposal_only_cancel_oracle(other,fixture,True,True)
+            self.assertFalse(row['evidence_passed']);self.assertFalse(row['actual_exact_no_fact_route'])
+
+    def test_actual_inverse_preserves_every_other_byte(self):
+        from upstream_publication_mutation_anchors import proposal_retirement_inverse,PROPOSAL_RECEIPT_PATH,PROPOSAL_RECEIPT_CONDITION,PROPOSAL_RECEIPT_INVERSE
+        source=Path(PROPOSAL_RECEIPT_PATH).read_text();mutant=proposal_retirement_inverse(source)
+        self.assertEqual(mutant,source.replace(PROPOSAL_RECEIPT_CONDITION,PROPOSAL_RECEIPT_INVERSE,1))
+        for bad in [source+source,source.replace(PROPOSAL_RECEIPT_CONDITION,'PRIVATE_VALUE'),mutant]:
+            with self.assertRaises(ValueError):proposal_retirement_inverse(bad)
+
+
+    def test_original_unapproved_proposal_body_is_independent_positive(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_ORIGINAL_NAME, proposal_original_positive_oracle
+        good = ('running 1 test\ntest ' + PROPOSAL_ORIGINAL_NAME + ' ... ok\n'
+            'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.00s\n')
+        self.assertTrue(proposal_original_positive_oracle(good)['evidence_passed'])
+        for bad in [good + good, good.replace(PROPOSAL_ORIGINAL_NAME, 'PRIVATE_VALUE'),
+                    good.replace(' ... ok', ' ... FAILED'), good.replace('1 passed', '0 passed'),
+                    good.replace('0 ignored', '1 ignored'), good + 'error[E0308]: PRIVATE_VALUE\n',
+                    good + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n"]:
+            row = proposal_original_positive_oracle(bad)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+    def test_strict_route_option_does_not_change_other_oracle_signatures(self):
+        import inspect
+        from upstream_publication_mutation_anchors import real_guard_oracle, late_first_revoke_oracle, late_first_fixed_oracle
+        for oracle in [real_guard_oracle, late_first_revoke_oracle, late_first_fixed_oracle]:
+            self.assertNotIn('require_no_fact_route', inspect.getsource(oracle))
+
 if __name__ == '__main__':
     unittest.main()

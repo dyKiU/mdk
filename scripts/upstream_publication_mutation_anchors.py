@@ -863,6 +863,39 @@ def explicit_sync_original_relay_positive_oracle(output):
 
 
 PROPOSAL_CANCEL_CASE = 'proposal-only-cancel-red'
+PROPOSAL_CANCEL_GREEN = 'proposal-only-cancel-green'
+PROPOSAL_CANCEL_PFP = 'proposal-only-cancel-pfp'
+PROPOSAL_ORIGINAL_NAME = 'runtime::device_linking::tests::device_linking_third_device_cannot_publish_without_existing_sibling_approval'
+PROPOSAL_RECEIPT_PATH = 'crates/marmot-app/src/client/device_linking.rs'
+PROPOSAL_RECEIPT_CONDITION = 'let retired_proposal_without_fact = fact.is_none()'
+PROPOSAL_RECEIPT_INVERSE = 'let retired_proposal_without_fact = false && fact.is_none()'
+
+
+
+def proposal_original_positive_oracle(output):
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode())
+    named = statuses == [(PROPOSAL_ORIGINAL_NAME, 'ok')]
+    return {'expected_test': PROPOSAL_ORIGINAL_NAME, 'original_proposal_positive_only': True,
+            'actual_exact_named_body': named, 'compiler_diagnostics': diagnostics,
+            'compiler_error_count': diagnostics['compiler_header_count'], 'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and running == ['1']
+                and len(summaries) == 1 and summaries[0][:5] == ('ok', '1', '0', '0', '0')
+                and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0 and text.count('panicked at ') == 0)}
+
+
+def proposal_retirement_inverse(source):
+    start = source.index('    pub(crate) fn retired_invite_cancel_candidate(')
+    end = source.index('    pub(crate) fn finish_retired_invite_negative_cleanup(', start)
+    if (source.count(PROPOSAL_RECEIPT_CONDITION) != 1 or PROPOSAL_RECEIPT_INVERSE in source
+            or source[start:end].count(PROPOSAL_RECEIPT_CONDITION) != 1):
+        raise ValueError('exact-retired-proposal-no-fact-condition-required')
+    return source.replace(PROPOSAL_RECEIPT_CONDITION, PROPOSAL_RECEIPT_INVERSE, 1)
+
 PROPOSAL_CANCEL_NAME = 'runtime::device_linking::tests::device_linking_proposal_only_cancel_after_real_maintenance_reports_success'
 PROPOSAL_CANCEL_FILE = 'crates/marmot-app/src/runtime/device_linking.rs'
 PROPOSAL_CANCEL_MESSAGE = 'proposal-only cancellation must acknowledge the exact original after real maintenance'
@@ -880,7 +913,9 @@ def proposal_only_cancel_assertion_line(fixture):
     return fixture[:assertion_at].count('\n') + 1
 
 
-def proposal_only_cancel_oracle(output, fixture):
+def proposal_only_cancel_oracle(output, fixture, expect_failure=True, require_no_fact_route=False):
+    if type(expect_failure) is not bool or type(require_no_fact_route) is not bool:
+        raise ValueError('proposal-only-exact-phase-required')
     import json
     from upstream_avatar_ready_turn_chain import compiler_diagnostics
     text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
@@ -926,14 +961,26 @@ def proposal_only_cancel_oracle(output, fixture):
     close_matches=[re.fullmatch(r'proposal-only-cancel-close index=([0-9]+)[ \t]*',line)for line in close_lines]
     closes=[match[1]for match in close_matches if match is not None]
     closes_valid=all(match is not None for match in close_matches)
-    ordered=closes_valid and closes==['0','1','2'] and len(own)==1 and marker is not None and text.index('proposal-only-cancel-close index=0')<text.index('proposal-only-cancel-close index=1')<text.index('proposal-only-cancel-close index=2')<text.index('proposal-only-cancel-control ')<own[0].start()
+    ordered=closes_valid and closes==['0','1','2'] and marker is not None and text.index('proposal-only-cancel-close index=0')<text.index('proposal-only-cancel-close index=1')<text.index('proposal-only-cancel-close index=2')<text.index('proposal-only-cancel-control ')
+    if expect_failure:
+        ordered=ordered and len(own)==1 and text.index('proposal-only-cancel-control ')<own[0].start()
     diagnostics=compiler_diagnostics(text.encode(),cargo_test_context=('marmot-app','--lib'))
-    intended=bool(marker and marker['owned_proposal'] and marker['retired_proposal'] and marker['fallback_entered'] and marker['cancel_stale'] and not marker['cancel_ok'] and denial!='unknown')
+    no_fact_route=bool(marker and not marker['context_rejected'] and marker['scope_check_entered']
+        and marker['scope_check_passed'] and marker['durable_query_completed']
+        and marker['durable_phase'] is None and marker['exact_retired'] is False)
+    intended=bool(marker and marker['owned_proposal'] and marker['retired_proposal'] and marker['fallback_entered']
+        and (marker['cancel_stale'] and not marker['cancel_ok'] and denial!='unknown' if expect_failure else
+            marker['cancel_ok'] and not marker['cancel_stale'] and not marker['context_rejected']
+            and marker['scope_check_entered'] and marker['scope_check_passed'] and marker['durable_query_completed']
+            and marker['durable_phase'] is None and marker['exact_retired'] is False))
     return {'expected_test':PROPOSAL_CANCEL_NAME,'expected_source':PROPOSAL_CANCEL_FILE,'expected_assertion_line':site,
-        'closed_marker_valid':marker is not None,'observation':marker,'observed_fallback_denial':denial,
+        'closed_marker_valid':marker is not None,'observation':marker,'observed_fallback_denial':denial if expect_failure else None,
+        'expected_runtime_failure':expect_failure,'strict_no_fact_route_required':require_no_fact_route,
+        'actual_exact_no_fact_route':no_fact_route,
         'observation_consistent':consistent,'three_positive_closes_before_own_assertion':bool(ordered),
         'compiler_diagnostics':diagnostics,'panic_header_count':text.count('panicked at '),
-        'evidence_passed':bool(len(text)<=16*1024*1024 and statuses==[(PROPOSAL_CANCEL_NAME,'FAILED')]
-            and running==['1'] and len(summaries)==1 and summaries[0]==('FAILED','0','1','0','0')
-            and intended and consistent and ordered and text.count('panicked at ')==1
+        'evidence_passed':bool(len(text)<=16*1024*1024 and statuses==[(PROPOSAL_CANCEL_NAME,'FAILED' if expect_failure else 'ok')]
+            and running==['1'] and len(summaries)==1 and summaries[0]==(('FAILED','0','1','0','0') if expect_failure else ('ok','1','0','0','0'))
+            and intended and consistent and ordered and (not require_no_fact_route or no_fact_route)
+            and text.count('panicked at ')==(1 if expect_failure else 0)
             and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count']==0)}
