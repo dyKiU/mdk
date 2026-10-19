@@ -33,19 +33,38 @@ impl SdkCancellationFence {
     /// Revoke only this exact captured negative revision. The returned fence
     /// is bound to the CAS result, never a later observation of the counter.
     pub(super) fn advance_original_revision(
-        &self, current: &Arc<AtomicU64>, closed: &Arc<AtomicBool>,
+        &self,
+        current: &Arc<AtomicU64>,
+        closed: &Arc<AtomicBool>,
     ) -> Option<Self> {
-        if !Arc::ptr_eq(&self.current, current) || !Arc::ptr_eq(&self.closed, closed)
+        if !Arc::ptr_eq(&self.current, current)
+            || !Arc::ptr_eq(&self.closed, closed)
             || self.closed.load(Ordering::Acquire)
-        { return None; }
+        {
+            return None;
+        }
         let Some(next) = self.generation.checked_add(1) else {
-            if current.compare_exchange(self.generation, self.generation, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            if current
+                .compare_exchange(
+                    self.generation,
+                    self.generation,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
                 closed.store(true, Ordering::Release);
             }
             return None;
         };
-        current.compare_exchange(self.generation, next, Ordering::AcqRel, Ordering::Acquire).ok()?;
-        Some(Self { current: current.clone(), generation: next, closed: closed.clone() })
+        current
+            .compare_exchange(self.generation, next, Ordering::AcqRel, Ordering::Acquire)
+            .ok()?;
+        Some(Self {
+            current: current.clone(),
+            generation: next,
+            closed: closed.clone(),
+        })
     }
     pub(super) fn captured_revision_is(&self, revision: u64) -> bool {
         self.generation == revision
@@ -171,11 +190,17 @@ mod negative_revision_tests {
         let current = Arc::new(AtomicU64::new(0));
         let closed = Arc::new(AtomicBool::new(false));
         let original = SdkCancellationFence::capture(current.clone(), closed.clone());
-        let after = original.advance_original_revision(&current, &closed).unwrap();
+        let after = original
+            .advance_original_revision(&current, &closed)
+            .unwrap();
         assert!(after.revision_matches_for_negative_completion());
         current.fetch_add(1, Ordering::AcqRel); // Actual concurrent negative invalidation.
         assert!(!after.revision_matches_for_negative_completion());
-        assert!(original.advance_original_revision(&current, &closed).is_none());
+        assert!(
+            original
+                .advance_original_revision(&current, &closed)
+                .is_none()
+        );
         assert_eq!(current.load(Ordering::Acquire), 2);
     }
     #[test]
@@ -183,14 +208,26 @@ mod negative_revision_tests {
         let current = Arc::new(AtomicU64::new(0));
         let closed = Arc::new(AtomicBool::new(false));
         let original = SdkCancellationFence::capture(current.clone(), closed.clone());
-        assert!(original.advance_original_revision(&Arc::new(AtomicU64::new(0)), &closed).is_none());
+        assert!(
+            original
+                .advance_original_revision(&Arc::new(AtomicU64::new(0)), &closed)
+                .is_none()
+        );
         assert_eq!(current.load(Ordering::Acquire), 0);
         closed.store(true, Ordering::Release);
-        assert!(original.advance_original_revision(&current, &closed).is_none());
+        assert!(
+            original
+                .advance_original_revision(&current, &closed)
+                .is_none()
+        );
         let current = Arc::new(AtomicU64::new(u64::MAX));
         let closed = Arc::new(AtomicBool::new(false));
         let overflow = SdkCancellationFence::capture(current.clone(), closed.clone());
-        assert!(overflow.advance_original_revision(&current, &closed).is_none());
+        assert!(
+            overflow
+                .advance_original_revision(&current, &closed)
+                .is_none()
+        );
         assert!(closed.load(Ordering::Acquire));
         assert_eq!(current.load(Ordering::Acquire), u64::MAX);
     }

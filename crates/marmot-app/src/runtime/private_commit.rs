@@ -93,7 +93,9 @@ impl PublicationControl {
                     PublicationGate::Invite(gate) => {
                         // A stale first revoke still marks/wakes the old slot,
                         // but cannot cancel or capture any later gate revision.
-                        active.negative_invite_revision = active.original_invite_revision.as_ref()
+                        active.negative_invite_revision = active
+                            .original_invite_revision
+                            .as_ref()
                             .and_then(|original| gate.cancel_original_revision(original));
                     }
                     _ => active.gate.cancel(),
