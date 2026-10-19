@@ -143,6 +143,115 @@ def kill_owned_group(process):
         raise SamplerFailure() from None
 
 
+LAUNCHER_EXITS = {
+    'invalid_arguments': 70, 'output_fd_unavailable': 71,
+    'admission_fd_unavailable': 72, 'admission_read_failed': 73,
+    'expected_parent_precheck_failed': 74, 'pdeathsig_arm_failed': 75,
+    'expected_parent_postcheck_failed': 76, 'dup2_failed': 77,
+    'exec_failed': 78, 'launcher_unknown': 79,
+}
+
+
+class LauncherFailure(SamplerFailure):
+    def __init__(self, category):
+        require(category in LAUNCHER_EXITS)
+        self.category = category
+
+
+def launch_require(value, category):
+    if not value: raise LauncherFailure(category)
+
+
+def harmless_launcher_failure(code):
+    # Valid only for the fixed harmless Python probe, which exits0 after exec.
+    # Never interpret an arbitrary product exit as a launcher category.
+    category = next((name for name, value in LAUNCHER_EXITS.items() if type(code) is int and code == value), None)
+    keys = ('output_fd_available', 'admission_fd_available', 'admission_read_valid',
+            'expected_parent_precheck', 'pdeathsig_armed', 'expected_parent_postcheck',
+            'dup2_succeeded', 'exec_succeeded')
+    checks = dict.fromkeys(keys, None)
+    boundary = {'output_fd_unavailable': 0, 'admission_fd_unavailable': 1,
+                'admission_read_failed': 2, 'expected_parent_precheck_failed': 3,
+                'pdeathsig_arm_failed': 4, 'expected_parent_postcheck_failed': 5,
+                'dup2_failed': 6, 'exec_failed': 7}.get(category)
+    if boundary is not None:
+        for index, key in enumerate(keys):
+            checks[key] = True if index < boundary else False if index == boundary else None
+    return {'category': category, 'source_owned_harmless_exit': category is not None,
+            'prior_point_checks_only': checks, 'product_exit_classified': False}
+
+
+def signal_policy_flags(raw, code):
+    if type(code) is not int or code != 0:
+        return None
+    headers = re.findall(r'^Signal[ \t]+Stop[ \t]+Print[ \t]+Pass to program[ \t]+Description[ \t]*$', raw, re.M)
+    rows = re.findall(r'^SIGINT[ \t]+(Yes|No)[ \t]+(Yes|No)[ \t]+(Yes|No)[ \t]+Interrupt[ \t]*$', raw, re.M)
+    all_signal_rows = re.findall(r'^SIG[A-Z0-9]+[ \t]+.*$', raw, re.M)
+    if len(headers) != 1 or len(rows) != 1 or len(all_signal_rows) != 1:
+        return None
+    return [value == 'Yes' for value in rows[0]]
+
+
+def gdb_signal_controls(real=False):
+    header = 'Signal Stop Print Pass to program Description\n'
+    old = header + 'SIGINT No No No Interrupt\n'
+    new = header + 'SIGINT Yes Yes No Interrupt\n'
+    if not real:
+        positive = negative = 0
+        require(signal_policy_flags(old, 0) == [False, False, False]); positive += 1
+        require(signal_policy_flags(new, 0) == [True, True, False]); positive += 1
+        for raw, code in [(old + old, 0), (new.replace('Yes', 'PRIVATE', 1), 0),
+                          (new.replace('SIGINT', 'SIGTERM'), 0), (new[len(header):], 0),
+                          (new.replace('Interrupt', 'PRIVATE'), 0), (new, 1), (new, True)]:
+            require(signal_policy_flags(raw, code) is None); negative += 1
+        require(harmless_launcher_failure(72)['prior_point_checks_only']['admission_fd_available'] is False); positive += 1
+        require(harmless_launcher_failure(74)['prior_point_checks_only']['expected_parent_precheck'] is False); positive += 1
+        for code in [1, 0, None, True]:
+            require(harmless_launcher_failure(code)['category'] is None); negative += 1
+        for missing_output, expected in [(True, 'output_fd_unavailable'), (False, 'admission_fd_unavailable')]:
+            rd, wr = os.pipe()
+            child = None
+            try:
+                child = subprocess.Popen([sys.executable, str(Path(__file__).absolute()), '--exec-target',
+                    '999999' if missing_output else str(wr), '999998', sys.executable, '-c',
+                    'print("must-not-execute")'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL, pass_fds=(wr,), start_new_session=True)
+                os.close(wr); wr = None
+                require(child.wait(timeout=5) == LAUNCHER_EXITS[expected])
+                require(select.select([rd], [], [], 5)[0] == [rd] and os.read(rd, 128) == b'')
+                negative += 1
+            finally:
+                kill_owned_group(child)
+                os.close(rd)
+                if wr is not None: os.close(wr)
+        return {'positive': positive, 'negative': negative, 'rust_bodies': 0,
+                'real_gdb_commands': 0}
+    import qualify_upstream_storage_boundary as bounded
+    result = {'verified': False, 'rows': [], 'rust_bodies': 0,
+              'product_red_claim': False, 'raw_output_export': False}
+    for label, policy in [('old', 'stop noprint nopass'), ('corrected', 'stop print nopass')]:
+        row = {'policy': label, 'exit': None, 'flags_stop_print_pass': None,
+               'error_kind': None, 'elapsed_seconds': None}
+        result['rows'].append(row)
+        command = ['/usr/bin/gdb', '--quiet', '--nx', '--batch',
+            '-ex', 'set pagination off', '-ex', 'set debuginfod enabled off',
+            '-ex', 'python gdb.execute(' + repr('handle SIGINT ' + policy) + ', to_string=True)',
+            '-ex', 'info signals SIGINT']
+        started = time.monotonic()
+        try:
+            code, raw, _ = bounded.capture(command, 5, limit=65536)
+            row['exit'] = code
+            row['flags_stop_print_pass'] = signal_policy_flags(raw, code)
+        except Exception as error:
+            row['error_kind'] = setup_exception_kind(error)
+        finally:
+            row['elapsed_seconds'] = round(time.monotonic() - started, 3)
+    result['old_expected_negative_observed'] = result['rows'][0]['flags_stop_print_pass'] == [False, False, False]
+    result['corrected_expected_positive_observed'] = result['rows'][1]['flags_stop_print_pass'] == [True, True, False]
+    result['verified'] = result['old_expected_negative_observed'] and result['corrected_expected_positive_observed']
+    return result
+
+
 def publish_parent_admission(process, admission):
     read_fd, write_fd = admission
     # Only the profiler inherits the read end. The controller supplies the exact
@@ -160,17 +269,30 @@ def admit_expected_parent(fd, *, parent=None, arm=None):
     if arm is None:
         def arm():
             import ctypes
-            require(ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0) == 0)
+            launch_require(ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0) == 0, 'pdeathsig_arm_failed')
+    available = False
     try:
-        require(select.select([fd], [], [], 5)[0] == [fd])
-        raw = os.read(fd, 32)
-        require(re.fullmatch(rb'[1-9][0-9]{0,9}\n', raw) is not None)
+        try:
+            os.fstat(fd)
+            available = True
+        except OSError:
+            raise LauncherFailure('admission_fd_unavailable') from None
+        try:
+            ready = select.select([fd], [], [], 5)[0] == [fd]
+            launch_require(ready, 'admission_read_failed')
+            raw = os.read(fd, 32)
+        except OSError:
+            raise LauncherFailure('admission_read_failed') from None
+        launch_require(re.fullmatch(rb'[1-9][0-9]{0,9}\n', raw) is not None, 'admission_read_failed')
         expected = int(raw)
-        require(parent() == expected)  # Reject already reparented targets.
-        arm()
-        require(parent() == expected)  # Cover death while arming PDEATHSIG.
+        launch_require(parent() == expected, 'expected_parent_precheck_failed')
+        try: arm()
+        except Exception:
+            raise LauncherFailure('pdeathsig_arm_failed') from None
+        launch_require(parent() == expected, 'expected_parent_postcheck_failed')
     finally:
-        os.close(fd)
+        if available:
+            os.close(fd)
 
 
 def exit_owned_parent_before_drain(process, request_exit):
@@ -410,7 +532,7 @@ def ownership_controls():
             if admitted:
                 require(result == 0 and text == b'synthetic-owned-exec\n'); positive += 1
             else:
-                require(result != 0 and text == b''); negative += 1
+                require(result == LAUNCHER_EXITS['expected_parent_precheck_failed'] and text == b''); negative += 1
         finally:
             kill_owned_group(child)
             for fd in [rd, wr, ar, aw]:
@@ -657,7 +779,7 @@ def controls():
     require(not mode_accepted('unrecognized', good_gdb, probe=True))
     negative += 1
     return {'positive': positive, 'negative': negative, 'actual_rust_bodies': 0,
-            'raw_private_export': False, 'owned_synthetic_processes_only': True, 'embedded_gdb': gdb_controls(), 'ownership_eof': ownership_controls(), 'tool_inventory': inventory_controls()}
+            'raw_private_export': False, 'owned_synthetic_processes_only': True, 'embedded_gdb': gdb_controls(), 'ownership_eof': ownership_controls(), 'tool_inventory': inventory_controls(), 'gdb_signal_policy': gdb_signal_controls()}
 
 
 STAGE_RULES = (
@@ -800,7 +922,8 @@ def gdb_capture(command, timeout):
               'internal_failure': False, 'cleanup_complete': False,
               'raw_persistence': False, 'qualification_passed': False,
               'stops': 0, 'paused_wall_seconds': 0., 'target_exit': None,
-              'reduction': None, 'interval_seconds': .1, 'time_anchor': 'gdb_exec_run_command',
+              'reduction': None, 'capture_stage': 'gdb_process_spawn',
+              'error_kind': None, 'error_category': None, 'interval_seconds': .1, 'time_anchor': 'gdb_exec_run_command',
               'fifth_choice_phase_alignment_known': False, 'stage_counts_overlap': True}
     embedded = gdb_source()
     closed = None
@@ -811,6 +934,7 @@ def gdb_capture(command, timeout):
         process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, pass_fds=(wr, admission[0]), start_new_session=True)
         owned_admission, admission = admission, None
+        finite['capture_stage'] = 'parent_admission_publish'
         publish_parent_admission(process, owned_admission)
         os.close(wr); wr = None
         for stream, role in [(process.stdout, 'mi'), (process.stderr, 'err'), (rd, 'target')]:
@@ -892,14 +1016,19 @@ def gdb_capture(command, timeout):
             expected = send(command)
             outcome = receive(lambda line: ('done' if line.startswith(expected + '^done') else
                 'error' if line.startswith(expected + '^error') else None), time.monotonic() + 5)
+            if outcome != 'done':
+                finite['error_category'] = 'mi_command_error' if outcome == 'error' else 'mi_reply_unknown'
             require(outcome == 'done')
+        finite['capture_stage'] = 'gdb_configuration'
         for setting in ['-gdb-set auto-load off', '-gdb-set debuginfod enabled off',
                         '-gdb-set disable-randomization off', '-gdb-set startup-with-shell off', '-gdb-set pagination off', '-gdb-set confirm off',
                         '-gdb-set print frame-arguments none', '-gdb-set print address off',
                         '-gdb-set print thread-events off', '-gdb-set mi-async on']:
             done(setting)
-        done('-interpreter-exec console "handle SIGINT stop noprint nopass"')
+        done('-interpreter-exec console "handle SIGINT stop print nopass"')
+        finite['capture_stage'] = 'gdb_python_install'
         done('-interpreter-exec console ' + json.dumps('python exec(' + repr(embedded) + ')'))
+        finite['capture_stage'] = 'gdb_exec_run'
         launch_started = time.monotonic()
         finite['launch_command_capture_elapsed_ms'] = int((launch_started - started) * 1000)
         run_token = send('-exec-run')
@@ -917,6 +1046,7 @@ def gdb_capture(command, timeout):
                 return ('interrupt', None)
             return ('unexpected-stop', None)
         while True:
+            finite['capture_stage'] = 'gdb_wait_for_stop'
             # Wait for normal exit during the interval before issuing interrupt.
             try:
                 status = receive(stopped, time.monotonic() + .1)
@@ -932,22 +1062,31 @@ def gdb_capture(command, timeout):
                 finite['completed'] = True
                 break
             require(status[0] == 'interrupt')
+            finite['capture_stage'] = 'gdb_frame_reduce'
             paused = time.monotonic()
             done('-interpreter-exec console "python _closed_sample(' + str(int(time.monotonic() - launch_started)) + ')"')
             finite['stops'] += 1
+            finite['capture_stage'] = 'gdb_resume'
             next_token = send('-exec-continue')
             require(receive(lambda line: 'running' if line.startswith(next_token + '^running') else
                 'error' if line.startswith(next_token + '^error') else None, time.monotonic() + 5) == 'running')
             finite['paused_wall_seconds'] += time.monotonic() - paused
+        finite['capture_stage'] = 'gdb_parent_exit'
         finite['profiler_parent_exited_before_target_eof'] = exit_owned_parent_before_drain(
             process, lambda: send('-gdb-exit'))
         # Parent exit closes its inherited writer. Direct bounded drain also
         # preserves final numeric test output before any sampler verdict.
+        finite['capture_stage'] = 'target_eof_drain'
         finite['target_eof_verified'] = drain_target_after_parent_exit(rd, target)
+        finite['capture_stage'] = 'gdb_reduction_admission'
         finite['reduction'] = closed
         finite['one_second_stage_bins'] = [[key, gdb_bins[key]] for key in sorted(gdb_bins)]
         require(closed is not None and closed['complete'] is True and closed['frames'] > 0)
-    except Exception:
+        finite['capture_stage'] = 'complete'
+    except Exception as error:
+        finite['error_kind'] = setup_exception_kind(error)
+        if finite['error_category'] is None:
+            finite['error_category'] = 'mi_operation_timeout' if isinstance(error, IntervalExpired) else 'closed_capture_failure'
         finite['watchdog'] = time.monotonic() >= deadline
         finite['internal_failure'] = not finite['watchdog']
     finally:
@@ -1009,12 +1148,19 @@ def mode_probe(mode, *, inventory=None, capture=None):
         result['setup_category'] = tool_admission_category(row)
         if result['setup_category'] != 'tool_path_admitted':
             return result
+        if mode == 'gdb' and capture is None:
+            result['signal_policy_control'] = gdb_signal_controls(real=True)
+            if result['signal_policy_control']['verified'] is not True:
+                result['setup_category'] = 'gdb_signal_policy_control_failed'
+                return result
         command = [sys.executable, '-c',
             'import time; stop=time.monotonic()+1\nwhile time.monotonic()<stop: pass\nprint("sampler-synthetic-ok")']
         result['capture_invoked'] = True
         capture = mode_capture if capture is None else capture
         stats, text = capture(mode, command, 15)
         result['capture'] = stats
+        if mode == 'gdb':
+            result['harmless_launcher_failure'] = harmless_launcher_failure(stats.get('target_exit'))
         result['synthetic_output_verified'] = text == 'sampler-synthetic-ok\n'
         if not mode_accepted(mode, stats, probe=True):
             result['setup_category'] = 'tool_probe_unsupported'
@@ -1030,13 +1176,27 @@ def mode_probe(mode, *, inventory=None, capture=None):
 
 
 
+def launcher_main(args):
+    try:
+        launch_require(len(args) >= 5 and args[0] == '--exec-target', 'invalid_arguments')
+        try: fd, admission = int(args[1]), int(args[2])
+        except ValueError: raise LauncherFailure('invalid_arguments') from None
+        launch_require(fd > 2 and admission > 2 and fd != admission, 'invalid_arguments')
+        try: os.fstat(fd)
+        except OSError: raise LauncherFailure('output_fd_unavailable') from None
+        no_core_dumps()
+        admit_expected_parent(admission)
+        try:
+            os.dup2(fd, 1); os.dup2(fd, 2); os.close(fd)
+        except OSError:
+            raise LauncherFailure('dup2_failed') from None
+        try: os.execv(args[3], args[3:])
+        except OSError: raise LauncherFailure('exec_failed') from None
+    except LauncherFailure as error:
+        os._exit(LAUNCHER_EXITS[error.category])
+    except Exception:
+        os._exit(LAUNCHER_EXITS['launcher_unknown'])
+
+
 if __name__ == '__main__':
-    # Only launched behind perf, never shell-evaluated. Keep target output out of
-    # the producer's perf-data stdout pipe. No target code is imported here.
-    require(sys.argv[1] == '--exec-target' and len(sys.argv) >= 6)
-    fd, admission = int(sys.argv[2]), int(sys.argv[3])
-    require(fd > 2 and admission > 2 and fd != admission)
-    no_core_dumps()
-    admit_expected_parent(admission)
-    os.dup2(fd, 1); os.dup2(fd, 2); os.close(fd)
-    os.execv(sys.argv[4], sys.argv[4:])
+    launcher_main(sys.argv[1:])
