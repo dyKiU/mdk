@@ -91,12 +91,101 @@ def telemetry_controls():
     assert 'PRIVATE' not in json.dumps(closed_key_package_telemetry(valid))
     return {'positive': 1, 'negative': len(bad)}
 
+NATIVE_STAGES = {
+    'attachment_task_queued', 'account_resolution', 'account_storage_cache', 'storage_admission',
+    'database_open_lock', 'signing_keys', 'external_database_secret', 'key_derivation', 'salt_read',
+    'recovery_probe', 'recovery_rekey', 'encrypted_store_open', 'cipher_configuration',
+    'cipher_key_application', 'operational_pragmas', 'migration_inspection', 'migration_apply',
+    'attachment_local_read', 'attachment_future_wait', 'product_analytics_admission',
+}
+NATIVE_BOOLEANS = {'enabled', 'bounded', 'observations_present', 'monotonic', 'overflow',
+                   'observed_intervals_usable', 'retained_intervals_complete'}
+NATIVE_NUMBERS = {'history_events', 'active_scopes', 'dropped_events', 'dropped_scopes',
+                  'duplicate_entries', 'unattributed_prefix_ms', 'unknown_stages', 'metadata_controls_passed'}
+NATIVE_FIELDS = {'events', 'active', 'observed_interval_ms', 'max_active_stage_ms'}
+
+
+def closed_native_summary(value):
+    if not isinstance(value, dict) or set(value) != NATIVE_BOOLEANS | NATIVE_NUMBERS | {'stages'}:
+        raise ValueError('native-summary-keys')
+    if any(type(value[key]) is not bool for key in NATIVE_BOOLEANS) or not all(uint(value[key]) for key in NATIVE_NUMBERS):
+        raise ValueError('native-summary-types')
+    rows = value['stages']
+    if not isinstance(rows, dict) or set(rows) != NATIVE_STAGES:
+        raise ValueError('native-stage-inventory')
+    if any(not isinstance(row, dict) or set(row) != NATIVE_FIELDS or not all(uint(item) for item in row.values())
+           for row in rows.values()):
+        raise ValueError('native-stage-types')
+    history, active = value['history_events'], value['active_scopes']
+    if history > 96 or active > 16 or not value['bounded'] or value['metadata_controls_passed'] != 11:
+        raise ValueError('native-bounds')
+    if (sum(row['events'] + row['active'] for row in rows.values()) + value['unknown_stages'] != history + active
+            or value['observations_present'] != (history + active > 0)):
+        raise ValueError('native-inventory-counts')
+    usable = value['monotonic'] and not value['overflow'] and value['unknown_stages'] == 0
+    complete = (value['enabled'] and usable and value['observations_present']
+                and value['duplicate_entries'] == 0 and value['unattributed_prefix_ms'] == 0
+                and value['dropped_events'] == 0 and value['dropped_scopes'] == 0)
+    if value['observed_intervals_usable'] != usable or value['retained_intervals_complete'] != complete:
+        raise ValueError('native-completeness-flags')
+    return value
+
+
+def native_fixture():
+    value = {key: 0 for key in NATIVE_NUMBERS}
+    value.update({key: True for key in NATIVE_BOOLEANS})
+    value.update({'overflow': False, 'history_events': 1, 'metadata_controls_passed': 11,
+                  'stages': {name: {field: 0 for field in NATIVE_FIELDS} for name in NATIVE_STAGES}})
+    value['stages']['key_derivation']['events'] = 1
+    return value
+
+
+def native_controls():
+    valid = native_fixture()
+    assert closed_native_summary(valid) == valid
+    positives = 1
+    for field in ('dropped_events', 'dropped_scopes', 'duplicate_entries', 'unattributed_prefix_ms'):
+        partial = json.loads(json.dumps(valid)); partial[field] = 1
+        partial['retained_intervals_complete'] = False
+        assert closed_native_summary(partial)['retained_intervals_complete'] is False
+        positives += 1
+    partial = json.loads(json.dumps(valid)); partial['monotonic'] = False
+    partial['observed_intervals_usable'] = False; partial['retained_intervals_complete'] = False
+    assert closed_native_summary(partial)['observed_intervals_usable'] is False
+    positives += 1
+    partial = json.loads(json.dumps(valid)); partial['unknown_stages'] = 1
+    partial['stages']['key_derivation']['events'] = 0
+    partial['observed_intervals_usable'] = False; partial['retained_intervals_complete'] = False
+    assert closed_native_summary(partial)['observed_intervals_usable'] is False
+    positives += 1
+    bad = []
+    def changed():
+        return json.loads(json.dumps(valid))
+    row = changed(); row['stages']['PRIVATE'] = {}; bad.append(row)
+    row = changed(); row['token'] = 1; bad.append(row)
+    row = changed(); row['stages']['key_derivation']['observed_interval_ms'] = 'PRIVATE'; bad.append(row)
+    row = changed(); del row['stages']['key_derivation']; bad.append(row)
+    row = changed(); row['dropped_events'] = 1; bad.append(row)
+    row = changed(); row['observed_intervals_usable'] = False; bad.append(row)
+    row = changed(); row['history_events'] = True; bad.append(row)
+    row = changed(); row['active_scopes'] = 17; bad.append(row)
+    row = changed(); row['metadata_controls_passed'] = 0; bad.append(row)
+    for value in bad:
+        try:
+            closed_native_summary(value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('native-negative-accepted')
+    assert 'PRIVATE' not in json.dumps(valid)
+    return {'positive': positives, 'negative': len(bad)}
+
 
 def closed_marker(case, value):
     if not isinstance(value, dict):
         raise ValueError('marker-shape')
     if case == 'key-package':
-        if set(value) != {'observed', 'elapsed_ms', 'setup_finished', 'journal_read_ok', 'journal_phase', 'telemetry'}:
+        if set(value) != {'observed', 'elapsed_ms', 'setup_finished', 'journal_read_ok', 'journal_phase', 'telemetry', 'native'}:
             raise ValueError('marker-keys')
         if any(type(value[k]) is not bool for k in ('observed', 'setup_finished', 'journal_read_ok')):
             raise ValueError('marker-bool')
@@ -105,6 +194,7 @@ def closed_marker(case, value):
         if value['journal_phase'] is not None and value['journal_phase'] not in PHASES:
             raise ValueError('marker-phase')
         closed_key_package_telemetry(value['telemetry'])
+        closed_native_summary(value['native'])
     else:
         if set(value) != AVATAR:
             raise ValueError('marker-keys')
@@ -131,7 +221,7 @@ def parse_marker(case, raw):
         if prefix in line:
             # No arbitrary prefix/suffix, duplicate keys or private strings survive.
             envelope = re.fullmatch(r'[ \t]{0,8}' + re.escape(prefix) + r'(\{[^\r\n]*\})[ \t]{0,8}', line)
-            if envelope is None or len(line) > 4096:
+            if envelope is None or len(line) > (16384 if case == 'key-package' else 4096):
                 raise ValueError('marker-envelope')
             payload = envelope[1]
             def unique(pairs):
@@ -226,7 +316,7 @@ def parser_controls():
     for case in CASES:
         values = ({'observed': False, 'elapsed_ms': 10000, 'setup_finished': False,
                    'journal_read_ok': True, 'journal_phase': 'local_state_created',
-                   'telemetry': telemetry_fixture()}
+                   'telemetry': telemetry_fixture(), 'native': native_fixture()}
                   if case == 'key-package' else dict({key: None for key in AVATAR},
                       core_observation={key: None for key in AVATAR_CORE}))
         package, binary, test, source, prefix = CASES[case]
@@ -293,7 +383,8 @@ def parser_controls():
     return {'positive': positives, 'negative': negatives, 'closure_fault_controls': 1,
             'historical_counter_regressions': counter_regressions,
             'historical_collector': PRIOR_COLLECTOR,
-            'key_package_telemetry_controls': telemetry_controls()}
+            'key_package_telemetry_controls': telemetry_controls(),
+            'key_package_native_controls': native_controls()}
 
 
 def close_inputs(report, before, input_probe=frozen_inputs, diff_probe=None):
