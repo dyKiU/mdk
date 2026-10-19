@@ -134,3 +134,77 @@ async fn held_delivery_cannot_enter_or_unpin_a_replacement_queue() {
     drop(held);
     plane.shutdown().await;
 }
+
+/// Fault-fixture scope/cursor control only, not an MLS or recipient-join proof.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn held_delivery_defers_recovery_without_unpinning_or_consuming_original() {
+    let (plane, adapter, alice) = cursor_floor_adapter(None, None);
+    let (other_plane, other_adapter, _) = cursor_floor_adapter(None, None);
+    let packet = cursor_floor_delivery(
+        &alice,
+        1,
+        OPENED_CURSOR + 100,
+        TransportDeliveryPlane::Group,
+    );
+    let held = plane.hold_account_delivery_for_test(alice.clone(), packet.message.id.clone());
+    assert!(adapter.defer_held_recovery_for_test(&packet));
+    assert_eq!(held.recovered_deferrals(), 1);
+    assert_eq!(held.observed(), (0, 0, 0));
+    assert!(!other_adapter.defer_held_recovery_for_test(&packet));
+    let mut unrelated = packet.clone();
+    unrelated.message.id = MessageId::new(vec![2; 32]);
+    assert!(!adapter.defer_held_recovery_for_test(&unrelated));
+    let mut other_account = packet.clone();
+    other_account.account_id = MemberId::new(vec![0xB2; 32]);
+    assert!(!adapter.defer_held_recovery_for_test(&other_account));
+    // Preserve the exact account, event and GroupMessage envelope; vary only
+    // the source plane so the recovery hold has the live hold's scope.
+    for wrong_plane in [
+        TransportDeliveryPlane::Discovery,
+        TransportDeliveryPlane::AccountInbox,
+        TransportDeliveryPlane::Ephemeral,
+    ] {
+        let mut wrong_source_plane = packet.clone();
+        wrong_source_plane.source.plane = wrong_plane;
+        assert!(!adapter.defer_held_recovery_for_test(&wrong_source_plane));
+    }
+    assert_eq!(held.recovered_deferrals(), 1);
+    let welcome = cursor_floor_delivery(
+        &alice,
+        1,
+        OPENED_CURSOR + 100,
+        TransportDeliveryPlane::AccountInbox,
+    );
+    assert!(!adapter.defer_held_recovery_for_test(&welcome));
+    plane.route_account_delivery_for_test(packet.clone());
+    assert_eq!(held.observed(), (1, 0, 0));
+    let candidate = Some(OPENED_CURSOR + 1_000);
+    assert!(adapter.defer_held_recovery_for_test(&packet));
+    assert_eq!(held.recovered_deferrals(), 2);
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate),
+        Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
+    );
+    assert!(adapter.try_receive_account_delivery().is_none());
+    held.release();
+    assert!(!adapter.defer_held_recovery_for_test(&packet));
+    let received = timeout(Duration::from_secs(2), adapter.receive_account_delivery())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let AccountDeliveryReceive::Delivery(received) = received else {
+        panic!("arrival hold must retain real delivery")
+    };
+    assert_eq!(received.message, packet.message);
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate),
+        Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
+    );
+    adapter.release_account_delivery(&packet.message.id);
+    assert_eq!(adapter.seal_transport_cursor(candidate), candidate);
+    drop(held);
+    assert!(!adapter.defer_held_recovery_for_test(&packet));
+    plane.shutdown().await;
+    other_plane.shutdown().await;
+}

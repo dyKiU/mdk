@@ -253,6 +253,10 @@ impl HeldProposal {
             self.actual_proposal_received,
             self.hold.observed()
         );
+        eprintln!(
+            "account_departure_arrival_recovered_deferrals={}",
+            self.hold.recovered_deferrals()
+        );
         let authenticated = self.authentication.snapshot();
         eprintln!(
             "account_departure_arrival_actual_engine_authentications={} own_leave_schedule_refused={}",

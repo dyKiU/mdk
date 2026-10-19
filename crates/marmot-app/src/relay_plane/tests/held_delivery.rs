@@ -11,6 +11,7 @@ pub(super) struct State {
     held: AtomicUsize,
     finished: AtomicUsize,
     enqueued: AtomicUsize,
+    recovered_deferrals: AtomicUsize,
 }
 
 pub(crate) struct Hold(Arc<State>);
@@ -29,6 +30,7 @@ impl MarmotRelayPlane {
             held: AtomicUsize::new(0),
             finished: AtomicUsize::new(0),
             enqueued: AtomicUsize::new(0),
+            recovered_deferrals: AtomicUsize::new(0),
         });
         let mut slot = self.inner.transport.held_delivery.lock().unwrap();
         assert!(slot.as_ref().and_then(Weak::upgrade).is_none());
@@ -44,6 +46,10 @@ impl Hold {
             self.0.finished.load(Ordering::SeqCst),
             self.0.enqueued.load(Ordering::SeqCst),
         )
+    }
+
+    pub(crate) fn recovered_deferrals(&self) -> usize {
+        self.0.recovered_deferrals.load(Ordering::SeqCst)
     }
 
     pub(crate) fn release(&self) {
@@ -107,4 +113,38 @@ pub(super) fn hold(
         state.finished.fetch_add(1, Ordering::SeqCst);
     });
     None
+}
+
+impl MarmotRelayPlaneAccountAdapter {
+    /// The live queue hold alone cannot control a comparison's duplicate copy.
+    /// Defer that exact copy without receipts, cursor release or certification.
+    /// The genuine queued packet remains the fixture's original delivery.
+    pub(crate) fn defer_held_recovery_for_test(&self, delivery: &TransportDelivery) -> bool {
+        let state = self
+            .relay_plane
+            .inner
+            .transport
+            .held_delivery
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(Weak::upgrade);
+        let Some(state) = state else {
+            return false;
+        };
+        if *state.release.borrow()
+            || state.account != self.account_id
+            || delivery.account_id != self.account_id
+            || state.message != delivery.message.id
+            || delivery.source.plane != TransportDeliveryPlane::Group
+            || !matches!(
+                &delivery.message.envelope,
+                cgka_traits::transport::TransportEnvelope::GroupMessage { .. }
+            )
+        {
+            return false;
+        }
+        state.recovered_deferrals.fetch_add(1, Ordering::SeqCst);
+        true
+    }
 }

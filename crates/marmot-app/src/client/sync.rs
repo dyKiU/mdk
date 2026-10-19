@@ -2849,6 +2849,22 @@ impl AppClient {
             self.adapter.release_account_delivery(&delivery.message.id);
             return Ok((SyncSummary::default(), RecoveredDelivery::AlreadyHeld));
         }
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if self.adapter.defer_held_recovery_for_test(&delivery) {
+            // A test-held live delivery is not durable. Keep this recovery
+            // route uncertified and retain the original queue's cursor pin.
+            return Ok((
+                SyncSummary::default(),
+                RecoveredDelivery::Ingested {
+                    unpersisted: true,
+                    refused_group: None,
+                },
+            ));
+        }
         self.ingest_received_delivery_once(delivery, false)
             .await
             .map_err(|(summary, _, _, error, _)| {

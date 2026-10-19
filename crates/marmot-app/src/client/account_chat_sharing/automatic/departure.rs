@@ -964,6 +964,12 @@ impl AppClient {
                 16,
             )
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage(
+            "departure_local_rows",
+            &format!("pending={}", rows.len()),
+            None,
+        );
         if rows.is_empty() {
             self.account_sharing_owner.departure_cursor = None;
         }
@@ -1086,7 +1092,20 @@ impl AppClient {
             }
             // Preserve the established public SelfRemove, push-registration
             // compensation, pending-leave journal, and ordinary publisher.
-            match Box::pin(self.leave_group(&intent.group)).await {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("departure_local_leave", "begin", None);
+            let leave_result = Box::pin(self.leave_group(&intent.group)).await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage(
+                "departure_local_leave_result",
+                leave_result
+                    .as_ref()
+                    .err()
+                    .map(AppError::privacy_safe_kind)
+                    .unwrap_or("ok"),
+                None,
+            );
+            match leave_result {
                 Ok(_)
                 | Err(AppError::Session(cgka_session::SessionError::Engine(
                     EngineError::LeaveAlreadyRequested { .. },
@@ -1100,6 +1119,8 @@ impl AppClient {
                             &|| self.departure_policy_tail(&authorized),
                         )
                         .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    self.test_trace_catalog_stage("departure_local_state", "published", None);
                 }
                 Err(_) => return Err(AccountSharingError::RuntimeUnavailable), // Durable work remains pending for retry.
             }
