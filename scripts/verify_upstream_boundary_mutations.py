@@ -10,7 +10,7 @@ import subprocess
 from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 args = parser.parse_args()
@@ -20,7 +20,7 @@ if args.cohort_baseline:
     cohort = reviewed_cohort(args.cohort_baseline)
     frozen = frozen_inputs()
 publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-retry-priority'}
-nextest_cases = publication_cases | {'worker-spawn-stack'}
+nextest_cases = publication_cases | {'worker-spawn-stack', 'worker-stack-regression'}
 held_marker = None
 failure_marker = None
 if args.case == 'departure':
@@ -68,12 +68,17 @@ elif args.case == 'upload-fixture':
                '-p', 'marmot-app', '--lib',
                'client::upload_cleanup_tests::outgoing_publication_', '--', '--test-threads=1']
     expected = 2
-elif args.case == 'worker-spawn-stack':
+elif args.case in {'worker-spawn-stack', 'worker-stack-regression'}:
     if os.environ.get('RUST_MIN_STACK') != '4194304':
         raise ValueError('The original 4 MiB stack budget is required')
     source = Path('crates/marmot-app/src/runtime/account_worker.rs')
     old = 'tokio::spawn(Box::pin(run_app_runtime_account_worker(\n        runtime,\n        command_tx,\n        commands,\n        ready,\n        startup_progress,\n        shutdown,\n    )))'
     new = old.replace('tokio::spawn(Box::pin(', 'tokio::spawn(')[:-1]
+    if args.case == 'worker-stack-regression':
+        # The old outer-box inverse survived baseline/inverse/restored controls.
+        # Preserve the real 4 MiB regression on the upstream spawn implementation;
+        # this control makes no runtime mutation or inner-box necessity claim.
+        old = new
     test = ('native_device_linking::tests::automatic_forwarding_non_admin_acceptance::'
             'automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure')
     command = ['cargo', 'nextest', 'run', '--locked', '-p', 'marmot-app', '--lib', '--features',
@@ -185,7 +190,7 @@ def execute(phase):
         row['all_tracked_inputs_exact_for_phase'] = frozen_inputs() == expected_inputs
         if not row['all_tracked_inputs_exact_for_phase']:
             raise ValueError('Tracked source changed during runtime phase')
-    if args.case == 'worker-spawn-stack':
+    if args.case in {'worker-spawn-stack', 'worker-stack-regression'}:
         row['runtime_signal_observed'] = runtime_signal
         row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
         row['selected_nonignored_tests'] = 1 if counts else None
@@ -227,6 +232,17 @@ if (baseline['exit_code'] != 0 or not matches(baseline, expected, 0)
         or (args.case in {'automatic-publication', 'sibling-publication'}
             and (baseline['compiler_error_count'] != 0 or baseline['panic_header_count'] != 0))):
     raise SystemExit('Baseline did not execute the intended passing regression cohort')
+if args.case == 'worker-stack-regression':
+    proof.update(control_only=True, runtime_mutation_qualification=False,
+                 historical_outer_necessity_retired=True,
+                 historical_survivor_receipt_sha256='1e92254c71bfc89647a4b27fddf8db9a6decb91a7aeb25bdabc776c1ba638926',
+                 source_unchanged=source.read_bytes() == original,
+                 completed=source.read_bytes() == original)
+    if cohort:
+        proof['all_tracked_inputs_unchanged'] = frozen_inputs() == frozen
+        proof['completed'] &= proof['all_tracked_inputs_unchanged']
+    save()
+    raise SystemExit(0 if proof['completed'] else 1)
 attempt_error = None
 try:
     source.write_text(text.replace(old, new))

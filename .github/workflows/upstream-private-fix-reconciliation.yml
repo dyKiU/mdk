@@ -7,9 +7,9 @@ on:
       extraction_cohort_baseline:
         description: Exact reviewed extraction cohort (no historical evidence reuse)
         type: string
-        default: 0c9065255fa16292e84e12b32fb920db0494b9aa
+        default: a9d31cb5cab541d94785cc17e0b8d9a479a4a8ab
 env:
-  UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '0c9065255fa16292e84e12b32fb920db0494b9aa' }}
+  UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || 'a9d31cb5cab541d94785cc17e0b8d9a479a4a8ab' }}
 permissions:
   contents: read
 concurrency:
