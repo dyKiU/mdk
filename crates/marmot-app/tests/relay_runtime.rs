@@ -2209,16 +2209,20 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     // sampled sequentially; none identifies the exact stage at the deadline.
     let telemetry = first_runtime.app_performance_snapshot();
     let runtime_row = |operation: marmot_app::RuntimePerformanceOperation| {
-        telemetry.runtime_operations.iter().find(|row| row.operation == operation).map(|row| {
-            serde_json::json!({
-                "started": row.started,
-                "completed": row.completed,
-                "in_flight": row.in_flight,
-                "oldest_tracked_in_flight_ms": row.oldest_tracked_in_flight_ms,
-                "untracked_in_flight": row.untracked_in_flight,
-                "sum_ms": row.duration_ms.sum_ms,
+        telemetry
+            .runtime_operations
+            .iter()
+            .find(|row| row.operation == operation)
+            .map(|row| {
+                serde_json::json!({
+                    "started": row.started,
+                    "completed": row.completed,
+                    "in_flight": row.in_flight,
+                    "oldest_tracked_in_flight_ms": row.oldest_tracked_in_flight_ms,
+                    "untracked_in_flight": row.untracked_in_flight,
+                    "sum_ms": row.duration_ms.sum_ms,
+                })
             })
-        })
     };
     use marmot_app::RuntimePerformanceOperation as RuntimeOp;
     let setup_telemetry = serde_json::json!({
