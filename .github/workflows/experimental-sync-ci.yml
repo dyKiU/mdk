@@ -717,7 +717,7 @@ jobs:
           elif [[ "$REGRESSION_SCOPE" == pairing-stack-regression ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p marmot-app --lib --features "$features")
-            filter='package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_))'
+            filter='package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_) | test(native_device_linking::tests::automatic_held_original_acceptance::automatic_held_originals_) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_forwarding_reaches_independent_creator_through_non_admin_member) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure) | test(=native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal))'
           elif [[ "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
             args=(--locked --workspace --features "$SYNC_FEATURES")
             filter='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race)'
@@ -783,11 +783,17 @@ jobs:
                       "automatic_forwarding_retries_unacknowledged_receipt_after_recipient_sql_rollback",
                   )
               ] + ["native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_allow_" + direction + "_initiated_discovery" for direction in ("b", "c")]
-              expected = 6
+              required += ["native_device_linking::tests::automatic_held_original_acceptance::automatic_held_originals_allow_" + direction + "_initiated_discovery" for direction in ("sponsor", "recipient")]
+              required += [
+                  "native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_forwarding_reaches_independent_creator_through_non_admin_member",
+                  "native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure",
+                  "native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal",
+              ]
+              expected = 11
               actual = {(suite_id, name) for suite_id, suite in inventory["rust-suites"].items()
                         for name, case in suite["testcases"].items()
                         if case["filter-match"]["status"] == "matches" and not case["ignored"]}
-              assert actual == {("marmot-app", name) for name in required}, "exact six forwarding/discovery cases required"
+              assert actual == {("marmot-app", name) for name in required}, "exact eleven forwarding/discovery/renewal cases required"
           elif os.environ["REGRESSION_SCOPE"] == "connector-regression":
               required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name"]
               expected = 1

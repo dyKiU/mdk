@@ -35,6 +35,12 @@ STACK_CASES = ["native_device_linking::tests::automatic_forwarding_acceptance::"
     "automatic_forwarding_queues_without_members_and_reopens_both_independent_stores",
     "automatic_forwarding_retries_unacknowledged_receipt_after_recipient_sql_rollback",
 )] + ["native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_allow_" + direction + "_initiated_discovery" for direction in ("b", "c")]
+STACK_CASES += ["native_device_linking::tests::automatic_held_original_acceptance::automatic_held_originals_allow_" + direction + "_initiated_discovery" for direction in ("sponsor", "recipient")]
+STACK_CASES += [
+    "native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_forwarding_reaches_independent_creator_through_non_admin_member",
+    "native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure",
+    "native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal",
+]
 
 
 class CheckpointDispatchTests(unittest.TestCase):
@@ -60,7 +66,7 @@ class CheckpointDispatchTests(unittest.TestCase):
     def test_chat_scope_executes_only_the_exact_ignored_delivery_case(self):
         self.check_inventory(CHAT_SCOPE, CHAT_CASE, EXPERIMENTAL_FEATURES, ignored_only=True)
 
-    def test_stack_scope_keeps_six_real_cases_and_original_stack_limit(self):
+    def test_stack_scope_keeps_eleven_real_cases_and_original_stack_limit(self):
         self.check_inventory(STACK_SCOPE, STACK_CASES, STACK_FEATURES)
         workflow = WORKFLOW.read_text()
         job = workflow.split("  core-regressions:\n", 1)[1].split("  experimental-inventory:\n", 1)[0]
@@ -128,7 +134,7 @@ class CheckpointDispatchTests(unittest.TestCase):
                 for option, value in (('--features', features), ('--retries', '0'),
                                       ('--test-threads', '1' if ignored_only else '6'), ('--profile', 'm5-bounded')):
                     self.assertEqual(args[args.index(option) + 1], value)
-                expression = ('package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_))'
+                expression = ('package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_) | test(native_device_linking::tests::automatic_held_original_acceptance::automatic_held_originals_) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_forwarding_reaches_independent_creator_through_non_admin_member) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure) | test(=native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal))'
                               if scope == STACK_SCOPE else f'package(marmot-app) & test(={required_case})')
                 self.assertEqual(args[args.index('-E') + 1], expression)
                 self.assertIn('--locked', args)
