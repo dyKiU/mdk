@@ -172,9 +172,104 @@ def controls(fixture):
     return dict(positive=4, negative=len(negatives), metadata_only=True)
 
 
+PARENT_LABEL = 'called `Result::unwrap()` on an `Err` value: Backend("experimental schema reference unavailable")'
+
+
+def mutate_parent(source):
+    start = source.index('fn expected_private_schemas(')
+    end = source.index('\nfn validate_schema(', start)
+    block = source[start:end]
+    anchor = 'run_with_summary_observed(&mut reference, &MIGRATIONS[..1], None)?;'
+    if block.count(anchor) != 1:
+        raise ValueError('exact-parent-prerequisite')
+    return source[:start] + block.replace(anchor, anchor.replace('[..1]', '[..0]')) + source[end:]
+
+
+def parent_assertion_line(source):
+    anchor = 'let actual = expected_private_schemas().unwrap();'
+    lines = [index + 1 for index, line in enumerate(source.splitlines()) if line.strip() == anchor]
+    if len(lines) != 1:
+        raise ValueError('exact-parent-unwrap')
+    return lines[0]
+
+
+def parent_panic_facts(raw, source):
+    declaration = Path('crates/storage-sqlite/src/base/migrations.rs').read_text()
+    declared = re.findall(r'#\[path = "([^"]+)"\]\s*mod private_migration_ledger;', declaration)
+    if declared != ['../private_migration_ledger.rs']:
+        raise ValueError('parent-module-path')
+    lexical = 'crates/storage-sqlite/src/base/' + declared[0]
+    if posixpath.normpath(lexical) != SOURCE:
+        raise ValueError('parent-module-path')
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', raw.decode('utf-8', errors='replace'))
+    headers = list(re.finditer(r"(?m)^[ \t]{0,8}thread '([^'\r\n]{1,4096})'(?: \(\d+\))? panicked at ([^\r\n]{1,4096}):(\d+):(\d+):\r?\n", text))
+    total = text.count('panicked at ')
+    unknown = max(0, total - len(headers))
+    facts = []
+    for header in headers:
+        thread, path, line, column = header.groups()
+        if path not in (SOURCE, lexical) or not (1 <= int(line) <= 1_000_000 and 1 <= int(column) <= 1_000_000):
+            unknown += 1
+            continue
+        label = re.match(r'(?:\r?\n){0,2}' + re.escape(PARENT_LABEL) + r'\s*(?:\n|$)', text[header.end():]) is not None
+        facts.append(dict(source=path, line=int(line), column=int(column), expected_thread=thread == PARITY,
+            expected_assertion_line=int(line) == parent_assertion_line(source),
+            label_class='required-real-core-parent-unavailable' if label else 'unknown'))
+    return dict(header_count=total, known_positions=facts[:8], known_positions_overflow=len(facts) > 8,
+        unknown_header_or_position_count=unknown,
+        intended_parent_unwrap=(total == 1 and unknown == 0 and len(facts) == 1
+            and facts[0]['expected_thread'] and facts[0]['expected_assertion_line']
+            and facts[0]['label_class'] == 'required-real-core-parent-unavailable'))
+
+
+def parent_oracle(raw, source, failure):
+    # Reuse exact one-body/count/compiler policy; substitute ONLY this reviewed
+    # parent-availability body's own failure attribution.
+    result = oracle(raw, [PARITY], False, '')
+    text = raw.decode('utf-8', errors='replace')
+    facts = parent_panic_facts(raw, source)
+    result['intended_parent_unwrap'] = facts['intended_parent_unwrap']
+    if failure:
+        summary = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;[^\n]*$', text, re.M)
+        names = re.findall(r'^test ([a-zA-Z0-9_:]+) \.\.\. (ok|FAILED|ignored)\s*$', text, re.M)
+        running = re.findall(r'^running (\d+) tests?\s*$', text, re.M)
+        diag = result['compiler_diagnostics']
+        result['oracle_qualified'] = (summary == [('FAILED', '0', '1', '0')]
+            and names == [(PARITY, 'FAILED')] and running == ['1']
+            and not diag['compiler_codes'] and diag['compiler_header_count'] == 0
+            and facts['intended_parent_unwrap'])
+    return result
+
+
+def parent_controls(source):
+    prefix = 'running 1 test\ntest ' + PARITY + ' ... '
+    failed = (prefix + 'FAILED\n' + "thread '" + PARITY + "' panicked at " + SOURCE
+        + ':' + str(parent_assertion_line(source)) + ':5:\n' + PARENT_LABEL
+        + '\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n').encode()
+    passed = (prefix + 'ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n').encode()
+    lexical = failed.replace(SOURCE.encode(), b'crates/storage-sqlite/src/base/../private_migration_ledger.rs')
+    threaded = failed.replace(("thread '" + PARITY + "' panicked").encode(), ("thread '" + PARITY + "' (123) panicked").encode())
+    if (not parent_oracle(passed, source, False)['oracle_qualified']
+        or any(not parent_oracle(raw, source, True)['oracle_qualified'] for raw in [failed, lexical, threaded])):
+        raise ValueError('parent-parser-positive')
+    negatives = [failed + failed, failed.replace(PARENT_LABEL.encode(), b'unknown'),
+        failed.replace(SOURCE.encode(), b'unknown.rs'),
+        failed.replace((":" + str(parent_assertion_line(source)) + ':5:').encode(), b':1:5:'),
+        failed.replace(("thread '" + PARITY).encode(), b"thread 'unknown"),
+        failed.replace(("thread '" + PARITY).encode(), ("PRIVATE_PREFIX thread '" + PARITY).encode()),
+        failed.replace(b'0 passed; 1 failed', b'0 passed; 0 failed'),
+        failed.replace(b'0 ignored;', b'1 ignored;'),
+        failed + b'error[E0382]: synthetic\n', failed + b'error: unknown\n',
+        failed + b'error: test failed, to rerun pass `--lib`\n' * 2]
+    if any(parent_oracle(raw, source, True)['oracle_qualified'] for raw in negatives):
+        raise ValueError('parent-parser-negative')
+    return dict(positive=4, negative=len(negatives), metadata_only=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True)
+    parser.add_argument('--mode', choices=['ledger', 'parent-pfp'], default='ledger')
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -182,7 +277,7 @@ def main():
     if output.exists() or output == Path.cwd().resolve() or Path.cwd().resolve() in output.parents:
         raise ValueError('fresh-external-report-required')
     output.parent.mkdir(parents=True, exist_ok=True)
-    report = dict(complete=False, source=args.source, cohort=args.cohort, runs=[],
+    report = dict(complete=False, source=args.source, cohort=args.cohort, mode=args.mode, runs=[] ,
                   runtime_mutation_qualification=False)
     leaf = None
     original = None
@@ -222,13 +317,15 @@ def main():
         parent_identity = {str(parent): (parent.lstat().st_dev, parent.lstat().st_ino, parent.lstat().st_mode) for parent in parents}
         original = Path(SOURCE).read_bytes()
         fixture = Path(FIXTURE).read_text()
-        mutant = mutate(original.decode()).encode()
+        mutant = (mutate_parent(original.decode()) if args.mode == 'parent-pfp' else mutate(original.decode())).encode()
         leaf = ExactCancellationMutation(Path(SOURCE))
         report.update(parser_controls=controls(fixture), rustc=rustc,
             cargo=subprocess.check_output(['cargo', '-V'], text=True).strip(),
             compiler_environment=environment, lock_sha256=sha(Path('Cargo.lock').read_bytes()),
             source_tree=git('rev-parse', 'HEAD^{tree}'), original_sha256=sha(original),
             mutant_sha256=sha(mutant), fixture_sha256=sha(fixture.encode()), retries=0, test_threads=1)
+        if args.mode == 'parent-pfp':
+            report['parent_parser_controls'] = parent_controls(original.decode())
         flags = ['--locked', '-p', 'storage-sqlite', '--lib']
         if args.cohort == 'experimental':
             flags += ['--features', 'experimental-device-sync']
@@ -248,7 +345,7 @@ def main():
             report['runs'].append(row)
             save()
             selection = 'package(storage-sqlite) & binary(=storage_sqlite) & (' + ' | '.join('test(=' + name + ')' for name in names) + ')'
-            if phase == 'positive-controls':
+            if phase == 'positive-controls' and args.mode == 'ledger':
                 selection = 'package(storage-sqlite) & binary(=storage_sqlite) & (test(' + PREFIX + ') | test(=' + PARITY + '))'
             code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list', *flags,
                 '--message-format', 'json', '-E', selection], 1800, separate=True)
@@ -279,27 +376,27 @@ def main():
                 body['observed_summary_counts'] = [dict(passed=int(p), failed=int(f), ignored=int(i)) for p, f, i in summary_rows]
                 body['compiler_diagnostics'] = diagnostics(raw)
                 save()
-                body['runtime_panic_facts'] = panic_facts(raw, fixture)
+                body['runtime_panic_facts'] = (parent_panic_facts(raw, original.decode()) if args.mode == 'parent-pfp' else panic_facts(raw, fixture))
                 save()
-                body.update(oracle(raw, [name], failure, fixture))
+                body.update(parent_oracle(raw, original.decode(), failure) if args.mode == 'parent-pfp' else oracle(raw, [name], failure, fixture))
                 save()
                 if code != (101 if failure else 0) or not body['oracle_qualified']:
                     raise ValueError('body-unqualified')
             row['qualified'] = exact(content)
             save()
             return row['qualified']
-        positives = [PARITY] + expected_names(fixture, args.cohort == 'experimental')
+        positives = [PARITY] if args.mode == 'parent-pfp' else [PARITY] + expected_names(fixture, args.cohort == 'experimental')
         report['positive_names'] = positives
         baseline = execute('positive-controls', positives, original)
         if not baseline:
             raise ValueError('positive-controls')
-        if args.cohort == 'experimental':
+        if args.mode == 'parent-pfp' or args.cohort == 'experimental':
             leaf.write(mutant)
-            report['mutant_killed'] = execute('missing-denial-trigger-mutant', [DENIAL], mutant, True)
+            report['mutant_killed'] = execute('required-parent-mutant' if args.mode == 'parent-pfp' else 'missing-denial-trigger-mutant', [PARITY] if args.mode == 'parent-pfp' else [DENIAL], mutant, True)
     except Exception as error:
         report['error_category'] = type(error).__name__
         report['failure_category'] = (error.args[0] if type(error) is ValueError and len(error.args) == 1
-            and error.args[0] in {'expected-two-validation-loops','expected-private-validation-loop',
+            and error.args[0] in {'exact-parent-prerequisite','exact-parent-unwrap','parent-module-path','parent-parser-positive','parent-parser-negative','expected-two-validation-loops','expected-private-validation-loop',
             'fixture-module-path','unknown-fixture-cfg','fixture-inventory-shape','denial-assertion-label','denial-assertion-shape',
             'parser-positive','parser-negative','self-baseline-required','manual-workflow-identity',
             'compiler-environment','toolchain-release','source-parent-symlink','phase-source',
@@ -311,13 +408,13 @@ def main():
                 if Path(SOURCE).read_bytes() != original:
                     leaf.write(original)
                 report['source_restored'] = exact(original)
-                if baseline and args.cohort == 'experimental' and report['source_restored']:
-                    report['restored_passed'] = execute('exact-restored-denial-control', [DENIAL], original)
+                if baseline and (args.mode == 'parent-pfp' or args.cohort == 'experimental') and report['source_restored']:
+                    report['restored_passed'] = execute('exact-restored-parent-control' if args.mode == 'parent-pfp' else 'exact-restored-denial-control', [PARITY] if args.mode == 'parent-pfp' else [DENIAL], original)
                 report['all_inputs_restored'] = (exact(original)
                     and not git('diff', '--name-only', 'HEAD') and not git('diff', '--cached', '--name-only'))
             report['complete'] = bool(baseline and report.get('all_inputs_restored')
-                and (args.cohort == 'default' or report.get('mutant_killed') and report.get('restored_passed')))
-            report['runtime_mutation_qualification'] = bool(report['complete'] and args.cohort == 'experimental')
+                and (args.mode == 'ledger' and args.cohort == 'default' or report.get('mutant_killed') and report.get('restored_passed')))
+            report['runtime_mutation_qualification'] = bool(report['complete'] and (args.mode == 'parent-pfp' or args.cohort == 'experimental'))
         except Exception as error:
             report['complete'] = False
             report['closure_error_category'] = type(error).__name__
