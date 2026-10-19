@@ -776,13 +776,26 @@ struct EventProjectionProgress {
 #[cfg(feature = "test-policy-overrides")]
 #[derive(Clone, Copy)]
 enum AvatarIngestBoundaryForTest {
-    AccountIngest, ReceiveReceiptSkip, RecoveryReceiptSkip, DrainReceiptSkip,
+    AccountIngest,
+    ReceiveReceiptSkip,
+    RecoveryReceiptSkip,
+    DrainReceiptSkip,
 }
 #[cfg(feature = "test-policy-overrides")]
 #[derive(Clone, Copy)]
 enum AvatarIngestOutcomeForTest {
-    Processed, Buffered, TransportDeferred, LocalState, Stale, Rejected,
-    IgnoredDuplicate, IgnoredOwnEcho, IgnoredOther, ResourceRefused, Error, CachedReceipt,
+    Processed,
+    Buffered,
+    TransportDeferred,
+    LocalState,
+    Stale,
+    Rejected,
+    IgnoredDuplicate,
+    IgnoredOwnEcho,
+    IgnoredOther,
+    ResourceRefused,
+    Error,
+    CachedReceipt,
 }
 #[cfg(feature = "test-policy-overrides")]
 fn observe_avatar_ingest_for_test(
@@ -791,10 +804,17 @@ fn observe_avatar_ingest_for_test(
     outcome: AvatarIngestOutcomeForTest,
     left_object_unpersisted: Option<bool>,
 ) {
-    let Ok(target) = std::env::var("WN_TEST_AVATAR_CLEAR_EVENT") else { return; };
+    let Ok(target) = std::env::var("WN_TEST_AVATAR_CLEAR_EVENT") else {
+        return;
+    };
     if target.len() != 64
-        || !target.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        || target != event_id { return; }
+        || !target
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || target != event_id
+    {
+        return;
+    }
     let boundary = match boundary {
         AvatarIngestBoundaryForTest::AccountIngest => "account_ingest",
         AvatarIngestBoundaryForTest::ReceiveReceiptSkip => "receive_receipt_skip",
@@ -815,10 +835,13 @@ fn observe_avatar_ingest_for_test(
         AvatarIngestOutcomeForTest::Error => "error",
         AvatarIngestOutcomeForTest::CachedReceipt => "cached_receipt",
     };
-    eprintln!("avatar-ingest-control {}", serde_json::json!({
-        "boundary": boundary, "outcome": outcome,
-        "left_object_unpersisted": left_object_unpersisted,
-    }));
+    eprintln!(
+        "avatar-ingest-control {}",
+        serde_json::json!({
+            "boundary": boundary, "outcome": outcome,
+            "left_object_unpersisted": left_object_unpersisted,
+        })
+    );
 }
 
 impl AppClient {
@@ -3094,9 +3117,12 @@ impl AppClient {
         let event_id = hex::encode(delivery.message.id.as_slice());
         if self.transport_receipts()?.contains(&event_id) {
             #[cfg(feature = "test-policy-overrides")]
-            observe_avatar_ingest_for_test(&event_id,
+            observe_avatar_ingest_for_test(
+                &event_id,
                 AvatarIngestBoundaryForTest::RecoveryReceiptSkip,
-                AvatarIngestOutcomeForTest::CachedReceipt, None);
+                AvatarIngestOutcomeForTest::CachedReceipt,
+                None,
+            );
             self.record_durable_transport_reconciliation_delivery(&delivery);
             self.adapter.release_account_delivery(&delivery.message.id);
             return Ok((SyncSummary::default(), RecoveredDelivery::AlreadyHeld));
@@ -3438,9 +3464,12 @@ impl AppClient {
             let event_id = hex::encode(delivery.message.id.as_slice());
             if receipts.contains(&event_id) {
                 #[cfg(feature = "test-policy-overrides")]
-                observe_avatar_ingest_for_test(&event_id,
+                observe_avatar_ingest_for_test(
+                    &event_id,
                     AvatarIngestBoundaryForTest::DrainReceiptSkip,
-                    AvatarIngestOutcomeForTest::CachedReceipt, None);
+                    AvatarIngestOutcomeForTest::CachedReceipt,
+                    None,
+                );
                 self.record_durable_transport_reconciliation_delivery(&delivery);
                 self.adapter.release_account_delivery(&delivery.message.id);
                 counts.skipped = counts.skipped.saturating_add(1);
@@ -3953,22 +3982,37 @@ impl AppClient {
         {
             use cgka_traits::ingest::InputRejectionCategory;
             let (outcome, unpersisted) = match &ingest {
-                Ok(effects) => (match &effects.outcome {
-                    IngestOutcome::Processed => AvatarIngestOutcomeForTest::Processed,
-                    IngestOutcome::Buffered { .. } => AvatarIngestOutcomeForTest::Buffered,
-                    IngestOutcome::TransportDeferred { .. } => AvatarIngestOutcomeForTest::TransportDeferred,
-                    IngestOutcome::LocalState { .. } => AvatarIngestOutcomeForTest::LocalState,
-                    IngestOutcome::Stale { .. } => AvatarIngestOutcomeForTest::Stale,
-                    IngestOutcome::Rejected { .. } => AvatarIngestOutcomeForTest::Rejected,
-                    IngestOutcome::Ignored { category: InputRejectionCategory::Duplicate } => AvatarIngestOutcomeForTest::IgnoredDuplicate,
-                    IngestOutcome::Ignored { category: InputRejectionCategory::OwnEcho } => AvatarIngestOutcomeForTest::IgnoredOwnEcho,
-                    IngestOutcome::Ignored { .. } => AvatarIngestOutcomeForTest::IgnoredOther,
-                    IngestOutcome::ResourceRefused { .. } => AvatarIngestOutcomeForTest::ResourceRefused,
-                }, Some(effects.left_object_unpersisted)),
+                Ok(effects) => (
+                    match &effects.outcome {
+                        IngestOutcome::Processed => AvatarIngestOutcomeForTest::Processed,
+                        IngestOutcome::Buffered { .. } => AvatarIngestOutcomeForTest::Buffered,
+                        IngestOutcome::TransportDeferred { .. } => {
+                            AvatarIngestOutcomeForTest::TransportDeferred
+                        }
+                        IngestOutcome::LocalState { .. } => AvatarIngestOutcomeForTest::LocalState,
+                        IngestOutcome::Stale { .. } => AvatarIngestOutcomeForTest::Stale,
+                        IngestOutcome::Rejected { .. } => AvatarIngestOutcomeForTest::Rejected,
+                        IngestOutcome::Ignored {
+                            category: InputRejectionCategory::Duplicate,
+                        } => AvatarIngestOutcomeForTest::IgnoredDuplicate,
+                        IngestOutcome::Ignored {
+                            category: InputRejectionCategory::OwnEcho,
+                        } => AvatarIngestOutcomeForTest::IgnoredOwnEcho,
+                        IngestOutcome::Ignored { .. } => AvatarIngestOutcomeForTest::IgnoredOther,
+                        IngestOutcome::ResourceRefused { .. } => {
+                            AvatarIngestOutcomeForTest::ResourceRefused
+                        }
+                    },
+                    Some(effects.left_object_unpersisted),
+                ),
                 Err(_) => (AvatarIngestOutcomeForTest::Error, None),
             };
-            observe_avatar_ingest_for_test(&source_message_id_hex,
-                AvatarIngestBoundaryForTest::AccountIngest, outcome, unpersisted);
+            observe_avatar_ingest_for_test(
+                &source_message_id_hex,
+                AvatarIngestBoundaryForTest::AccountIngest,
+                outcome,
+                unpersisted,
+            );
         }
         #[cfg(all(
             test,
