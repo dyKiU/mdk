@@ -496,7 +496,11 @@ def source_guard(baseline, ownership_adaptation):
             'ownership_adaptation': adaptation, 'overlay_paths': sorted(changed), 'historical_results_reused': False}
 
 
-def current_source_guard(baseline, stage):
+def current_source_guard(baseline, stage, omission=None, final_source=None):
+    if final_source:
+        return final_omission_source_guard(baseline, stage, omission, final_source)
+    if omission:
+        return current_omission_source_guard(baseline, stage, omission)
     """Separate exact current cohort; historical RED/adaptation routes stay unchanged."""
     ensure(baseline == CURRENT_RED, 'current-explicit-reviewed-red-baseline')
     source = git('rev-parse', 'HEAD')
@@ -555,6 +559,609 @@ def current_source_guard(baseline, stage):
             'overlay_paths': sorted(changed), 'all_non_overlay_inputs_exact_baseline': True,
             'physical_input_bytes_modes_and_link_targets_exact_HEAD': True,
             'selected_original_current_tests': CURRENT_TESTS, 'historical_results_reused': False}
+
+
+def current_omission_source_guard(baseline, stage, omission):
+    ensure(baseline == CURRENT_GREEN and stage == 'green' and omission in CURRENT_OMISSIONS,
+           'current-exact-canonical-omission-baseline-and-stage')
+    ensure(git('rev-parse', CURRENT_GREEN + '^{tree}') == '7cca2910df4b76c8d7a3b56386710f755cea8825', 'current-exact-canonical-baseline-tree')
+    source = git('rev-parse', 'HEAD')
+    workflow = workflow_identity(source)
+    ensure(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+           and os.environ.get('GITHUB_REF', '').startswith('refs/heads/ci/upstream-storage-boundary-'), 'current-owned-manual-omission-route')
+    event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+    ensure(event.get('inputs', {}).get('case') == 'storage-ownership-current-omissions'
+           and event['inputs'].get('current_ownership_stage') == 'green'
+           and event['inputs'].get('extraction_cohort_baseline') == CURRENT_GREEN, 'current-exact-omission-event-inputs')
+    subprocess.run(['git', 'merge-base', '--is-ancestor', CURRENT_GREEN, source], check=True)
+    changed = set(git('diff', '--name-only', CURRENT_GREEN, source).splitlines())
+    ensure(changed <= {SELF, WORKFLOW}, 'current-canonical-whole-source-only-two-metadata')
+    ensure(not git('diff', 'HEAD', '--name-only') and current_no_extra_untracked_inputs(), 'current-canonical-initial-source-pristine')
+    ensure(not OUT.is_symlink() and OUT.resolve() == Path.cwd() / OUT, 'current-canonical-physical-evidence-directory')
+    result_path = OUT / 'result.json'
+    if result_path.exists() or result_path.is_symlink():
+        ensure(result_path.is_file() and not result_path.is_symlink() and result_path.stat().st_uid == os.getuid()
+               and result_path.stat().st_mode & 0o777 == 0o600, 'current-canonical-owned-regular-evidence-only')
+    inputs = frozen_inputs()
+    # Compare each physical tracked byte, link target and executable mode with HEAD;
+    # Git tree comparison above then binds every non-owned input to the RED baseline.
+    entries = subprocess.check_output(['git', 'ls-tree', '-r', '-z', source]).split(b'\0')
+    expected = {}
+    for entry in entries:
+        if not entry:
+            continue
+        meta, path = entry.split(b'\t', 1)
+        mode, kind, oid = meta.decode().split()
+        ensure(kind == 'blob' and mode in {'100644', '100755', '120000'}, 'current-supported-git-input-kind')
+        expected[os.fsdecode(path)] = (mode, oid)
+    ensure(set(expected) == set(inputs), 'current-index-inventory-exact-head')
+    process = subprocess.run(['git', 'cat-file', '--batch'], input=('\n'.join(oid for _, oid in expected.values()) + '\n').encode(), stdout=subprocess.PIPE, check=True)
+    stream = io.BytesIO(process.stdout)
+    for name, (mode, oid) in expected.items():
+        header = stream.readline().decode().strip().split()
+        ensure(len(header) == 3 and header[:2] == [oid, 'blob'], 'current-git-blob-identity')
+        body = stream.read(int(header[2]))
+        ensure(stream.read(1) == b'\n' and inputs[name] == {'mode': mode, 'actual_executable': mode in {'100755', '120000'}, 'sha256': digest(body)}, 'current-physical-source-bytes-modes-links-exact-head')
+    ensure(stream.read() == b'', 'current-complete-git-blob-inputs')
+    for name, pin in CURRENT_BOUNDARY_PINS.items():
+        ensure(inputs[name]['mode'] == pin['mode'] and inputs[name]['sha256'] == pin['green'], 'current-canonical-four-boundary-pins')
+    ensure(all(not os.environ.get(key) for key in ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS']), 'current-canonical-no-unrecorded-rust-flags')
+    environment = {'CARGO_INCREMENTAL': '1', 'CARGO_BUILD_JOBS': '2', 'CARGO_PROFILE_DEV_DEBUG': '0', 'CARGO_PROFILE_TEST_DEBUG': '0', 'RUST_MIN_STACK': '4194304'}
+    ensure(all(os.environ.get(key) == value for key, value in environment.items()), 'current-canonical-exact-build-environment')
+    return {'source': source, 'reviewed_cohort_baseline': CURRENT_GREEN, 'baseline_tree': git('rev-parse', CURRENT_GREEN + '^{tree}'),
+            'workflow_identity': workflow, 'current_cohort_stage': stage, 'current_boundary_pins': CURRENT_BOUNDARY_PINS,
+            'overlay_paths': sorted(changed), 'all_non_overlay_inputs_exact_baseline': True,
+            'physical_input_bytes_modes_and_link_targets_exact_HEAD': True,
+            'selected_original_current_tests': CURRENT_TESTS, 'historical_results_reused': False}
+
+FINAL_OWNED_TOOLS = {SELF, WORKFLOW}
+FINAL_REVIEWED_PARENT = '1497415b4712c63ce56b60934089c535333a03f1'
+
+
+def final_admission_contract(final_source, baseline, tooling, changes, ancestor, event, facts):
+    ensure(all(type(value) is str and re.fullmatch(r'[0-9a-f]{40}', value)
+               for value in [final_source, baseline, tooling]), 'final-immutable-source-and-tooling-SHAs')
+    ensure(final_source == baseline and ancestor is True, 'final-explicit-baseline-and-source-ancestry')
+    ensure(type(facts) is dict and type(facts.get('GITHUB_REF')) is str
+           and facts['GITHUB_REF'].startswith('refs/heads/ci/upstream-storage-boundary-'), 'final-explicit-owned-ref')
+    expected = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': 'dyKiU/mdk',
+                'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_SHA': tooling,
+                'GITHUB_WORKFLOW_SHA': tooling, 'GITHUB_REF': facts['GITHUB_REF'],
+                'GITHUB_WORKFLOW_REF': 'dyKiU/mdk/' + WORKFLOW + '@' + facts['GITHUB_REF']}
+    ensure(facts == expected, 'final-exact-workflow-path-ref-definition-and-checkout')
+    ensure(type(changes) is set and changes <= FINAL_OWNED_TOOLS, 'final-only-two-owned-tool-paths')
+    ensure(type(event) is dict and type(event.get('inputs')) is dict, 'final-explicit-dispatch-inputs')
+    values = event['inputs']
+    ensure(values.get('case') == 'storage-ownership-final-omissions'
+           and values.get('current_ownership_stage') == 'green'
+           and values.get('extraction_cohort_baseline') == final_source
+           and values.get('storage_final_source') == final_source, 'final-dispatch-source-profile-exact')
+    return True
+
+
+def final_target_rustflags(environment):
+    ensure(not any(value for key, value in environment.items()
+                   if re.fullmatch(r'CARGO_TARGET_.+_RUSTFLAGS', key)), 'final-no-target-rustflags')
+    return True
+
+
+def final_admission_controls():
+    source, tooling = 'a' * 40, 'b' * 40
+    event = {'inputs': {'case': 'storage-ownership-final-omissions', 'current_ownership_stage': 'green',
+                       'extraction_cohort_baseline': source, 'storage_final_source': source}}
+    ref = 'refs/heads/ci/upstream-storage-boundary-final-metadata'
+    facts = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': 'dyKiU/mdk',
+             'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_SHA': tooling,
+             'GITHUB_WORKFLOW_SHA': tooling, 'GITHUB_REF': ref,
+             'GITHUB_WORKFLOW_REF': 'dyKiU/mdk/' + WORKFLOW + '@' + ref}
+    good = (source, source, tooling, set(FINAL_OWNED_TOOLS), True, event, facts)
+    ensure(final_admission_contract(*good), 'final-admission-positive')
+    bad = []
+    for index, replacement in [(0, 'main'), (1, 'c' * 40), (2, True),
+                                (3, FINAL_OWNED_TOOLS | {'Cargo.lock'}), (4, False)]:
+        values = list(good); values[index] = replacement; bad.append(values)
+    for key, replacement in [('case', 'all'), ('current_ownership_stage', 'red'),
+                             ('extraction_cohort_baseline', 'c' * 40), ('storage_final_source', '')]:
+        values = list(good)
+        values[5] = {'inputs': dict(event['inputs'], **{key: replacement})}
+        bad.append(values)
+    for key in facts:
+        values = list(good)
+        values[6] = dict(facts, **{key: 'unreviewed'})
+        bad.append(values)
+    for values in bad:
+        try:
+            final_admission_contract(*values)
+        except GateFailure:
+            continue
+        raise GateFailure('final-admission-negative-accepted')
+    ensure(final_target_rustflags({'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS': ''}), 'final-empty-target-rustflags-positive')
+    try:
+        final_target_rustflags({'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS': '--cfg unreviewed'})
+    except GateFailure:
+        pass
+    else:
+        raise GateFailure('final-target-rustflags-negative-accepted')
+    return {'positive': 1, 'negative': len(bad), 'target_flags_positive': 1,
+            'target_flags_negative': 1, 'actual_runtime_bodies': 0}
+
+
+def final_physical_inputs():
+    root = Path.cwd()
+    ensure(root == root.resolve() and str(root) == git('rev-parse', '--show-toplevel'), 'final-physical-Git-root')
+    ensure(not git('diff', '--cached', 'HEAD', '--name-only'), 'final-index-exact-HEAD')
+    names = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+    for name in names:
+        if not name:
+            continue
+        target = root / os.fsdecode(name)
+        ensure(target.parent.resolve().is_relative_to(root), 'final-tracked-parent-contained')
+        current = target.parent
+        while current != root:
+            ensure(current.is_dir() and not current.is_symlink(), 'final-tracked-parent-physical-directory')
+            current = current.parent
+    return frozen_inputs()
+
+
+def final_omission_source_guard(baseline, stage, omission, final_source):
+    source = git('rev-parse', 'HEAD')
+    workflow = workflow_identity(source)
+    ensure(stage == 'green' and omission in CURRENT_OMISSIONS, 'final-only-green-exact-omission')
+    ensure(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+           and os.environ.get('GITHUB_REF', '').startswith('refs/heads/ci/upstream-storage-boundary-'), 'final-owned-manual-route')
+    event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+    ensure(type(final_source) is str and re.fullmatch(r'[0-9a-f]{40}', final_source), 'final-explicit-immutable-source')
+    ensure(subprocess.run(['git', 'merge-base', '--is-ancestor', FINAL_REVIEWED_PARENT, final_source], check=False).returncode == 0, 'final-reviewed-parent-retained')
+    ancestor = subprocess.run(['git', 'merge-base', '--is-ancestor', final_source, source], check=False).returncode == 0
+    changed = set(git('diff', '--name-only', final_source, source).splitlines())
+    facts = {key: os.environ.get(key) for key in ['GITHUB_ACTIONS', 'GITHUB_REPOSITORY',
+             'GITHUB_EVENT_NAME', 'GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'GITHUB_REF', 'GITHUB_WORKFLOW_REF']}
+    final_admission_contract(final_source, baseline, source, changed, ancestor, event, facts)
+    ensure(not git('diff', 'HEAD', '--name-only') and current_no_extra_untracked_inputs(), 'final-initial-pristine-inputs')
+    inputs = final_physical_inputs()
+    entries = subprocess.check_output(['git', 'ls-tree', '-r', '-z', source]).split(b'\0')
+    expected = {}
+    for entry in entries:
+        if entry:
+            metadata, path = entry.split(b'\t', 1)
+            mode, kind, oid = metadata.decode().split()
+            ensure(kind == 'blob' and mode in {'100644', '100755', '120000'}, 'final-supported-tracked-kind')
+            expected[os.fsdecode(path)] = (mode, oid)
+    ensure(set(expected) == set(inputs), 'final-whole-tracked-inventory')
+    process = subprocess.run(['git', 'cat-file', '--batch'], input=('\n'.join(oid for _, oid in expected.values()) + '\n').encode(), stdout=subprocess.PIPE, check=True)
+    stream = io.BytesIO(process.stdout)
+    for name, (mode, oid) in expected.items():
+        header = stream.readline().decode().strip().split()
+        ensure(len(header) == 3 and header[:2] == [oid, 'blob'], 'final-Git-blob-identity')
+        body = stream.read(int(header[2]))
+        ensure(stream.read(1) == b'\n' and inputs[name] == {'mode': mode, 'actual_executable': mode in {'100755', '120000'}, 'sha256': digest(body)}, 'final-physical-bytes-modes-links-exact-tooling')
+    ensure(stream.read() == b'', 'final-complete-Git-inputs')
+    for name, pin in CURRENT_BOUNDARY_PINS.items():
+        ensure(inputs[name]['mode'] == pin['mode'] and inputs[name]['sha256'] == pin['green'], 'final-retained-reviewed-boundary-oracles')
+    ensure(not OUT.is_symlink() and OUT.resolve() == Path.cwd() / OUT, 'final-physical-output')
+    result = OUT / 'result.json'
+    if result.exists() or result.is_symlink():
+        ensure(result.is_file() and not result.is_symlink() and result.stat().st_uid == os.getuid()
+               and result.stat().st_mode & 0o777 == 0o600, 'final-owned-closed-report')
+    ensure(all(not os.environ.get(key) for key in ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS',
+           'CARGO_ENCODED_RUSTDOCFLAGS', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'RUSTC_BOOTSTRAP',
+           'CARGO_PROFILE_DEV_OPT_LEVEL', 'CARGO_PROFILE_TEST_OPT_LEVEL']), 'final-no-unapproved-compiler-overrides')
+    final_target_rustflags(os.environ)
+    environment = {'CARGO_INCREMENTAL': '1', 'CARGO_BUILD_JOBS': '2', 'CARGO_PROFILE_DEV_DEBUG': '0',
+                   'CARGO_PROFILE_TEST_DEBUG': '0', 'RUST_MIN_STACK': '4194304'}
+    ensure(all(os.environ.get(key) == value for key, value in environment.items()), 'final-exact-build-environment')
+    return {'source': source, 'final_source': final_source, 'tooling_source': source,
+            'reviewed_cohort_baseline': final_source, 'baseline_tree': git('rev-parse', final_source + '^{tree}'),
+            'workflow_identity': workflow, 'overlay_paths': sorted(changed), 'current_cohort_stage': stage,
+            'current_boundary_pins': CURRENT_BOUNDARY_PINS, 'all_non_overlay_inputs_exact_baseline': True,
+            'physical_input_bytes_modes_and_link_targets_exact_HEAD': True,
+            'selected_original_current_tests': CURRENT_TESTS, 'historical_results_reused': False}
+
+
+CURRENT_GREEN = 'c78b9f4bf84d18ca70c077ea6e138a16b8fabc4e'
+CURRENT_OMISSIONS = {
+    'module': (BOUNDARY[1], b'        | "mirrored_chat_edits"\n', BOUNDARY_TEST, 103, 50),
+    'table': (BOUNDARY[2], b'    ("mirrored_chat_edit_targets", Side::App),\n',
+              'base::boundary_tests::table_registry_names_every_table', 41, 5),
+}
+
+
+def current_omission_bytes(original, label):
+    anchor = CURRENT_OMISSIONS[label][1]
+    ensure(original.count(anchor) == 1, 'current-one-exact-owned-omission-anchor')
+    return original.replace(anchor, b'', 1)
+
+
+def current_omission_body(raw, code, name):
+    row = parse_body(raw, code, name)
+    clean = re.sub(r'\x1b\[[0-9;]*m', '', raw)
+    header = (r"^thread '" + re.escape(name) + r"'(?: \(\d+\))? panicked at "
+              r"crates/storage-sqlite/src/base/boundary_tests\.rs:103:50:\n"
+              r"unclassified production storage file: mirrored_chat_edits\.rs$")
+    row['exact_current_module_denial_observed'] = len(re.findall(header, clean, re.M)) == 1
+    return row
+
+
+def current_no_extra_untracked_inputs():
+    return set(git('ls-files', '--others', '--exclude-standard').splitlines()) <= {str(OUT / 'result.json')}
+
+
+def current_omission_killed(row, label):
+    _, _, name, line, column = CURRENT_OMISSIONS[label]
+    return (row['actual_counts_complete'] and row['exact_selected_name']
+            and row['exit_code'] == 101 and row['passed'] == 0 and row['failed'] == 1
+            and row['ignored'] == row['compiler_error_count'] == 0 and row['panic_count'] == 1
+            and row['safe_panic_locations'] == [{'selected_test': True, 'known_source_location': True,
+                                               'line': line, 'column': column}]
+            and (row['registry_assertion_observed'] if label == 'table' else row.get('exact_current_module_denial_observed') is True))
+
+
+def current_omission_counts(report):
+    phases = report.get('current_omission_chain', {}).get('phases', {})
+    rows = [row for phase in phases.values() for row in phase.get('bodies', {}).values()]
+    attempted = sum(phase.get('attempted_body_count', 0) for phase in phases.values())
+    known = len(rows) == attempted and all(row.get('actual_counts_complete') is True for row in rows)
+    report['observed_completed_body_count'] = sum(row.get('executed_nonignored') or 0 for row in rows if row.get('actual_counts_complete'))
+    report['actual_executed_nonignored'] = sum(row['executed_nonignored'] for row in rows) if known else None
+    report['actual_passed'] = sum(row['passed'] for row in rows) if known else None
+    report['actual_failed'] = sum(row['failed'] for row in rows) if known else None
+    report['actual_ignored'] = sum(row['ignored'] for row in rows) if known else None
+    report['actual_counts_complete'] = (set(phases) == {'baseline', 'mutant', 'restored'} and known
+        and [len(phases[name].get('bodies', {})) for name in ['baseline', 'mutant', 'restored']] == [5, 1, 5])
+
+
+def current_omission_parser_controls():
+    controls = {'positive': 0, 'negative': 0, 'actual_runtime_bodies': 0}
+    for label, (_, anchor, name, line, column) in CURRENT_OMISSIONS.items():
+        original = b'prefix\n' + anchor + b'suffix\n'
+        ensure(current_omission_bytes(original, label) == b'prefix\nsuffix\n', 'current-exact-one-line-omission-control')
+        controls['positive'] += 1
+        for bad in [b'prefix\nsuffix\n', original + anchor]:
+            try:
+                current_omission_bytes(bad, label)
+            except GateFailure:
+                controls['negative'] += 1
+            else:
+                raise GateFailure('current-omission-anchor-negative-accepted')
+        marker = ('src/base/table_owners.rs must name every table of a fresh database exactly once.'
+                  if label == 'table' else 'unclassified production storage file: mirrored_chat_edits.rs')
+        raw = (f"running 1 test\ntest {name} ... \nthread '{name}' panicked at "
+               f"crates/storage-sqlite/src/base/boundary_tests.rs:{line}:{column}:\n{marker}\nFAILED\n"
+               'test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n')
+        row = current_omission_body(raw, 101, name)
+        ensure(current_omission_killed(row, label), 'current-exact-native-assertion-kill-control')
+        controls['positive'] += 1
+        for bad, code in [(raw, 0), (raw.replace('1 failed', '0 failed'), 101),
+                          (raw.replace(f':{line}:{column}:', ':1:1:'), 101),
+                          (raw.replace("thread '" + name, "thread 'foreign::body"), 101),
+                          (raw + raw, 101), ('error[E0001]: PRIVATE_SQL\n', 101),
+                          (raw.replace('0 ignored', '1 ignored'), 101),
+                          (raw.replace(marker, 'PRIVATE_SQL'), 101),
+                          (raw.replace(marker, 'unclassified production storage file: another_static_root.rs'), 101)]:
+            result = current_omission_body(bad, code, name)
+            ensure(not current_omission_killed(result, label), 'current-rejects-unknown-or-compile-kill')
+            ensure('PRIVATE_SQL' not in json.dumps(result), 'current-closed-kill-controls-private-payload')
+            controls['negative'] += 1
+    return controls
+
+
+def current_parent_identity(parent):
+    ensure(parent.is_absolute() and not parent.is_symlink() and parent.resolve() == parent,
+           'current-canonical-physical-owned-parent')
+    status = parent.lstat()
+    ensure(status.st_mode & 0o170000 == 0o040000 and status.st_uid == os.getuid(), 'current-owned-directory-parent')
+    return (parent, status.st_dev, status.st_ino)
+
+
+def current_parent_fd(identity):
+    parent, device, inode = identity
+    ensure(current_parent_identity(parent) == identity, 'current-frozen-physical-parent-unchanged')
+    fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        status = os.fstat(fd)
+        ensure((status.st_dev, status.st_ino) == (device, inode), 'current-frozen-parent-descriptor-identity')
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
+def current_leaf_read(target, parent):
+    ensure(target.parent == parent[0], 'current-exact-owned-leaf-parent')
+    directory = current_parent_fd(parent)
+    try:
+        fd = os.open(target.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+        with os.fdopen(fd, 'rb') as stream:
+            status = os.fstat(stream.fileno())
+            ensure(status.st_mode & 0o170000 == 0o100000 and status.st_uid == os.getuid(), 'current-owned-regular-leaf')
+            return stream.read(), status.st_mode & 0o777
+    finally:
+        os.close(directory)
+
+
+def current_leaf_write(target, data, mode, parent, create=False):
+    ensure(target.parent == parent[0], 'current-exact-owned-write-parent')
+    directory = current_parent_fd(parent)
+    try:
+        flags = os.O_WRONLY | os.O_NOFOLLOW | (os.O_CREAT if create else 0)
+        fd = os.open(target.name, flags, mode, dir_fd=directory)
+        try:
+            status = os.fstat(fd)
+            ensure(status.st_mode & 0o170000 == 0o100000 and status.st_uid == os.getuid(), 'current-owned-no-follow-leaf-descriptor')
+            if not create:
+                ensure(status.st_mode & 0o777 == mode, 'current-owned-write-mode')
+            os.ftruncate(fd, 0)
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(fd, remaining)
+                ensure(written > 0, 'current-complete-owned-write')
+                remaining = remaining[written:]
+            os.fchmod(fd, mode)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(directory)
+
+
+def current_restore_leaf(target, original, mode, parent, chain, allowed_contents):
+    # Validate the originally frozen parent BEFORE any leaf read/unlink/create;
+    # all subsequent operations are relative to that no-follow directory FD.
+    directory = current_parent_fd(parent)
+    try:
+        try:
+            status = os.stat(target.name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            status = None
+        if status is not None and status.st_mode & 0o170000 == 0o120000:
+            chain['fallback_restoration_used'] = True
+            os.unlink(target.name, dir_fd=directory)
+        elif status is not None:
+            ensure(status.st_mode & 0o170000 == 0o100000, 'current-unexpected-leaf-kind-not-recursively-removed')
+    finally:
+        os.close(directory)
+    try:
+        current, current_mode = current_leaf_read(target, parent)
+    except FileNotFoundError:
+        chain['fallback_restoration_used'] = True
+    else:
+        if current not in allowed_contents or current_mode != mode:
+            chain['fallback_restoration_used'] = True
+    current_leaf_write(target, original, mode, parent, create=True)
+
+
+
+def current_component_inventory(output, code):
+    expected = {name + ': test': name for name in CURRENT_TESTS}
+    lines = output.splitlines()
+    known = [expected[line] for line in lines if line in expected]
+    unknown = sum(line not in expected for line in lines)
+    return {'exit_code': code, 'known_name_rows': known[:16], 'known_name_row_count': len(known),
+            'known_name_rows_truncated': len(known) > 16, 'unknown_line_count': unknown,
+            'exact_five_name_rows': code == 0 and unknown == 0 and sorted(known) == CURRENT_TESTS}
+
+
+def current_inventory_controls():
+    raw = ''.join(name + ': test\n' for name in CURRENT_TESTS)
+    row = current_component_inventory(raw, 0)
+    ensure(row['exact_five_name_rows'] and row['known_name_rows'] == CURRENT_TESTS
+           and row['known_name_row_count'] == 5 and row['unknown_line_count'] == 0,
+           'current-terse-discovery-five-literal-lines-no-summary')
+    negative = [(raw.split('\n', 1)[1], 0), (raw + '5 tests, 0 benchmarks\n', 0),
+                (raw + CURRENT_TESTS[0] + ': test\n', 0), (raw + 'PRIVATE_SQL_UNKNOWN\n', 0), (raw, 1)]
+    for bad, code in negative:
+        row = current_component_inventory(bad, code)
+        ensure(not row['exact_five_name_rows'] and 'PRIVATE_SQL_UNKNOWN' not in json.dumps(row),
+               'current-terse-inventory-rejects-missing-extra-duplicate-unknown-nonzero')
+    return {'positive': 1, 'negative': len(negative), 'actual_runtime_bodies': 0}
+
+
+def current_omission_phase(cohort, expected, names, phase, save, admitted_source, frozen_binary_parent=None):
+    if frozen_binary_parent is not None:
+        directory = current_parent_fd(frozen_binary_parent)
+        os.close(directory)
+    ensure(current_no_extra_untracked_inputs(), 'current-no-unreviewed-untracked-input-before-compile')
+    binary = compile_mutation_phase(cohort, expected, phase, save)
+    ensure(git('rev-parse', 'HEAD') == admitted_source, 'current-head-exact-after-compile')
+    binary_parent = current_parent_identity(binary.parent)
+    if frozen_binary_parent is not None:
+        ensure(binary_parent == frozen_binary_parent, 'current-original-compiled-parent-retained')
+    binary_bytes, binary_mode = current_leaf_read(binary, binary_parent)
+    ensure(digest(binary_bytes) == phase['compilation']['binary_sha256'], 'current-admitted-binary-bytes')
+    phase['binary_mode'] = binary_mode
+    phase['bodies'] = {}
+    # The compiled component must contain all five unchanged tests even in a
+    # mutant selecting only one actual body, with zero selected ignored tests.
+    code, inventory, _ = capture([str(binary), 'base::boundary_tests::', '--list', '--format', 'terse'], 60)
+    phase['inventory'] = current_component_inventory(inventory, code)
+    save()
+    ensure(phase['inventory']['exact_five_name_rows'], 'current-five-exact-compiled-component-inventory')
+    code, ignored, _ = capture([str(binary), 'base::boundary_tests::', '--ignored', '--list', '--format', 'terse'], 60)
+    ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'current-component-no-ignored-bodies')
+    phase['inventory'].update(selected_names=names, component_names=CURRENT_TESTS, component_ignored=0)
+    for name in names:
+        ensure(frozen_inputs() == expected and current_no_extra_untracked_inputs() and git('rev-parse', 'HEAD') == admitted_source
+               and current_leaf_read(binary, binary_parent) == (binary_bytes, binary_mode), 'current-pristine-source-and-binary-before-body')
+        phase['attempted_body_count'] = phase.get('attempted_body_count', 0) + 1
+        save()
+        code, raw, seconds = capture([str(binary), name, '--exact', '--nocapture', '--test-threads=1'], 300)
+        # Preserve captured actual counts even if a physical probe raises.
+        row = current_omission_body(raw, code, name)
+        row.update(wall_seconds=seconds, source_and_binary_postcheck=None)
+        phase['bodies'][name] = row
+        save()
+        try:
+            physical = (frozen_inputs() == expected and current_no_extra_untracked_inputs() and git('rev-parse', 'HEAD') == admitted_source
+                        and current_leaf_read(binary, binary_parent) == (binary_bytes, binary_mode))
+        except Exception:
+            physical = False
+        row['source_and_binary_postcheck'] = physical
+        save()
+        ensure(physical, 'current-pristine-source-and-binary-after-body')
+    phase['actual_counts_complete'] = len(phase['bodies']) == len(names) and all(row['actual_counts_complete'] for row in phase['bodies'].values())
+    phase['executed_nonignored'] = sum(row['executed_nonignored'] for row in phase['bodies'].values()) if phase['actual_counts_complete'] else None
+    phase['all_selected_passed'] = phase['actual_counts_complete'] and all(row['passed_gate'] for row in phase['bodies'].values())
+    save()
+    return binary, binary_parent
+
+
+def run_current_omission(args, report, frozen, save):
+    label = args.current_omission
+    name, _, selected, _, _ = CURRENT_OMISSIONS[label]
+    target = Path(name)
+    source_parent = current_parent_identity(target.parent.absolute())
+    target = target.absolute()
+    original, mode = current_leaf_read(target, source_parent)
+    mutant = current_omission_bytes(original, label)
+    report['current_omission_chain'] = {'label': label, 'selected_mutant_test': selected, 'phases': {},
+                                        'passed': False, 'fallback_restoration_used': False}
+    chain = report['current_omission_chain']
+    baseline_binary = None
+    try:
+        phase = chain['phases']['baseline'] = {}
+        binary, binary_parent = current_omission_phase(args.cohort, frozen, CURRENT_TESTS, phase, save, report['source'])
+        binary_bytes, binary_mode = current_leaf_read(binary, binary_parent)
+        ensure(digest(binary_bytes) == phase['compilation']['binary_sha256']
+               and binary_mode == phase['binary_mode'], 'current-baseline-fallback-copy-exact-admitted-binary')
+        baseline_binary = (binary, binary_bytes, binary_mode, binary_parent)
+        ensure(phase['all_selected_passed'], 'current-five-baseline-controls-required-before-omission')
+        current_leaf_write(target, mutant, mode, source_parent)
+        expected = {key: dict(value) for key, value in frozen.items()}
+        expected[name]['sha256'] = digest(mutant)
+        phase = chain['phases']['mutant'] = {'exact_one_line_omission': True, 'mutant_source_sha256': digest(mutant)}
+        binary, _ = current_omission_phase(args.cohort, expected, [selected], phase, save, report['source'], baseline_binary[3])
+        phase['intended_runtime_kill'] = current_omission_killed(phase['bodies'][selected], label)
+        save()
+    finally:
+        # Always restore exact source then freshly compile/run all five controls,
+        # including when baseline/mutant compilation or strict parsing failed.
+        current_restore_leaf(target, original, mode, source_parent, chain, {original, mutant})
+        ensure(frozen_inputs() == frozen and current_no_extra_untracked_inputs(), 'current-whole-source-restored-before-fresh-controls')
+        phase = chain['phases']['restored'] = {}
+        try:
+            binary, _ = current_omission_phase(args.cohort, frozen, CURRENT_TESTS, phase, save, report['source'], baseline_binary[3] if baseline_binary else None)
+        except Exception:
+            chain['fallback_restoration_used'] = True
+            chain['baseline_binary_fallback_restored'] = None
+            if baseline_binary is not None:
+                original_binary, binary_bytes, binary_mode, binary_parent = baseline_binary
+                current_restore_leaf(original_binary, binary_bytes, binary_mode, binary_parent, chain, {binary_bytes})
+                chain['baseline_binary_fallback_restored'] = current_leaf_read(original_binary, binary_parent) == (binary_bytes, binary_mode)
+            report['current_necessity_component_passed'] = False
+            save()
+            raise
+        phases = chain['phases']
+        first, last = phases.get('baseline', {}), phases['restored']
+        mutation = phases.get('mutant', {})
+        chain['baseline_restored_binary_features_and_mode_equal'] = (
+            first.get('compilation', {}).get('binary_sha256') == last['compilation']['binary_sha256']
+            and first.get('compilation', {}).get('compiler_artifact_feature_manifest_sha256') == last['compilation']['compiler_artifact_feature_manifest_sha256']
+            and first.get('binary_mode') == last['binary_mode'])
+        chain['mutant_changes_binary_only_with_same_features_and_mode'] = (
+            bool(mutation.get('compilation', {}).get('binary_sha256'))
+            and mutation['compilation']['binary_sha256'] != last['compilation']['binary_sha256']
+            and mutation['compilation'].get('compiler_artifact_feature_manifest_sha256') == last['compilation']['compiler_artifact_feature_manifest_sha256']
+            and mutation.get('binary_mode') == last['binary_mode'])
+        chain['passed'] = (first.get('all_selected_passed') is True and mutation.get('intended_runtime_kill') is True
+                           and last.get('all_selected_passed') is True and not chain['fallback_restoration_used']
+                           and chain['baseline_restored_binary_features_and_mode_equal']
+                           and chain['mutant_changes_binary_only_with_same_features_and_mode'])
+        report['actual_counts_complete'] = len(phases) == 3 and all(phase.get('actual_counts_complete') is True for phase in phases.values())
+        report['actual_executed_nonignored'] = sum(phase['executed_nonignored'] for phase in phases.values()) if report['actual_counts_complete'] else None
+        report['current_necessity_component_passed'] = chain['passed'] and report['actual_executed_nonignored'] == 11
+        report['source_and_modes_restored'] = frozen_inputs() == frozen
+        save()
+    ensure(report['current_necessity_component_passed'], 'current-exact-runtime-kill-and-fresh-five-restored-controls-required')
+    return 0
+
+
+def current_parent_controls():
+    import tempfile
+    counts = {'positive': 0, 'negative': 0, 'actual_runtime_bodies': 0}
+    for role in ['source', 'binary']:
+        for replacement in ['symlink', 'new-directory']:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                parent, outside = root / 'parent', root / 'outside'
+                parent.mkdir(mode=0o700)
+                outside.mkdir(mode=0o700)
+                target = parent / role
+                victim = outside / role
+                target.write_bytes(b'ORIGINAL')
+                target.chmod(0o600)
+                victim.write_bytes(b'OUTSIDE_PRIVATE_SENTINEL')
+                victim.chmod(0o600)
+                identity = current_parent_identity(parent)
+                ensure(current_leaf_read(target, identity) == (b'ORIGINAL', 0o600), 'current-parent-positive-owned-leaf')
+                current_leaf_write(target, b'MUTANT', 0o600, identity)
+                chain = {'fallback_restoration_used': False}
+                current_restore_leaf(target, b'ORIGINAL', 0o600, identity, chain, {b'MUTANT'})
+                ensure(not chain['fallback_restoration_used'] and current_leaf_read(target, identity) == (b'ORIGINAL', 0o600), 'current-parent-positive-exact-restoration')
+                counts['positive'] += 1
+                parent.rename(root / 'moved-original')
+                if replacement == 'symlink':
+                    parent.symlink_to(outside, target_is_directory=True)
+                else:
+                    parent.mkdir(mode=0o700)
+                    (parent / role).write_bytes(b'REPLACEMENT')
+                for action in [lambda: current_leaf_read(target, identity),
+                               lambda: current_leaf_write(target, b'UNSAFE_WRITE', 0o600, identity, create=True),
+                               lambda: current_restore_leaf(target, b'UNSAFE_RESTORE', 0o600, identity, chain, {b'ORIGINAL'})]:
+                    try:
+                        action()
+                    except GateFailure:
+                        counts['negative'] += 1
+                    else:
+                        raise GateFailure('current-parent-replacement-negative-accepted')
+                    ensure(victim.read_bytes() == b'OUTSIDE_PRIVATE_SENTINEL' and victim.stat().st_mode & 0o777 == 0o600
+                           and (root / 'moved-original' / role).read_bytes() == b'ORIGINAL', 'current-parent-negative-no-outside-or-original-mutation')
+    return counts
+
+
+def current_final_closure(report, frozen, save, inputs_probe=None, head_probe=None, untracked_probe=None):
+    try:
+        actual = (final_physical_inputs() if report.get('final_source') else frozen_inputs()) if inputs_probe is None else inputs_probe()
+        head = git('rev-parse', 'HEAD') if head_probe is None else head_probe()
+        untracked = current_no_extra_untracked_inputs() if untracked_probe is None else untracked_probe()
+        report['current_final_HEAD_matches_admitted_source'] = head == report.get('source')
+        report['inputs_pristine'] = actual == frozen and report['current_final_HEAD_matches_admitted_source'] and untracked is True
+        report['current_final_closure_probe_failed'] = False
+    except Exception:
+        report['current_final_closure_probe_failed'] = True
+        report['current_final_HEAD_matches_admitted_source'] = False
+        report['inputs_pristine'] = False
+    if not report['inputs_pristine']:
+        report['current_necessity_component_passed'] = False
+        if 'current_omission_chain' in report:
+            report['current_omission_chain']['passed'] = False
+    save()
+    return report['inputs_pristine']
+
+
+def current_final_closure_controls():
+    counts = {'positive': 0, 'negative': 0, 'actual_runtime_bodies': 0}
+    for failed in [None, 'inputs-false', 'head-false', 'untracked-false', 'inputs-throw', 'head-throw', 'untracked-throw']:
+        row = {'source': 'a' * 40, 'current_necessity_component_passed': True,
+               'current_omission_chain': {'passed': True}, 'actual_executed_nonignored': 7,
+               'actual_passed': 6, 'actual_failed': 1}
+        saved = []
+        def raising():
+            raise OSError('PRIVATE_ERROR_MUST_NOT_EXPORT')
+        inputs = raising if failed == 'inputs-throw' else lambda: {'unexpected': True} if failed == 'inputs-false' else {}
+        head = raising if failed == 'head-throw' else lambda: 'b' * 40 if failed == 'head-false' else 'a' * 40
+        untracked = raising if failed == 'untracked-throw' else lambda: failed != 'untracked-false'
+        valid = current_final_closure(row, {}, lambda: saved.append(json.loads(json.dumps(row))), inputs, head, untracked)
+        ensure(len(saved) == 1 and saved[0]['actual_executed_nonignored'] == 7
+               and saved[0]['actual_passed'] == 6 and saved[0]['actual_failed'] == 1
+               and 'PRIVATE_ERROR_MUST_NOT_EXPORT' not in json.dumps(saved), 'current-final-closure-saves-counts-not-private-errors')
+        if failed is None:
+            ensure(valid and saved[0]['current_necessity_component_passed'] and saved[0]['current_omission_chain']['passed'], 'current-final-closure-positive')
+            counts['positive'] += 1
+        else:
+            ensure(not valid and saved[0]['inputs_pristine'] is False
+                   and saved[0]['current_necessity_component_passed'] is False
+                   and saved[0]['current_omission_chain']['passed'] is False, 'current-final-closure-failure-clears-before-save')
+            counts['negative'] += 1
+    return counts
 
 
 def mutation_specs(source):
@@ -821,6 +1428,8 @@ def run_mutations(args, report, frozen, save):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--current-omission', choices=['module', 'table'])
+    parser.add_argument('--final-source')
     parser.add_argument('--current-cohort', choices=['red', 'green'])
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
     parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'))
@@ -835,15 +1444,31 @@ def main():
     OUT.mkdir(exist_ok=True)
     report = {'cohort': args.cohort, 'compile_only': args.compile_only, 'crossing_diagnostics_only': args.crossing_diagnostics,
               'mutations_only': args.mutations, 'necessity_mutations_passed': False,
+              'current_necessity_component_passed': False,
               'qualification_passed': False, 'boundary_controls_passed': False,
               'actual_counts_complete': False, 'actual_executed_nonignored': 0, 'bodies': {}}
     frozen = frozen_inputs()
     report['input_manifest_sha256'] = digest(json.dumps(frozen, sort_keys=True, separators=(',', ':')).encode())
     def save():
+        if args.current_omission:
+            current_omission_counts(report)
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     try:
+        ensure(not args.final_source or (args.current_omission and args.current_cohort == 'green'), 'final-source-only-owned-omission-route')
+        ensure(not args.current_omission or args.current_cohort == 'green', 'current-omission-requires-green-stage')
         ensure(not args.current_cohort or not any([args.ownership_adaptation, args.compile_only, args.crossing_diagnostics, args.mutations, args.controls_run_id]), 'current-isolated-five-body-route')
-        report.update(current_source_guard(args.cohort_baseline, args.current_cohort) if args.current_cohort else source_guard(args.cohort_baseline, args.ownership_adaptation))
+        report.update(current_source_guard(args.cohort_baseline, args.current_cohort, args.current_omission, args.final_source) if args.current_cohort else source_guard(args.cohort_baseline, args.ownership_adaptation))
+        if args.current_omission:
+            if args.final_source:
+                report['final_admission_fixtures'] = final_admission_controls()
+            report['current_omission_parser_fixtures'] = current_omission_parser_controls()
+            report['current_inventory_fixtures'] = current_inventory_controls()
+            report['current_parent_fixtures'] = current_parent_controls()
+            report['current_final_closure_fixtures'] = current_final_closure_controls()
+            report['current_omission_baseline'] = args.final_source or CURRENT_GREEN
+            report['reviewed_cohort_baseline'] = args.final_source or CURRENT_GREEN
+            report['baseline_tree'] = git('rev-parse', (args.final_source or CURRENT_GREEN) + '^{tree}')
+            report['all_non_owned_inputs_exact_current_green'] = True
         report['parser_fixtures'] = parser_preflight()
         report['compiler_parser_fixtures'] = diagnostic_parser_preflight()
         report['crossing_parser_fixtures'] = crossing_parser_preflight()
@@ -858,6 +1483,8 @@ def main():
         if args.preflight:
             report['preflight_passed'] = True
             return 0
+        if args.current_omission:
+            return run_current_omission(args, report, frozen, save)
         if args.mutations:
             return run_mutations(args, report, frozen, save)
         selected_tests = CURRENT_TESTS if args.current_cohort else sorted(TESTS + ([ADDED_TEST] if args.ownership_adaptation else []))
@@ -941,18 +1568,26 @@ def main():
             report['expected_stage_is_not_a_verdict_override'] = True
         return 0 if report['boundary_controls_passed'] else 1
     except Exception as error:
+        if args.current_omission:
+            report['current_necessity_component_passed'] = False
+            if 'current_omission_chain' in report:
+                report['current_omission_chain']['passed'] = False
         report['controller_failure_type'] = type(error).__name__
         report['controller_failure_gate'] = str(error) if isinstance(error, GateFailure) else None
         # No exception payload: a child process can include raw SQL or account data.
         return 1
     finally:
-        report['inputs_pristine'] = frozen_inputs() == frozen
-        if args.current_cohort:
-            report['current_final_HEAD_matches_admitted_source'] = git('rev-parse', 'HEAD') == report.get('source')
-            report['inputs_pristine'] = report['inputs_pristine'] and report['current_final_HEAD_matches_admitted_source']
-        save()
-        if not report['inputs_pristine']:
-            raise SystemExit(1)
+        if args.current_omission:
+            if not current_final_closure(report, frozen, save):
+                raise SystemExit(1)
+        else:
+            report['inputs_pristine'] = frozen_inputs() == frozen
+            if args.current_cohort:
+                report['current_final_HEAD_matches_admitted_source'] = git('rev-parse', 'HEAD') == report.get('source')
+                report['inputs_pristine'] = report['inputs_pristine'] and report['current_final_HEAD_matches_admitted_source']
+            save()
+            if not report['inputs_pristine']:
+                raise SystemExit(1)
 
 
 if __name__ == '__main__':
