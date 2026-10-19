@@ -7,12 +7,13 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME
+from upstream_publication_mutation_anchors import publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'worker-stack-regression', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind', 'secondary-deferred', 'secondary-buffered'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
+parser.add_argument('--secondary-stage', choices=['red', 'green'], default='red')
 args = parser.parse_args()
 cohort = None
 if args.cohort_baseline:
@@ -23,7 +24,20 @@ publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-re
 nextest_cases = publication_cases | {'worker-spawn-stack', 'worker-stack-regression'}
 held_marker = None
 failure_marker = None
-if args.case == 'departure':
+if args.case in SECONDARY_CASES:
+    if not cohort or os.environ.get('RUST_MIN_STACK') != '4194304':
+        raise ValueError('Secondary scheduling requires reviewed source and original 4 MiB stack')
+    source = Path('crates/marmot-app/src/runtime/account_worker.rs')
+    without_debt = 'if yield_observation.peek().is_some() {'
+    with_debt = 'if yield_observation.peek().is_some() || local_submission_due {'
+    old = without_debt if args.secondary_stage == 'red' else with_debt
+    new = without_debt
+    test = SECONDARY_CASES[args.case]
+    command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features',
+               'marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks',
+               test, '--', '--exact', '--test-threads=1']
+    expected = 1
+elif args.case == 'departure':
     source = Path('crates/marmot-uniffi/src/commands/account_chat_departure.rs')
     old, new = '#[marmot_uniffi_macros::on_tokio_runtime]\n#[uniffi::export]', '#[uniffi::export]'
     command = ['cargo', 'test', '--locked', '-p', 'marmot-uniffi', '--lib', '--features',
@@ -215,6 +229,9 @@ def execute(phase):
             row.update(publication_runtime_oracle(output, args.case, test, Path(FIXTURE).read_text()))
     if args.case == 'sibling-retry-priority':
         row.update(retry_priority_oracle(output, phase, Path(PRIORITY_FIXTURE).read_text(), capture_complete=True))
+    if args.case in SECONDARY_CASES:
+        expect_failure = args.secondary_stage == 'red' or phase == 'mutant'
+        row.update(secondary_scheduler_oracle(output, args.case, Path(SECONDARY_FIXTURE).read_text(), expect_failure))
     if args.case == 'outbound-mailbox-kind':
         own_location = str(source) + ':' + str(mailbox_assertion_line) + ':'
         row['own_assertion_location'] = own_location
@@ -233,6 +250,18 @@ def matches(row, passed, failed):
 
 
 baseline = execute('baseline')
+if args.case in SECONDARY_CASES and args.secondary_stage == 'red':
+    proof.update(expected_red_only=True, qualification_passed=False, original_case_passed=False,
+                 runtime_mutation_qualification=False,
+                 baseline_behavioral_red=(baseline['exit_code'] == 101 and matches(baseline, 0, 1)
+                                          and baseline['evidence_passed']),
+                 source_unchanged=source.read_bytes() == original,
+                 all_inputs_restored=frozen_inputs() == frozen)
+    proof['completed'] = proof['baseline_behavioral_red'] and proof['source_unchanged'] and proof['all_inputs_restored']
+    save()
+    raise SystemExit(0 if proof['completed'] else 1)
+if args.case in SECONDARY_CASES and not baseline['evidence_passed']:
+    raise SystemExit('Exact secondary scheduling baseline evidence incomplete')
 if (baseline['exit_code'] != 0 or not matches(baseline, expected, 0)
         or (args.case in publication_cases and not baseline['required_runtime_marker_observed'])
         or (args.case in {'automatic-publication', 'sibling-publication'}
@@ -256,6 +285,8 @@ try:
     source.write_text(text.replace(old, new))
     mutant = execute('mutant')
     proof['runtime_mutant_killed'] = mutant['exit_code'] != 0 and matches(mutant, 0, expected)
+    if args.case in SECONDARY_CASES:
+        proof['runtime_mutant_killed'] &= mutant['exit_code'] == 101 and mutant['evidence_passed']
     if args.case == 'sibling-retry-priority':
         proof['runtime_mutant_killed'] &= mutant['exit_code'] == 100 and mutant['evidence_passed']
     if args.case == 'outbound-mailbox-kind':
@@ -284,6 +315,8 @@ proof['restored_control_passed'] = (control['exit_code'] == 0 and matches(contro
                                   and (args.case not in publication_cases or control['required_runtime_marker_observed'])
                                   and (args.case not in {'automatic-publication', 'sibling-publication'}
                                        or (control['compiler_error_count'] == 0 and control['panic_header_count'] == 0)))
+if args.case in SECONDARY_CASES:
+    proof['restored_control_passed'] &= control['evidence_passed']
 if args.case == 'sibling-retry-priority':
     proof['restored_control_passed'] &= control['evidence_passed']
     proof['historical_enrollment_survivor_retained'] = True

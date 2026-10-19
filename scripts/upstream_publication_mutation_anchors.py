@@ -184,3 +184,81 @@ def retry_priority_oracle(output, phase, fixture, capture_complete=False):
             'parsed_panic_header_count': len(panics),
             'unsupported_panic_format': output.count('panicked at ') != len(panics),
             'evidence_passed': good, 'product_qualification': False}
+
+SECONDARY_FIXTURE = 'crates/marmot-app/src/runtime/account_worker/tests/secondary_retry_scheduler_tests.rs'
+SECONDARY_CASES = {
+    'secondary-deferred': 'runtime::account_worker::tests::secondary_retry_scheduler_tests::overdue_secondary_groups_service_durable_send_after_deferred_predecessors',
+    'secondary-buffered': 'runtime::account_worker::tests::secondary_retry_scheduler_tests::overdue_secondary_groups_service_durable_send_after_buffered_predecessors',
+}
+SECONDARY_ASSERTION = '.expect("the held admission gate makes the durable drain retry");'
+SECONDARY_MARKER = 'secondary-retry-control '
+SECONDARY_NUMBERS = {'deferred_count', 'drain_count', 'pass_count', 'turn_count'}
+SECONDARY_TURN_BOOLEANS = {'yielded', 'due', 'owed', 'retry_ready'}
+SECONDARY_TURN_NUMBERS = {'pending', 'buffered'}
+
+
+def secondary_scheduler_oracle(output, case, fixture, expect_failure):
+    import json
+    if case not in SECONDARY_CASES or fixture.count(SECONDARY_ASSERTION) != 1:
+        raise ValueError('Exact secondary case and original timeout assertion required')
+    name = SECONDARY_CASES[case]
+    line = fixture[:fixture.index(SECONDARY_ASSERTION)].count('\n') + 1
+    counts = re.findall(r'test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', output)
+    expected = [('FAILED', '0', '1', '0')] if expect_failure else [('ok', '1', '0', '0')]
+    statuses = re.findall(r'^test ' + re.escape(name) + r'\s+\.\.\.\s+(ok|FAILED)\s*$', output, re.M)
+    named = statuses == (['FAILED'] if expect_failure else ['ok'])
+    compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$)|test run failed\r?$)[^\n]*', output)
+    panic_count = output.count('panicked at ')
+    panic = re.search(r"(?m)^[ \t]{0,8}thread '" + re.escape(name) + r"'(?: \(\d+\))? panicked at "
+                      + re.escape(SECONDARY_FIXTURE) + ':' + str(line) + r':\d+:\r?\n'
+                      + r'[ \t]{0,8}the held admission gate makes the durable drain retry(?:: Elapsed\(\(\)\))?[ \t]*\r?$', output)
+    own = panic is not None
+    markers = []
+    valid = True
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('duplicate-field')
+            value[key] = item
+        return value
+    for raw in output.splitlines():
+        if SECONDARY_MARKER not in raw:
+            continue
+        match = re.fullmatch(r'[ \t]*' + re.escape(SECONDARY_MARKER) + r'(\{[^\r\n]*\})[ \t]*', raw)
+        try:
+            if match is None or len(raw) > 4096:
+                raise ValueError('marker-envelope')
+            value = json.loads(match[1], object_pairs_hook=unique)
+            if not isinstance(value, dict) or set(value) != SECONDARY_NUMBERS | {'last_turn'}:
+                raise ValueError('marker-keys')
+            def number(item):
+                return type(item) is int and 0 <= item <= 2**64 - 1
+            if not all(number(value[key]) for key in SECONDARY_NUMBERS):
+                raise ValueError('marker-counts')
+            if value['deferred_count'] != (2 if case == 'secondary-deferred' else 0):
+                raise ValueError('marker-case')
+            turn = value['last_turn']
+            if turn is not None:
+                if type(turn) is not dict or set(turn) != SECONDARY_TURN_BOOLEANS | SECONDARY_TURN_NUMBERS:
+                    raise ValueError('marker-turn-keys')
+                if not all(type(turn[key]) is bool for key in SECONDARY_TURN_BOOLEANS):
+                    raise ValueError('marker-turn-booleans')
+                if not all(number(turn[key]) for key in SECONDARY_TURN_NUMBERS):
+                    raise ValueError('marker-turn-numbers')
+            if (turn is None) != (value['turn_count'] == 0):
+                raise ValueError('marker-turn-presence')
+            markers.append(value)
+        except (ValueError, TypeError):
+            valid = False
+    marker_complete = valid and len(markers) == 1
+    marker_before_panic = bool(marker_complete and panic and output.index(SECONDARY_MARKER) < panic.start())
+    evidence = (counts == expected and named and not compiler
+                and ((panic_count == 1 and own and marker_before_panic)
+                     if expect_failure else panic_count == 0))
+    return {'expected_test': name, 'actual_one_named_body': named, 'compiler_error_count': len(compiler),
+            'panic_header_count': panic_count, 'own_timeout_assertion_observed': own,
+            'timeout_marker_before_panic': marker_before_panic,
+            'trusted_source_line': line, 'timeout_marker_complete': marker_complete,
+            'timeout_observation': markers[0] if marker_complete else None,
+            'evidence_passed': evidence}

@@ -309,5 +309,47 @@ class PublicationAnchors(unittest.TestCase):
         with self.assertRaises(ValueError):
             retry_priority_oracle(output, 'mutant', fixture + '\n' + fixture, capture_complete=True)
 
+
+class SecondarySchedulerOracles(unittest.TestCase):
+    def test_actual_timeout_case_and_closed_metadata_oracles(self):
+        from upstream_publication_mutation_anchors import (
+            SECONDARY_CASES, SECONDARY_FIXTURE, SECONDARY_ASSERTION,
+            SECONDARY_MARKER, secondary_scheduler_oracle,
+        )
+        fixture = Path(SECONDARY_FIXTURE).read_text()
+        line = fixture[:fixture.index(SECONDARY_ASSERTION)].count('\n') + 1
+        for case, name in SECONDARY_CASES.items():
+            facts = {'deferred_count': 2 if case == 'secondary-deferred' else 0,
+                     'drain_count': 1, 'pass_count': 3, 'turn_count': 12,
+                     'last_turn': {'pending': 0, 'buffered': 0, 'yielded': False,
+                                   'due': True, 'owed': False, 'retry_ready': True}}
+            marker = SECONDARY_MARKER + json.dumps(facts) + '\n'
+            raw = (f'test {name} ... FAILED\n' + marker + f"thread '{name}' (123) panicked at "
+                   f'{SECONDARY_FIXTURE}:{line}:6:\n'
+                   'the held admission gate makes the durable drain retry: Elapsed(())\n'
+                   'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+            self.assertTrue(secondary_scheduler_oracle(raw, case, fixture, True)['evidence_passed'])
+            self.assertEqual(secondary_scheduler_oracle(raw, case, fixture, True)['timeout_observation'], facts)
+            passing = f'test {name} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'
+            self.assertTrue(secondary_scheduler_oracle(passing, case, fixture, False)['evidence_passed'])
+            bad = [raw.replace(name, 'PRIVATE'), raw.replace(f':{line}:6:', f':{line+1}:6:'),
+                   raw.replace('the held admission gate makes the durable drain retry', 'PRIVATE'),
+                   raw.replace(SECONDARY_MARKER, 'PRIVATE '), raw + raw,
+                   raw.replace(marker, '') + marker,
+                   raw.replace('0 passed; 1 failed', '0 passed; 0 failed'),
+                   raw + 'error[E0308]: PRIVATE\n',
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, private='PRIVATE'))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, drain_count=True))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, deferred_count=1))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=None))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=dict(facts['last_turn'], private='PRIVATE')))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=dict(facts['last_turn'], owed=1)))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=dict(facts['last_turn'], pending=True)))),
+                   raw.replace(SECONDARY_MARKER, 'PRIVATE ' + SECONDARY_MARKER)]
+            for output in bad:
+                result = secondary_scheduler_oracle(output, case, fixture, True)
+                self.assertFalse(result['evidence_passed'])
+                self.assertNotIn('PRIVATE', json.dumps(result))
+
 if __name__ == '__main__':
     unittest.main()
