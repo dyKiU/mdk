@@ -500,7 +500,7 @@ jobs:
           assert helper.read_bytes()==original and test.read_bytes()==tests
           report={'historical_sources':[row[1] for row in regressions],'executions':rows,'tracked_sources_unchanged':True,'product_bodies':0,'runtime_mutation_qualification':False}
           Path('publication-classifier-regression.json').write_text(json.dumps(report,indent=2)+'\n')
-          print(json.dumps({'metadata_executed':6,'passed':4,'intended_failed':2,'product_bodies':0}))
+          print(json.dumps({'metadata_executed':len(rows),'passed':sum(row['passed'] for row in rows),'intended_failed':sum(row['intended_failed'] for row in rows),'product_bodies':0}))
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
