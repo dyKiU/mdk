@@ -412,6 +412,14 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: pairing-replay
+      - name: Check workflow policy and enrollment build capacity
+        if: inputs.scope == 'pairing-five-devices'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/test_classify_ci_changes.py
+          python3 scripts/test_ci_workflow_policy.py
+          python3 scripts/qualification_build_preflight.py --label 'Focused enrollment diagnostic' --output "$RUNNER_TEMP/enrollment-diagnostic-capacity.json"
       - name: Run actual enrollment and authority retirement bodies without retries
         env:
           CARGO_INCREMENTAL: '1'
@@ -567,6 +575,7 @@ jobs:
           name: pairing-replay-${{ matrix.slots }}-slots
           path: |
             pairing-inventory.json
+            ${{ runner.temp }}/enrollment-diagnostic-capacity.json
             pairing-renewal.log
             pairing-departure.log
           retention-days: 7
