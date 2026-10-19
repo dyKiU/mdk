@@ -56,7 +56,11 @@ impl OriginalSiblingSharingApproval {
     pub(crate) fn harvest_diagnostics_for_test(
         &self,
     ) -> crate::account_chat_sharing::enabled::SiblingHarvestSnapshot {
-        self.state.sibling_diagnostics.lock().expect("sibling diagnostics").harvest_snapshot()
+        self.state
+            .sibling_diagnostics
+            .lock()
+            .expect("sibling diagnostics")
+            .harvest_snapshot()
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn latest_prepared_publication_for_test(&self) -> Option<cgka_traits::MessageId> {
