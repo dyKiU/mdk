@@ -201,6 +201,20 @@ class PublicationAnchors(unittest.TestCase):
         output += 'Summary [1.0s] 1 test run: ' + summary + ', 103 skipped' + newline
         return fixture, output
 
+    def test_recipient_priority_pinned_nextest_library_binary_id(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle, PRIORITY_NAME
+        # nextest 0.9.132 metadata TestBinaryId::from_parts uses the package
+        # name for a library target; Rust's underscore crate name is not its id.
+        for phase in ('baseline', 'mutant', 'restored-control'):
+            fixture, output = self.priority_output(phase)
+            rendered = output.replace('marmot-app::marmot_app ', 'marmot-app ')
+            self.assertTrue(retry_priority_oracle(
+                rendered, phase, fixture, capture_complete=True)['evidence_passed'])
+            for other in ('marmot_app', 'marmot-app::marmot_app', 'wrong-package'):
+                wrong = rendered.replace('marmot-app ' + PRIORITY_NAME, other + ' ' + PRIORITY_NAME)
+                self.assertFalse(retry_priority_oracle(
+                    wrong, phase, fixture, capture_complete=True)['evidence_passed'])
+
     def test_recipient_priority_actual_source_route_and_exact_omission(self):
         from upstream_publication_mutation_anchors import PRIORITY_NAME
         runner = Path('scripts/verify_upstream_boundary_mutations.py').read_text()
