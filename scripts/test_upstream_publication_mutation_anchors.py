@@ -482,5 +482,29 @@ class RealGuardPointerOracle(unittest.TestCase):
         self.assertFalse(real_guard_oracle(green.replace('false','true'), fixture, False)['evidence_passed'])
         with self.assertRaises(ValueError): real_guard_oracle(failure, fixture, 'mutant')
 
+class LateFirstRevokeOracle(unittest.TestCase):
+    def test_actual_late_first_ack_requires_real_prerequisites_and_own_assertion(self):
+        from upstream_publication_mutation_anchors import LATE_FIRST_NAME, LATE_FIRST_ASSERT, LATE_FIRST_PREREQS, late_first_revoke_oracle, CANCEL_MAINTENANCE_FIXTURE
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        literal = fixture.index('"' + LATE_FIRST_ASSERT + '"')
+        line = fixture[:fixture.rfind('assert!(', 0, literal)].count('\n') + 1
+        first = 'cancel-late-first-prerequisites ' + json.dumps({name: True for name in LATE_FIRST_PREREQS}) + '\n'
+        second = 'cancel-late-first-result ' + json.dumps({'old_acknowledged':True,'old_stale_rejected':False,'current_revision_unchanged':False,'owned_runtimes_closed':True}) + '\n'
+        raw = (f'test {LATE_FIRST_NAME} ... FAILED\n' + first + second
+               + f"thread '{LATE_FIRST_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n"
+               + LATE_FIRST_ASSERT + '\n' + 'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+        self.assertTrue(late_first_revoke_oracle(raw, fixture)['evidence_passed'])
+        bad = [raw + raw, raw.replace(first,''), raw.replace(second,''), raw.replace(first,first.replace('true','false')),
+               raw.replace(first,first.replace('true','1')), raw.replace(second,second.replace('true','false')),
+               raw.replace(second,second.replace('false','true')), raw.replace(first,first.replace('}', ',"PRIVATE":true}')),
+               raw.replace(first,first.replace('{', '{"old_slot_unrevoked":true,')), raw.replace(first,'')+first,
+               raw.replace('0 passed; 1 failed','0 passed; 0 failed'), raw + 'error[E0308]: PRIVATE\n',
+               raw.replace(LATE_FIRST_NAME,'PRIVATE'), raw.replace(LATE_FIRST_ASSERT,'PRIVATE'),
+               raw.replace(f':{line}:26:',f':{line+1}:26:'), raw.replace('cancel-late-first-result ','PRIVATE cancel-late-first-result ')]
+        for output in bad:
+            row = late_first_revoke_oracle(output, fixture)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE',json.dumps(row))
+
 if __name__ == '__main__':
     unittest.main()
