@@ -587,3 +587,72 @@ async fn publish_operation(
         tracing::debug!(target: "marmot_app::device_linking", method = "worker_abandoned_private_dispatch", "device linking cleanup deferred");
     }
 }
+
+#[cfg(test)]
+mod negative_cancel_tests {
+    use super::*;
+    fn scope(generation: u64) -> PurposeAttemptScope {
+        PurposeAttemptScope { account: [1; 32], local_device: [2; 32], generation }
+    }
+    // These exercise only negative slot custody, never SDK consent or enrollment.
+    #[test]
+    fn first_revocation_is_not_renewed_by_repeats() {
+        let control = PublicationControl::default();
+        let gate = Arc::new(RuntimeInviteGate::new());
+        let original = scope(1);
+        control.install(original.clone(), gate.clone());
+        control.revoke(&original);
+        assert!(control.has_negative_invite(&original, &gate));
+        let after_first = gate.cancellation_fence();
+        control.revoke(&original);
+        assert!(after_first.revision_matches_for_negative_completion());
+        assert!(control.has_negative_invite(&original, &gate));
+    }
+    #[test]
+    fn foreign_gate_and_later_revision_cannot_acknowledge() {
+        let control = PublicationControl::default();
+        let gate = Arc::new(RuntimeInviteGate::new());
+        let foreign = Arc::new(RuntimeInviteGate::new());
+        let original = scope(1);
+        control.install(original.clone(), gate.clone());
+        control.revoke(&original);
+        assert!(!control.has_negative_invite(&original, &foreign));
+        assert!(!control.has_negative_invite(&scope(2), &gate));
+        assert!(control.has_negative_invite(&original, &gate));
+        // Actual gate invalidation used by a new reservation; the separate real
+        // Runtime test exercises reservation followed by terminal completion.
+        gate.cancel();
+        let next_revision = gate.cancellation_fence();
+        control.revoke(&original);
+        assert!(next_revision.revision_matches_for_negative_completion());
+        assert!(!control.has_negative_invite(&original, &gate));
+    }
+    #[test]
+    fn shutdown_and_inherited_install_cannot_refresh_witness() {
+        let control = PublicationControl::default();
+        let gate = Arc::new(RuntimeInviteGate::new());
+        let original = scope(1);
+        control.install(original.clone(), gate.clone());
+        control.revoke(&original);
+        control.install(original.clone(), gate.clone());
+        control.revoke(&original);
+        assert!(!control.has_negative_invite(&original, &gate));
+        let control = PublicationControl::default();
+        control.install(original.clone(), gate.clone());
+        control.revoke(&original);
+        control.shutdown();
+        assert!(!control.has_negative_invite(&original, &gate));
+    }
+    #[test]
+    fn exact_current_slot_is_consumed_only_once() {
+        let control = PublicationControl::default();
+        let gate = Arc::new(RuntimeInviteGate::new());
+        let original = scope(1);
+        control.install(original.clone(), gate.clone());
+        control.revoke(&original);
+        assert!(!control.consume_negative_invite(&scope(2), &gate));
+        assert!(control.has_negative_invite(&original, &gate));
+        assert!(control.consume_negative_invite(&original, &gate));
+        assert!(!control.consume_negative_invite(&original, &gate));
+    }
+}

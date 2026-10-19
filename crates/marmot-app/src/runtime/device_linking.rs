@@ -3336,6 +3336,11 @@ mod tests {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalReopen).await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn device_linking_retired_cancel_cannot_ack_after_a_newer_terminal_reservation() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalCancelMaintenanceNewerTerminal).await;
+    }
+
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ThirdDeviceCheck {
         LocalProposal,
@@ -3344,6 +3349,7 @@ mod tests {
         LocalProposalTrustedAdd,
         LocalProposalTrustedAddRetry,
         LocalProposalTrustedAddRetryCancelMaintenance,
+        LocalProposalCancelMaintenanceNewerTerminal,
         LocalProposalRecipientAdmission,
         LocalProposalRecipientJoin,
         LocalProposalExistingTransition,
@@ -3358,8 +3364,10 @@ mod tests {
 
     async fn exercise_third_device_invite(check: ThirdDeviceCheck) {
         // The new race case reuses every real original setup/approval step.
+        let newer_terminal_after_maintenance = check == ThirdDeviceCheck::LocalProposalCancelMaintenanceNewerTerminal;
         let cancel_after_maintenance =
-            check == ThirdDeviceCheck::LocalProposalTrustedAddRetryCancelMaintenance;
+            check == ThirdDeviceCheck::LocalProposalTrustedAddRetryCancelMaintenance
+                || newer_terminal_after_maintenance;
         let check = if cancel_after_maintenance {
             ThirdDeviceCheck::LocalProposalTrustedAddRetry
         } else {
@@ -4005,6 +4013,27 @@ mod tests {
                         eprintln!(
                             "cancel-maintenance-control {{\"wrapped_owned\":true,\"same_retired_owned\":true,\"recipient_purpose_unchanged\":true,\"real_maintenance_completed\":true}}"
                         );
+                    }
+                    if newer_terminal_after_maintenance {
+                        // A real reservation must invalidate the old revision,
+                        // even after this newer owner reaches terminal state.
+                        let newer = workers.a.reserve_device_linking_for_approver("test").await.unwrap();
+                        assert!(newer != a_scope);
+                        assert!(newer.generation > a_scope.generation);
+                        workers.a.cancel_device_linking("test", &newer).await.unwrap();
+                        let purpose_before = cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                            .unwrap().purpose_key_package().unwrap();
+                        assert!(matches!(workers.a.cancel_device_linking("test", &a_scope).await,
+                            Err(ClientLinkingError::Owner(OwnerError::Verifier(LinkError::StaleFlow)))));
+                        assert!(cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage)
+                            .unwrap().purpose_key_package().unwrap() == purpose_before);
+                        assert!(cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                            .unwrap().purpose_key_package().unwrap() == c_purpose);
+                        runtime_c.shutdown_and_close().await.unwrap();
+                        workers.runtime_a.shutdown_and_close().await.unwrap();
+                        workers.runtime_b.shutdown_and_close().await.unwrap();
+                        relay.shutdown();
+                        return;
                     }
                     workers
                         .a
