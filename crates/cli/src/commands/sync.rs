@@ -42,6 +42,15 @@ fn observe_avatar_sync_for_test(app: &MarmotApp, client: &marmot_app::AppClient,
         return;
     }
     let group_id = cgka_traits::GroupId::new(bytes);
+    // The sender's outer event id stays private; export cached membership only.
+    // A cached receipt is neither delivery completeness nor a Core-apply verdict.
+    let clear_receipt_cached = std::env::var("WN_TEST_AVATAR_CLEAR_EVENT")
+        .ok()
+        .filter(|value| {
+            value.len() == 64
+                && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+        .map(|event_id| client.cached_transport_receipt_contains_for_test(&event_id));
     let core_present = client
         .group_avatar_component_presence_for_test(&group_id)
         .ok()
@@ -61,6 +70,7 @@ fn observe_avatar_sync_for_test(app: &MarmotApp, client: &marmot_app::AppClient,
             "core_avatar_present": core_present,
             "app_avatar_present": app_present,
             "core_epoch": core_epoch,
+            "clear_receipt_cached": clear_receipt_cached,
         })
     );
 }

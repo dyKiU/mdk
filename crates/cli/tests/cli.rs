@@ -7485,6 +7485,10 @@ fn groups_set_avatar_url_round_trips_through_sync_and_show() {
     let sync_output = wn(home.path())
         .args(["--account", &bob, "sync"])
         .env("WN_TEST_AVATAR_SYNC_GROUP", group_id)
+        .env(
+            "WN_TEST_AVATAR_CLEAR_EVENT",
+            cleared["message_ids"][0].as_str().unwrap_or(""),
+        )
         .output()
         .expect("final sync starts");
     assert!(

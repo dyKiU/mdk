@@ -25,7 +25,7 @@ PHASES = {'local_state_created', 'local_ready', 'bootstrap_publication_started',
 AVATAR = {'sender_clear_present', 'receiver_present', 'sync_events',
           'sync_projection_updates', 'sync_epoch_stall_escalations',
           'clear_published', 'clear_message_count', 'core_observation'}
-AVATAR_CORE = {'core_avatar_present', 'app_avatar_present', 'core_epoch'}
+AVATAR_CORE = {'core_avatar_present', 'app_avatar_present', 'core_epoch', 'clear_receipt_cached'}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 LIMIT = 16 * 1024 * 1024
 PRIOR_COLLECTOR = '9d24755e3f48cc19fd0643c85b3e00f771e25da4'
