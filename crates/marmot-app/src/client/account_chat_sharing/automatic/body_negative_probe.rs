@@ -73,6 +73,7 @@ pub(crate) struct Probe {
     root: PathBuf,
     peer_root: PathBuf,
     old_chat: crate::GroupId,
+    recipient: Option<[u8; 32]>,
     progress: Mutex<Progress>,
 }
 fn registry() -> &'static Mutex<BTreeMap<PathBuf, Weak<Probe>>> {
@@ -153,6 +154,24 @@ impl AppClient {
         peer_root: &Path,
         old_chat: &crate::GroupId,
     ) -> Arc<Probe> {
+        Self::capture_automatic_body_negative(root, peer_root, old_chat, None)
+    }
+
+    pub(crate) fn test_hold_automatic_departure_intent(
+        root: &Path,
+        peer_root: &Path,
+        old_chat: &crate::GroupId,
+        recipient: [u8; 32],
+    ) -> Arc<Probe> {
+        Self::capture_automatic_body_negative(root, peer_root, old_chat, Some(recipient))
+    }
+
+    fn capture_automatic_body_negative(
+        root: &Path,
+        peer_root: &Path,
+        old_chat: &crate::GroupId,
+        recipient: Option<[u8; 32]>,
+    ) -> Arc<Probe> {
         let mut registry = registry().lock().expect("negative registry");
         registry.retain(|_, weak| weak.strong_count() > 0);
         assert!(registry.len() < 8 && !registry.contains_key(root));
@@ -160,6 +179,7 @@ impl AppClient {
             root: root.to_owned(),
             peer_root: peer_root.to_owned(),
             old_chat: old_chat.clone(),
+            recipient,
             progress: Mutex::new(Progress {
                 captured: None,
                 ordinal: 0,
@@ -201,7 +221,11 @@ pub(super) fn peer_intent_prepared(
     let Some(probe) = peer_at(root) else {
         return;
     };
-    if intent.group != probe.old_chat {
+    if intent.group != probe.old_chat
+        || probe
+            .recipient
+            .is_some_and(|recipient| recipient != entry.policy.peer_device)
+    {
         return;
     }
     let mut progress = probe.progress.lock().expect("negative probe");
@@ -232,6 +256,12 @@ pub(super) fn peer_gate(
         return None;
     }
     let probe = peer_at(root)?;
+    if probe
+        .recipient
+        .is_some_and(|recipient| recipient != entry.policy.peer_device)
+    {
+        return None;
+    }
     let mut progress = probe.progress.lock().expect("negative probe");
     if progress.intent_gate.is_some() {
         return None;

@@ -38,6 +38,9 @@ pub struct PairedChatSummary {
     pub source: PairedChatSource,
     /// Source-attested public peer identity for display, never an MLS grant.
     pub direct_peer_account: Option<[u8; 32]>,
+    /// Latest source-qualified record; absent until a body is locally available.
+    /// Its source can differ from the catalog header. Never grants local MLS authority.
+    pub latest_message: Option<PairedChatMessage>,
 }
 
 /// An existing account conversation retains its actual local or paired provenance.
@@ -56,6 +59,7 @@ impl From<storage_sqlite::MirroredCatalogObservation> for PairedChatSummary {
             name: row.entry.name,
             description: row.entry.description,
             direct_peer_account: row.entry.direct_peer_account,
+            latest_message: None,
             source: PairedChatSource {
                 device: row.scope.source_device,
                 policy_digest: row.scope.policy_digest,
@@ -66,6 +70,19 @@ impl From<storage_sqlite::MirroredCatalogObservation> for PairedChatSummary {
             },
         }
     }
+}
+
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) fn present_chat_activity(
+    row: storage_sqlite::MirroredChatActivityObservation,
+    allow_loopback: bool,
+) -> Result<PairedChatSummary, AccountChatReadError> {
+    let mut summary = PairedChatSummary::from(row.catalog);
+    summary.latest_message = row
+        .latest_message
+        .map(|message| present_message(message, allow_loopback))
+        .transpose()?;
+    Ok(summary)
 }
 
 /// Unsupported logical kinds remain visible placeholders without interpreting bytes.

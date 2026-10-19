@@ -1780,25 +1780,6 @@ typedef struct MarmotPairedChatSource {
   char *source_digest_hex;
 } MarmotPairedChatSource;
 
-typedef struct MarmotPairedChatSummary {
-  char *group_id_hex;
-  char *name;
-  char *description;
-  struct MarmotPairedChatSource source;
-  char *direct_peer_account_id_hex;
-} MarmotPairedChatSummary;
-
-typedef struct MarmotPairedChatListPage {
-  struct MarmotPairedChatSummary *chats;
-  uintptr_t chats_len;
-  char *next_group_id_hex;
-} MarmotPairedChatListPage;
-
-typedef struct MarmotPairedChatMessageCursor {
-  uint64_t created_at;
-  char *message_id_hex;
-} MarmotPairedChatMessageCursor;
-
 /**
  * One referenced Nostr entity.
  */
@@ -2122,6 +2103,26 @@ typedef struct MarmotPairedChatMessage {
   uintptr_t media_attachments_len;
   struct MarmotPairedChatSource source;
 } MarmotPairedChatMessage;
+
+typedef struct MarmotPairedChatSummary {
+  char *group_id_hex;
+  char *name;
+  char *description;
+  struct MarmotPairedChatSource source;
+  char *direct_peer_account_id_hex;
+  struct MarmotPairedChatMessage *latest_message;
+} MarmotPairedChatSummary;
+
+typedef struct MarmotPairedChatListPage {
+  struct MarmotPairedChatSummary *chats;
+  uintptr_t chats_len;
+  char *next_group_id_hex;
+} MarmotPairedChatListPage;
+
+typedef struct MarmotPairedChatMessageCursor {
+  uint64_t created_at;
+  char *message_id_hex;
+} MarmotPairedChatMessageCursor;
 
 typedef struct MarmotPairedChatMessagePage {
   struct MarmotPairedChatMessage *messages;

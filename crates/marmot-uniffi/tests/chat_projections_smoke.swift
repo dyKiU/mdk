@@ -29,6 +29,12 @@ struct ChatProjectionsSmoke {
         precondition(row == pairedSummary)
         for cursor in [nil, PairedChatMessageCursorFfi(createdAt: UInt64.max, messageIdHex: "canonical")] {
             let observation = PairedChatMessageFfi(kind: 9, canonicalChat: true, messageIdHex: "canonical", authorHex: "author", createdAt: 1, expiresAt: nil, deleted: false, content: "fixture 🦀", contentTokens: MarkdownDocumentFfi(blocks: [], truncated: false, blankLinesBefore: Data()), tags: [MessageTagFfi(values: ["e", "reply"])], mediaAttachments: [], source: pairedSource)
+            let activity = PairedChatSummaryFfi(groupIdHex: "opaque-group", name: "Paired 🦀", description: "source observation", source: pairedSource, latestMessage: observation)
+            let activityCopy = try FfiConverterTypePairedChatSummaryFfi.lift(FfiConverterTypePairedChatSummaryFfi.lower(activity))
+            precondition(activityCopy == activity && activityCopy.latestMessage == observation)
+            let activityPage = PairedChatListPageFfi(chats: [activity], nextGroupIdHex: nil)
+            let activityPageCopy = try FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(activityPage))
+            precondition(activityPageCopy == activityPage)
             let pairedPage = PairedChatMessagePageFfi(messages: [observation], next: cursor)
             let pairedPageCopy = try FfiConverterTypePairedChatMessagePageFfi.lift(FfiConverterTypePairedChatMessagePageFfi.lower(pairedPage))
             precondition(pairedPageCopy == pairedPage)

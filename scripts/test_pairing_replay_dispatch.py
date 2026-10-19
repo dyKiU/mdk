@@ -18,6 +18,9 @@ FOURTH = PREFIX + "third_and_later_device_enrollment_need_no_extra_qr_or_manual_
 CONSENT = PREFIX + "blocked_sibling_consent_does_not_starve_another_approved_peer"
 EXPECTED = {
     "pairing-diagnostic": {FOURTH},
+    "pairing-five-devices": {
+        PREFIX + "sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing",
+    },
     "pairing-consent-fairness": {CONSENT},
     "pairing-restart-diagnostic": {
         "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent",
@@ -32,6 +35,31 @@ EXPECTED = {
     },
     "pairing-departure-middle-signer": {
         "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
+    },
+    "pairing-departure-arrival-order": {
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal",
+    },
+    "pairing-departure-orders": {
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal",
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_reproposes_public_leave_after_same_epoch_branch_race",
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race",
+        "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_source_wins_with_reopened_middle_signer",
+    },
+    "pairing-leave-schedule": {
+        "client::sync::queued_outbound_schedule_tests::stale_own_leave_after_input_only_convergence_keeps_worker_wake",
+        "client::sync::queued_outbound_schedule_tests::restarted_safe_queued_send_does_not_inherit_secondary_retry_cutoff",
+        "client::sync::queued_outbound_schedule_tests::restarted_below_quorum_send_keeps_required_retry_cutoff",
+        "client::sync::queued_outbound_schedule_tests::publication_barrier_rejects_unhydrated_inventory",
+        "client::sync::queued_outbound_schedule_tests::publication_barrier_keeps_pending_mls_after_quorum",
+        "tests::due_peer_leave_preserves_the_outbound_fanout_retry_barrier",
+        "tests::removed_device_retires_peer_leave_timer_after_input_only_convergence",
+    },
+    "paired-presentation": {
+        'account_chat_presentation::tests::paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_privacy',
+        'account_chat_presentation::tests::paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer',
+        'account_chat_presentation::tests::paired_presentation_actual_original_approval_catalog_without_fake_mls_group',
+        'runtime::account_chat_windows::tests::paired_chat_list_expiry_tracks_visible_payload_without_hidden_row_spin',
+        'runtime::account_conversation_windows::tests::paired_presentation_overdue_retention_wakes_before_unrelated_events',
     },
     "automatic-body-regression": {
         "client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position",
@@ -68,7 +96,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         start = text.index("  pairing-replay:\n")
         replay = text[start:text.index("  archive-recovery-plan:\n", start)]
-        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","automatic-body-regression","automatic-body-negative"]', replay)
+        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","automatic-body-regression","automatic-body-negative","pairing-five-devices","pairing-departure-arrival-order","pairing-departure-orders","pairing-leave-schedule","paired-presentation"]', replay)
         self.assertEqual(replay.count("REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}"), 1)
 
     def test_every_scope_is_offered_and_routes_to_pairing_job(self):
@@ -134,7 +162,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                            REPLAY_SCOPE=ALIASES.get(scope, scope), SYNC_FEATURES=EXPERIMENTAL_FEATURES,
-                           SLOTS=("6" if scope in ("pairing-departure-contention", "pairing-departure-staggered") else
+                           SLOTS=("6" if scope in ("pairing-departure-contention", "pairing-departure-staggered", "pairing-departure-orders") else
                                   "1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3"),
                            PAIRING_COMMAND=str(command), PAIRING_DELAY=str(root / "delay"))
                 ready = root / "mock-sleep-ready"
@@ -174,7 +202,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 self.assertIn("qualification-selected-pairing-cases: " + str(len(expected)), result.stdout)
 
     def test_departure_contention_rejects_a_serial_budget_before_cargo(self):
-        for scope in ("pairing-departure-contention", "pairing-departure-staggered"):
+        for scope in ("pairing-departure-contention", "pairing-departure-staggered", "pairing-departure-orders"):
             with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 cargo = root / "cargo"

@@ -24,6 +24,10 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
   (record `MarmotAttachmentHandoff`, freed with `marmot_attachment_handoff_free`,
   which does not release the lease) for handoff copies of retained attachments
   (mdk#2314 step 4). Use matching regenerated headers and libraries.
+- Appends owned nullable `latest_message` to `MarmotPairedChatSummary` for
+  source-qualified chat-list preview/time observations. Its message retains its
+  own source and expiry; page/snapshot deep-free releases it recursively.
+  Consumers must use matching regenerated headers and native libraries.
 
 - Appends nullable `direct_peer_account_id_hex` to `MarmotPairedChatSummary` for
   source-attested direct-chat labels. It grants no MLS membership or send rights.

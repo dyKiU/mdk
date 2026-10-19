@@ -10,6 +10,10 @@ use marmot_app::{
 };
 
 /// Existing contact route; paired observations never assert local MLS membership.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Bounded foreign DTO requires by-value UniFFI record payloads"
+)]
 #[derive(Clone, uniffi::Enum)]
 pub enum ExistingAccountDirectConversationFfi {
     LocalMls {
@@ -65,6 +69,8 @@ pub struct PairedChatSummaryFfi {
     pub source: PairedChatSourceFfi,
     #[uniffi(default = None)]
     pub direct_peer_account_id_hex: Option<String>,
+    #[uniffi(default = None)]
+    pub latest_message: Option<PairedChatMessageFfi>,
 }
 redact!(PairedChatSummaryFfi);
 impl From<PairedChatSummary> for PairedChatSummaryFfi {
@@ -75,6 +81,7 @@ impl From<PairedChatSummary> for PairedChatSummaryFfi {
             description: value.description,
             source: value.source.into(),
             direct_peer_account_id_hex: value.direct_peer_account.map(hex::encode),
+            latest_message: value.latest_message.map(Into::into),
         }
     }
 }
@@ -177,6 +184,25 @@ mod direct_route_tests {
                 name: "private title".into(),
                 description: "private description".into(),
                 direct_peer_account: Some([9; 32]),
+                latest_message: Some(marmot_app::PairedChatMessage {
+                    content_kind: PairedChatContent::CanonicalChat,
+                    event_id: [10; 32],
+                    author: [11; 32],
+                    created_at: 123,
+                    expires_at: Some(200),
+                    deleted: false,
+                    content: "private preview".into(),
+                    tags: Vec::new(),
+                    media_attachments: Vec::new(),
+                    source: PairedChatSource {
+                        device: [12; 32],
+                        policy_digest: [13; 32],
+                        protected_generation: 3,
+                        source_epoch: 4,
+                        source_sequence: 15,
+                        source_digest: [16; 32],
+                    },
+                }),
                 source: marmot_app::PairedChatSource {
                     device: [1; 32],
                     policy_digest: [2; 32],
@@ -190,6 +216,7 @@ mod direct_route_tests {
         let ffi = ExistingAccountDirectConversationFfi::from(value);
         let debug = format!("{ffi:?}");
         assert!(!debug.contains("private title"));
+        assert!(!debug.contains("private preview"));
         assert!(!debug.contains(&"01".repeat(32)));
         assert!(!debug.contains(&"09".repeat(32)));
         match ffi {
@@ -201,6 +228,12 @@ mod direct_route_tests {
                 );
                 assert_eq!(conversation.source.protected_generation, 3);
                 assert_eq!(conversation.source.source_sequence, 5);
+                let latest = conversation.latest_message.unwrap();
+                assert_eq!(latest.content, "private preview");
+                assert_eq!(latest.created_at, 123);
+                assert_eq!(latest.expires_at, Some(200));
+                assert_eq!(latest.source.device_hex, "0c".repeat(32));
+                assert_eq!(latest.source.source_sequence, 15);
             }
             ExistingAccountDirectConversationFfi::LocalMls { .. } => {
                 panic!("paired route was mislabeled local")

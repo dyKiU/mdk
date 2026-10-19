@@ -159,7 +159,17 @@ impl MarmotAppRuntime {
             let initial = snapshot.clone();
             tokio::spawn(async move {
                 let mut after = None;
+                let mut refresh_failed = false;
                 loop {
+                    let expiry = if refresh_failed {
+                        std::time::Duration::from_secs(1)
+                    } else {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        paired_expiry_delay(&snapshot.rows, now)
+                    };
                     let reply = tokio::select! { biased;
                         _=updates.closed()=>break,
                         _=super::wait_for_runtime_shutdown(&mut stopping)=>break,
@@ -176,6 +186,7 @@ impl MarmotAppRuntime {
                             Err(tokio::sync::broadcast::error::RecvError::Closed)=>break,
                             _=>{},
                         } None},
+                        _=tokio::time::sleep(expiry)=>None,
                     };
                     let result = manager
                         .paired_chat_list_page(&label, after.clone(), mirror_limit)
@@ -198,6 +209,8 @@ impl MarmotAppRuntime {
                                 page,
                             ))
                         });
+                    let terminal = matches!(result, Err(AccountChatReadError::Closed));
+                    refresh_failed = result.is_err();
                     if let Ok(ref replacement) = result {
                         snapshot = replacement.clone();
                     }
@@ -205,6 +218,9 @@ impl MarmotAppRuntime {
                     let _ = updates.send(result.clone());
                     if let Some(reply) = reply {
                         let _ = reply.send(result);
+                    }
+                    if terminal {
+                        break;
                     }
                 }
                 let _ = updates.send(Err(AccountChatReadError::Closed));
@@ -260,5 +276,81 @@ fn account_reset_pending(
             Err(tokio::sync::broadcast::error::TryRecvError::Empty) => return false,
             Err(_) => return true,
         }
+    }
+}
+
+/// Only displayed paired payloads need this timer. Ordinary rows retain their
+/// own window's retention scheduling; scrubbed records must not cause a spin.
+#[cfg(feature = "experimental-device-sync")]
+fn paired_expiry_delay(rows: &[AccountChatRow], now: u64) -> std::time::Duration {
+    let next = rows
+        .iter()
+        .filter_map(|row| match row {
+            AccountChatRow::PairedSource(row) => row
+                .latest_message
+                .as_ref()
+                .filter(|message| !message.deleted)
+                .and_then(|message| message.expires_at),
+            AccountChatRow::LocalMls(_) => None,
+        })
+        .min();
+    std::time::Duration::from_secs(
+        next.map(|expiry| expiry.saturating_sub(now))
+            .unwrap_or(86400),
+    )
+}
+
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paired_chat_list_expiry_tracks_visible_payload_without_hidden_row_spin() {
+        let source = crate::PairedChatSource {
+            device: [1; 32],
+            policy_digest: [2; 32],
+            protected_generation: 1,
+            source_epoch: 2,
+            source_sequence: 3,
+            source_digest: [4; 32],
+        };
+        let mut summary = PairedChatSummary {
+            group_id: GroupId::new(vec![5; 16]),
+            name: String::new(),
+            description: String::new(),
+            source: source.clone(),
+            direct_peer_account: None,
+            latest_message: Some(crate::PairedChatMessage {
+                content_kind: crate::PairedChatContent::CanonicalChat,
+                event_id: [6; 32],
+                author: [7; 32],
+                created_at: 1,
+                expires_at: Some(20),
+                deleted: false,
+                content: "synthetic".into(),
+                tags: Vec::new(),
+                media_attachments: Vec::new(),
+                source,
+            }),
+        };
+        let delay = |summary: &PairedChatSummary, now| {
+            paired_expiry_delay(
+                &[AccountChatRow::PairedSource(Box::new(summary.clone()))],
+                now,
+            )
+        };
+        assert_eq!(delay(&summary, 15), std::time::Duration::from_secs(5));
+        assert_eq!(delay(&summary, 20), std::time::Duration::ZERO);
+        assert_eq!(delay(&summary, 25), std::time::Duration::ZERO);
+        let message = summary.latest_message.as_mut().unwrap();
+        message.deleted = true;
+        message.content.clear();
+        assert_eq!(delay(&summary, 25), std::time::Duration::from_secs(86400));
+        summary.latest_message = None;
+        assert_eq!(delay(&summary, 25), std::time::Duration::from_secs(86400));
+        assert_eq!(
+            paired_expiry_delay(&[], 25),
+            std::time::Duration::from_secs(86400)
+        );
     }
 }

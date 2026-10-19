@@ -98,11 +98,12 @@ impl AppClient {
         })
     }
 
-    pub(crate) fn current_mirrored_catalog_page(
+    pub(crate) fn current_mirrored_chat_activity_page(
         &self,
         after: Option<&crate::GroupId>,
         limit: usize,
-    ) -> Result<Vec<storage_sqlite::MirroredCatalogObservation>, AccountSharingError> {
+        now: u64,
+    ) -> Result<Vec<storage_sqlite::MirroredChatActivityObservation>, AccountSharingError> {
         let scopes = self.current_presentation_scopes()?;
         let storage = self
             .app
@@ -110,7 +111,7 @@ impl AppClient {
             .map_err(|_| AccountSharingError::NotReady)?;
         let rows = storage
             .app_storage()
-            .mirrored_catalog_observation_page(&scopes, after, limit)
+            .mirrored_catalog_activity_page(&scopes, after, limit, now)
             .map_err(|_| AccountSharingError::NotReady)?;
         if self.current_presentation_scopes()? != scopes {
             return Err(AccountSharingError::Closed);

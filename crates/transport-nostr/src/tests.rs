@@ -32,6 +32,13 @@ use transport_nostr_peeler::{KIND_MARMOT_GROUP_MESSAGE, NOSTR_SOURCE, NostrPeele
 
 use super::*;
 
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "tests/held_delivery_tests.rs"]
+mod held_delivery_tests;
+
 #[test]
 fn subscription_rebuild_since_treats_future_cursor_as_corrupted() {
     // A persisted cursor poisoned by a far-future sender-controlled

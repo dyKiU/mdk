@@ -9,6 +9,10 @@ use cgka_traits::{
 use rusqlite::{params_from_iter, types::Value};
 use std::collections::HashSet;
 
+#[path = "mirrored_chat_presentation/activity.rs"]
+mod activity;
+pub use activity::MirroredChatActivityObservation;
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct MirroredCatalogObservation {
     pub scope: MirroredChatScope,

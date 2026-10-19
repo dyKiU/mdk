@@ -1856,6 +1856,14 @@ impl<S: StorageProvider> Engine<S> {
                         rejection.category,
                     )?);
                 }
+                #[cfg(feature = "test-policy-overrides")]
+                if matches!(queued.proposal(), Proposal::SelfRemove) {
+                    crate::canonical_probe_observer::self_remove_authenticated(
+                        &group_id,
+                        mls_group.own_leaf_index().u32(),
+                        &msg.id,
+                    );
+                }
                 // Ask the auto-committer policy whether we should commit
                 // this proposal. OpenMLS does not auto-enqueue processed
                 // proposals, so store it before attempting to commit the
@@ -1884,6 +1892,8 @@ impl<S: StorageProvider> Engine<S> {
                         &msg.id,
                         msg_epoch,
                         self.convergence_now_ms(),
+                        #[cfg(feature = "test-policy-overrides")]
+                        Some(mls_group.own_leaf_index().u32()),
                     )?;
                 }
                 let authenticated_reference = hex::encode(
@@ -2069,6 +2079,8 @@ impl<S: StorageProvider> Engine<S> {
                 &schedule.proposal_id,
                 schedule.source_epoch,
                 self.convergence_now_ms(),
+                #[cfg(feature = "test-policy-overrides")]
+                None,
             )?;
             Ok(ScheduledAutoCommitReplay::NotApplicable)
         }

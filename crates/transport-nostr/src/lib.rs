@@ -48,6 +48,19 @@ mod delivery_spill;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
+mod held_delivery;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[doc(hidden)]
+pub use held_delivery::Hold as HeldAccountDeliveryForTest;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 pub use account_ingress_schedule_for_test::{
     AccountIngressScheduleForTest, AccountIngressScheduleSnapshot,
 };
@@ -397,6 +410,12 @@ impl NotificationDispositionObserver {
 }
 
 struct RelayPlaneTransport {
+    #[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+    held_delivery: std::sync::Mutex<Option<Weak<held_delivery::State>>>,
     adapter: NostrTransportAdapter,
     sdk_relay_client: Option<NostrSdkRelayClient>,
     #[cfg(all(
@@ -1853,6 +1872,12 @@ impl MarmotRelayPlane {
         allow_loopback: bool,
     ) -> Self {
         let transport = Arc::new(RelayPlaneTransport {
+            #[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+            held_delivery: std::sync::Mutex::new(None),
             adapter,
             sdk_relay_client,
             #[cfg(all(
@@ -5714,12 +5739,21 @@ fn route_account_delivery(
     // NATIVE5_DEQUEUE_TIMING_END
     let created_at = delivery.message.timestamp.0;
     let key = account_delivery_restart_key(&delivery);
-    match route.overflow.place(
+    let placement = route.overflow.place(
         route.epoch,
         key,
         route.sender.capacity() <= 1,
         route.spill.is_some(),
-    ) {
+    );
+    #[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+    let Some(delivery) = held_delivery::hold(transport, &route, delivery, placement) else {
+        return;
+    };
+    match placement {
         AccountDeliveryPlacement::Queue => {
             match route
                 .sender

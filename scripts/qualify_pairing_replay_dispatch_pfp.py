@@ -13,7 +13,7 @@ import qualify_upstream_storage_boundary as bounded
 
 SELF='scripts/qualify_pairing_replay_dispatch_pfp.py'
 TEST='scripts/test_pairing_replay_dispatch.py'
-TEST_SHA='f125306a816fdee9da360773bbde8decb109994abc10512b6945784dca7b9830'  # Exact controlled-mock four-method union; root aliases and ten routes retained.
+TEST_SHA='cb062fbd91bf190378bdbae1198be93b380ec9492cd4fe67915436322abf842d'  # Exact controlled-mock four-method union; root aliases and fifteen routes retained.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 OUT=Path('pairing-dispatch-pfp-evidence')
 NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',
@@ -22,7 +22,7 @@ NAMES=['test_every_scope_executes_its_exact_inventory_and_bounded_command',
        'test_departure_contention_rejects_a_serial_budget_before_cargo']
 TARGET=NAMES[1]
 RESTART=['pairing-restart-diagnostic','pairing-restart-higher-source']
-REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART,'pairing-departure-contention','pairing-departure-staggered','pairing-departure-middle-signer','automatic-body-regression','automatic-body-negative'}
+REPLAY={'pairing-replay-regression','pairing-diagnostic','pairing-consent-fairness',*RESTART,'pairing-departure-contention','pairing-departure-staggered','pairing-departure-middle-signer','automatic-body-regression','automatic-body-negative','pairing-five-devices','pairing-departure-arrival-order','pairing-departure-orders','pairing-leave-schedule','paired-presentation'}
 ASSERTION='self.assertTrue(set(routed) <= set(supported))'
 ensure=bounded.ensure
 
@@ -67,7 +67,7 @@ def condition(text,job):
 def mutant(text):
     line,found,values=condition(text,'workflow-union-preflight')
     ensure(all(values.count(scope)==1 for scope in RESTART),'both-new-dependency-scopes-required')
-    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'unchanged-exact-ten-replay-routes')
+    _,_,replay=condition(text,'pairing-replay');ensure(set(replay)==REPLAY,'exact-fifteen-replay-routes')
     replacement=line[:found.start(1)]+json.dumps([v for v in values if v not in RESTART],separators=(',',':'))+line[found.end(1):]
     ensure(text.count(line)==1 and replacement!=line,'one-narrow-dependency-list-mutation')
     changed=text.replace(line,replacement,1)

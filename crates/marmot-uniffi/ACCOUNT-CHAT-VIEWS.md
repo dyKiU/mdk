@@ -23,6 +23,17 @@ A missing value remains unknown, including observations from older sources;
 never derive a peer from the chat name or treat the field as an invitation,
 follow relationship, local MLS membership or permission to send.
 
+Chat-list summaries carry optional `latest_message`, selected from committed local
+observations in the same storage snapshot as the bounded catalog page. It retains
+its own source, canonical event time, deletion/expiry state and ordered media
+verdicts; its source can differ from the header's. Missing bodies remain `None`.
+Conversation headers and contact-route lookups do not load a separate list preview.
+The list window refreshes at visible paired-message expiry even without network
+activity, suppresses expired payloads, and retries failed reads at a bounded
+interval. Scrubbed records do not cause an immediate-refresh loop. This supplies
+preview/time data; it does not invent ordinary unread state or globally reorder
+the catalog's group-ID cursor.
+
 `paired_page(sequence, after_group_id_hex)` replaces the paired lane with a
 bounded page. Use the installed sequence and returned opaque cursor. Ordinary
 list ordering, paging and moderation remain owned by the ordinary window;
@@ -77,7 +88,7 @@ through the existing typed binding errors. DTO debug output is redacted.
 C window handles must be freed before their client. Blocking receives support
 timeouts without consuming updates, and commands may run during a receive.
 Every output is preflighted before effects. Each returned page or snapshot
-owns its nested strings, rows and cursor; free it exactly once with its matching
+owns its nested strings, rows, optional latest messages and cursor; free it exactly once with its matching
 root free function. Embedded entries have no independent free. Borrow input
 cursors only while their owning page or snapshot remains alive, and never free
 a handle concurrently with an active call.
@@ -85,3 +96,7 @@ a handle concurrently with an active call.
 These surfaces are additive and preserve ordinary invitation and chat wire
 contracts. Source tests do not establish generated-language ABI, matched SDK
 packaging, installed app adoption or a three-device demonstration.
+
+The optional latest-message field changes the native record layout. Regenerate
+bindings and use the matching native library/header; previously generated
+Swift/Kotlin bindings and C headers cannot be mixed with this library.

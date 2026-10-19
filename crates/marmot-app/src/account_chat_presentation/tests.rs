@@ -340,6 +340,38 @@ async fn paired_presentation_actual_original_approval_catalog_without_fake_mls_g
         .unwrap();
     assert!(live_window.snapshot.rows.iter().any(|row| matches!(row,
         crate::AccountChatRow::PairedSource(row) if row.group_id==group)));
+    let sent = managers[0]
+        .send_message("test", &group, b"Synthetic latest shared preview".to_vec())
+        .await
+        .unwrap();
+    assert_eq!(sent.message_ids.len(), 1);
+    let latest = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let update = live_window
+                .recv()
+                .await
+                .unwrap()
+                .expect("live activity window");
+            if let Some(message) = update.rows.iter().find_map(|row| match row {
+                crate::AccountChatRow::PairedSource(row) if row.group_id == group => {
+                    row.latest_message.clone()
+                }
+                _ => None,
+            }) {
+                break message;
+            }
+        }
+    })
+    .await
+    .expect("real received body must wake chat-list preview without navigation");
+    assert_eq!(latest.content, "Synthetic latest shared preview");
+    assert_eq!(hex::encode(latest.event_id), sent.message_ids[0]);
+    assert!(latest.created_at > 0);
+    assert!(!latest.deleted);
+    assert!(matches!(
+        apps[1].account_storage("test").unwrap().get_group(&group),
+        Err(cgka_traits::StorageError::NotFound)
+    ));
     for runtime in &runtimes {
         runtime.shutdown_and_close().await.unwrap();
     }
@@ -392,11 +424,58 @@ fn paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer()
                 direct_peer_account: peer,
             },
         };
-        let summary = PairedChatSummary::from(observation);
+        let summary = PairedChatSummary::from(observation.clone());
         assert_eq!(summary.direct_peer_account, peer);
         assert!(summary.name.is_empty());
         assert_eq!(summary.source.device, [3; 32]);
         assert_eq!(summary.source.protected_generation, 6);
         assert_eq!(summary.source.source_sequence, 10);
+        assert!(summary.latest_message.is_none());
+        // Header and latest body can be selected from different approved sources.
+        let mut body_scope = observation.scope.clone();
+        body_scope.source_device = [12; 32];
+        let record = cgka_traits::mirrored_chat_messages::MirroredChatRecord {
+            event_id: [13; 32],
+            author: [14; 32],
+            created_at: 123,
+            kind: 9,
+            payload: serde_json::to_vec(&("synthetic preview", Vec::<Vec<String>>::new())).unwrap(),
+            expires_at: Some(200),
+            content_digest: Some([15; 32]),
+            deleted: false,
+            source_epoch: 9,
+            source_sequence: 11,
+            source_digest: [16; 32],
+            accepted_origin: None,
+        };
+        let mut activity = storage_sqlite::MirroredChatActivityObservation {
+            catalog: observation,
+            latest_message: Some(storage_sqlite::MirroredMessageObservation {
+                scope: body_scope,
+                record,
+            }),
+        };
+        let shown = present_chat_activity(activity.clone(), false).unwrap();
+        assert_eq!(shown.source.device, [3; 32]);
+        let latest = shown.latest_message.unwrap();
+        assert_eq!(latest.content, "synthetic preview");
+        assert_eq!(latest.created_at, 123);
+        assert_eq!(latest.expires_at, Some(200));
+        assert_eq!(latest.source.device, [12; 32]);
+        assert_eq!(latest.source.source_sequence, 11);
+        let body = activity.latest_message.as_mut().unwrap();
+        body.record.deleted = true;
+        body.record.payload.clear();
+        let shown = present_chat_activity(activity.clone(), false).unwrap();
+        let deleted = shown.latest_message.unwrap();
+        assert!(deleted.deleted && deleted.content.is_empty() && deleted.tags.is_empty());
+        // A malformed live body must fail closed rather than publish stale plaintext.
+        let body = activity.latest_message.as_mut().unwrap();
+        body.record.deleted = false;
+        body.record.payload = b"invalid canonical record".to_vec();
+        assert!(matches!(
+            present_chat_activity(activity, false),
+            Err(AccountChatReadError::InvalidRecord)
+        ));
     }
 }
