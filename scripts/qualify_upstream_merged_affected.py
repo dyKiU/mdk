@@ -17,8 +17,8 @@ import qualify_upstream_pure_native5 as native
 import qualify_upstream_current_enrollment as enrollment
 import qualify_upstream_storage_app_handles as body_counts
 
-BASE = '53192a343d6810afdd6ba569aa06a98fa397e332'
-BASE_TREE = 'e3daf513711550f51dd04261b3b2fccb565567cf'
+BASE = 'a63d0cedf190583b11aba55ea2296b146f105ed4'
+BASE_TREE = '58df4db8e0a5e90d9738c8fcba3d2c774d1914c9'
 SELF = 'scripts/qualify_upstream_merged_affected.py'
 WORKFLOW = '.github/workflows/merged-affected-controls.yml'
 OWNED = {SELF, WORKFLOW}
@@ -960,11 +960,94 @@ def harvest_boundary_controls():
     return {'positive': len(positives) + 4, 'negative': len(negatives) + len(binding_negatives), 'actual_rust_bodies': 0}
 
 
+# Authored source only. Do not import or execute locally.
+def observe_handler_cost(raw, selected_name):
+    unknown = {'schema_known': True, 'available': None, 'side_rows': None,
+        'unit': 'nanoseconds', 'linking_native_observation_wall_time_only': True,
+        'RPC_queue_and_post_call_getters_not_measured': True,
+        'returned_calls_only_duration_totals': True, 'snapshots_independent_not_joint': True,
+        'after_timeout_not_before_deadline_proof': True, 'automatic_progress_cost_not_measured': True,
+        'raw_messages_IDs_or_errors_exported': False}
+    prefix = r'(?m)^test ' + re.escape(selected_name) + r' \.\.\. '
+    if len(re.findall(prefix, raw)) > 1:
+        return dict(unknown, schema_known=False, closed_schema_rejected=True)
+    text = re.sub(prefix, lambda hit: hit[0] + '\n', raw, count=1)
+    namespace = 'enrollment-observe-cost'
+    lines = [line for line in text.splitlines() if namespace in line]
+    if not lines:
+        return unknown
+    if len(lines) != 2 or sum(len(line.encode()) for line in lines) > 1024:
+        return dict(unknown, schema_known=False, closed_schema_rejected=True)
+    decimal = r'(?:0|[1-9][0-9]{0,19})'
+    pattern = (re.escape(namespace) + r' side=(left|right) entered_returned_total_ns_max_ns_invalid='
+        + r'(None|Some\(\((' + decimal + r'), (' + decimal + r'), (' + decimal
+        + r'), (' + decimal + r'), (true|false)\)\))')
+    rows = {}
+    for line in lines:
+        match = re.fullmatch(pattern, line)
+        if match is None or match[1] in rows:
+            return dict(unknown, schema_known=False, closed_schema_rejected=True)
+        if match[2] == 'None':
+            rows[match[1]] = None
+            continue
+        entered, returned, total, maximum = (int(match[index]) for index in [3, 4, 5, 6])
+        if (max(entered, returned, total, maximum) > 2 ** 64 - 1 or match[7] != 'false'
+                or returned > entered or maximum > total
+                or (returned == 0 and (total != 0 or maximum != 0))
+                or total > returned * maximum):
+            return dict(unknown, schema_known=False, closed_schema_rejected=True)
+        rows[match[1]] = {'entered': entered, 'returned': returned,
+            'returned_total_ns': total, 'returned_max_ns': maximum, 'invalid': False,
+            'all_admitted_calls_returned': entered == returned,
+            'unreturned_or_active_call_state_unknown': entered != returned}
+    if set(rows) != {'left', 'right'}:
+        return dict(unknown, schema_known=False, closed_schema_rejected=True)
+    return dict(unknown, available=True, side_rows=[{'side': side, 'cost': rows[side]}
+        for side in ['left', 'right']])
+
+
+def observe_handler_cost_controls():
+    name = 'source::selected_case'
+    namespace = 'enrollment-observe-cost '
+    def lines(value):
+        return (namespace + 'side=left entered_returned_total_ns_max_ns_invalid=None\n'
+            + namespace + 'side=right entered_returned_total_ns_max_ns_invalid=' + value)
+    positives = [lines('Some((0, 0, 0, 0, false))'), lines('Some((2, 2, 15, 10, false))'),
+        lines('Some((3, 2, 15, 10, false))'), lines('Some((1, 0, 0, 0, false))'),
+        lines('Some((2, 2, 0, 0, false))'), lines('None'),
+        lines('Some((18446744073709551615, 1, 18446744073709551615, 18446744073709551615, false))')]
+    good = lines('Some((2, 2, 15, 10, false))')
+    positives.append('test ' + name + ' ... ' + good)
+    for raw in positives:
+        ensure(observe_handler_cost(raw, name)['available'] is True, 'observe-cost-positive')
+    ensure(observe_handler_cost('', name)['available'] is None, 'observe-cost-missing-unknown')
+    partial = observe_handler_cost(positives[2], name)['side_rows'][1]['cost']
+    ensure(partial['all_admitted_calls_returned'] is False
+        and partial['unreturned_or_active_call_state_unknown'] is True, 'observe-cost-partial-not-complete')
+    negatives = [good + '\n' + good, good.splitlines()[0], good.replace('side=right', 'side=left'),
+        good.replace('false', 'true'), good.replace('2, 2, 15, 10', '1, 2, 15, 10'),
+        good.replace('2, 2, 15, 10', '2, 2, 9, 10'),
+        good.replace('2, 2, 15, 10', '2, 2, 21, 10'),
+        good.replace('2, 2, 15, 10', '2, 0, 1, 1'),
+        good.replace('2, 2, 15, 10', '2, 2, 1, 0'),
+        good.replace('2, 2, 15, 10', '18446744073709551616, 2, 15, 10'),
+        good.replace('Some((2,', 'Some((02,'), good.replace('Some((2,', 'Some((-2,'),
+        good.replace('Some((2,', 'Some((+2,'), good.replace('Some((2,', 'Some((PRIVATE,'),
+        good.replace('Some((2, 2, 15, 10, false))', 'Some((2, 2, 15, false))'),
+        good.replace('Some((2, 2, 15, 10, false))', 'Some((2, 2, 15, 10, 0, false))'),
+        good.replace('Some((', 'Some(Some(('), good + ' PRIVATE', 'PRIVATE ' + good,
+        good.replace('side=right', 'side=PRIVATE'), good + '\n' + namespace + 'private=SECRET',
+        'test ' + name + ' ... ' + 'test ' + name + ' ... ' + good]
+    for raw in negatives:
+        ensure(observe_handler_cost(raw, name)['schema_known'] is False, 'observe-cost-negative')
+    return {'positive': len(positives) + 2, 'negative': len(negatives), 'actual_rust_bodies': 0}
+
+
 def enrollment_parser_preflight():
     # Pure imported parser/data controls only: no legacy guard/main/global writes.
     ensure(native.NAME == 'native_device_linking::automatic_pairing_acceptance::sequential_installations_acceptance::five_installations_join_with_rotating_existing_sponsors_and_explicit_sharing', 'exact-original-five-name')
     ensure(enrollment.POLICY_NAME == 'runtime::tests::async_suites_choose_their_tokio_flavor', 'exact-original-policy-name')
-    return {'harvest_boundaries': harvest_boundary_controls(), 'recipient_runtime': recipient_runtime_controls(), 'inventory': body_counts.parser_controls(), 'native_original': native.parser_controls(), 'finite_observations': enrollment.observation_controls(),
+    return {'observe_handler_cost': observe_handler_cost_controls(), 'harvest_boundaries': harvest_boundary_controls(), 'recipient_runtime': recipient_runtime_controls(), 'inventory': body_counts.parser_controls(), 'native_original': native.parser_controls(), 'finite_observations': enrollment.observation_controls(),
         'approvals': enrollment.approval_controls(), 'children': enrollment.child_controls(),
         'notification_boundaries': enrollment.boundary_controls(), 'guard_timing': enrollment.guard_timing_controls(),
         'retry_custody': enrollment.retry_custody_controls(), 'inner_receive': enrollment.comprehensive_receive_controls(),
@@ -1032,6 +1115,12 @@ def run_enrollment(report, inventory, save, state):
             finally:
                 checked_postchecks(row)
             if raw is not None:
+                try:
+                    row['observe_handler_cost'] = observe_handler_cost(raw, name)
+                except (ValueError, TypeError, KeyError, IndexError):
+                    row['observe_handler_cost'] = {'schema_known': False, 'available': None,
+                        'side_rows': None, 'closed_schema_rejected': True}
+                save()
                 try:
                     row['harvest_boundaries'] = harvest_boundaries(raw, name)
                 except (ValueError, TypeError, KeyError, IndexError):

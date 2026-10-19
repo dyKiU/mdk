@@ -1739,6 +1739,7 @@ async fn wait_for_automatic_phase_with_approvals(
                 "automatic-enrollment-control side={side} native_rpc_counts/elapsed_ms/branch={:?}",
                 original.native_observation_snapshot_for_test(),
             );
+            eprintln!("enrollment-observe-cost side={side} entered_returned_total_ns_max_ns_invalid={:?}", original.native_observe_cost_for_test());
             eprintln!(
                 "automatic-enrollment-control side={side} receive_guard_counts/last/overflow={:?}",
                 original.native_receive_guards_for_test(),

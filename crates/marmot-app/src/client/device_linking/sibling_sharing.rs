@@ -93,6 +93,7 @@ struct NativeObservationProbe {
     elapsed_ms: [u64; 6],
     reason: Option<(NativeObservationReason, u64)>,
     exact_predecessor_observed: bool,
+    observe_cost: (u64, u64, u64, u64, bool),
     receive_guard_counts: [u64; 4],
     receive_guard_last: Option<(u8, u64)>,
     receive_guard_overflow: bool,
@@ -117,6 +118,7 @@ impl Default for NativeObservationProbe {
             elapsed_ms: [0; 6],
             reason: None,
             exact_predecessor_observed: false,
+            observe_cost: (0, 0, 0, 0, false),
             receive_guard_counts: [0; 4],
             receive_guard_last: None,
             receive_guard_overflow: false,
@@ -468,6 +470,53 @@ impl OriginalEnrollmentSharingChoice {
         let elapsed_ms = probe.origin.elapsed().as_millis() as u64;
         probe.counts[stage as usize] += 1;
         probe.elapsed_ms[stage as usize] = elapsed_ms;
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn begin_observe_cost_for_test(&self) -> Instant {
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        if let Some(count) = probe.observe_cost.0.checked_add(1) {
+            probe.observe_cost.0 = count;
+        } else {
+            probe.observe_cost.4 = true;
+        }
+        // Each caller owns its start; never pair different RPCs via shared state.
+        Instant::now()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn finish_observe_cost_for_test(&self, started: Instant) {
+        let elapsed = Instant::now()
+            .checked_duration_since(started)
+            .and_then(|duration| u64::try_from(duration.as_nanos()).ok());
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        if let Some(count) = probe.observe_cost.1.checked_add(1) {
+            probe.observe_cost.1 = count;
+        } else {
+            probe.observe_cost.4 = true;
+        }
+        if let Some(elapsed) = elapsed {
+            probe.observe_cost.3 = probe.observe_cost.3.max(elapsed);
+            if let Some(total) = probe.observe_cost.2.checked_add(elapsed) {
+                probe.observe_cost.2 = total;
+            } else {
+                probe.observe_cost.2 = u64::MAX;
+                probe.observe_cost.4 = true;
+            }
+        } else {
+            probe.observe_cost.4 = true;
+        }
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn observe_cost_snapshot_for_test(&self) -> (u64, u64, u64, u64, bool) {
+        self.native_observation_probe
+            .lock()
+            .expect("native observation probe")
+            .observe_cost
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_reason_for_test(&self, reason: NativeObservationReason) {
