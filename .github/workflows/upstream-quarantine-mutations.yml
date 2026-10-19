@@ -85,6 +85,8 @@ jobs:
           shared-key: upstream-boundary-quarantine
           cache-on-failure: true
       - name: Require six fresh exact-source runtime gates
+        env:
+          CARGO_INCREMENTAL: "1"
         run: |
           df -h .
           python3 scripts/upstream_apple_ci/final-quarantine-mutations.py --source "$FINAL_SOURCE_SHA"
