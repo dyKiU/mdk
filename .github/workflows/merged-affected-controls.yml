@@ -1,0 +1,126 @@
+name: Merged affected component controls and independent PFP
+on:
+  push:
+    branches: ['ci/upstream-develop-dy-affected-controls-*']
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [preflight, baseline, mutations]
+        default: preflight
+      approved_source:
+        description: Exact root-reviewed stable helper HEAD (required for Rust execution)
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: merged-affected-${{ github.ref }}-${{ github.event_name }}-${{ inputs.mode || 'preflight' }}
+  cancel-in-progress: false
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  CARGO_INCREMENTAL: '1'
+  CARGO_BUILD_JOBS: '2'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  RUST_MIN_STACK: '4194304'
+  CARGO_TERM_COLOR: never
+  CARGO_TARGET_DIR: ${{ runner.temp }}/merged-affected-target
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact complete source and synthetic parser controls (zero Rust bodies)
+        run: python3 scripts/qualify_upstream_merged_affected.py --mode preflight
+      # No Rust source is added or reformatted by these two metadata paths.
+      # Frozen BASE is already the reviewed canonical hosted formatter result.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merged-affected-preflight
+          path: ${{ runner.temp }}/merged-affected-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14
+  baseline:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact pinned toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: . -> ${{ runner.temp }}/merged-affected-target
+          shared-key: merged-affected-full-workspace
+          cache-on-failure: true
+      - name: Capacity preflight (owned target; no cleanup)
+        run: |
+          available=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
+          test "$available" -ge 50331648
+      - name: One full workspace compilation and exactly fourteen affected bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+          APPROVED_SOURCE: ${{ inputs.approved_source }}
+        run: python3 scripts/qualify_upstream_merged_affected.py --mode baseline --approved-source "$APPROVED_SOURCE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merged-affected-baseline
+          path: ${{ runner.temp }}/merged-affected-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14
+  mutations:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'mutations'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        chain: [activity, held-scope, stale-leave]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact pinned toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: . -> ${{ runner.temp }}/merged-affected-target
+          shared-key: merged-affected-full-workspace
+          cache-on-failure: true
+      - name: Capacity preflight (owned target; no cleanup)
+        run: |
+          available=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
+          test "$available" -ge 50331648
+      - name: Independent relevant baseline, single runtime mutant, finally restored controls
+        env:
+          CARGO_INCREMENTAL: '1'
+          APPROVED_SOURCE: ${{ inputs.approved_source }}
+          CHAIN: ${{ matrix.chain }}
+        run: python3 scripts/qualify_upstream_merged_affected.py --mode mutations --chain "$CHAIN" --approved-source "$APPROVED_SOURCE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merged-affected-${{ matrix.chain }}
+          path: ${{ runner.temp }}/merged-affected-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14
