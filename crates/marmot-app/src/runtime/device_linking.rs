@@ -510,7 +510,9 @@ pub(super) async fn handle_verifier_command(
             if result.is_ok()
                 && let Ok((_, gate)) = client.enrollment_proposal_control(&scope)
             {
-                publication_control.install(scope.clone(), gate);
+                publication_control.install_proposal(
+                    scope.clone(), gate, client.proposal_retirement_for_control(&scope),
+                );
             }
             if respond.send(result).is_err() {
                 let _ = client.cancel_device_linking_scope(&scope).await;

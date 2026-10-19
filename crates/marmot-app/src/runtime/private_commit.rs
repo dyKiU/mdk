@@ -35,6 +35,7 @@ struct ActiveControl {
     revoked: bool,
     original_invite_revision: Option<crate::device_linking::settlement::SdkCancellationFence>,
     negative_invite_revision: Option<crate::device_linking::settlement::SdkCancellationFence>,
+    proposal_retirement: Option<Arc<crate::client::device_linking::ProposalRetirement>>,
 }
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -55,9 +56,17 @@ impl PublicationControl {
         self.install_gate(
             PublicationIdentity::Scoped(scope),
             PublicationGate::Invite(gate),
+            None,
         );
     }
-    fn install_gate(&self, identity: PublicationIdentity, gate: PublicationGate) {
+    pub(super) fn install_proposal(
+        &self, scope: PurposeAttemptScope, gate: Arc<RuntimeInviteGate>,
+        retirement: Option<Arc<crate::client::device_linking::ProposalRetirement>>,
+    ) {
+        self.install_gate(PublicationIdentity::Scoped(scope), PublicationGate::Invite(gate), retirement);
+    }
+    fn install_gate(&self, identity: PublicationIdentity, gate: PublicationGate,
+        proposal_retirement: Option<Arc<crate::client::device_linking::ProposalRetirement>>) {
         let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
         let revoked = self.shutdown.load(Ordering::Acquire)
             || active
@@ -76,6 +85,7 @@ impl PublicationControl {
             revoked,
             original_invite_revision,
             negative_invite_revision: None,
+            proposal_retirement,
         });
     }
     pub(super) fn revoke(&self, scope: &PurposeAttemptScope) {
@@ -121,6 +131,14 @@ impl PublicationControl {
                 .negative_invite_revision
                 .as_ref()
                 .is_some_and(|revision| revision.revision_matches_for_negative_completion())
+    }
+    fn retired_proposal_gate(&self, scope: &PurposeAttemptScope) -> Option<Arc<RuntimeInviteGate>> {
+        let active = self.active.lock().unwrap_or_else(|error| error.into_inner());
+        let active = active.as_ref()?;
+        let PublicationGate::Invite(gate) = &active.gate else { return None; };
+        (self.matches_negative_invite(active, scope, gate)
+            && active.proposal_retirement.as_ref().is_some_and(|retirement| retirement.matches_retired(scope, gate)))
+            .then(|| gate.clone())
     }
     fn has_negative_invite(
         &self,
@@ -244,7 +262,8 @@ pub(super) async fn cancel_scope(
         ) => error,
         result => return result,
     };
-    let Some(gate) = client.retired_invite_cancel_candidate(scope)? else {
+    let retired_proposal_gate = control.retired_proposal_gate(scope);
+    let Some(gate) = client.retired_invite_cancel_candidate(scope, retired_proposal_gate.as_ref())? else {
         return Err(stale);
     };
     if !control.has_negative_invite(scope, &gate) {
@@ -580,7 +599,7 @@ async fn publish_operation(
         }
     };
     let identity = operation.identity();
-    control.install_gate(identity.clone(), gate);
+    control.install_gate(identity.clone(), gate, None);
     let snapshot = client.group_read_snapshot().ok();
     let mut deferred = std::collections::VecDeque::new();
     // Examine already-queued controls before the dispatch future's first poll.

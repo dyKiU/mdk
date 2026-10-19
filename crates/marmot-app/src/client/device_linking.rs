@@ -20,6 +20,32 @@ use cgka_traits::{KeyPackage, MemberId};
 use std::sync::Arc;
 use storage_sqlite::SqliteAccountStorage;
 
+/// Negative completion custody shared by one actual proposal and its actor slot.
+/// It cannot reconstruct a lease or authorize a publication. Add attempts burn it.
+pub(crate) struct ProposalRetirement {
+    scope: PurposeAttemptScope,
+    gate: std::sync::Weak<RuntimeInviteGate>,
+    // 0: original proposal; 1: local cleanup succeeded; 2: Add attempted/invalid.
+    state: std::sync::atomic::AtomicU8,
+}
+impl ProposalRetirement {
+    fn new(scope: &PurposeAttemptScope, gate: &Arc<RuntimeInviteGate>) -> Self {
+        Self { scope: scope.clone(), gate: Arc::downgrade(gate),
+            state: std::sync::atomic::AtomicU8::new(0) }
+    }
+    fn invalidate(&self) {
+        self.state.store(2, std::sync::atomic::Ordering::Release);
+    }
+    fn retire(&self) {
+        let _ = self.state.compare_exchange(0, 1,
+            std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire);
+    }
+    pub(crate) fn matches_retired(&self, scope: &PurposeAttemptScope, gate: &Arc<RuntimeInviteGate>) -> bool {
+        self.scope == *scope && self.gate.ptr_eq(&Arc::downgrade(gate))
+            && self.state.load(std::sync::atomic::Ordering::Acquire) == 1
+    }
+}
+
 /// The actor owns the only continuation and exact public retry inputs. Metadata
 /// cannot reconstruct its gate lease after drop, cancellation or restart.
 struct OwnedPrivateInvite {
@@ -29,6 +55,7 @@ struct OwnedPrivateInvite {
     deadline: std::time::Instant,
     prepared: Option<cgka_engine::private_device_invite::PreparedPrivateDeviceInvite>,
     proposal: Option<cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal>,
+    proposal_retirement: Option<Arc<ProposalRetirement>>,
     endorsements:
         Vec<cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement>,
     for_add: bool,
@@ -698,6 +725,11 @@ impl AppClient {
             cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
         ))?;
         let receipts = attempt.endorsements.iter().collect::<Vec<_>>();
+        // Core may start the Add handoff even when it returns an error. Never
+        // recreate proposal-only eligibility on a later retry/reinstallation.
+        if let Some(retirement) = &attempt.proposal_retirement {
+            retirement.invalidate();
+        }
         let prepared = self
             .runtime
             .session_mut()
@@ -766,6 +798,7 @@ impl AppClient {
                 deadline,
                 prepared: None,
                 proposal: None,
+                proposal_retirement: None,
                 endorsements: Vec::new(),
                 for_add,
             });
@@ -811,6 +844,9 @@ impl AppClient {
                 .map_err(ClientLinkingError::Engine)?;
         }
         attempt.proposal = Some(proposal);
+        attempt.proposal_retirement = Some(Arc::new(ProposalRetirement::new(
+            scope, &self.linking_owner.invite,
+        )));
         Ok(())
     }
 
@@ -904,6 +940,18 @@ impl AppClient {
             .authenticate_owned_local_enrollment_endorsements(proposal, &receipts)
             .map(|metadata| metadata.leaf_count())
             .map_err(ClientLinkingError::Engine)
+    }
+
+    /// Only the actual producer's existing receipt is eligible for registration.
+    /// Cached proposal preparation returns this same object, including Invalid.
+    pub(crate) fn proposal_retirement_for_control(
+        &self,
+        scope: &PurposeAttemptScope,
+    ) -> Option<Arc<ProposalRetirement>> {
+        self.linking_owner.invite_attempt.as_ref()
+            .filter(|attempt| attempt.scope == *scope && !attempt.for_add
+                && attempt.prepared.is_none() && attempt.proposal.is_some())
+            .and_then(|attempt| attempt.proposal_retirement.clone())
     }
 
     pub(crate) fn enrollment_proposal_control(
@@ -1056,6 +1104,14 @@ impl AppClient {
                     .session_mut()
                     .retire_unprepared_private_device_invite(&attempt.scope)
                     .map_err(ClientLinkingError::PrivateInvite)?;
+            }
+            if !attempt.for_add && attempt.prepared.is_none()
+                && attempt.proposal.as_ref().is_some_and(|proposal| !proposal.preparation_has_started())
+                && let Some(retirement) = &attempt.proposal_retirement
+            {
+                // Core cleanup has returned Ok. This records local retirement,
+                // never a durable Retired row or positive SDK/Core permission.
+                retirement.retire();
             }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !attempt.for_add
@@ -1442,6 +1498,7 @@ impl AppClient {
     pub(crate) fn retired_invite_cancel_candidate(
         &self,
         scope: &PurposeAttemptScope,
+        retired_proposal_gate: Option<&Arc<RuntimeInviteGate>>,
     ) -> Result<Option<Arc<RuntimeInviteGate>>, ClientLinkingError> {
         let owner = &self.linking_owner;
         // Capture the first actual fallback only; later shutdown cannot overwrite it.
@@ -1534,6 +1591,10 @@ impl AppClient {
                 PrivateInvitePhase::Confirmed => "confirmed",
             });
         }
+        // Absence alone never acknowledges anything. The caller may offer
+        // only its exact first-negative slot after actual proposal retirement.
+        let retired_proposal_without_fact = fact.is_none()
+            && retired_proposal_gate.is_some_and(|gate| Arc::ptr_eq(gate, &owner.invite));
         let exact_retired = fact.is_some_and(|fact| {
             fact.phase == cgka_traits::private_device_invite::PrivateInvitePhase::Retired
                 && fact.raw.binding.approver_scope == *scope
@@ -1547,7 +1608,7 @@ impl AppClient {
                 .unwrap_or_else(|error| error.into_inner())
                 .exact_retired = Some(exact_retired);
         }
-        Ok(exact_retired.then(|| owner.invite.clone()))
+        Ok((exact_retired || retired_proposal_without_fact).then(|| owner.invite.clone()))
     }
     pub(crate) fn finish_retired_invite_negative_cleanup(
         &mut self,
