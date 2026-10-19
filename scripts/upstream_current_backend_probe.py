@@ -1,0 +1,298 @@
+"""Remote-only, one exact default-CI body; closed post-verdict observations only."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import selectors
+import signal
+import subprocess
+import time
+
+from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
+
+CASES = {
+    'key-package': ('marmot-app', 'relay_runtime',
+                    'cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart',
+                    'crates/marmot-app/tests/relay_runtime.rs', 'key-package-cancel-control '),
+    'avatar': ('wn-cli', 'cli', 'groups_set_avatar_url_round_trips_through_sync_and_show',
+               'crates/cli/tests/cli.rs', 'avatar-clear-control '),
+}
+PHASES = {'local_state_created', 'local_ready', 'bootstrap_publication_started',
+          'bootstrap_publication_confirmed', 'key_package_publication_started',
+          'key_package_publication_confirmed', 'companion_ready'}
+AVATAR = {'sender_clear_present', 'receiver_present', 'sync_events',
+          'sync_projection_updates', 'sync_epoch_stall_escalations',
+          'clear_published', 'clear_message_count'}
+ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+LIMIT = 16 * 1024 * 1024
+
+
+def uint(value):
+    return type(value) is int and 0 <= value <= 2**64 - 1
+
+
+def closed_marker(case, value):
+    if not isinstance(value, dict):
+        raise ValueError('marker-shape')
+    if case == 'key-package':
+        if set(value) != {'observed', 'elapsed_ms', 'setup_finished', 'journal_read_ok', 'journal_phase'}:
+            raise ValueError('marker-keys')
+        if any(type(value[k]) is not bool for k in ('observed', 'setup_finished', 'journal_read_ok')):
+            raise ValueError('marker-bool')
+        if value['elapsed_ms'] is not None and not uint(value['elapsed_ms']):
+            raise ValueError('marker-duration')
+        if value['journal_phase'] is not None and value['journal_phase'] not in PHASES:
+            raise ValueError('marker-phase')
+    else:
+        if set(value) != AVATAR:
+            raise ValueError('marker-keys')
+        for key, item in value.items():
+            valid = type(item) is bool if key in {'sender_clear_present', 'receiver_present'} else uint(item)
+            if item is not None and not valid:
+                raise ValueError('marker-type')
+    return value
+
+
+def parse_marker(case, raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    prefix = CASES[case][4]
+    found = []
+    for line in text.splitlines():
+        if prefix in line:
+            # No arbitrary prefix/suffix, duplicate keys or private strings survive.
+            envelope = re.fullmatch(r'[ \t]{0,8}' + re.escape(prefix) + r'(\{[^\r\n]*\})[ \t]{0,8}', line)
+            if envelope is None or len(line) > 4096:
+                raise ValueError('marker-envelope')
+            payload = envelope[1]
+            def unique(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError('marker-duplicate-key')
+                    result[key] = value
+                return result
+            found.append(closed_marker(case, json.loads(payload, object_pairs_hook=unique)))
+    if len(found) != 1:
+        raise ValueError('marker-cardinality')
+    return found[0]
+
+
+def parse_core(case, raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    package, binary, test, source, _ = CASES[case]
+    summaries = re.findall(r'Summary\s+\[[^\]]+\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)', text)
+    if len(summaries) != 1:
+        raise ValueError('summary-cardinality')
+    executed, tail = summaries[0]
+    def count(label):
+        matches = re.findall(r'(\d+) ' + label + r'\b', tail)
+        if len(matches) > 1:
+            raise ValueError('summary-duplicate')
+        return int(matches[0]) if matches else 0
+    counts = {'executed': int(executed), 'passed': count('passed'), 'failed': count('failed'),
+              'skipped': count('skipped')}
+    named = re.findall(r'^\s*(PASS|FAIL)\s+\[[^\]]+\]\s+' + r'(?:' + re.escape(package) + r'::)?' + re.escape(binary) + r'\s+' + re.escape(test) + r'\s*$', text, re.M)
+    if counts['executed'] != 1 or counts['passed'] + counts['failed'] != 1 or len(named) != 1:
+        raise ValueError('actual-one-named-body')
+    if (named[0] == 'PASS') != (counts['passed'] == 1):
+        raise ValueError('body-summary-mismatch')
+    codes = sorted(set(re.findall(r'\berror\[(E\d{4})\]', text)))
+    headers = [line for line in text.splitlines() if re.match(r'^error(?:\[E\d{4}\])?:', line)
+               and not re.match(r'^error: test run failed\s*$', line)]
+    sites = []
+    for path, line, column in re.findall(r'panicked at ([^\s]+\.rs):(\d+):(\d+):', text):
+        if path == source and 1 <= int(line) <= 1_000_000 and 1 <= int(column) <= 1_000_000:
+            sites.append({'expected_source': True, 'line': int(line), 'column': int(column)})
+    return {'counts': counts, 'named_case_observed': True,
+            'compiler_codes': codes, 'compiler_header_count': len(headers),
+            'expected_source_panic_sites': sites,
+            'raw_sha256': hashlib.sha256(raw).hexdigest(), 'raw_bytes': len(raw)}
+
+
+def parse(case, raw):
+    result = parse_core(case, raw)
+    result['observation'] = parse_marker(case, raw)
+    return result
+
+
+def capture(command, timeout, separate=False):
+    """Bounded RAM and runner-temp only; never tee private test output."""
+    start = time.monotonic()
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE if separate else subprocess.STDOUT, start_new_session=True)
+    selector = selectors.DefaultSelector()
+    selector.register(proc.stdout, selectors.EVENT_READ, 'stdout')
+    if separate:
+        selector.register(proc.stderr, selectors.EVENT_READ, 'stderr')
+    raw = {'stdout': bytearray(), 'stderr': bytearray()}
+    try:
+        while selector.get_map():
+            if time.monotonic() - start > timeout:
+                raise TimeoutError('bounded-command-timeout')
+            for key, _ in selector.select(1):
+                block = os.read(key.fd, 65536)
+                if not block:
+                    selector.unregister(key.fileobj)
+                else:
+                    raw[key.data].extend(block)
+                    if sum(map(len, raw.values())) > LIMIT:
+                        raise ValueError('bounded-command-output')
+        code = proc.wait(timeout=5)
+        return code, bytes(raw['stdout']), round(time.monotonic() - start, 3), bytes(raw['stderr'])
+    finally:
+        selector.close()
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=10)
+
+
+def parser_controls():
+    # Authored controls execute only on the remote preflight lane.
+    positives = 0
+    negatives = 0
+    for case in CASES:
+        values = ({'observed': False, 'elapsed_ms': 10000, 'setup_finished': False,
+                   'journal_read_ok': True, 'journal_phase': 'local_state_created'}
+                  if case == 'key-package' else {key: None for key in AVATAR})
+        package, binary, test, source, prefix = CASES[case]
+        raw = (prefix + json.dumps(values) + '\nFAIL [1s] ' + binary + ' ' + test + '\n'
+               + "thread 'PRIVATE' panicked at " + source + ':2206:10:\nPRIVATE_PAYLOAD\n'
+               + 'Summary [1s] 1 test run: 0 passed, 1 failed, 99 skipped\nerror: test run failed\n').encode()
+        result = parse(case, raw)
+        assert result['compiler_header_count'] == 0 and 'PRIVATE' not in json.dumps(result)
+        positives += 1
+        assert parse(case, raw.replace(('] ' + binary + ' ').encode(), ('] ' + package + '::' + binary + ' ').encode()))['named_case_observed']
+        positives += 1
+        missing = raw.replace(prefix.encode(), b'uncollected-control ')
+        partial = parse_core(case, missing)
+        assert partial['counts']['failed'] == 1 and partial['compiler_header_count'] == 0
+        assert 'observation' not in partial and 'PRIVATE' not in json.dumps(partial)
+        positives += 1
+        altered = [raw.replace(prefix.encode(), b'private-control '), raw + raw,
+                   raw.replace(prefix.encode(), b'PRIVATE ' + prefix.encode()),
+                   raw.replace(prefix.encode(), b'{\"private\":\"PRIVATE\"} ' + prefix.encode()),
+                   raw.replace(test.encode(), b'wrong_test'), raw.replace(b'1 test run', b'0 test run'),
+                   raw.replace(b'0 passed, 1 failed', b'0 passed, 0 failed'),
+                   raw.replace(('] ' + binary + ' ').encode(), ('] wrong-package::' + binary + ' ').encode())]
+        bad_values = [dict(values, private='PRIVATE'), {}]
+        if case == 'key-package':
+            bad_values += [dict(values, journal_phase='PRIVATE'), dict(values, elapsed_ms=True)]
+        else:
+            bad_values += [dict(values, receiver_present='PRIVATE'), dict(values, sync_events=True)]
+        altered += [raw.replace(json.dumps(values).encode(), json.dumps(v).encode()) for v in bad_values]
+        for invalid in altered:
+            try:
+                parse(case, invalid)
+            except (ValueError, TypeError):
+                negatives += 1
+            else:
+                raise AssertionError('negative-control-accepted')
+        assert parse(case, raw + b'error[E0308]: PRIVATE\n')['compiler_header_count'] == 1
+        positives += 1
+    closure_report = {'body_passed': True, 'body': {'counts': {'passed': 1}}}
+    def broken_probe():
+        raise FileNotFoundError('PRIVATE')
+    assert not close_inputs(closure_report, {}, broken_probe, lambda: '')
+    assert closure_report['body']['counts']['passed'] == 1
+    assert closure_report['body_passed'] is False
+    assert closure_report['all_tracked_inputs_exact'] is False
+    assert closure_report['git_pristine'] is False
+    assert closure_report['closure_exception_class'] == 'FileNotFoundError'
+    assert 'PRIVATE' not in json.dumps(closure_report)
+    return {'positive': positives, 'negative': negatives, 'closure_fault_controls': 1}
+
+
+def close_inputs(report, before, input_probe=frozen_inputs, diff_probe=None):
+    try:
+        report['all_tracked_inputs_exact'] = before is not None and input_probe() == before
+        report['git_pristine'] = not (diff_probe() if diff_probe else git('diff', 'HEAD', '--name-only'))
+    except Exception as error:
+        report['all_tracked_inputs_exact'] = False
+        report['git_pristine'] = False
+        report['closure_exception_class'] = type(error).__name__
+    exact = report['all_tracked_inputs_exact'] and report['git_pristine']
+    if not exact:
+        report['body_passed'] = False
+    return exact
+
+
+def main():
+    os.umask(0o077)
+    args = argparse.ArgumentParser(description=__doc__)
+    args.add_argument('--case', choices=CASES, required=True)
+    args.add_argument('--baseline', required=True)
+    args.add_argument('--mode', choices=('preflight', 'run'), required=True)
+    args.add_argument('--output', required=True)
+    options = args.parse_args()
+    output = Path(options.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = {'case': options.case, 'source': git('rev-parse', 'HEAD'), 'qualification_passed': False,
+              'automatic_retries': 0, 'profile': 'ci', 'features': ['test-policy-overrides'],
+              'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'diagnostic_only': True,
+              'expected_package': CASES[options.case][0], 'expected_binary': CASES[options.case][1],
+              'expected_test': CASES[options.case][2], 'trusted_test_source': CASES[options.case][3]}
+    def save():
+        output.write_text(json.dumps(report, indent=2) + '\n')
+    before = None
+    exit_code = 1
+    try:
+        report['cohort'] = reviewed_cohort(options.baseline)
+        before = frozen_inputs()
+        report['parser_controls'] = parser_controls()
+        if options.mode == 'preflight':
+            exit_code = 0
+        else:
+            if os.environ.get('RUST_MIN_STACK') or os.environ.get('RUSTFLAGS') or os.environ.get('CARGO_ENCODED_RUSTFLAGS'):
+                raise ValueError('default-cohort-launch-environment')
+            package, binary, test, _, _ = CASES[options.case]
+            base = ['cargo', 'nextest']
+            flags = ['-p', package, '--test', binary, '--features', 'test-policy-overrides', '--locked', '--profile', 'ci']
+            selection = 'package(' + package + ') & binary(=' + binary + ') & test(=' + test + ')'
+            code, raw, elapsed, compiler = capture(base + ['list'] + flags + ['--message-format', 'json', '-E', selection], 1200, separate=True)
+            report['inventory_exit'] = code
+            report['inventory_elapsed_seconds'] = elapsed
+            report['inventory_raw_sha256'] = hashlib.sha256(raw).hexdigest()
+            report['inventory_stderr_sha256'] = hashlib.sha256(compiler).hexdigest()
+            report['inventory_stdout_bytes'] = len(raw)
+            report['inventory_stderr_bytes'] = len(compiler)
+            report['inventory_compiler_codes'] = sorted(set(re.findall(rb'error\[(E[0-9]{4})\]', compiler)))
+            report['inventory_compiler_codes'] = [value.decode('ascii') for value in report['inventory_compiler_codes']]
+            save()
+            if code != 0:
+                raise ValueError('inventory-compile-failed')
+            inventory = json.loads(raw)
+            selected = [name for suite in inventory['rust-suites'].values()
+                        for name, item in suite['testcases'].items()
+                        if item['filter-match']['status'] == 'matches' and not item['ignored']]
+            if len(selected) != 1 or selected[0] != test:
+                raise ValueError('inventory-not-one-exact-case')
+            if frozen_inputs() != before or git('diff', 'HEAD', '--name-only'):
+                raise ValueError('inventory-source-changed')
+            report['selected_nonignored'] = 1
+            code, raw, elapsed, _ = capture(base + ['run'] + flags + ['--retries', '0', '--test-threads', '1',
+                                      '--no-fail-fast', '--success-output', 'immediate', '-E', selection], 1200)
+            report['body'] = {'exit_code': code, 'elapsed_seconds': elapsed,
+                              'raw_sha256': hashlib.sha256(raw).hexdigest(), 'raw_bytes': len(raw)}
+            save()  # Actual execution survives parser failure.
+            report['body'].update(parse_core(options.case, raw))
+            report['marker_collection_complete'] = False
+            save()  # Preserve actual named-body counts/compiler facts before marker validation.
+            report['body']['observation'] = parse_marker(options.case, raw)
+            report['marker_collection_complete'] = True
+            report['body_passed'] = (code == 0 and report['body']['counts']['passed'] == 1
+                                     and report['body']['compiler_header_count'] == 0
+                                     and not report['body']['compiler_codes'])
+            exit_code = 0 if report['body_passed'] else 1
+    except Exception as error:
+        # Closed class only; exception text can contain private test payloads.
+        report['controller_exception_class'] = type(error).__name__
+    finally:
+        if not close_inputs(report, before):
+            exit_code = 1
+        save()
+    return exit_code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

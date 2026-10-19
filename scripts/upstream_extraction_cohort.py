@@ -12,6 +12,8 @@ UPSTREAM = '3aec65433eb84f0882430d000b2d31dabf987c24'
 OWNER = '1168b00d1ad275eac925965d8ab505e7c05a452e'
 REPOSITORY = 'dyKiU/mdk'
 OVERLAYS = {
+    '.github/workflows/upstream-backend-probes.yml',
+    'scripts/upstream_current_backend_probe.py',
     'scripts/upstream_extraction_cohort.py',
     'scripts/qualify_upstream_private_fixes.py',
     'scripts/verify_upstream_boundary_mutations.py',
