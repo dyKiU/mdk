@@ -3338,7 +3338,8 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let completion_consent_identity = consent.then(|| request.message.id.clone());
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let priority_capture = peer_proof_probe::recipient_retry_priority::prepared(entry, kind, &request.message.id);
+        let priority_capture =
+            peer_proof_probe::recipient_retry_priority::prepared(entry, kind, &request.message.id);
         // COMPLETION_TEST_END
         // PEER_PROOF_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]

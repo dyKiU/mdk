@@ -509,7 +509,7 @@ impl DeviceLinkingSession {
     pub(crate) fn arm_recipient_retry_priority_for_test(
         &self,
         nonce: [u8; 32],
-    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::recipient_retry_priority::RecipientGuard> {
+    ) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::recipient_retry_priority::RecipientGuard>{
         self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
             .map(|choice| crate::client::device_linking::sibling_sharing::peer_proof_probe::recipient_retry_priority::arm_recipient(choice, nonce))
     }
