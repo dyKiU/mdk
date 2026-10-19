@@ -98,6 +98,9 @@ jobs:
       matrix:
         lane: ${{ fromJSON(needs.identity.outputs.lanes) }}
     env:
+      SDK_PROFILE: experimental
+      WN_SDK_PROFILE: experimental
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
       SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
       SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
       IOS_SHA: ${{ needs.identity.outputs.ios_sha }}
@@ -107,6 +110,11 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ needs.identity.outputs.tools_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.identity.outputs.sdk_sha }}
+          path: sdk-source
           persist-credentials: false
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:

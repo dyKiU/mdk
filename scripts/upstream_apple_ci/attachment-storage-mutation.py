@@ -9,6 +9,14 @@ import re
 import subprocess
 
 
+profile = os.environ.get('WN_SDK_PROFILE') or 'experimental'
+if profile not in {'default', 'experimental'}:
+    raise ValueError('API adaptation mutations require a current SDK profile')
+private_flag = '0' if profile == 'default' else '1'
+if os.environ.get('WN_EXPERIMENTAL_DEVICE_SYNC', private_flag) != private_flag:
+    raise ValueError('Mutation profile differs from private opt-in')
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--case', choices=['retry', 'rearm'], default='retry')
 args = parser.parse_args()
@@ -41,7 +49,7 @@ output.mkdir(mode=0o700)
 selector = 'whitenoise-macTests/AttachmentStorageAdmissionTests/storagePressureKeepsCheckpointRetryAndRemovalAvailable()'
 command = ['bash', 'scripts/test-isolated.sh', '-only-testing:' + selector]
 proof = {'app_sha': head, 'sdk_sha': os.environ['SOURCE_SHA'], 'sdk_run_id': os.environ['SDK_RUN_ID'],
-         'workflow_tools_sha': os.environ['GITHUB_SHA'], 'source_path': str(source.relative_to(root)),
+         'sdk_profile': profile, 'private_flag': private_flag, 'workflow_tools_sha': os.environ['GITHUB_SHA'], 'source_path': str(source.relative_to(root)),
          'original_sha256': original_sha, 'mutant_sha256': hashlib.sha256(mutated).hexdigest(),
          'case': args.case, 'mutation': mutation, 'selector': selector,
          'command': command, 'runs': []}
@@ -53,7 +61,7 @@ def save():
 
 def execute(name):
     bundle = output / (name + '.xcresult')
-    environment = dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC='1', WN_TEST_JOBS='2',
+    environment = dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC=private_flag, WN_TEST_JOBS='2',
                        WN_TEST_DERIVED_DATA=str(temp / 'final-mac-derived-data'),
                        WN_TEST_RESULT_BUNDLE=str(bundle))
     with (output / (name + '.log')).open('x') as log:

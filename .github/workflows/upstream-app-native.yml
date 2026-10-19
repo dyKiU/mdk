@@ -252,6 +252,9 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 180
     env:
+      SDK_PROFILE: experimental
+      WN_SDK_PROFILE: experimental
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
       GH_TOKEN: ${{ github.token }}
       SOURCE_SHA: ${{ needs.identity.outputs.sdk_source }}
       SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
@@ -261,6 +264,11 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.identity.outputs.sdk_source }}
+          path: sdk-source
           persist-credentials: false
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -461,6 +469,9 @@ jobs:
       matrix:
         platform: ${{ fromJSON(needs.identity.outputs.native_scope == 'all' && '["macos","ios"]' || needs.identity.outputs.native_scope == 'adapter-macos' && '["macos"]' || '["ios"]') }}
     env:
+      SDK_PROFILE: experimental
+      WN_SDK_PROFILE: experimental
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
       GH_TOKEN: ${{ github.token }}
       SOURCE_SHA: ${{ needs.identity.outputs.sdk_source }}
       SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
@@ -471,6 +482,11 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.identity.outputs.sdk_source }}
+          path: sdk-source
           persist-credentials: false
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:

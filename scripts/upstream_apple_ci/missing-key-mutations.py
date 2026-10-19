@@ -8,6 +8,14 @@ from pathlib import Path
 import subprocess
 
 
+profile = os.environ.get('WN_SDK_PROFILE') or 'experimental'
+if profile not in {'default', 'experimental'}:
+    raise ValueError('API adaptation mutations require a current SDK profile')
+private_flag = '0' if profile == 'default' else '1'
+if os.environ.get('WN_EXPERIMENTAL_DEVICE_SYNC', private_flag) != private_flag:
+    raise ValueError('Mutation profile differs from private opt-in')
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--platform', choices=['macos', 'ios'], required=True)
 args = parser.parse_args()
@@ -32,7 +40,7 @@ definitions = [
      'whitenoise-iosTests/DirectChatStarterTests/obsoletePublicationOffersAnErrorInsteadOfSharingTheApp()'),
 ]
 proof = {'platform': args.platform, 'app_sha': head, 'sdk_sha': os.environ['SOURCE_SHA'],
-         'sdk_run_id': os.environ['SDK_RUN_ID'], 'workflow_tools_sha': os.environ['GITHUB_SHA'],
+         'sdk_run_id': os.environ['SDK_RUN_ID'], 'sdk_profile': profile, 'private_flag': private_flag, 'workflow_tools_sha': os.environ['GITHUB_SHA'],
          'expected_mutants': len(definitions), 'mutants': []}
 
 
@@ -46,7 +54,7 @@ def save():
 
 def execute(record, phase):
     bundle = output / (record['name'] + '-' + phase + '.xcresult')
-    environment = dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC='1', WN_TEST_JOBS='2',
+    environment = dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC=private_flag, WN_TEST_JOBS='2',
                        WN_TEST_DERIVED_DATA=str(temp / ('final-mac-derived-data' if mac else 'final-ios-derived-data')),
                        WN_TEST_RESULT_BUNDLE=str(bundle))
     if not mac:
