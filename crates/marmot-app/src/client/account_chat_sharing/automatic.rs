@@ -9,7 +9,7 @@ mod body_late_ack_probe;
 mod body_negative_probe;
 // BODY_NEGATIVE_TEST_END
 #[cfg(all(test, feature = "test-policy-overrides"))]
-pub(super) mod consent_delivery_probe;
+pub(crate) mod consent_delivery_probe;
 mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod departure_replay_probe;
@@ -345,6 +345,15 @@ impl AppClient {
                 device: devices[index],
             }),
         )
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_capture_sibling_peer_proof_delivery(
+        account: [u8; 32], group: crate::GroupId,
+        roots: [&std::path::Path; 3], devices: [[u8; 32]; 3],
+    ) -> std::sync::Arc<consent_delivery_probe::ConsentDeliveryProbe> {
+        consent_delivery_probe::arm_peer_proofs(account, group, std::array::from_fn(|index| consent_delivery_probe::Peer {
+            root: roots[index].to_path_buf(), device: devices[index],
+        }))
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_observe_automatic_consent_raw(

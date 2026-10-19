@@ -72,7 +72,15 @@ impl Outcome {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode { Consent, PeerProof }
+
+/// Fixed passive checkpoints, not validation or a grant.
+#[derive(Clone, Copy)]
+pub(crate) enum ProofStage { Routed = 0, Open = 1, Accepted = 2 }
+
 enum Observation {
+    Proof([u8; 32], Vec<u8>, [u8; 32], ProofStage),
     Raw(MessageId, [u8; 32]),
     Event(GroupId, MessageId, SourceLeafProof, [u8; 32]),
     Auth(
@@ -95,6 +103,7 @@ struct Progress {
     observations: Vec<(usize, Observation)>,
 }
 pub(crate) struct ConsentDeliveryProbe {
+    mode: Mode,
     account: [u8; 32],
     group: GroupId,
     peers: [Peer; 3],
@@ -124,6 +133,12 @@ pub(crate) fn arm(
     group: GroupId,
     peers: [Peer; 3],
 ) -> Arc<ConsentDeliveryProbe> {
+    arm_mode(account, group, peers, Mode::Consent)
+}
+pub(crate) fn arm_peer_proofs(account: [u8; 32], group: GroupId, peers: [Peer; 3]) -> Arc<ConsentDeliveryProbe> {
+    arm_mode(account, group, peers, Mode::PeerProof)
+}
+fn arm_mode(account: [u8; 32], group: GroupId, peers: [Peer; 3], mode: Mode) -> Arc<ConsentDeliveryProbe> {
     for (index, peer) in peers.iter().enumerate() {
         assert!(
             peers[..index]
@@ -136,6 +151,7 @@ pub(crate) fn arm(
     assert!(roots.len() + peers.len() <= 8);
     assert!(peers.iter().all(|peer| !roots.contains_key(&peer.root)));
     let probe = Arc::new(ConsentDeliveryProbe {
+        mode,
         account,
         group,
         peers,
@@ -239,6 +255,7 @@ pub(crate) struct ObservedPublication {
 }
 #[derive(Default, Clone)]
 struct Evidence {
+    proof_stages: [usize; 3],
     raw_id_seen: bool,
     raw_payload_hash_matches: bool,
     event_seen: bool,
@@ -284,6 +301,14 @@ impl Attempt {
     /// Accumulate only exact boundary matches; unrelated traffic cannot erase them.
     fn observe(&mut self, expected_group: &GroupId, observation: &Observation) -> bool {
         match observation {
+            Observation::Proof(nonce, signer, digest, stage)
+                if nonce == &self.prepared.nonce
+                    && signer.as_slice() == self.prepared.local_device
+                    && digest == &self.prepared.inner_wire_sha256 =>
+            {
+                let count = &mut self.evidence.proof_stages[*stage as usize];
+                *count = count.saturating_add(1);
+            }
             Observation::Raw(id, digest) if self.outer_id.as_ref() == Some(id) => {
                 self.evidence.raw_id_seen = true;
                 // Adapter signing may change payload bytes; mismatch is not absence.
@@ -453,13 +478,19 @@ fn register_attempt(
 }
 /// Call after existing original/route checks, using only actual frozen metadata.
 pub(crate) fn prepared(root: &Path, prepared: &PreparedConsent) {
-    let Some(probe) = current(root) else { return };
+    prepared_mode(root, prepared, Mode::Consent);
+}
+fn prepared_mode(root: &Path, prepared: &PreparedConsent, mode: Mode) {
+    let Some(probe) = current(root).filter(|probe| probe.mode == mode) else { return };
     let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
     register_attempt(&probe, root, prepared, &mut progress);
 }
 /// Only actual successful publication/ACK and original validation tail supply report ID.
 pub(crate) fn published(root: &Path, publication: &Publication) {
-    let Some(probe) = current(root) else { return };
+    published_mode(root, publication, Mode::Consent);
+}
+fn published_mode(root: &Path, publication: &Publication, mode: Mode) {
+    let Some(probe) = current(root).filter(|probe| probe.mode == mode) else { return };
     let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
     let Some(index) = register_attempt(&probe, root, &publication.into(), &mut progress) else {
         return;
@@ -507,7 +538,7 @@ pub(crate) fn authenticated(
 ) {
     if let Some(probe) = current(root).filter(|probe| probe.group == *group) {
         if received.is_some_and(|received| {
-            received.control != AccountSharingControl::Consent
+            !probe.matches_control(received.control)
                 || received.signer != source.signature_public_key
         }) {
             return;
@@ -530,9 +561,7 @@ pub(crate) fn dispatched(
     digest: [u8; 32],
     outcome: Outcome,
 ) {
-    if received.control == AccountSharingControl::Consent
-        && let Some(probe) = current(root)
-    {
+    if let Some(probe) = current(root).filter(|probe| probe.matches_control(received.control)) {
         probe.record(
             root,
             Observation::Dispatch(received.nonce, received.signer.clone(), digest, outcome),
@@ -563,11 +592,92 @@ fn observe_automatic(
     bound: bool,
 ) {
     if received.control == AccountSharingControl::Consent
-        && let Some(probe) = current(root)
+        && let Some(probe) = current(root).filter(|probe| probe.mode == Mode::Consent)
     {
         probe.record(
             root,
             Observation::Automatic(received.nonce, received.signer.clone(), digest, bound),
         );
+    }
+}
+
+
+impl ConsentDeliveryProbe {
+    fn matches_control(&self, control: AccountSharingControl) -> bool {
+        match self.mode {
+            Mode::Consent => control == AccountSharingControl::Consent,
+            Mode::PeerProof => control == AccountSharingControl::Body(0),
+        }
+    }
+    /// Only closed counters are printable. Peer/root/nonce/hash records stay private.
+    pub(crate) fn proof_summary(&self) -> [ProofSummary; 2] {
+        let progress = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        std::array::from_fn(|source| {
+            let mut summary = ProofSummary {
+                prepared: 0, acknowledged: 0, raw_id: 0, raw_payload_match: 0,
+                event: 0, nonce_match: 0, authentication: [0; 5], dispatch: [0; 5],
+                owned: [0; 3], incomplete: self.mode != Mode::PeerProof
+                    || Instant::now() >= self.deadline
+                    || progress.dropped[source] > 0 || progress.receive_dropped[2] > 0,
+            };
+            for record in &progress.records {
+                if record.prepared.local_device != self.peers[source].device
+                    || record.receiver_root != self.peers[2].root { continue; }
+                summary.prepared += 1;
+                summary.acknowledged += usize::from(record.outer_id.is_some());
+                let evidence = &record.evidence;
+                summary.raw_id += usize::from(evidence.raw_id_seen);
+                summary.raw_payload_match += usize::from(evidence.raw_payload_hash_matches);
+                summary.event += usize::from(evidence.event_seen);
+                summary.nonce_match += usize::from(evidence.authenticated_nonce_matches);
+                summary.incomplete |= evidence.observation_incomplete;
+                if let Some(outcome) = evidence.authentication { summary.authentication[outcome as usize] += 1; }
+                if let Some(outcome) = evidence.dispatch { summary.dispatch[outcome as usize] += 1; }
+                for (total, count) in summary.owned.iter_mut().zip(evidence.proof_stages) {
+                    *total = total.saturating_add(count);
+                }
+            }
+            summary.incomplete |= summary.prepared == 0 || summary.acknowledged != summary.prepared;
+            summary
+        })
+    }
+}
+#[derive(Debug)]
+pub(crate) struct ProofSummary {
+    prepared: usize,
+    acknowledged: usize,
+    raw_id: usize,
+    raw_payload_match: usize,
+    event: usize,
+    nonce_match: usize,
+    authentication: [usize; 5],
+    dispatch: [usize; 5],
+    owned: [usize; 3],
+    incomplete: bool,
+}
+pub(crate) fn proof_enabled(root: &Path) -> bool {
+    current(root).is_some_and(|probe| probe.mode == Mode::PeerProof)
+}
+pub(crate) fn proof_prepared(root: &Path, prepared: &PreparedConsent) {
+    // Fixed A/B -> D fixture slots only. Source-side captured proof kind is the discriminator.
+    let Some(probe) = current(root).filter(|probe| probe.mode == Mode::PeerProof) else { return };
+    if prepared.peer_device != probe.peers[2].device || probe.index(root).is_none_or(|index| index >= 2) { return; }
+    prepared_mode(root, prepared, Mode::PeerProof);
+}
+pub(crate) fn proof_acknowledged(root: &Path, prepared: &PreparedConsent, outer_id: &MessageId) {
+    let Some(probe) = current(root).filter(|probe| probe.mode == Mode::PeerProof) else { return };
+    if prepared.peer_device != probe.peers[2].device || probe.index(root).is_none_or(|index| index >= 2) { return; }
+    published_mode(root, &Publication {
+        account: prepared.account, protected_group: prepared.protected_group.clone(),
+        local_device: prepared.local_device, peer_device: prepared.peer_device, nonce: prepared.nonce,
+        content_id: prepared.content_id.clone(), outer_id: outer_id.clone(),
+        input_outer_payload_sha256: prepared.input_outer_payload_sha256,
+        inner_wire_sha256: prepared.inner_wire_sha256,
+    }, Mode::PeerProof);
+}
+pub(crate) fn proof_stage(root: &Path, received: &ReceivedAccountSharingControl, owned_group: &GroupId, owned_nonce: [u8; 32], digest: [u8; 32], stage: ProofStage) {
+    if received.control != AccountSharingControl::Body(0) || received.nonce != owned_nonce { return; }
+    if let Some(probe) = current(root).filter(|probe| probe.mode == Mode::PeerProof && probe.group == *owned_group && probe.index(root) == Some(2)) {
+        probe.record(root, Observation::Proof(owned_nonce, received.signer.clone(), digest, stage));
     }
 }
