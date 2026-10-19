@@ -676,12 +676,17 @@ impl ConsentDeliveryProbe {
                 }
             }
             summary.queue_ambiguous = summary.prepared > 1;
-            if summary.prepared != 1 { summary.queue = None; }
-            summary.incomplete |= summary.prepared == 0 || summary.acknowledged != summary.prepared
+            if summary.prepared != 1 {
+                summary.queue = None;
+            }
+            summary.incomplete |= summary.prepared == 0
+                || summary.acknowledged != summary.prepared
                 || summary.queue_ambiguous
-                || summary.queue.is_none_or(|queue| queue.capture_ms.is_none()
-                    || queue.same_receiver.is_none()
-                    || queue.outer.is_none_or(|outer| outer.invalid));
+                || summary.queue.is_none_or(|queue| {
+                    queue.capture_ms.is_none()
+                        || queue.same_receiver.is_none()
+                        || queue.outer.is_none_or(|outer| outer.invalid)
+                });
             summary
         })
     }
@@ -762,7 +767,6 @@ pub(crate) fn proof_stage(
     }
 }
 
-
 /// Closed copied observations only: never an ID, path, pointer or raw Instant.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ProofQueueObservation {
@@ -785,29 +789,47 @@ pub(crate) struct ProofQueueFacts {
 /// Borrow the actual worker adapter identity only inside the synchronous query.
 /// Source identities are transient lookup keys, never part of stored queue facts.
 pub(crate) fn capture_proof_queue<F>(root: &Path, account: &cgka_traits::MemberId, mut query: F)
-where F: FnMut(&MessageId, &MessageId, Instant) -> ProofQueueFacts,
+where
+    F: FnMut(&MessageId, &MessageId, Instant) -> ProofQueueFacts,
 {
-    let Some(probe) = current(root).filter(|probe| probe.mode == Mode::PeerProof
-        && probe.index(root) == Some(2) && account.as_slice() == probe.account) else { return };
-    let Some(origin) = probe.deadline.checked_sub(Duration::from_secs(600)) else { return };
+    let Some(probe) = current(root).filter(|probe| {
+        probe.mode == Mode::PeerProof
+            && probe.index(root) == Some(2)
+            && account.as_slice() == probe.account
+    }) else {
+        return;
+    };
+    let Some(origin) = probe.deadline.checked_sub(Duration::from_secs(600)) else {
+        return;
+    };
     // Never hold the probe mutex while reading the relay-plane observer locks.
     let targets: Vec<_> = {
         let progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
-        (0..2).filter_map(|source| {
-            let mut records = progress.records.iter().enumerate().filter(|(_, record)|
-                record.prepared.local_device == probe.peers[source].device
-                    && record.receiver_root == probe.peers[2].root);
-            let (index, record) = records.next()?;
-            if records.next().is_some() { return None; }
-            Some((index, record.outer_id.clone()?, record.prepared.content_id.clone()))
-        }).collect()
+        (0..2)
+            .filter_map(|source| {
+                let mut records = progress.records.iter().enumerate().filter(|(_, record)| {
+                    record.prepared.local_device == probe.peers[source].device
+                        && record.receiver_root == probe.peers[2].root
+                });
+                let (index, record) = records.next()?;
+                if records.next().is_some() {
+                    return None;
+                }
+                Some((
+                    index,
+                    record.outer_id.clone()?,
+                    record.prepared.content_id.clone(),
+                ))
+            })
+            .collect()
     };
     for (index, outer, content) in targets {
         let facts = query(&outer, &content, origin);
         let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(record) = progress.records.get_mut(index)
             && record.outer_id.as_ref() == Some(&outer)
-            && record.prepared.content_id == content {
+            && record.prepared.content_id == content
+        {
             record.evidence.proof_queue = Some(facts);
         }
     }

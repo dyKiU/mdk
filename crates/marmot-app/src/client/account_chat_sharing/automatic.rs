@@ -368,26 +368,43 @@ impl AppClient {
         receiver: &transport_nostr::AccountReceiverIdentityForTest,
     ) {
         let account = self.runtime.session().self_id();
-        consent_delivery_probe::capture_proof_queue(self.app.account_home().root(), &account,
+        consent_delivery_probe::capture_proof_queue(
+            self.app.account_home().root(),
+            &account,
             |outer, content, origin| {
                 let capture = std::time::Instant::now();
-                let elapsed = |instant: std::time::Instant| instant.checked_duration_since(origin)
-                    .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+                let elapsed = |instant: std::time::Instant| {
+                    instant
+                        .checked_duration_since(origin)
+                        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+                };
                 let plane = &self.app.relay_plane;
-                let query = |id: &cgka_traits::MessageId| plane
-                    .account_notification_timing_for_test(&account, &hex::encode(id.as_slice()))
-                    .map(|row| consent_delivery_probe::ProofQueueObservation {
-                        disposition: row.0, placement: row.2, depths: row.4.0, dequeued: row.4.1,
-                        accepted_ms: row.3[0].and_then(elapsed),
-                        dequeued_ms: row.4.2.and_then(elapsed), invalid: row.4.3,
-                    });
+                let query = |id: &cgka_traits::MessageId| {
+                    plane
+                        .account_notification_timing_for_test(&account, &hex::encode(id.as_slice()))
+                        .map(|row| consent_delivery_probe::ProofQueueObservation {
+                            disposition: row.0,
+                            placement: row.2,
+                            depths: row.4.0,
+                            dequeued: row.4.1,
+                            accepted_ms: row.3[0].and_then(elapsed),
+                            dequeued_ms: row.4.2.and_then(elapsed),
+                            invalid: row.4.3,
+                        })
+                };
                 consent_delivery_probe::ProofQueueFacts {
-                    capture_ms: elapsed(capture), outer: query(outer), content: query(content),
+                    capture_ms: elapsed(capture),
+                    outer: query(outer),
+                    content: query(content),
                     same_receiver: plane.account_notification_same_receiver_for_test(
-                        &account, &hex::encode(outer.as_slice()), receiver),
+                        &account,
+                        &hex::encode(outer.as_slice()),
+                        receiver,
+                    ),
                     outer_equals_content: outer == content,
                 }
-            });
+            },
+        );
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn test_observe_automatic_consent_raw(
