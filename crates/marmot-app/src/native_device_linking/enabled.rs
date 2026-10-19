@@ -432,7 +432,11 @@ impl DeviceLinkingSession {
     pub(super) fn native_receive_poll_for_test(
         &self,
     ) -> Option<crate::client::device_linking::sibling_sharing::NativeReceivePollSnapshot> {
-        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
             .map(|choice| choice.receive_poll_snapshot_for_test())
     }
 

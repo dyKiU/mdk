@@ -509,7 +509,10 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_receive_poll_for_test(&self, stage: NativeReceivePollStage) {
-        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
         let index = stage as usize;
         if let Some(count) = probe.receive_poll_counts[index].checked_add(1) {
             probe.receive_poll_counts[index] = count;
@@ -523,8 +526,15 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn receive_poll_snapshot_for_test(&self) -> NativeReceivePollSnapshot {
-        let probe = self.native_observation_probe.lock().expect("native observation probe");
-        (probe.receive_poll_counts, probe.receive_poll_last, probe.receive_poll_overflow)
+        let probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        (
+            probe.receive_poll_counts,
+            probe.receive_poll_last,
+            probe.receive_poll_overflow,
+        )
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn notification_times_for_test(
