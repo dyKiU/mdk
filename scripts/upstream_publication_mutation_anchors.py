@@ -54,6 +54,38 @@ def publication_mutant(source, case):
     return source.replace(old, new, 1)
 
 
+def closed_panic_facts(panics, test):
+    """Export bounded classifications only; never raw panic content/identities."""
+    facts = []
+    for panic in panics[:4]:
+        text = panic[5]
+        if any(text == literal or text.startswith(literal + ': ') for literal in (
+            'the actual automatic publication must be held before completion',
+            'the actual automatic publication must be observed',
+            'genuine sibling consent publication',
+            'genuine sibling consent publication did not reach its hold',
+        )):
+            kind = 'hold_precondition'
+        elif text == 'one blocked consent publication must not starve another approved sibling':
+            kind = 'held_fairness'
+        elif re.fullmatch(r'automatic pairing did not reach required phase: expected=EnrollmentComplete observed=[^\n]+', text):
+            kind = 'enrollment_complete_timeout'
+        else:
+            kind = 'other'
+        expected_file = panic[2] == FIXTURE
+        # Even an attacker-controlled path/line cannot become an exported path
+        # or an unbounded integer. Wrong files have no exported source line.
+        raw_line = panic[3]
+        line = int(raw_line) if expected_file and len(raw_line) <= 7 else None
+        if line is not None and not 1 <= line <= 1000000:
+            line = None
+        facts.append({'expected_fixture_file': expected_file,
+                      'expected_test_thread': panic[1] == test,
+                      'line': line, 'message_kind': kind})
+    return {'actual_panic_facts': facts,
+            'actual_panic_facts_truncated': len(panics) > 4}
+
+
 def publication_runtime_oracle(output, case, test, fixture):
     """Require the real named test's unique original assertion, never just text."""
     if case == 'automatic-publication':
@@ -76,7 +108,7 @@ def publication_runtime_oracle(output, case, test, fixture):
         r"(?m)^thread '([^']+)'(?: \(\d+\))? panicked at ([^\n]+):(\d+):(\d+):\n([^\n]+)",
         output,
     ))
-    compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$))[^\n]*', output)
+    compiler = re.findall(r'(?m)^error(?:\[E[0-9]+\])?: (?!test failed(?:,|$)|test run failed\r?$)[^\n]*', output)
     intended = (len(panics) == 1 and output.count('panicked at ') == 1
                 and panics[0][1] == test and panics[0][2] == FIXTURE
                 and int(panics[0][3]) == line
@@ -87,4 +119,5 @@ def publication_runtime_oracle(output, case, test, fixture):
     return {'intended_runtime_assertion': bool(intended),
             'expected_panic_file': FIXTURE, 'expected_panic_line': line,
             'compiler_error_count': len(compiler),
-            'panic_header_count': output.count('panicked at ')}
+            'panic_header_count': output.count('panicked at '),
+            **closed_panic_facts(panics, test)}

@@ -74,8 +74,8 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native!='ios-control':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='e59b14d6d4aa7431567391bb3e064fe9245ad918'
-              assert cohort['ios_sha']=='333a03d02c3fb3290ef34b53194a69d944340765'
+              assert cohort['mac_sha']=='bd6fd1720294450f238c16ac59b0222ace5d36e6'
+              assert cohort['ios_sha']=='ec727c8598f2ea7218fe56410dcd6ed7d9214bf2'
           else:
               assert not sdk and not sdk_run
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:

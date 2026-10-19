@@ -1,5 +1,6 @@
 """Run remotely: source fixtures only, zero Rust compilation/runtime bodies."""
 from pathlib import Path
+import json
 import unittest
 
 from upstream_publication_mutation_anchors import (
@@ -84,6 +85,70 @@ class PublicationAnchors(unittest.TestCase):
                     self.assertFalse(publication_runtime_oracle(bad, case, test, fixture)['intended_runtime_assertion'])
             with self.assertRaises(ValueError):
                 publication_runtime_oracle(raw, case, test, fixture + '\n' + fixture)
+
+    def test_nextest_terminal_wrapper_is_not_a_rust_compiler_error(self):
+        fixture = Path(FIXTURE).read_text()
+        case = 'sibling-publication'
+        test = 'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'
+        line = publication_runtime_oracle('', case, test, fixture)['expected_panic_line']
+        raw = ('automatic-enrollment-control stage=sibling-consent-held-before-peer-progress\n'
+               f"thread '{test}' panicked at {FIXTURE}:{line}:9:\n"
+               'one blocked consent publication must not starve another approved sibling\n')
+        for terminal in ['error: test run failed\n', 'error: test run failed\r\n']:
+            row = publication_runtime_oracle(raw + terminal, case, test, fixture)
+            self.assertEqual(row['compiler_error_count'], 0)
+            self.assertTrue(row['intended_runtime_assertion'])
+        for compiler in ['error[E0308]: mismatched types\n', 'error: could not compile\n',
+                         'error: test run failed: this is not the terminal wrapper\n']:
+            row = publication_runtime_oracle(raw + compiler, case, test, fixture)
+            self.assertEqual(row['compiler_error_count'], 1)
+            self.assertFalse(row['intended_runtime_assertion'])
+
+    def test_closed_actual_panic_facts_never_export_private_raw_values(self):
+        fixture = Path(FIXTURE).read_text()
+        case = 'automatic-publication'
+        test = 'native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion'
+        raw = ("thread 'PRIVATE-THREAD-SECRET' panicked at /PRIVATE/PATH/SECRET.rs:99887766:9:\n"
+               'PRIVATE-PAYLOAD-SECRET account=PRIVATE-ACCOUNT-SECRET\n')
+        row = publication_runtime_oracle(raw, case, test, fixture)
+        self.assertEqual(row['actual_panic_facts'], [{
+            'expected_fixture_file': False, 'expected_test_thread': False,
+            'line': None, 'message_kind': 'other',
+        }])
+        exported = json.dumps(row)
+        for secret in ['PRIVATE-THREAD-SECRET', '/PRIVATE/PATH/SECRET.rs',
+                       'PRIVATE-PAYLOAD-SECRET', 'PRIVATE-ACCOUNT-SECRET', '99887766']:
+            self.assertNotIn(secret, exported)
+        self.assertFalse(row['intended_runtime_assertion'])
+        self.assertEqual(row['panic_header_count'], 1)
+
+    def test_actual_known_failures_are_closed_classifications_not_kills(self):
+        fixture = Path(FIXTURE).read_text()
+        test = 'native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion'
+        hold = 'the actual automatic publication must be held before completion'
+        self.assertEqual(fixture.count('"' + hold + '"'), 1)
+        line = fixture[:fixture.index('"' + hold + '"')].count('\n') + 1
+        messages = [
+            (hold + ': Elapsed(())', 'hold_precondition'),
+            ('genuine sibling consent publication did not reach its hold', 'hold_precondition'),
+            ('one blocked consent publication must not starve another approved sibling', 'held_fairness'),
+            ('automatic pairing did not reach required phase: expected=EnrollmentComplete observed=PRIVATE-OBSERVED-STATE', 'enrollment_complete_timeout'),
+            ('automatic pairing did not reach required phase: expected=Comparison observed=PRIVATE-OBSERVED-STATE', 'other'),
+        ]
+        for message, kind in messages:
+            raw = f"thread '{test}' (17) panicked at {FIXTURE}:{line}:9:\n{message}\n"
+            row = publication_runtime_oracle(raw, 'automatic-publication', test, fixture)
+            self.assertEqual(row['actual_panic_facts'], [{
+                'expected_fixture_file': True, 'expected_test_thread': True,
+                'line': line, 'message_kind': kind,
+            }])
+            self.assertNotIn('PRIVATE-OBSERVED-STATE', json.dumps(row))
+            self.assertFalse(row['intended_runtime_assertion'])
+        unknown_line = f"thread '{test}' panicked at {FIXTURE}:9999999:9:\nprivate\n"
+        row = publication_runtime_oracle(unknown_line * 5, 'automatic-publication', test, fixture)
+        self.assertEqual(len(row['actual_panic_facts']), 4)
+        self.assertTrue(row['actual_panic_facts_truncated'])
+        self.assertTrue(all(fact['line'] is None for fact in row['actual_panic_facts']))
 
 
 if __name__ == '__main__':
