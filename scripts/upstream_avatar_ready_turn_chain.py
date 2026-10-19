@@ -73,14 +73,29 @@ def failure_category(error):
     return 'unknown'
 
 
-def compiler_diagnostics(raw):
+def compiler_diagnostics(raw, *, cargo_test_context=None):
     # Raw capture is already bounded. Export fixed Rust error codes and only
     # reviewed source positions, never diagnostic text or unreviewed paths.
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     codes = sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]', text)))
-    headers = [line for line in text.splitlines()
+    # Only the exact caller that actually invokes Cargo test -p marmot-app
+    # --lib may classify its terminal runtime wrapper. Existing callers retain
+    # their original nextest-only behavior. This is not a generic error filter.
+    if cargo_test_context is not None and cargo_test_context != ('marmot-app', '--lib'):
+        raise ValueError('unsupported-cargo-test-context')
+    lines = text.splitlines()
+    cargo_wrappers = {
+        'error: test failed, to rerun pass `--lib`',
+        'error: test failed, to rerun pass `-p marmot-app --lib`',
+    }
+    candidates = [i for i, line in enumerate(lines)
+                  if cargo_test_context is not None and line in cargo_wrappers]
+    terminal = max((i for i, line in enumerate(lines) if line.strip()), default=-1)
+    excluded = candidates[0] if len(candidates) == 1 and candidates[0] == terminal else None
+    headers = [line for i, line in enumerate(lines)
                if re.match(r'^error(?:\[E[0-9]{4}\])?:', line)
-               and not re.match(r'^error: test run failed\s*$', line)]
+               and not re.match(r'^error: test run failed\s*$', line)
+               and i != excluded]
     sites = set()
     unknown = 0
     for path, line, column in re.findall(r'^\s*--> ([^\s]+\.rs):(\d+):(\d+)\s*$', text, re.M):
@@ -91,6 +106,7 @@ def compiler_diagnostics(raw):
             sites.add((path, int(line), int(column)))
     ordered = sorted(sites)
     return {'compiler_codes': codes, 'compiler_header_count': len(headers),
+            'runtime_wrapper_count': len(candidates),
             'trusted_source_positions': [dict(source=p, line=line, column=column)
                                          for p, line, column in ordered[:32]],
             'trusted_positions_overflow': len(ordered) > 32,

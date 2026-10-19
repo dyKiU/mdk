@@ -1,12 +1,14 @@
 """Remote-only real retained-input one-group selector mutation chain."""
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import stat
 import subprocess
+import unittest
 
 from upstream_avatar_ready_turn_chain import capture, compiler_diagnostics
 from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
@@ -95,7 +97,7 @@ def oracle(raw, fixture, expect_failure):
     ordered = (prior is not None and progress is not None
                and text.index(PRIOR) < text.index(PROGRESS)
                and (not expect_failure or own and text.index(PROGRESS) < text.index('panicked at ')))
-    diagnostics = compiler_diagnostics(raw)
+    diagnostics = compiler_diagnostics(raw, cargo_test_context=('marmot-app', '--lib'))
     qualified = (summaries == expected and named == ['FAILED' if expect_failure else 'ok']
                  and running == ['1'] and ordered
                  and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0
@@ -132,12 +134,155 @@ def parser_controls(fixture):
     return {'positive': 2, 'negative': len(bad), 'metadata_only': True}
 
 
+# These are source-owned metadata cases. They are not SDK/product execution,
+# and cannot establish what the discarded earlier runtime stream contained.
+# Never export exception messages from dependencies, paths or product data.
+SELECTION_FAILURE_CATEGORIES = frozenset({
+    'exact-ready-return-anchor', 'exact-second-row-label',
+    'exact-second-row-assertion', 'exact-second-row-condition',
+    'oracle-positive-control', 'oracle-negative-control',
+    'pristine-input-required', 'unexpected-compiler-flags',
+    'original-stack-required', 'fixed-compiler-environment',
+    'product-source-identity', 'product-fixture-identity',
+    'exact-pinned-rustc-release', 'phase-input-identity',
+    'inventory-compile-failed', 'inventory-one-nonignored',
+    'post-inventory-input-identity', 'baseline-not-qualified',
+    'unsupported-cargo-test-context',
+})
+
+
+def selection_failure_category(error):
+    if (type(error) is ValueError and len(error.args) == 1
+            and type(error.args[0]) is str and error.args[0] in SELECTION_FAILURE_CATEGORIES):
+        return error.args[0]
+    return 'unknown'
+
+
+HISTORICAL_COMPILER = '88a84af069fa4e923d0f7bdad3e591d86cb7a27b'
+CONTEXT = ('marmot-app', '--lib')
+CARGO_WRAPPER = b'error: test failed, to rerun pass `-p marmot-app --lib`\n'
+
+
+def cargo_wrapper_metadata_controls():
+    historical = subprocess.check_output([
+        'git', 'show', HISTORICAL_COMPILER + ':scripts/upstream_avatar_ready_turn_chain.py'])
+    namespace = {'__name__': 'historical_compiler_metadata'}
+    exec(compile(historical, '<source-owned-historical-compiler>', 'exec'), namespace)
+    old = namespace['compiler_diagnostics']
+    # Deliberately use the old one-argument API. An API-mismatch TypeError is
+    # an error, never the expected historical assertion failure.
+    historical_adapter = lambda raw, context: old(raw)
+    current_adapter = lambda raw, context: compiler_diagnostics(raw, cargo_test_context=context)
+
+    class WrapperRegression(unittest.TestCase):
+        def test_exact_cargo_lib_runtime_wrapper_is_not_a_compiler_error(self):
+            row = self.adapter(CARGO_WRAPPER, CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 0)
+
+    class CurrentControls(unittest.TestCase):
+        def test_exact_package_wrapper(self):
+            row = current_adapter(CARGO_WRAPPER, CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 0)
+            self.assertEqual(row['compiler_codes'], [])
+            self.assertEqual(row['runtime_wrapper_count'], 1)
+
+        def test_generic_lib_wrapper_needs_explicit_context(self):
+            raw = b'error: test failed, to rerun pass `--lib`\n'
+            self.assertEqual(current_adapter(raw, CONTEXT)['compiler_header_count'], 0)
+            row = compiler_diagnostics(raw)
+            self.assertEqual(row['compiler_header_count'], 1)
+            self.assertEqual(row['runtime_wrapper_count'], 0)
+
+        def test_real_compiler_error_remains_with_wrapper(self):
+            row = current_adapter(b'error[E0382]: source-owned fixture\n' + CARGO_WRAPPER, CONTEXT)
+            self.assertEqual(row['compiler_codes'], ['E0382'])
+            self.assertEqual(row['compiler_header_count'], 1)
+            self.assertEqual(row['runtime_wrapper_count'], 1)
+
+        def test_unknown_error_header_remains_with_wrapper(self):
+            row = current_adapter(b'error: source-owned unknown fixture\n' + CARGO_WRAPPER, CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 1)
+
+        def test_duplicate_wrappers_are_not_excluded(self):
+            row = current_adapter(CARGO_WRAPPER + CARGO_WRAPPER, CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 2)
+            self.assertEqual(row['runtime_wrapper_count'], 2)
+
+        def test_nonterminal_wrapper_is_not_excluded(self):
+            row = current_adapter(CARGO_WRAPPER + b'source-owned trailing fixture\n', CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 1)
+
+        def test_wrong_package_is_not_excluded(self):
+            row = current_adapter(CARGO_WRAPPER.replace(b'marmot-app', b'other-package'), CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 1)
+            self.assertEqual(row['runtime_wrapper_count'], 0)
+
+        def test_wrong_target_is_not_excluded(self):
+            row = current_adapter(CARGO_WRAPPER.replace(b'--lib', b'--test integration'), CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 1)
+            self.assertEqual(row['runtime_wrapper_count'], 0)
+
+        def test_private_diagnostics_are_not_exported(self):
+            raw = (b'error: PRIVATE_MESSAGE\n --> /PRIVATE_PATH/private.rs:12:3\n'
+                   + CARGO_WRAPPER)
+            row = current_adapter(raw, CONTEXT)
+            self.assertEqual(row['compiler_header_count'], 1)
+            self.assertEqual(row['unreviewed_position_count'], 1)
+            self.assertEqual(row['trusted_source_positions'], [])
+            self.assertNotIn('PRIVATE', json.dumps(row))
+
+        def test_unsupported_context_is_rejected(self):
+            with self.assertRaises(ValueError):
+                current_adapter(CARGO_WRAPPER, ('other-package', '--lib'))
+            with self.assertRaises(ValueError):
+                current_adapter(CARGO_WRAPPER, ('marmot-app', '--bin'))
+
+        def test_default_nextest_behavior_is_unchanged(self):
+            row = compiler_diagnostics(b'error: test run failed\n')
+            self.assertEqual(row['compiler_header_count'], 0)
+            self.assertEqual(row['runtime_wrapper_count'], 0)
+
+        def test_wrapper_with_extra_arguments_is_not_excluded(self):
+            raw = CARGO_WRAPPER.replace(b'--lib`', b'--lib --private-argument`')
+            self.assertEqual(current_adapter(raw, CONTEXT)['compiler_header_count'], 1)
+
+    def run(suite):
+        result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
+        return result, {'executed': result.testsRun,
+                        'passed': result.testsRun - len(result.failures) - len(result.errors) - len(result.skipped),
+                        'failed': len(result.failures), 'errors': len(result.errors),
+                        'skips': len(result.skipped)}
+
+    rows = []
+    for phase, adapter in [('historical-regression', historical_adapter),
+                           ('current-control', current_adapter)]:
+        case = WrapperRegression('test_exact_cargo_lib_runtime_wrapper_is_not_a_compiler_error')
+        case.adapter = adapter
+        result, counts = run(unittest.TestSuite([case]))
+        intended = (phase == 'historical-regression' and counts == {
+            'executed': 1, 'passed': 0, 'failed': 1, 'errors': 0, 'skips': 0}
+            and len(result.failures) == 1
+            and result.failures[0][0]._testMethodName == case._testMethodName
+            and result.failures[0][1].count('AssertionError: 1 != 0') == 1)
+        rows.append(dict(phase=phase, counts=counts, intended_assertion=bool(intended)))
+    result, controls = run(unittest.defaultTestLoader.loadTestsFromTestCase(CurrentControls))
+    return {'historical_source': HISTORICAL_COMPILER,
+            'historical_helper_sha256': digest(historical), 'phases': rows,
+            'current_boundary_controls': controls,
+            'complete': (rows[0]['intended_assertion']
+                         and rows[1]['counts'] == {'executed': 1, 'passed': 1, 'failed': 0, 'errors': 0, 'skips': 0}
+                         and controls == {'executed': 12, 'passed': 12, 'failed': 0, 'errors': 0, 'skips': 0}),
+            'synthetic_metadata_only': True, 'product_bodies': 0,
+            'prior_runtime_wrapper_text': 'unknown', 'runtime_mutation_qualification': False}
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True)
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--metadata-only', action='store_true')
     args = parser.parse_args()
     output = args.output.resolve()
     root = Path.cwd().resolve()
@@ -151,6 +296,17 @@ def main():
     baseline_passed = False
     def save():
         output.write_text(json.dumps(report, indent=2) + '\n')
+    if args.metadata_only:
+        try:
+            report['identity'] = reviewed_cohort(args.source)
+            report['cargo_wrapper_metadata'] = cargo_wrapper_metadata_controls()
+            report['metadata_complete'] = report['cargo_wrapper_metadata']['complete']
+        except Exception:
+            report['metadata_complete'] = False
+            report['failure_category'] = 'cargo-wrapper-metadata-unqualified'
+        report['product_bodies'] = 0
+        save()
+        return 0 if report['metadata_complete'] else 1
     try:
         report['identity'] = reviewed_cohort(args.source)
         before = frozen_inputs()
@@ -229,7 +385,8 @@ def main():
                 '--', '--exact', '--test-threads=1', '--show-output'], 1800)
             row['body'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                            'raw_sha256': digest(raw), 'raw_bytes': len(raw),
-                           'compiler_diagnostics': compiler_diagnostics(raw)}
+                           'compiler_diagnostics': compiler_diagnostics(
+                               raw, cargo_test_context=('marmot-app', '--lib'))}
             save()
             row['body'].update(oracle(raw, fixture, phase == 'mutant'))
             row['inputs_exact'] = inputs_exact(content)
@@ -244,6 +401,7 @@ def main():
         report['mutant_killed'] = execute('mutant', mutant)
     except Exception as error:
         report['error_category'] = type(error).__name__
+        report['failure_category'] = selection_failure_category(error)
     finally:
         try:
             if leaf is not None:
@@ -263,6 +421,7 @@ def main():
             report['complete'] = False
             report['runtime_mutation_qualification'] = False
             report['closure_error_category'] = type(error).__name__
+            report['closure_failure_category'] = selection_failure_category(error)
         finally:
             if leaf is not None:
                 try:

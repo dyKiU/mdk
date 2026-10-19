@@ -485,6 +485,19 @@ jobs:
           path: ready-selection-metadata.json
           if-no-files-found: error
           retention-days: 7
+      - name: Strict Cargo lib wrapper historical assertion and metadata boundaries
+        if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["publication-preflight","explicit-ready-selection-pfp"]'), inputs.case)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 scripts/upstream_explicit_ready_selection.py --metadata-only --source "$UPSTREAM_EXTRACTION_COHORT_BASELINE" --cohort default --output "$RUNNER_TEMP/cargo-lib-wrapper-metadata.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && github.event_name == 'workflow_dispatch' && contains(fromJSON('["publication-preflight","explicit-ready-selection-pfp"]'), inputs.case)
+        with:
+          name: cargo-lib-wrapper-metadata
+          path: ${{ runner.temp }}/cargo-lib-wrapper-metadata.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify historical reporter regressions and restored controls
         run: |
           python3 - <<'PY'
