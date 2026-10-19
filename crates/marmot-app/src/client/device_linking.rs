@@ -1096,7 +1096,10 @@ impl AppClient {
         &self,
         scope: &PurposeAttemptScope,
     ) -> Result<ProposalHandoffSnapshotForTest, ClientLinkingError> {
-        let attempt = self.linking_owner.invite_attempt.as_ref()
+        let attempt = self
+            .linking_owner
+            .invite_attempt
+            .as_ref()
             .filter(|attempt| attempt.scope == *scope)
             .ok_or(ClientLinkingError::Gate(
                 cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
@@ -1104,9 +1107,12 @@ impl AppClient {
         let proposal = attempt.proposal.as_ref().ok_or(ClientLinkingError::Gate(
             cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
         ))?;
-        let receipt = attempt.proposal_retirement.as_ref().ok_or(ClientLinkingError::Gate(
-            cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
-        ))?;
+        let receipt = attempt
+            .proposal_retirement
+            .as_ref()
+            .ok_or(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+            ))?;
         Ok(ProposalHandoffSnapshotForTest {
             preparation_started: proposal.preparation_has_started(),
             for_add: attempt.for_add,
