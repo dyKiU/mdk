@@ -250,11 +250,10 @@ fn record(root: &Path, observation: Observation) {
         .filter(|(root, _)| *root == recipient)
         .count()
         >= MAX_ROLLING_PER_ROOT
+        && let Some(index) = p.rolling.iter().position(|(root, _)| *root == recipient)
     {
-        if let Some(index) = p.rolling.iter().position(|(root, _)| *root == recipient) {
-            p.rolling.remove(index);
-            increment(&mut p.receive_dropped[recipient], &mut p.overflow);
-        }
+        p.rolling.remove(index);
+        increment(&mut p.receive_dropped[recipient], &mut p.overflow);
     }
     p.rolling.push((recipient, observation));
 }
@@ -391,7 +390,6 @@ where
         }
     }
 }
-#[derive(Debug)]
 pub(crate) struct SourceProofSummary {
     source_slot: usize,
     recipient_slot: usize,
@@ -414,6 +412,33 @@ pub(crate) struct SourceProofSummary {
     overflow: bool,
     ambiguous: bool,
     partial: bool,
+}
+impl std::fmt::Debug for SourceProofSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourceProofSummary")
+            .field("source_slot", &self.source_slot)
+            .field("recipient_slot", &self.recipient_slot)
+            .field("request_records", &self.request_records)
+            .field("prepared", &self.prepared)
+            .field("acknowledged", &self.acknowledged)
+            .field("later_attempts", &self.later_attempts)
+            .field("later_distinct_attempts", &self.later_distinct_attempts)
+            .field("unbound_preparations", &self.unbound_preparations)
+            .field("raw", &self.raw)
+            .field("event", &self.event)
+            .field("nonce", &self.nonce)
+            .field("authentication", &self.authentication)
+            .field("dispatch", &self.dispatch)
+            .field("owned", &self.owned)
+            .field("prepared_ms", &self.prepared_ms)
+            .field("sdk_ack_ms", &self.sdk_ack_ms)
+            .field("queue", &self.queue)
+            .field("ack_conflict", &self.ack_conflict)
+            .field("overflow", &self.overflow)
+            .field("ambiguous", &self.ambiguous)
+            .field("partial", &self.partial)
+            .finish()
+    }
 }
 impl Probe {
     pub(crate) fn source_proof_summaries(&self) -> [SourceProofSummary; 6] {

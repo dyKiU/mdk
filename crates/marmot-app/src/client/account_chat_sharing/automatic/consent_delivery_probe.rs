@@ -781,7 +781,7 @@ pub(crate) fn proof_stage(
 }
 
 /// Closed copied observations only: never an ID, path, pointer or raw Instant.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub(crate) struct ProofQueueObservation {
     pub(crate) disposition: [u64; 8],
     pub(crate) placement: [u64; 6],
@@ -791,13 +791,37 @@ pub(crate) struct ProofQueueObservation {
     pub(crate) dequeued_ms: Option<u64>,
     pub(crate) invalid: bool,
 }
-#[derive(Clone, Copy, Debug)]
+impl std::fmt::Debug for ProofQueueObservation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProofQueueObservation")
+            .field("disposition", &self.disposition)
+            .field("placement", &self.placement)
+            .field("depths", &self.depths)
+            .field("dequeued", &self.dequeued)
+            .field("accepted_ms", &self.accepted_ms)
+            .field("dequeued_ms", &self.dequeued_ms)
+            .field("invalid", &self.invalid)
+            .finish()
+    }
+}
+#[derive(Clone, Copy)]
 pub(crate) struct ProofQueueFacts {
     pub(crate) capture_ms: Option<u64>,
     pub(crate) outer: Option<ProofQueueObservation>,
     pub(crate) content: Option<ProofQueueObservation>,
     pub(crate) same_receiver: Option<bool>,
     pub(crate) outer_equals_content: bool,
+}
+impl std::fmt::Debug for ProofQueueFacts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProofQueueFacts")
+            .field("capture_ms", &self.capture_ms)
+            .field("outer", &self.outer)
+            .field("content", &self.content)
+            .field("same_receiver", &self.same_receiver)
+            .field("outer_equals_content", &self.outer_equals_content)
+            .finish()
+    }
 }
 /// Borrow the actual worker adapter identity only inside the synchronous query.
 /// Source identities are transient lookup keys, never part of stored queue facts.

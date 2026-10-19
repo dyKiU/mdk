@@ -253,16 +253,14 @@ impl Probe {
             .filter(|(index, _)| *index == receiver)
             .count()
             >= MAX_ROLLING_PER_ROOT
-        {
-            if let Some(index) = progress
+            && let Some(index) = progress
                 .rolling
                 .iter()
                 .position(|(index, _)| *index == receiver)
-            {
-                progress.rolling.remove(index);
-                progress.receive_dropped[receiver] =
-                    progress.receive_dropped[receiver].saturating_add(1);
-            }
+        {
+            progress.rolling.remove(index);
+            progress.receive_dropped[receiver] =
+                progress.receive_dropped[receiver].saturating_add(1);
         }
         progress.rolling.push((receiver, observation));
     }
@@ -389,7 +387,6 @@ impl Probe {
         })
     }
 }
-#[derive(Debug)]
 pub(crate) struct Summary {
     source_slot: usize,
     recipient_slot: usize,
@@ -412,6 +409,33 @@ pub(crate) struct Summary {
     queue: Option<ProofQueueFacts>,
     ambiguous: bool,
     incomplete: bool,
+}
+impl std::fmt::Debug for Summary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Summary")
+            .field("source_slot", &self.source_slot)
+            .field("recipient_slot", &self.recipient_slot)
+            .field("prepared", &self.prepared)
+            .field("acknowledged", &self.acknowledged)
+            .field("raw", &self.raw)
+            .field("event", &self.event)
+            .field("nonce", &self.nonce)
+            .field("authentication", &self.authentication)
+            .field("dispatch", &self.dispatch)
+            .field("admitted", &self.admitted)
+            .field("admission_flags", &self.admission_flags)
+            .field("prepared_ms", &self.prepared_ms)
+            .field("sdk_ack_ms", &self.sdk_ack_ms)
+            .field("recipient_wait_start_ms", &self.recipient_wait_start_ms)
+            .field("recipient_wait_end_ms", &self.recipient_wait_end_ms)
+            .field("recipient_primary_commit_ms", &self.recipient_primary_commit_ms)
+            .field("consent", &self.consent)
+            .field("consent_ms", &self.consent_ms)
+            .field("queue", &self.queue)
+            .field("ambiguous", &self.ambiguous)
+            .field("incomplete", &self.incomplete)
+            .finish()
+    }
 }
 /// Observation only, called after the actual guarded primary policy transaction succeeded.
 pub(crate) fn primary_committed(
