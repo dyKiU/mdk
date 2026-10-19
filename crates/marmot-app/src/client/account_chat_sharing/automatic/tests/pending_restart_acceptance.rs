@@ -117,7 +117,9 @@ impl AppClient {
                         let client = &mut clients[i];
                         waiting_at = (i, "sync");
                         waiting_since = std::time::Instant::now();
-                        client.as_mut().unwrap().sync().await.unwrap();
+                        // Match the runtime's automatic live drain. Explicit
+                        // sync requests a new history comparison every turn.
+                        client.as_mut().unwrap().sync_automatically_with_partial_progress().await.unwrap();
                         completed_syncs[i] += 1;
                         sync_millis[i] += waiting_since.elapsed().as_millis();
                         waiting_at = (i, "automatic_tick");

@@ -151,7 +151,7 @@ jobs:
           elif [[ "$REPLAY_SCOPE" == pairing-consent-fairness ]]; then
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer)'
           elif [[ "$REPLAY_SCOPE" == pairing-restart-diagnostic ]]; then
-            filter='package(marmot-app) & test(=native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent)'
+            filter='package(marmot-app) & (test(=native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent) | test(=native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record))'
           elif [[ "$REPLAY_SCOPE" == pairing-restart-higher-source ]]; then
             filter='package(marmot-app) & test(=native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record)'
           elif [[ "$REPLAY_SCOPE" == automatic-body-negative ]]; then
@@ -160,6 +160,9 @@ jobs:
             filter='package(marmot-app) & (test(=client::account_chat_sharing::automatic::records::source_lookup_tests::record_source_epoch_is_independent_of_catalogue_position) | test(=native_device_linking::automatic_pairing_acceptance::held_automatic_catalog_body_keeps_fresh_account_commands_responsive) | test(=native_device_linking::automatic_pairing_acceptance::body_late_ack_acceptance::authenticated_receipt_retires_final_catalog_body_before_late_backend_ack) | test(=native_device_linking::automatic_pairing_acceptance::body_late_ack_acceptance::unchanged_catalog_context_accepts_the_same_real_backend_ack) | test(=native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent) | test(=native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record) | test(=native_device_linking::automatic_pairing_acceptance::body_negative_acceptance::authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition))'
           fi
           args=(--locked -p marmot-app --lib --features "$features")
+          if [[ "$REPLAY_SCOPE" == pairing-restart-diagnostic || "$REPLAY_SCOPE" == pairing-restart-higher-source ]]; then
+            args=(--locked --workspace --features "$SYNC_FEATURES")
+          fi
           cargo nextest list "${args[@]}" -E "$filter" --message-format json > pairing-inventory.json
           python3 - <<'PY'
           import json, os
@@ -177,7 +180,8 @@ jobs:
           elif os.environ['REPLAY_SCOPE'] == 'pairing-consent-fairness':
               expected = {'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'}
           elif os.environ['REPLAY_SCOPE'] == 'pairing-restart-diagnostic':
-              expected = {'native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent'}
+              expected = {'native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent',
+                          'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record'}
           elif os.environ['REPLAY_SCOPE'] == 'pairing-restart-higher-source':
               expected = {'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record'}
           elif os.environ['REPLAY_SCOPE'] == 'automatic-body-negative':

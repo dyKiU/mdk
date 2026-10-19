@@ -9,6 +9,8 @@ import tempfile
 import textwrap
 import unittest
 
+from test_checkpoint_dispatch import EXPERIMENTAL_FEATURES
+
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/experimental-sync-ci.yml"
 PREFIX = "native_device_linking::automatic_pairing_acceptance::"
@@ -18,7 +20,8 @@ EXPECTED = {
     "pairing-diagnostic": {FOURTH},
     "pairing-consent-fairness": {CONSENT},
     "pairing-restart-diagnostic": {
-        "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent"
+        "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent",
+        "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record",
     },
     "pairing-restart-higher-source": {
         "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record"
@@ -84,13 +87,21 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 cargo.chmod(0o700)
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
-                           REPLAY_SCOPE=scope, SLOTS="1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3", PAIRING_COMMAND=str(command))
+                           REPLAY_SCOPE=scope, SYNC_FEATURES=EXPERIMENTAL_FEATURES,
+                           SLOTS="1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3", PAIRING_COMMAND=str(command))
                 result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads(command.read_text())
                 selected = set(re.findall(r"test\(=([^)]*)\)", args[args.index("-E") + 1]))
                 self.assertEqual(selected, expected)
+                if scope in ("pairing-restart-diagnostic", "pairing-restart-higher-source"):
+                    self.assertIn("--workspace", args)
+                    self.assertNotIn("-p", args)
+                    self.assertEqual(args[args.index("--features") + 1], EXPERIMENTAL_FEATURES)
+                else:
+                    self.assertEqual(args[args.index("-p") + 1], "marmot-app")
+                    self.assertIn("--lib", args)
                 for option, value in (("--profile", "m5-bounded"), ("--retries", "0"),
                                       ("--test-threads", env["SLOTS"]), ("--success-output", "immediate")):
                     self.assertEqual(args[args.index(option) + 1], value)
