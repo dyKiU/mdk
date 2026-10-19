@@ -863,6 +863,74 @@ def explicit_sync_original_relay_positive_oracle(output):
 
 
 
+
+PROPOSAL_RECEIPT_SAFETY_SPECS = {
+    'proposal-receipt-foreign-once': (
+        'runtime::device_linking::tests::device_linking_retired_proposal_rejects_foreign_scopes_and_acknowledges_only_once',
+        'proposal-receipt-foreign-once-control', 'proposal-receipt-safety-close',
+        dict.fromkeys(('owned_proposal','retired_proposal','durable_absent','foreign_account_denied','foreign_device_denied',
+            'foreign_generation_denied','revision_unchanged','purposes_unchanged','exact_cancel_ok','repeated_cancel_stale','runtime_closed'), True)),
+    'proposal-receipt-newer-terminal': (
+        'runtime::device_linking::tests::device_linking_retired_proposal_cannot_ack_after_newer_terminal_reservation',
+        'proposal-receipt-newer-terminal-control', 'proposal-receipt-safety-close',
+        dict.fromkeys(('owned_proposal','retired_proposal','durable_absent','newer_reserved','newer_terminal','old_cancel_stale',
+            'newer_revision_unchanged','newer_terminal_unchanged','purposes_unchanged','runtime_closed'), True)),
+    'proposal-receipt-sql-read-error': (
+        'runtime::device_linking::tests::device_linking_proposal_cancel_sql_read_error_preserves_exact_once_retry',
+        'proposal-sql-cancel-control', 'proposal-sql-cancel-close',
+        {'storage_error': True, 'owned_proposal': True, 'locally_retired': True, 'fallback_entered': True,
+            'context_rejected': False, 'scope_check_entered': True, 'scope_check_passed': True,
+            'durable_query_completed': False, 'durable_phase': None, 'exact_retired': None,
+            'schema_restored': True, 'fact_still_absent': True, 'retry_ok': True, 'repeat_stale': True, 'anchors_unchanged': True}),
+}
+
+
+def proposal_receipt_safety_oracle(output, case):
+    import json
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    if case not in PROPOSAL_RECEIPT_SAFETY_SPECS:
+        raise ValueError('exact-proposal-receipt-safety-case')
+    name, prefix, close_prefix, expected = PROPOSAL_RECEIPT_SAFETY_SPECS[case]
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    namespace_lines = [line for line in text.splitlines() if 'proposal-receipt-' in line or 'proposal-sql-cancel-' in line]
+    closes = [line for line in namespace_lines if close_prefix in line]
+    controls = [line for line in namespace_lines if close_prefix not in line]
+    marker = None
+    if len(controls) == 1 and len(controls[0]) <= 4096:
+        match = re.fullmatch(r'[ \t]*' + re.escape(prefix) + r' (\{.*\})[ \t]*', controls[0])
+        if match:
+            try:
+                pairs = json.loads(match[1], object_pairs_hook=list)
+                if (isinstance(pairs, list) and all(isinstance(pair, tuple) and len(pair) == 2 for pair in pairs)
+                        and len(pairs) == len(expected) and len({key for key, _ in pairs}) == len(pairs)):
+                    candidate = dict(pairs)
+                    phases = {'raw_staged','wrapped','dispatching','publication_unknown','retired','confirmed'}
+                    if (set(candidate) == set(expected)
+                            and all(type(candidate[key]) is bool for key in expected if key not in {'durable_phase','exact_retired'})
+                            and ('exact_retired' not in expected or candidate['exact_retired'] is None or type(candidate['exact_retired']) is bool)
+                            and ('durable_phase' not in expected or candidate['durable_phase'] is None
+                                or type(candidate['durable_phase']) is str and candidate['durable_phase'] in phases)):
+                        marker = candidate
+            except (ValueError, TypeError, KeyError):
+                pass
+    close_matches = [re.fullmatch(r'[ \t]*' + re.escape(close_prefix) + r' index=([012])[ \t]*', line) for line in closes]
+    close_valid = len(close_matches) == 3 and all(close_matches) and [match[1] for match in close_matches] == ['0', '1', '2']
+    ordered = bool(close_valid and marker is not None
+        and text.index(closes[0]) < text.index(closes[1]) < text.index(closes[2]) < text.index(controls[0]))
+    statuses = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text, re.M)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', text, re.M)
+    running = re.findall(r'^running ([0-9]+) tests?[ \t]*\r?$', text, re.M)
+    diagnostics = compiler_diagnostics(text.encode())
+    named = statuses == [(name, 'ok')]
+    return {'expected_test': name, 'positive_safety_control_only': True,
+            'runtime_mutation_qualification': False, 'closed_marker_valid': marker is not None,
+            'observation': marker, 'three_positive_closes_before_verdict': ordered,
+            'actual_exact_named_body': named, 'compiler_diagnostics': diagnostics,
+            'compiler_error_count': diagnostics['compiler_header_count'], 'panic_header_count': text.count('panicked at '),
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and marker == expected and ordered and named
+                and running == ['1'] and len(summaries) == 1 and summaries[0][:5] == ('ok', '1', '0', '0', '0')
+                and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0 and text.count('panicked at ') == 0)}
+
 PROPOSAL_HANDOFF_CASE = 'proposal-failed-handoff-control'
 PROPOSAL_HANDOFF_NAME = 'runtime::device_linking::tests::device_linking_failed_add_handoff_cannot_reinstall_proposal_cancel_receipt'
 PROPOSAL_HANDOFF_EXPECTED = {

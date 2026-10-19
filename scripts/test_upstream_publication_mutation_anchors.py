@@ -861,5 +861,58 @@ class ProposalFailedHandoffSafetyObservation(unittest.TestCase):
             self.assertFalse(row['evidence_passed'])
             self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
 
+
+
+class ProposalReceiptSafetyControls(unittest.TestCase):
+    def shape(self, case):
+        from upstream_publication_mutation_anchors import PROPOSAL_RECEIPT_SAFETY_SPECS
+        name, prefix, close, expected = PROPOSAL_RECEIPT_SAFETY_SPECS[case]
+        marker = prefix + ' ' + json.dumps(expected, separators=(',', ':')) + '\n'
+        raw = ('running 1 test\ntest ' + name + ' ... ok\n'
+            + close + ' index=0\n' + close + ' index=1\n' + close + ' index=2\n' + marker
+            + 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.00s\n')
+        return marker, raw
+
+    def test_exact_three_genuine_safety_controls_positive_only(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_RECEIPT_SAFETY_SPECS, proposal_receipt_safety_oracle
+        self.assertEqual(len(PROPOSAL_RECEIPT_SAFETY_SPECS), 3)
+        for case in PROPOSAL_RECEIPT_SAFETY_SPECS:
+            _, raw = self.shape(case)
+            row = proposal_receipt_safety_oracle(raw, case)
+            self.assertTrue(row['evidence_passed'])
+            self.assertFalse(row['runtime_mutation_qualification'])
+
+    def test_each_safety_fact_and_unknown_envelope_fail_closed(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_RECEIPT_SAFETY_SPECS, proposal_receipt_safety_oracle
+        for case, (_, prefix, close, expected) in PROPOSAL_RECEIPT_SAFETY_SPECS.items():
+            marker, raw = self.shape(case)
+            for key, value in expected.items():
+                changed = dict(expected); changed[key] = not value if type(value) is bool else 'PRIVATE_VALUE'
+                row = proposal_receipt_safety_oracle(raw.replace(marker, prefix + ' ' + json.dumps(changed) + '\n'), case)
+                self.assertFalse(row['evidence_passed']); self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+            bads = [raw + raw, raw.replace(marker, ''), raw + marker,
+                raw.replace(' ... ok', ' ... FAILED'), raw.replace('1 passed', '0 passed'), raw.replace('0 ignored', '1 ignored'),
+                raw.replace('index=1', 'index=0'), raw.replace('index=1', 'index=PRIVATE_VALUE'),
+                raw + close + ' index=PRIVATE_VALUE\n', raw + prefix + 'PRIVATE_VALUE\n',
+                raw + 'proposal-receipt-PRIVATE_VALUE\n', raw + 'proposal-sql-cancel-PRIVATE_VALUE\n',
+                raw.replace(marker, marker.replace('{', '{"PRIVATE_VALUE":true,', 1)),
+                raw.replace(marker, marker.replace('{', '{"owned_proposal":true,', 1)),
+                raw.replace('"owned_proposal":true', '"owned_proposal":1'),
+                raw.replace(close + ' index=0\n', '').replace(marker, marker + close + ' index=0\n'),
+                raw + 'error[E0308]: PRIVATE_VALUE\n', raw + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n"]
+            for other in PROPOSAL_RECEIPT_SAFETY_SPECS:
+                if other != case: bads.append(self.shape(other)[1])
+            for bad in bads:
+                row = proposal_receipt_safety_oracle(bad, case)
+                self.assertFalse(row['evidence_passed']); self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        marker, raw = self.shape('proposal-receipt-sql-read-error')
+        unexpected = raw.replace('"durable_phase":null', '"durable_phase":"retired"').replace('"exact_retired":null', '"exact_retired":true')
+        row = proposal_receipt_safety_oracle(unexpected, 'proposal-receipt-sql-read-error')
+        self.assertTrue(row['closed_marker_valid'])
+        self.assertEqual(row['observation']['durable_phase'], 'retired')
+        self.assertTrue(row['observation']['exact_retired'])
+        self.assertFalse(row['evidence_passed'])
+        with self.assertRaises(ValueError): proposal_receipt_safety_oracle('', 'PRIVATE_VALUE')
+
 if __name__ == '__main__':
     unittest.main()
