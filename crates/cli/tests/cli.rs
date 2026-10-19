@@ -7482,18 +7482,28 @@ fn groups_set_avatar_url_round_trips_through_sync_and_show() {
 
     // The same final sync, with an opt-in read of its already-owned Core after
     // synchronization. Do not reopen a client, reconcile, retry or add a command.
-    let sync_output = wn(home.path()).args(["--account", &bob, "sync"])
-        .env("WN_TEST_AVATAR_SYNC_GROUP", group_id).output().expect("final sync starts");
-    assert!(sync_output.status.success(), "final avatar sync command succeeds");
+    let sync_output = wn(home.path())
+        .args(["--account", &bob, "sync"])
+        .env("WN_TEST_AVATAR_SYNC_GROUP", group_id)
+        .output()
+        .expect("final sync starts");
+    assert!(
+        sync_output.status.success(),
+        "final avatar sync command succeeds"
+    );
     let sync_json: Value = serde_json::from_slice(&sync_output.stdout).expect("sync JSON");
     assert_eq!(sync_json["ok"], true);
     let cleared_sync = sync_json["result"].clone();
     let sync_stderr = String::from_utf8_lossy(&sync_output.stderr);
-    let core_lines: Vec<_> = sync_stderr.lines()
-        .filter_map(|line| line.strip_prefix("avatar-core-control ")).collect();
+    let core_lines: Vec<_> = sync_stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("avatar-core-control "))
+        .collect();
     let core_observation = if core_lines.len() == 1 {
         serde_json::from_str::<Value>(core_lines[0]).ok()
-    } else { None };
+    } else {
+        None
+    };
     let bob_cleared = run_json(home.path(), &["--account", &bob, "chats", "show", group_id]);
     // Copy closed facts from the existing outputs only; no additional command,
     // protocol operation, retry or wait can alter the original assertion.
