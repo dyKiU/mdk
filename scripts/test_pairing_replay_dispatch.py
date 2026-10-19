@@ -50,6 +50,7 @@ EXPECTED = {
     },
 }
 ALIASES = {"pairing-replay-regression": "pairing-regression"}
+EXPECTED["pairing-departure-staggered"] = EXPECTED["pairing-departure-contention"]
 
 
 def replay_script():
@@ -64,7 +65,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         start = text.index("  pairing-replay:\n")
         replay = text[start:text.index("  archive-recovery-plan:\n", start)]
-        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","automatic-body-regression","automatic-body-negative"]', replay)
+        self.assertIn('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","automatic-body-regression","automatic-body-negative"]', replay)
         self.assertEqual(replay.count("REPLAY_SCOPE: ${{ inputs.scope == 'pairing-replay-regression' && 'pairing-regression' || inputs.scope }}"), 1)
 
     def test_every_scope_is_offered_and_routes_to_pairing_job(self):
@@ -89,7 +90,7 @@ class PairingReplayDispatchTests(unittest.TestCase):
                 root = Path(directory)
                 cargo = root / "cargo"
                 cargo.write_text("#!" + sys.executable + "\n" + textwrap.dedent(r'''
-                    import json, os, re, sys
+                    import json, os, re, sys, time
                     from pathlib import Path
                     args = sys.argv[1:]
                     if args[:2] == ['nextest', 'list']:
@@ -97,49 +98,82 @@ class PairingReplayDispatchTests(unittest.TestCase):
                         cases = {n: {'ignored': False, 'filter-match': {'status': 'matches'}} for n in names}
                         print(json.dumps({'rust-suites': {'marmot-app': {'testcases': cases}}}))
                     elif args[:2] == ['nextest', 'run']:
-                        Path(os.environ['PAIRING_COMMAND']).write_text(json.dumps(args))
+                        ready_name = os.environ.get('PAIRING_MOCK_SLEEP_READY')
+                        if ready_name and 'renewal' in args[args.index('-E') + 1]:
+                            deadline = time.monotonic() + 5
+                            command = Path(os.environ['PAIRING_COMMAND'])
+                            while not Path(ready_name).exists() and not (command.is_file() and command.read_bytes().endswith(b'\n')):
+                                if time.monotonic() >= deadline:
+                                    raise SystemExit(98)
+                                time.sleep(0.001)
+                        with Path(os.environ['PAIRING_COMMAND']).open('a') as output:
+                            output.write(json.dumps(args) + '\n')
+                        if os.environ.get('PAIRING_FAIL_RENEWAL') and 'renewal' in args[args.index('-E') + 1]:
+                            raise SystemExit(19)
                     else:
                         raise SystemExit('unexpected cargo command')
                 '''))
                 cargo.chmod(0o700)
+                sleep = root / "sleep"
+                sleep.write_text("#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$PAIRING_DELAY\"\n")
+                sleep.chmod(0o700)
                 command = root / "command.json"
                 env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                            REPLAY_SCOPE=ALIASES.get(scope, scope), SYNC_FEATURES=EXPERIMENTAL_FEATURES,
-                           SLOTS=("6" if scope == "pairing-departure-contention" else
+                           SLOTS=("6" if scope.startswith("pairing-departure-") else
                                   "1" if scope in ("automatic-body-regression", "automatic-body-negative") else "3"),
-                           PAIRING_COMMAND=str(command))
+                           PAIRING_COMMAND=str(command), PAIRING_DELAY=str(root / "delay"))
+                ready = root / "mock-sleep-ready"
+                env.pop("PAIRING_MOCK_SLEEP_READY", None)
+                if scope == "pairing-departure-staggered":
+                    env["PAIRING_MOCK_SLEEP_READY"] = str(ready)
+                ready.unlink(missing_ok=True)
                 result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                args = json.loads(command.read_text())
-                selected = set(re.findall(r"test\(=([^)]*)\)", args[args.index("-E") + 1]))
+                commands = [json.loads(line) for line in command.read_text().splitlines()]
+                selected = {name for args in commands for name in re.findall(r"test\(=([^)]*)\)", args[args.index("-E") + 1])}
                 self.assertEqual(selected, expected)
-                if scope in ("pairing-restart-diagnostic", "pairing-restart-higher-source", "pairing-departure-contention"):
-                    self.assertIn("--workspace", args)
-                    self.assertNotIn("-p", args)
-                    self.assertEqual(args[args.index("--features") + 1], EXPERIMENTAL_FEATURES)
-                else:
-                    self.assertEqual(args[args.index("-p") + 1], "marmot-app")
-                    self.assertIn("--lib", args)
-                for option, value in (("--profile", "m5-bounded"), ("--retries", "0"),
-                                      ("--test-threads", env["SLOTS"]), ("--success-output", "immediate")):
-                    self.assertEqual(args[args.index(option) + 1], value)
+                self.assertEqual(len(commands), 2 if scope == "pairing-departure-staggered" else 1)
+                for args in commands:
+                    if scope in ("pairing-restart-diagnostic", "pairing-restart-higher-source") or scope.startswith("pairing-departure-"):
+                        self.assertIn("--workspace", args)
+                        self.assertNotIn("-p", args)
+                        self.assertEqual(args[args.index("--features") + 1], EXPERIMENTAL_FEATURES)
+                    else:
+                        self.assertEqual(args[args.index("-p") + 1], "marmot-app")
+                        self.assertIn("--lib", args)
+                    for option, value in (("--profile", "m5-bounded"), ("--retries", "0"),
+                                          ("--test-threads", "3" if scope == "pairing-departure-staggered" else env["SLOTS"]), ("--success-output", "immediate")):
+                        self.assertEqual(args[args.index(option) + 1], value)
+                if scope == "pairing-departure-staggered":
+                    self.assertEqual((root / "delay").read_text().strip(), "60.625453")
+                    self.assertIn("renewal", commands[0][commands[0].index("-E") + 1])
+                    command.unlink()
+                    ready.unlink(missing_ok=True)
+                    failed = subprocess.run(["bash", "-c", script], cwd=root,
+                                            env=dict(env, PAIRING_FAIL_RENEWAL="1"),
+                                            text=True, capture_output=True)
+                    self.assertNotEqual(failed.returncode, 0)
+                    self.assertIn("renewal=19 departure=0", failed.stdout)
+                    self.assertEqual(len(command.read_text().splitlines()), 2)
                 self.assertIn("qualification-selected-pairing-cases: " + str(len(expected)), result.stdout)
 
     def test_departure_contention_rejects_a_serial_budget_before_cargo(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            cargo = root / "cargo"
-            cargo.write_text("#!/bin/sh\necho unexpected-cargo >&2\nexit 97\n")
-            cargo.chmod(0o700)
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
-                       REPLAY_SCOPE="pairing-departure-contention", SLOTS="3",
-                       SYNC_FEATURES=EXPERIMENTAL_FEATURES)
-            result = subprocess.run(["bash", "-c", replay_script()], cwd=root,
-                                    env=env, text=True, capture_output=True)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("departure contention requires six test slots", result.stderr)
-            self.assertNotIn("unexpected-cargo", result.stderr)
+        for scope in ("pairing-departure-contention", "pairing-departure-staggered"):
+            with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                cargo = root / "cargo"
+                cargo.write_text("#!/bin/sh\necho unexpected-cargo >&2\nexit 97\n")
+                cargo.chmod(0o700)
+                env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                           REPLAY_SCOPE=scope, SLOTS="3",
+                           SYNC_FEATURES=EXPERIMENTAL_FEATURES)
+                result = subprocess.run(["bash", "-c", replay_script()], cwd=root,
+                                        env=env, text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("departure contention requires six test slots", result.stderr)
+                self.assertNotIn("unexpected-cargo", result.stderr)
 
 
 if __name__ == "__main__":
