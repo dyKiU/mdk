@@ -308,7 +308,9 @@ fn expected_private_schemas() -> StorageResult<&'static Vec<Schema>> {
         .get_or_init(|| {
             let result = (|| -> StorageResult<Vec<Schema>> {
                 let mut reference = Connection::open_in_memory().storage()?;
-                run_with_summary_observed(&mut reference, MIGRATIONS, None)?;
+                // Private triggers require the real cgka_groups table from Core revision1.
+                // The full real-store migration path remains in run_transaction.
+                run_with_summary_observed(&mut reference, &MIGRATIONS[..1], None)?;
                 let core = schema(&reference)?;
                 let mut schemas = Vec::new();
                 for migration in PRIVATE_MIGRATIONS {
@@ -530,4 +532,50 @@ fn reject_disabled_cohort(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod reference_tests {
+    use super::*;
+
+    #[test]
+    fn minimum_core_reference_matches_full_core_at_every_private_revision() {
+        assert_eq!(MIGRATIONS[0].version, 1);
+        assert_eq!(MIGRATIONS[0].name, "0001_initial_schema");
+        let mut full = Connection::open_in_memory().unwrap();
+        let mut minimum = Connection::open_in_memory().unwrap();
+        run_with_summary_observed(&mut full, MIGRATIONS, None).unwrap();
+        run_with_summary_observed(&mut minimum, &MIGRATIONS[..1], None).unwrap();
+        let full_core = schema(&full).unwrap();
+        let minimum_core = schema(&minimum).unwrap();
+        let actual = expected_private_schemas().unwrap();
+        assert_eq!(actual.len(), PRIVATE_MIGRATIONS.len());
+        for (index, migration) in PRIVATE_MIGRATIONS.iter().enumerate() {
+            for connection in [&mut full, &mut minimum] {
+                let tx = connection.transaction().unwrap();
+                (migration.apply)(&tx).unwrap();
+                tx.commit().unwrap();
+            }
+            let full_private: Schema = schema(&full)
+                .unwrap()
+                .into_iter()
+                .filter(|(name, _)| !full_core.contains_key(name))
+                .collect();
+            let minimum_private: Schema = schema(&minimum)
+                .unwrap()
+                .into_iter()
+                .filter(|(name, _)| !minimum_core.contains_key(name))
+                .collect();
+            assert!(
+                full_private == minimum_private,
+                "minimum Core reference differs at private revision {}",
+                migration.version
+            );
+            assert!(
+                actual[index] == full_private,
+                "production reference differs at private revision {}",
+                migration.version
+            );
+        }
+    }
 }
