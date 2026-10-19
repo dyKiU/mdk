@@ -70,6 +70,8 @@ CASE_GROUPS = {
     'test_bounded_capture.BoundedCaptureTests': {
         'test_small_synthetic_output_remains_ram_only',
         'test_synthetic_output_beyond_cap_is_rejected',
+        'test_stdout_and_stderr_remain_independent',
+        'test_cap_is_combined_across_both_streams',
     },
 }
 SOURCE_NAMES = {'test_local_sdk_profile.py', 'validate_local_sdk_profile.py', 'sdk_profiles.py',
@@ -239,7 +241,7 @@ def main():
     require(head == args.source, 'Executed source identity differs')
     root = Path(git(directory, 'rev-parse', '--show-toplevel').decode().strip())
     modules, count = (['test_local_sdk_profile'], 28) if args.kind == 'app' else (
-        ['test_install_destinations', 'test_bounded_capture'], 8)
+        ['test_install_destinations', 'test_bounded_capture'], 10)
     names = ['sdk_profiles.py', 'validate_local_sdk_profile.py', 'local-device-sync-settings.sh',
              'local-sdk-profile-settings.sh', 'test_local_sdk_profile.py', 'qualify_local_sdk_guard_pfp.py',
              'bounded_capture.py'] \
