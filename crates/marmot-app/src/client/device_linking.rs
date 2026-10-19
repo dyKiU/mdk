@@ -1016,21 +1016,30 @@ impl AppClient {
         &mut self,
         scope: &PurposeAttemptScope,
     ) -> Result<ProposalOnlyCancelObservationHandleForTest, ClientLinkingError> {
-        let owned_proposal = self.linking_owner.invite_attempt.as_ref().is_some_and(|attempt| {
-            attempt.scope == *scope && !attempt.for_add && attempt.prepared.is_none()
-                && attempt.proposal.is_some()
-        });
+        let owned_proposal = self
+            .linking_owner
+            .invite_attempt
+            .as_ref()
+            .is_some_and(|attempt| {
+                attempt.scope == *scope
+                    && !attempt.for_add
+                    && attempt.prepared.is_none()
+                    && attempt.proposal.is_some()
+            });
         if !owned_proposal || self.linking_owner.proposal_only_cancel_probe.is_some() {
             return Err(ClientLinkingError::Gate(
                 cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
             ));
         }
-        let observation = Arc::new(std::sync::Mutex::new(ProposalOnlyCancelObservationForTest {
-            owned_proposal,
-            ..Default::default()
-        }));
+        let observation = Arc::new(std::sync::Mutex::new(
+            ProposalOnlyCancelObservationForTest {
+                owned_proposal,
+                ..Default::default()
+            },
+        ));
         self.linking_owner.proposal_only_cancel_probe = Some(ProposalOnlyCancelProbeForTest {
-            scope: scope.clone(), observation: observation.clone(),
+            scope: scope.clone(),
+            observation: observation.clone(),
         });
         Ok(observation)
     }
@@ -1049,11 +1058,16 @@ impl AppClient {
                     .map_err(ClientLinkingError::PrivateInvite)?;
             }
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if !attempt.for_add && attempt.prepared.is_none() && attempt.proposal.is_some()
+            if !attempt.for_add
+                && attempt.prepared.is_none()
+                && attempt.proposal.is_some()
                 && let Some(probe) = self.linking_owner.proposal_only_cancel_probe.as_ref()
                 && probe.scope == attempt.scope
             {
-                probe.observation.lock().unwrap_or_else(|error| error.into_inner())
+                probe
+                    .observation
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
                     .retired_proposal = true;
             }
             // Retain the exact continuation on SQL failure. Only durable
@@ -1432,11 +1446,18 @@ impl AppClient {
         let owner = &self.linking_owner;
         // Capture the first actual fallback only; later shutdown cannot overwrite it.
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let proposal_cancel_probe = owner.proposal_only_cancel_probe.as_ref()
+        let proposal_cancel_probe = owner
+            .proposal_only_cancel_probe
+            .as_ref()
             .filter(|probe| probe.scope == *scope)
             .and_then(|probe| {
-                let mut observation = probe.observation.lock().unwrap_or_else(|error| error.into_inner());
-                if observation.fallback_entered { return None; }
+                let mut observation = probe
+                    .observation
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if observation.fallback_entered {
+                    return None;
+                }
                 observation.fallback_entered = true;
                 Some(probe.observation.clone())
             });
@@ -1464,13 +1485,19 @@ impl AppClient {
         {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(probe) = &proposal_cancel_probe {
-                probe.lock().unwrap_or_else(|error| error.into_inner()).context_rejected = true;
+                probe
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .context_rejected = true;
             }
             return Ok(None);
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(probe) = &proposal_cancel_probe {
-            probe.lock().unwrap_or_else(|error| error.into_inner()).scope_check_entered = true;
+            probe
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .scope_check_entered = true;
         }
         owner
             .verifier
@@ -1478,7 +1505,10 @@ impl AppClient {
             .map_err(ClientLinkingError::Owner)?;
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(probe) = &proposal_cancel_probe {
-            probe.lock().unwrap_or_else(|error| error.into_inner()).scope_check_passed = true;
+            probe
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .scope_check_passed = true;
         }
         let storage = self
             .app
@@ -1512,7 +1542,10 @@ impl AppClient {
         });
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(probe) = &proposal_cancel_probe {
-            probe.lock().unwrap_or_else(|error| error.into_inner()).exact_retired = Some(exact_retired);
+            probe
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .exact_retired = Some(exact_retired);
         }
         Ok(exact_retired.then(|| owner.invite.clone()))
     }
