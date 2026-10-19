@@ -783,6 +783,32 @@ def current_restore_leaf(target, original, mode, parent, chain, allowed_contents
     current_leaf_write(target, original, mode, parent, create=True)
 
 
+
+def current_component_inventory(output, code):
+    expected = {name + ': test': name for name in CURRENT_TESTS}
+    lines = output.splitlines()
+    known = [expected[line] for line in lines if line in expected]
+    unknown = sum(line not in expected for line in lines)
+    return {'exit_code': code, 'known_name_rows': known[:16], 'known_name_row_count': len(known),
+            'known_name_rows_truncated': len(known) > 16, 'unknown_line_count': unknown,
+            'exact_five_name_rows': code == 0 and unknown == 0 and sorted(known) == CURRENT_TESTS}
+
+
+def current_inventory_controls():
+    raw = ''.join(name + ': test\n' for name in CURRENT_TESTS)
+    row = current_component_inventory(raw, 0)
+    ensure(row['exact_five_name_rows'] and row['known_name_rows'] == CURRENT_TESTS
+           and row['known_name_row_count'] == 5 and row['unknown_line_count'] == 0,
+           'current-terse-discovery-five-literal-lines-no-summary')
+    negative = [(raw.split('\n', 1)[1], 0), (raw + '5 tests, 0 benchmarks\n', 0),
+                (raw + CURRENT_TESTS[0] + ': test\n', 0), (raw + 'PRIVATE_SQL_UNKNOWN\n', 0), (raw, 1)]
+    for bad, code in negative:
+        row = current_component_inventory(bad, code)
+        ensure(not row['exact_five_name_rows'] and 'PRIVATE_SQL_UNKNOWN' not in json.dumps(row),
+               'current-terse-inventory-rejects-missing-extra-duplicate-unknown-nonzero')
+    return {'positive': 1, 'negative': len(negative), 'actual_runtime_bodies': 0}
+
+
 def current_omission_phase(cohort, expected, names, phase, save, admitted_source, frozen_binary_parent=None):
     if frozen_binary_parent is not None:
         directory = current_parent_fd(frozen_binary_parent)
@@ -800,12 +826,12 @@ def current_omission_phase(cohort, expected, names, phase, save, admitted_source
     # The compiled component must contain all five unchanged tests even in a
     # mutant selecting only one actual body, with zero selected ignored tests.
     code, inventory, _ = capture([str(binary), 'base::boundary_tests::', '--list', '--format', 'terse'], 60)
-    listed = [line for line in inventory.splitlines() if line]
-    ensure(code == 0 and sorted(listed) == sorted([name + ': test' for name in CURRENT_TESTS] + ['5 tests, 0 benchmarks']),
-           'current-five-exact-compiled-component-inventory')
+    phase['inventory'] = current_component_inventory(inventory, code)
+    save()
+    ensure(phase['inventory']['exact_five_name_rows'], 'current-five-exact-compiled-component-inventory')
     code, ignored, _ = capture([str(binary), 'base::boundary_tests::', '--ignored', '--list', '--format', 'terse'], 60)
     ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'current-component-no-ignored-bodies')
-    phase['inventory'] = {'selected_names': names, 'component_names': CURRENT_TESTS, 'component_ignored': 0}
+    phase['inventory'].update(selected_names=names, component_names=CURRENT_TESTS, component_ignored=0)
     for name in names:
         ensure(frozen_inputs() == expected and current_no_extra_untracked_inputs() and git('rev-parse', 'HEAD') == admitted_source
                and current_leaf_read(binary, binary_parent) == (binary_bytes, binary_mode), 'current-pristine-source-and-binary-before-body')
@@ -1285,6 +1311,7 @@ def main():
         report.update(current_source_guard(args.cohort_baseline, args.current_cohort, args.current_omission) if args.current_cohort else source_guard(args.cohort_baseline, args.ownership_adaptation))
         if args.current_omission:
             report['current_omission_parser_fixtures'] = current_omission_parser_controls()
+            report['current_inventory_fixtures'] = current_inventory_controls()
             report['current_parent_fixtures'] = current_parent_controls()
             report['current_final_closure_fixtures'] = current_final_closure_controls()
             report['current_omission_baseline'] = CURRENT_GREEN
