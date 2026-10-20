@@ -35,6 +35,8 @@ async fn run(scenario: Scenario) {
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     let mut facts = [false; 10];
     let mut observations = [0usize; 6];
+    // Last completed existing PublicCancel poll; false row facts are unknown if absent.
+    let mut public_cancel_sample = [false; 5];
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes {
             runtime.reconcile_accounts().await.unwrap();
@@ -188,6 +190,14 @@ async fn run(scenario: Scenario) {
                         .await
                         .unwrap();
                     let counts = probe.counts();
+                    observations = counts;
+                    public_cancel_sample = [
+                        true,
+                        row.is_some(),
+                        row.as_ref().is_some_and(|value| !value.flags[0]),
+                        row.as_ref().is_some_and(|value| value.nonce == nonce),
+                        row.as_ref().is_some_and(|value| value.deadline == deadline),
+                    ];
                     if counts[4] == 1 && counts[5] == 1 {
                         break row.expect("matched closed original remains while periodic is held");
                     }
@@ -315,6 +325,17 @@ async fn run(scenario: Scenario) {
     } else {
         "injected-validation"
     };
+    if scenario == Scenario::PublicCancel {
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "late-peer-public-cancel-sample collected={} row_present={} original_closed={} exact_nonce={} exact_deadline={}",
+            public_cancel_sample[0],
+            public_cancel_sample[1],
+            public_cancel_sample[2],
+            public_cancel_sample[3],
+            public_cancel_sample[4]
+        ));
+    }
     eprintln!(
         "late-peer-negative mode={} held={} own_harvested={} periodic_observed={} fresh_before={} negative_preserved={} recovered_or_retired={} no_replay={} ownership_preserved={} enrollment_complete={} public_cancelled={} accepted={} validation_rejections={} own_publications={} open_attempts={} routed_after_cancel={} closed_denials={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
         mode,

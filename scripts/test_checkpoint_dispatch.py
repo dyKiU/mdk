@@ -16,6 +16,8 @@ CASE = "runtime::conversation_window::tests::hot_checkpoints_do_not_postpone_not
 FEATURES = "wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
 DEPARTURE_SCOPE = "experimental-departure-diagnostic"
 DEPARTURE_CASE = "native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race"
+PUBLIC_CANCEL_SCOPE = "public-cancel-snapshot-diagnostic"
+PUBLIC_CANCEL_CASE = "native_device_linking::automatic_pairing_acceptance::late_peer_proof_negative_acceptance::late_peer_proof_public_cancel_cannot_complete_original"
 PREDECESSOR_SCOPE = "native-predecessor-readiness"
 PREDECESSOR_CASE = "client::device_linking::setup::tests::native_pair_sharing_waits_for_exact_predecessor_before_persistence"
 PUBLIC_SCOPE = "public-third-device-deployment"
@@ -60,7 +62,7 @@ class CheckpointDispatchTests(unittest.TestCase):
         job = workflow.split("  core-regressions:\n", 1)[1].split("    name:", 1)[0]
         self.assertIn("github.event_name == 'workflow_dispatch'", job)
         routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
-        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, PREDECESSOR_SCOPE, CHAT_SCOPE, STACK_SCOPE, QUEUE_SCOPE):
+        for scope in (SCOPE, DEPARTURE_SCOPE, PUBLIC_SCOPE, PUBLIC_CANCEL_SCOPE, PREDECESSOR_SCOPE, CHAT_SCOPE, STACK_SCOPE, QUEUE_SCOPE):
             self.assertIn(scope, options)
             self.assertIn(scope, routes)
 
@@ -78,6 +80,9 @@ class CheckpointDispatchTests(unittest.TestCase):
 
     def test_chat_scope_executes_only_the_exact_ignored_delivery_case(self):
         self.check_inventory(CHAT_SCOPE, CHAT_CASE, EXPERIMENTAL_FEATURES, ignored_only=True)
+
+    def test_public_cancel_diagnostic_executes_only_original_nonignored_case(self):
+        self.check_inventory(PUBLIC_CANCEL_SCOPE, PUBLIC_CANCEL_CASE, EXPERIMENTAL_FEATURES)
 
     def test_stack_scope_keeps_eleven_real_cases_and_original_stack_limit(self):
         self.check_inventory(STACK_SCOPE, STACK_CASES, STACK_FEATURES)
@@ -150,7 +155,7 @@ class CheckpointDispatchTests(unittest.TestCase):
                 else:
                     self.assertNotIn('--exclude', args)
                 for option, value in (('--features', features), ('--retries', '0'),
-                                      ('--test-threads', '1' if ignored_only or scope == PREDECESSOR_SCOPE else '6'), ('--profile', 'm5-bounded')):
+                                      ('--test-threads', '1' if ignored_only or scope in (PREDECESSOR_SCOPE, PUBLIC_CANCEL_SCOPE) else '6'), ('--profile', 'm5-bounded')):
                     self.assertEqual(args[args.index(option) + 1], value)
                 expression = ('package(marmot-app) & (test(native_device_linking::tests::automatic_forwarding_acceptance::automatic_forwarding_) | test(native_device_linking::tests::automatic_held_three_original_acceptance::automatic_held_three_originals_) | test(native_device_linking::tests::automatic_held_original_acceptance::automatic_held_originals_) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_forwarding_reaches_independent_creator_through_non_admin_member) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure) | test(=native_device_linking::tests::automatic_record_renewal_acceptance::automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal))'
                               if scope == STACK_SCOPE else f'package(marmot-app) & test(={required_case})')
