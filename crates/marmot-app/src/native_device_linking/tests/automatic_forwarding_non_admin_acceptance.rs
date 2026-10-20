@@ -18,7 +18,7 @@ async fn automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_i
     .await;
 }
 
-pub(super) struct IncomingPeer {
+pub(in crate::native_device_linking) struct IncomingPeer {
     _root: tempfile::TempDir,
     app: MarmotApp,
     pub(super) runtime: MarmotAppRuntime,
@@ -27,7 +27,7 @@ pub(super) struct IncomingPeer {
 }
 
 impl IncomingPeer {
-    pub(super) async fn create(
+    pub(in crate::native_device_linking) async fn create(
         url: &str,
         source_app: &MarmotApp,
         source: &MarmotAppRuntime,
@@ -377,5 +377,72 @@ impl IncomingPeer {
         recipient.shutdown_and_close().await.unwrap();
         eprintln!("withdrawal-control stage=reopened-runtimes-closed");
         assert!(source.storage_is_closed() && recipient.storage_is_closed());
+    }
+}
+
+
+// A real unrelated ordinary publication; all identifiers stay inside this test module tree.
+pub(in crate::native_device_linking) const ORDINARY_PROGRESS_TEXT: &str =
+    "independent ordinary message after authenticated cancelled proof";
+
+pub(in crate::native_device_linking) struct OrdinaryProgressPublication {
+    pub(in crate::native_device_linking) group: crate::GroupId,
+    pub(in crate::native_device_linking) app_id: Option<String>,
+    pub(in crate::native_device_linking) packet_id: Option<String>,
+    pub(in crate::native_device_linking) sender: String,
+    pub(in crate::native_device_linking) published_once: bool,
+    pub(in crate::native_device_linking) source_row_bound: bool,
+}
+
+impl IncomingPeer {
+    pub(in crate::native_device_linking) async fn publish_ordinary_progress(
+        &self,
+    ) -> OrdinaryProgressPublication {
+        let sent = self.runtime.send_message(
+            "test", &self.group, ORDINARY_PROGRESS_TEXT.as_bytes().to_vec(),
+        ).await.unwrap();
+        let published_once = sent.published == 1 && sent.message_ids.len() == 1;
+        let app_id = published_once.then(|| sent.message_ids[0].clone());
+        let sender = self.app.account_home().account("test").unwrap().account_id_hex;
+        let group_hex = hex::encode(self.group.as_slice());
+        // Raw projection and finalized timeline may become visible separately.
+        // Wait for the exact real source mapping; absence remains a precondition
+        // unknown and cannot manufacture an ordinary-receive timeout.
+        let packet_id = if let Some(id) = app_id.as_ref().filter(|id| *id != &self.preapproval_message) {
+            tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                loop {
+                    let storage = self.app.account_storage("test").unwrap();
+                    let row = storage.app_storage().app_message(&group_hex, id).unwrap();
+                    let timeline = storage.app_storage().timeline_message(&group_hex, id).unwrap();
+                    let packet = timeline.as_ref().and_then(|row| row.source_message_id_hex.as_ref());
+                    let canonical = packet.is_some_and(|packet| packet.len() == 64
+                        && packet.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+                    let raw_bound = row.as_ref().is_some_and(|row| row.message_id_hex == *id
+                        && row.group_id_hex == group_hex && row.sender == sender
+                        && row.direction == "sent" && row.plaintext == ORDINARY_PROGRESS_TEXT
+                        && !row.invalidated);
+                    let finalized = timeline.as_ref().is_some_and(|row| row.message_id_hex == *id
+                        && row.group_id_hex == group_hex && row.sender == sender
+                        && row.direction == "sent" && row.plaintext == ORDINARY_PROGRESS_TEXT
+                        && !row.deleted && canonical);
+                    if raw_bound && finalized {
+                        break packet.unwrap().clone();
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }).await.ok()
+        } else { None };
+        let source_row_bound = packet_id.is_some();
+        OrdinaryProgressPublication {
+            group: self.group.clone(), app_id, packet_id, sender,
+            published_once, source_row_bound,
+        }
+    }
+
+    pub(in crate::native_device_linking) async fn close_ordinary_progress_peer(&self) -> (bool, bool) {
+        let closed = self.runtime.shutdown_and_close().await.is_ok()
+            && self.runtime.storage_is_closed();
+        self.app.relay_plane.shutdown().await;
+        (closed, true)
     }
 }

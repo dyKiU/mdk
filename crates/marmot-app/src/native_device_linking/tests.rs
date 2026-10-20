@@ -2775,7 +2775,7 @@ mod automatic_forwarding_acceptance;
     feature = "test-policy-overrides"
 ))]
 #[path = "tests/automatic_forwarding_non_admin_acceptance.rs"]
-mod automatic_forwarding_non_admin_acceptance;
+pub(super) mod automatic_forwarding_non_admin_acceptance;
 
 #[cfg(all(
     feature = "experimental-device-sync",

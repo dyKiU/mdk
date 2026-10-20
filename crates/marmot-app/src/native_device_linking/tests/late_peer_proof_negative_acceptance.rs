@@ -8,6 +8,7 @@ use std::time::Duration;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scenario {
     PublicCancel,
+    PublicCancelWithOrdinary,
     InjectedValidation,
 }
 
@@ -19,6 +20,11 @@ async fn late_peer_proof_public_cancel_cannot_complete_original() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_peer_proof_injected_validation_rejection_retains_and_recovers() {
     run(Scenario::InjectedValidation).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_peer_proof_public_cancel_does_not_block_independent_ordinary_delivery() {
+    run(Scenario::PublicCancelWithOrdinary).await;
 }
 
 async fn run(scenario: Scenario) {
@@ -34,12 +40,26 @@ async fn run(scenario: Scenario) {
     });
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     let mut facts = [false; 10];
+    let ordinary_case = scenario == Scenario::PublicCancelWithOrdinary;
+    let public_cancel = matches!(scenario, Scenario::PublicCancel | Scenario::PublicCancelWithOrdinary);
+    let mut ordinary_peer = None;
+    let mut ordinary_facts = [false; 14];
+    let mut ordinary_counts = [0usize; 6];
     let mut observations = [0usize; 6];
     // Last completed existing PublicCancel poll; false row facts are unknown if absent.
     let mut public_cancel_sample = [false; 5];
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes {
             runtime.reconcile_accounts().await.unwrap();
+        }
+        if ordinary_case {
+            let account = apps[1].account_home().account("test").unwrap().account_id_hex;
+            ordinary_peer = Some(crate::native_device_linking::tests::automatic_forwarding_non_admin_acceptance::IncomingPeer::create(
+                &url, &apps[1], &runtimes[1], &account,
+            ).await);
+            // create() proves the real independent Welcome, acceptance, two-member
+            // roster and one ordinary message before the original linking flow.
+            ordinary_facts[0] = true;
         }
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         let first_b = managers[1]
@@ -176,7 +196,7 @@ async fn run(scenario: Scenario) {
             digest,
             scenario == Scenario::InjectedValidation,
         );
-        if scenario == Scenario::PublicCancel {
+        if public_cancel {
             approval.cancel().await.unwrap();
             let status = original.status_for_test();
             facts[4] = !status.0 && !status.1;
@@ -198,7 +218,10 @@ async fn run(scenario: Scenario) {
                         row.as_ref().is_some_and(|value| value.nonce == nonce),
                         row.as_ref().is_some_and(|value| value.deadline == deadline),
                     ];
-                    if counts[4] == 1 && counts[5] == 1 {
+                    // Only the distinct ordinary-progress setup observes first-denial-ever.
+                    // The original PublicCancel predicate and final exact 1/1 remain unchanged.
+                    if (ordinary_case && counts[4] >= 1 && counts[5] >= 1)
+                        || (!ordinary_case && counts[4] == 1 && counts[5] == 1) {
                         break row.expect("matched closed original remains while periodic is held");
                     }
                     tokio::time::sleep(Duration::from_millis(25)).await;
@@ -209,6 +232,84 @@ async fn run(scenario: Scenario) {
             facts[5] = !after.flags[0] && !after.flags[6];
             facts[7] =
                 after.nonce == nonce && after.deadline == deadline && after.pending_controls == 0;
+            if ordinary_case {
+                use crate::native_device_linking::tests::automatic_forwarding_non_admin_acceptance::ORDINARY_PROGRESS_TEXT;
+                let first_denied_at = std::time::Instant::now();
+                ordinary_facts[1] = observations[4] >= 1 && observations[5] >= 1;
+                ordinary_facts[2] = facts[4] && facts[5] && facts[7]
+                    && !after.flags[1] && observations[..4].iter().all(|count| *count == 0);
+                let published = ordinary_peer.as_ref().unwrap().publish_ordinary_progress().await;
+                ordinary_facts[3] = published.published_once;
+                ordinary_facts[4] = published.source_row_bound;
+                ordinary_facts[5] = published.group != after.protected_group;
+                let group_hex = hex::encode(published.group.as_slice());
+                // A missing source binding is unknown, never an artificial timed wait.
+                let projected = if let (true, Some(app_id), Some(packet_id)) =
+                    (published.source_row_bound && published.published_once,
+                     published.app_id.as_ref(), published.packet_id.as_ref()) {
+                    ordinary_facts[6] = true;
+                    Some(tokio::time::timeout(Duration::from_secs(30), async {
+                        loop {
+                            let storage = apps[1].account_storage("test").unwrap();
+                            let row = storage.app_storage().app_message(&group_hex, app_id).unwrap();
+                            let timeline = storage.app_storage().timeline_message(&group_hex, app_id).unwrap();
+                            if row.as_ref().is_some_and(|row| row.message_id_hex == *app_id
+                                && row.group_id_hex == group_hex && row.sender == published.sender
+                                && row.plaintext == ORDINARY_PROGRESS_TEXT
+                                && row.direction == "received" && !row.invalidated)
+                                && timeline.as_ref().is_some_and(|row| row.message_id_hex == *app_id
+                                    && row.source_message_id_hex.as_ref() == Some(packet_id)
+                                    && row.group_id_hex == group_hex && row.sender == published.sender
+                                    && row.plaintext == ORDINARY_PROGRESS_TEXT
+                                    && row.direction == "received" && !row.deleted) {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(20)).await;
+                        }
+                    }).await.is_ok())
+                } else { None };
+                // Freeze the actual ordinary receive verdict before releasing either hold.
+                let frozen_at = std::time::Instant::now();
+                ordinary_facts[7] = projected == Some(true);
+                if let Some(packet_id) = published.packet_id.as_ref().filter(|_| published.source_row_bound) {
+                    let account = cgka_traits::MemberId::new(hex::decode(
+                        apps[1].account_home().account("test").unwrap().account_id_hex,
+                    ).unwrap());
+                    let timing = apps[1].relay_plane.account_notification_timing_for_test(&account, packet_id);
+                    let same = apps[1].relay_plane.account_notification_same_receiver_for_test(
+                        &account, packet_id, &after.receiver_identity,
+                    );
+                    ordinary_facts[8] = timing.is_some() && same.is_some();
+                    ordinary_facts[9] = timing.as_ref().is_some_and(|row|
+                        row.3[0].is_some() && row.4.0.is_some());
+                    ordinary_facts[10] = same == Some(true);
+                    ordinary_facts[11] = timing.as_ref().is_some_and(|row|
+                        !row.4.3 && row.3[0].is_some_and(|accepted|
+                            accepted >= first_denied_at && accepted <= frozen_at));
+                }
+                // The verdict above is already frozen. This existing read-only
+                // actor command checks the recipient again before either hold is
+                // released; timeout/missing/error is an unknown prerequisite.
+                let final_receiver = tokio::time::timeout(Duration::from_secs(15),
+                    managers[1].peer_proof_snapshot_for_test("test", owner.clone()),
+                ).await;
+                if let (Ok(Ok(Some(final_receiver))), Some(packet_id)) =
+                    (final_receiver, published.packet_id.as_ref()) {
+                    let account = cgka_traits::MemberId::new(hex::decode(
+                        apps[1].account_home().account("test").unwrap().account_id_hex,
+                    ).unwrap());
+                    ordinary_facts[13] = final_receiver.nonce == nonce
+                        && final_receiver.deadline == deadline
+                        && final_receiver.protected_group == after.protected_group
+                        && apps[1].relay_plane.account_notification_same_receiver_for_test(
+                            &account, packet_id, &final_receiver.receiver_identity,
+                        ) == Some(true);
+                }
+                ordinary_counts = probe.counts();
+                let status = original.status_for_test();
+                ordinary_facts[12] = ordinary_counts[..4].iter().all(|count| *count == 0)
+                    && !status.0 && !status.1;
+            }
         } else {
             proof_gate.release();
             let blocked = tokio::time::timeout(Duration::from_secs(15), async {
@@ -317,15 +418,19 @@ async fn run(scenario: Scenario) {
         app.relay_plane.shutdown().await;
         planes_shutdown += 1;
     }
+    let (ordinary_closed, ordinary_plane_shutdown) = if let Some(peer) = ordinary_peer.as_ref() {
+        peer.close_ordinary_progress_peer().await
+    } else { (false, false) };
+    drop(ordinary_peer);
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
-    let mode = if scenario == Scenario::PublicCancel {
+    let mode = if public_cancel {
         "public-cancel"
     } else {
         "injected-validation"
     };
-    if scenario == Scenario::PublicCancel {
+    if public_cancel {
         #[cfg(feature = "test-policy-overrides")]
         crate::test_support::emit_line(format_args!(
             "late-peer-public-cancel-sample collected={} row_present={} original_closed={} exact_nonce={} exact_deadline={}",
@@ -360,6 +465,26 @@ async fn run(scenario: Scenario) {
         relay_closed,
         attempt.is_ok()
     );
+    if ordinary_case {
+        crate::test_support::emit_line(format_args!(
+            "late-peer-ordinary-progress independent_ready={} first_denial_seen={} original_closed_exact={} published_once={} source_packet_app_bound={} unrelated_group={} wait_sampled={} ordinary_projected={} custody_sampled={} queue_accepted={} same_receiver={} ordered_valid_custody={} negative_preserved={} final_receiver_matches={} no_replay={} accepted={} validation_rejections={} own_publications={} open_attempts={} routed_after_cancel={} closed_denials={} original_facts_complete={} runtime_closes={} planes_shutdown={} independent_closed={} independent_plane_shutdown={} relay_closed={} attempt_completed={}",
+            ordinary_facts[0], ordinary_facts[1], ordinary_facts[2], ordinary_facts[3],
+            ordinary_facts[4], ordinary_facts[5], ordinary_facts[6], ordinary_facts[7],
+            ordinary_facts[8], ordinary_facts[9], ordinary_facts[10], ordinary_facts[11],
+            ordinary_facts[12], ordinary_facts[13], facts[6], ordinary_counts[0], ordinary_counts[1],
+            ordinary_counts[2], ordinary_counts[3], ordinary_counts[4], ordinary_counts[5],
+            facts.iter().all(|value| *value), runtime_closes, planes_shutdown,
+            ordinary_closed, ordinary_plane_shutdown, relay_closed, attempt.is_ok()
+        ));
+        assert!(
+            ordinary_facts.into_iter().all(|value| value)
+                && facts.into_iter().all(|value| value)
+                && runtime_closes == 3 && planes_shutdown == 3
+                && ordinary_closed && ordinary_plane_shutdown && relay_closed && attempt.is_ok(),
+            "cancelled sibling proof must not block independent ordinary receive"
+        );
+        return;
+    }
     assert!(
         facts.into_iter().all(|value| value)
             && runtime_closes == 3

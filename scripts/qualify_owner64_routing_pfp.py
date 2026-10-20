@@ -19,7 +19,7 @@ TEST = 'CheckpointDispatchTests.test_scope_routes_to_the_focused_job'
 METHOD = TEST.split('.')[1]
 STACK = 'pairing-stack-regression'
 PREDECESSOR = 'native-predecessor-readiness'
-FIXTURE_SHA = '93302a45f18e85c19c274164d555091e638d229725fb956ab09fe3d2e5ecdee9'
+FIXTURE_SHA = '31140e77c9f990a44c0a9cdcfe5d6610b95649e19f7cb7c9f515d21633ad41ea'
 ASSERTION = 'self.assertIn(scope, routes)'
 OUT = ROOT / 'owner64-routing-pfp-evidence'
 os.umask(0o077)

@@ -23,6 +23,9 @@ use tokio::sync::Notify;
 type Existing = crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval;
 
 pub(crate) struct Snapshot {
+    // Non-owning actor-receiver identity and frozen channel group; never serialized.
+    pub(crate) receiver_identity: transport_nostr::AccountReceiverIdentityForTest,
+    pub(crate) protected_group: cgka_traits::GroupId,
     pub(crate) nonce: [u8; 32],
     // Original live, state live, policy, own proof harvested, peer proof,
     // publication present, complete, exact durable policy. These are fresh actor-owned values.
@@ -149,6 +152,8 @@ impl AppClient {
                     && !policy.revoked
             });
         Some(Snapshot {
+            receiver_identity: self.adapter.receiver_snapshot_for_test().1,
+            protected_group: scope.protected.group_id.clone(),
             // PEER_NEGATIVE_TEST_BEGIN
             deadline: entry.state.deadline,
             pending_controls: entry.pending_controls.len()
