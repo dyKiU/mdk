@@ -76,6 +76,19 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   (reported as `Paused { needed_bytes }`, never by deleting anything), and a body that fails its digest or is malformed
   as stored is dropped so its slot shows as unavailable with download-again allowed. The per-account
   `LegacyMigrationProgress` lives in `MarmotApp` and is dropped with the account's media store.
+- `media/storage_compaction.rs` returns the account database's freed pages to the filesystem (mdk#2314 step 6) on the
+  blocking pool: the one-time compaction runs only through `compaction_gate` (a quarter of the file free, the reserve
+  plus two live copies free on the volume, and a live database of at most 64 MiB: the `VACUUM` copy is built in
+  memory, and its final write-back cannot be interrupted, so the cap bounds how long a close can wait for it; an
+  account over the cap with no legacy bodies left is logged once per process, as a power-of-two MiB bucket), at most once per worker ownership (a rolled-back one is retried, at most three times), never while a
+  migration batch runs. The maintenance task (never awaited) checks the gates every tick and only flags a due
+  compaction; the account worker awaits it from its maintenance tick only when flagged, so a tick with nothing due
+  costs the worker nothing and none of its synchronous storage calls park an async thread on the held connection, and
+  `Compacting` is served from a usage snapshot so hosts never wait on it. Afterwards `reclaim` runs after every
+  migration batch and bulk removal, settling any WAL truncate the storage records as owed; the first pass of each
+  worker ownership truncates once on an incremental database, since a truncate owed when a process ended is recorded
+  nowhere. `close_storage` calls `begin_close` on every database before closing media stores:
+  a sweep blocked behind a compacting connection holds its store's sweep lock until the VACUUM, which polls the close latch, stops.
 - `media/handoff.rs` owns handoff leases (mdk#2314 step 4): the only plaintext attachment files MDK writes, decrypted from a
   retained body (either layout) into `<account>/handoff/<lease>/<name>` for an OS surface that needs a real file.
   Register a lease before its directory exists, delete only on explicit release or by `wipe_stale` (worker start,

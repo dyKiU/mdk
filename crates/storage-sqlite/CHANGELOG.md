@@ -78,6 +78,29 @@
 
 ### Added
 
+- New account databases are created with `auto_vacuum=INCREMENTAL`, so
+  freed pages return to the filesystem without the one-time compaction
+  older databases need (mdk#2314 step 6). Existing databases keep their mode
+  until compacted.
+- Database compaction (mdk#2314 step 6): `database_space` reports the account
+  database's pages (`DatabaseSpace`: size, free pages, live bytes, whether it
+  is incremental), `compact_database` switches it to
+  `auto_vacuum=INCREMENTAL` with one `VACUUM` between WAL checkpoints (an
+  interrupted one changes nothing; closing the storage stops one still
+  building its copy, which polls the close latch, but its final write-back
+  cannot be interrupted, so callers keep the live database small), and
+  `reclaim_free_pages` returns freed
+  pages in bounded steps afterwards (`PageReclaim`). Both truncate the WAL
+  without waiting on readers and report whether they did;
+  `wal_truncate_pending` says one a reader on another connection blocked is
+  still owed (recorded with the connection locked), and `truncate_wal`
+  retries it.
+  `DatabaseCloser::begin_close` (and `CloseableConnection::begin_close`)
+  latches a database closed without waiting, which also stops a
+  compaction still building its copy, so an owner can free work blocked
+  behind it before closing. `AttachmentMigrationState` adds
+  `Compacting`.
+
 - Moving legacy attachment bodies into the media store (mdk#2314 step 6):
   `legacy_attachment_bodies` lists completed legacy database bodies smallest
   first, `legacy_attachment_reader` streams one (`LegacyBodyReader`, which

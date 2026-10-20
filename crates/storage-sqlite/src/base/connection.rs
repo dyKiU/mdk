@@ -294,6 +294,15 @@ impl CloseableConnection {
         result
     }
 
+    /// Starts a close without waiting: admits no new operations, and a long
+    /// statement that polls the latch (a compaction) stops and rolls back. A
+    /// later [`Self::close`] finishes the job. Lets an owner tearing down
+    /// several resources free the ones blocked behind this connection before
+    /// it waits on any of them.
+    pub fn begin_close(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
     fn close_taken(connection: rusqlite::Connection) -> StorageResult<()> {
         // TRUNCATE folds the WAL back into the main database and resets the
         // file to zero length, so the next open starts from a clean sidecar
@@ -391,6 +400,10 @@ struct SharedConnectionInner {
     /// Bumped before every write to `openmls_values` and on every rollback;
     /// see `StorageProvider::mls_write_generation`.
     openmls_writes: AtomicU64,
+    /// A WAL truncate after a compaction or page reclaim found a reader on
+    /// another connection and did not finish. Only changed with this
+    /// connection locked, by the attempt it describes.
+    wal_truncate_pending: AtomicBool,
 }
 
 impl fmt::Debug for SharedConnection {
@@ -416,6 +429,7 @@ impl SharedConnection {
                 transaction_released: Condvar::new(),
                 post_commit: Mutex::new(Vec::new()),
                 openmls_writes: AtomicU64::new(0),
+                wal_truncate_pending: AtomicBool::new(false),
             }),
         }
     }
@@ -503,6 +517,45 @@ impl SharedConnection {
         self.inner.closed.store(true, Ordering::Release);
         self.wake_transaction_waiters();
         self.inner.connection.close()
+    }
+
+    /// [`CloseableConnection::begin_close`] for this connection, also waking
+    /// threads parked for its transaction slot.
+    pub(crate) fn begin_close(&self) {
+        self.inner.closed.store(true, Ordering::Release);
+        self.wake_transaction_waiters();
+        self.inner.connection.begin_close();
+    }
+
+    /// A check a long statement's progress handler can poll: `true` once a
+    /// close of this connection has begun, at any point while it runs. Holds
+    /// only a weak reference, so it never keeps the connection alive.
+    pub(crate) fn closing_probe(&self) -> impl Fn() -> bool + Send + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || {
+            inner.upgrade().is_none_or(|inner| {
+                inner.closed.load(Ordering::Acquire) || inner.connection.is_closed()
+            })
+        }
+    }
+
+    /// Whether an earlier WAL truncate is still owed. Nonblocking.
+    pub(crate) fn wal_truncate_pending(&self) -> bool {
+        self.inner.wal_truncate_pending.load(Ordering::Acquire)
+    }
+
+    /// Records a truncate attempt's result. Call only with this connection
+    /// locked, from the attempt itself, so a stale result never overwrites a
+    /// newer one.
+    pub(crate) fn record_wal_truncate(&self, truncated: bool) {
+        self.inner
+            .wal_truncate_pending
+            .store(!truncated, Ordering::Release);
+    }
+
+    /// Whether a close has started. Nonblocking.
+    pub(crate) fn is_closing(&self) -> bool {
+        self.inner.closed.load(Ordering::Acquire) || self.inner.connection.is_closed()
     }
 
     fn wake_transaction_waiters(&self) {
@@ -1197,6 +1250,23 @@ pub(crate) fn finish_account_open(
         observer,
         crate::StorageOpenProgress::Phase(crate::StorageOpenPhase::OperationalPragmas),
     );
+    // A database with no schema yet starts in incremental auto-vacuum mode,
+    // so freed pages can go back to the filesystem without the one-time
+    // compaction older databases need (mdk#2314 step 6). The mode can only
+    // be chosen before the first table exists, and before WAL mode writes
+    // the file header: so ahead of the operational pragmas.
+    let fresh: bool = connection
+        .query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM sqlite_master)",
+            [],
+            |row| row.get(0),
+        )
+        .storage()?;
+    if fresh {
+        connection
+            .execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")
+            .storage()?;
+    }
     apply_operational_pragmas(&connection, &options)?;
     connection.set_prepared_statement_cache_capacity(PREPARED_STATEMENT_CACHE_CAPACITY);
     let migration_started = std::time::Instant::now();
@@ -1266,6 +1336,23 @@ impl DatabaseCloser {
         };
         self.release.wait();
         result
+    }
+
+    /// Starts closing the database without waiting (see
+    /// [`CloseableConnection::begin_close`]); [`Self::close`] finishes it.
+    pub fn begin_close(&self) {
+        match &self.target {
+            CloserTarget::Account(inner) => {
+                if let Some(inner) = inner.upgrade() {
+                    SharedConnection { inner }.begin_close();
+                }
+            }
+            CloserTarget::Connection(connection) => {
+                if let Some(connection) = connection.upgrade() {
+                    connection.begin_close();
+                }
+            }
+        }
     }
 
     /// Whether the connection is gone, closed or dropped with its last

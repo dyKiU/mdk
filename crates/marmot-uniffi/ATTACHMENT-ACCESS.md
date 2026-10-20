@@ -138,6 +138,14 @@ account database.
   ones shrinks what is left to move. Nothing is deleted automatically. A legacy body that is
   damaged is dropped, and its attachment shows as previously acquired and unavailable, with
   download-again allowed.
+- **Compaction.** Moving or removing database bodies frees pages inside the database, not on
+  the disk. Accounts created from this release on return freed pages as they go. An older
+  account's database is compacted once: when a quarter of it is free, the disk has room and
+  its live data (not counting attachment bodies already moved out) is at most 64 MiB.
+  `migration` reads `Compacting` meanwhile, with the other figures from just before, and
+  observers wake when it starts and ends. Other account reads and writes wait for it,
+  typically about a second; a close for suspension may wait for its last part. After that,
+  freed pages return to the disk as each batch or bulk removal runs.
 - **Largest first.** `attachmentStorageByChat` lists chats and `largestRetainedAttachments`
   lists attachments (account-wide or within one chat), each with `limit` 1..=256 per page.
   Continue with the page's `nextCursor` until it is absent; the last page may be empty.
@@ -151,7 +159,7 @@ account database.
   removed and download-again stays allowed.
 - **When space returns.** Media-store files a removal releases are deleted before the call
   returns. Legacy database bodies free pages inside the database, which return to the
-  filesystem when the database is compacted, so refresh usage after removing rather than
+  filesystem once the database has been compacted, so refresh usage after removing rather than
   subtracting.
 
 C hosts use `marmot_attachment_storage_usage`, `marmot_attachment_storage_by_chat`,

@@ -4,7 +4,13 @@
 
 ### Breaking changes
 
+- `AttachmentMigrationStateFfi` adds `Compacting`: the account database is
+  being compacted to return its free pages to the filesystem (mdk#2314 step
+  6), and the other usage figures are from just before it started. Update
+  exhaustive Swift `switch` / Kotlin `when` handling.
+
 - Every `Marmot` constructor requires a `MarmotDeploymentFfi` (host-configuration brief, PRs 2 and 3): `MarmotOptions.deployment` has no default, and `new`, `newWithOptions`, `newWithSecretStore`, `newWithCursorPersistence` and `newWithClientName` take it as their last argument. It holds the deployment's recovery relays, discovery indexers, media and image servers, Open Ranking (`OpenRankingProviderFfi`), KeyPackage client preference, moderation label namespace and keychain service; `marmot_deployment_white_noise()` and `marmot_deployment_neutral()` build one. Without a `SecretStore`, the platform keychain opens under the deployment's `keychain_service`. White Noise apps pass `marmotDeploymentWhiteNoise()` at every construction, including background and notification-extension runtimes, which keeps their behaviour and keychain unchanged. Unset values fall back to nothing: `marmotDeploymentNeutral()` creates text-only groups and refuses group images. Regenerate bindings; Swift and Kotlin hosts fail to build until every construction passes a deployment.
+
 - `AttachmentStorageUsageFfi` adds `migration` (`AttachmentMigrationStateFfi`:
   `NotNeeded`, `Running`, `Paused`, `Complete`) and `migration_bytes`: where
   the background move of legacy database bodies into the media store stands
