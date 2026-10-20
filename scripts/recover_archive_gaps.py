@@ -36,7 +36,7 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def workflow_partition_count(text, cohort):
+def workflow_partition_count(text, cohort, *, event="pull_request", scope=""):
     """Closed source syntax only; unknown future matrix shapes require review."""
     if cohort not in {"default", "experimental"}:
         raise ValueError("Workspace partition cohort required")
@@ -50,10 +50,19 @@ def workflow_partition_count(text, cohort):
         next_job = re.search(r"(?m)^  [A-Za-z0-9_-]+:\n", text[start:])
         return text[start:start + next_job.start()] if next_job else text[start:]
     runtime = block(job)
-    matrices = re.findall(r"(?m)^        partition: (\[[^\n]+\])$", runtime)
+    matrices = re.findall(r"(?m)^        partition: ([^\n]+)$", runtime)
     if len(matrices) != 1:
-        raise ValueError("Literal source partition matrix required")
-    parts = json.loads(matrices[0])
+        raise ValueError("Unique reviewed source partition matrix required")
+    # The archive always retains twelve-way coverage. This sole manual diagnostic
+    # may execute partition eight; original/archive-origin callers still see twelve.
+    diagnostic_scope = "public-cancel-partition8-diagnostic"
+    diagnostic_matrix = "${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.scope == 'public-cancel-partition8-diagnostic' && '[8]' || '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]') }}"
+    diagnostic = False
+    if cohort == "experimental" and matrices[0] == diagnostic_matrix:
+        parts = list(range(1, 13))
+        diagnostic = event == "workflow_dispatch" and scope == diagnostic_scope
+    else:
+        parts = json.loads(matrices[0])
     if (type(parts) is not list or len(parts) not in {5, 12}
             or any(type(value) is not int for value in parts)
             or parts != list(range(1, len(parts) + 1))):
@@ -68,7 +77,7 @@ def workflow_partition_count(text, cohort):
     checks = re.findall(r"bash scripts/check_ci_partitions\.sh ([0-9]+)(?= )", block(build))
     if checks != [str(count)]:
         raise ValueError("Source archive coverage partition denominator differs")
-    return count
+    return 1 if diagnostic else count
 
 
 def source_partition_count(source, cohort):

@@ -1,6 +1,11 @@
 import copy
 import hashlib
 import json
+import os
+import re
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -48,6 +53,69 @@ class ArchiveGapTests(unittest.TestCase):
         # owner's historical five-partition checkout. Both objects are real Git.
         for cohort in ("default", "experimental"):
             self.assertEqual(source_partition_count(source, cohort), 12)
+
+    def test_actual_public_cancel_partition_diagnostic_is_manual_and_preserves_full_twelve(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (root / ".github/workflows/experimental-sync-ci.yml").read_text()
+        scope = "public-cancel-partition8-diagnostic"
+        options = re.search(r"options: \[(.*?)\]", text).group(1).split(", ")
+        self.assertIn(scope, options)
+        union = text.split("  workflow-union-preflight:\n", 1)[1].split("    name:", 1)[0]
+        routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", union).group(1))
+        self.assertIn(scope, routes)
+        for job in ("experimental-test-build", "experimental-test"):
+            condition = text.split("  " + job + ":\n", 1)[1].splitlines()[0]
+            self.assertEqual(condition, "    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full' || inputs.scope == '" + scope + "'")
+        for event, selected_scope in (("push", scope), ("pull_request", scope),
+                                      ("workflow_dispatch", "full"), ("workflow_dispatch", ""),
+                                      ("workflow_dispatch", "public-cancel-snapshot-diagnostic")):
+            self.assertEqual(workflow_partition_count(text, "experimental", event=event, scope=selected_scope), 12)
+        self.assertEqual(workflow_partition_count(text, "experimental", event="workflow_dispatch", scope=scope), 1)
+        # Corrupt actual expression branches/condition; no unknown conditional is admitted.
+        expression = re.search(r"(?m)^        partition: (\$\{\{[^\n]+)$", text).group(1)
+        for bad in (expression.replace("'[8]'", "'[7]'"),
+                    expression.replace("workflow_dispatch", "push"),
+                    expression.replace("'[1, 2,", "'[2, 1,"),
+                    expression.replace("inputs.scope", "inputs.other_scope")):
+            with self.assertRaises((ValueError, json.JSONDecodeError)):
+                workflow_partition_count(text.replace(expression, bad, 1), "experimental", event="workflow_dispatch", scope=scope)
+
+    def test_actual_partition_eight_inventory_guard_rejects_count_or_required_case_drift(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (root / ".github/workflows/experimental-sync-ci.yml").read_text()
+        step = text.split("      - name: Require exact original partition-eight diagnostic inventory\n", 1)[1].split("      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        required = "native_device_linking::automatic_pairing_acceptance::late_peer_proof_negative_acceptance::late_peer_proof_public_cancel_cannot_complete_original"
+        for mode in ("exact", "short", "extra", "missing-required", "wrong-suite", "required-ignored", "untyped-ignored"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                work = Path(directory)
+                cargo = work / "cargo"
+                cargo.write_text("#!" + sys.executable + "\n" + textwrap.dedent("""
+                    import json, os, sys
+                    from pathlib import Path
+                    args = sys.argv[1:]
+                    Path('invocation.json').write_text(json.dumps(args))
+                    count = 719 if os.environ['MODE'] == 'short' else 721 if os.environ['MODE'] == 'extra' else 720
+                    case = {'ignored': False, 'filter-match': {'status': 'matches'}}
+                    cases = {f'metadata_case_{index}': dict(case) for index in range(count - 1)}
+                    name = 'wrong_case' if os.environ['MODE'] == 'missing-required' else os.environ['REQUIRED_CASE']
+                    cases[name] = dict(case)
+                    if os.environ['MODE'] == 'required-ignored': cases[name]['ignored'] = True
+                    if os.environ['MODE'] == 'untyped-ignored': cases[name]['ignored'] = 'false'
+                    suite = 'wrong-suite' if os.environ['MODE'] == 'wrong-suite' else 'marmot-app'
+                    print(json.dumps({'rust-suites': {suite: {'testcases': cases}}}))
+                """))
+                cargo.chmod(0o700)
+                env = dict(os.environ, PATH=str(work) + os.pathsep + os.environ['PATH'],
+                           GITHUB_WORKSPACE=str(work), MODE=mode, REQUIRED_CASE=required)
+                result = subprocess.run(['bash', '-c', script], cwd=work, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, mode == "exact")
+                args = json.loads((work / 'invocation.json').read_text())
+                self.assertEqual(args[:2], ['nextest', 'list'])
+                self.assertEqual(args[args.index('--partition') + 1], 'count:8/12')
+                self.assertEqual(args[args.index('--archive-file') + 1], 'experimental-tests.tar.zst')
+                self.assertEqual(args[args.index('--workspace-remap') + 1], str(work))
 
     def test_current_twelve_partition_origin_exact_union(self):
         run, jobs, artifact = origin()

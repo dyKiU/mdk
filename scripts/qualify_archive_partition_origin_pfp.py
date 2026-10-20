@@ -19,7 +19,7 @@ TARGET = ROOT / 'scripts/recover_archive_gaps.py'
 FIXTURE = ROOT / 'scripts/test_recover_archive_gaps.py'
 TEST = 'ArchiveGapTests.test_current_partition_extra_duplicate_mixed_and_foreign_roles_refused'
 METHOD = TEST.split('.')[1]
-FIXTURE_SHA = '902968e128fa55eee962bcb8a572d5c24e1d24933366a0028982410cca0606f2'
+FIXTURE_SHA = '2f32fad9d7ec836c7760e13f4f8d614503d3241abd3cc296db43d876cf7c6221'
 ANCHOR = b'selected = [job for job in jobs if job["name"].startswith(label + " (")]'
 OMISSION = b'selected = [job for job in jobs if job["name"] in expected]'
 GUARDED = [TARGET, FIXTURE, Path(__file__).resolve(), ROOT / 'scripts/recover_experimental_coverage.py',

@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-directed-preflight, pure-directed-readiness, pure-directed-snapshot-mutations, pure-directed-snapshot-full19, pure-directed-storage-static, pure-directed-all, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, automatic-body-regression, automatic-body-negative, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-cancel-snapshot-diagnostic, native-predecessor-readiness, public-three-device-chat-delivery, pairing-five-devices, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, paired-presentation, pairing-stack-regression, queued-intent-regression]
+        options: [pure-command-offer-preflight, pure-command-offer-pfp, pure-native5-preflight, pure-native5-green, pure-directed-preflight, pure-directed-readiness, pure-directed-snapshot-mutations, pure-directed-snapshot-full19, pure-directed-storage-static, pure-directed-all, pure-source-format, workflow-union-preflight, pairing-replay-regression, archive-recovery, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, pairing-departure-contention, pairing-departure-staggered, pairing-departure-middle-signer, automatic-body-regression, automatic-body-negative, profile-edit-regression, final-enrollment-preflight, final-enrollment-controls, source-readiness-green-preflight, source-readiness-green, source-readiness-mutations, source-readiness-preflight, source-readiness-red, request-retry-mutation-preflight, request-retry-mutations, request-retry-ack-preflight, request-retry-ack-full, request-retry-ack-focused, request-retry-candidate-preflight, request-retry-candidate-controls, request-retry-candidate-focused, request-retry-preflight, request-retry-red, runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment, public-cancel-snapshot-diagnostic, public-cancel-partition8-diagnostic, native-predecessor-readiness, public-three-device-chat-delivery, pairing-five-devices, pairing-departure-arrival-order, pairing-departure-orders, pairing-leave-schedule, paired-presentation, pairing-stack-regression, queued-intent-regression]
         default: full
       native_case:
         description: Exact native component mode (static executes no runtime bodies)
@@ -336,7 +336,7 @@ jobs:
           retention-days: 7
   # PURE_SOURCE_FORMAT_JOB_END
   workflow-union-preflight:
-    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","automatic-body-regression","automatic-body-negative","archive-recovery","profile-edit-regression","pairing-five-devices","pairing-departure-arrival-order","pairing-departure-orders","pairing-leave-schedule","paired-presentation"]'), inputs.scope)
+    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","public-cancel-partition8-diagnostic","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","pairing-departure-contention","pairing-departure-staggered","pairing-departure-middle-signer","automatic-body-regression","automatic-body-negative","archive-recovery","profile-edit-regression","pairing-five-devices","pairing-departure-arrival-order","pairing-departure-orders","pairing-leave-schedule","paired-presentation"]'), inputs.scope)
     name: Recovery provenance and pairing dispatch metadata tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -3152,7 +3152,7 @@ jobs:
           retention-days: 7
   experimental-test-build:
     needs: workflow-union-preflight
-    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
+    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full' || inputs.scope == 'public-cancel-partition8-diagnostic'
     name: Build experimental sync tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -3198,7 +3198,7 @@ jobs:
           if-no-files-found: error
 
   experimental-test:
-    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
+    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full' || inputs.scope == 'public-cancel-partition8-diagnostic'
     name: Experimental sync tests (${{ matrix.partition }}/12)
     needs: experimental-test-build
     runs-on: ubuntu-latest
@@ -3206,7 +3206,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        # Only the explicit diagnostic selects one original 8/12 partition.
+        partition: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.scope == 'public-cancel-partition8-diagnostic' && '[8]' || '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -3228,6 +3229,29 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: experimental-sync-tests
+      - name: Require exact original partition-eight diagnostic inventory
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'public-cancel-partition8-diagnostic'
+        run: |
+          set -euo pipefail
+          cargo nextest list --archive-file experimental-tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" --partition "count:8/12" --message-format json > partition8-inventory.json
+          python3 - <<'PYINVENTORY'
+          import json
+          inventory = json.load(open("partition8-inventory.json"))
+          selected = []
+          for suite_id, suite in inventory["rust-suites"].items():
+              for name, case in suite["testcases"].items():
+                  assert type(case["ignored"]) is bool, "typed ignored inventory required"
+                  if case["filter-match"]["status"] == "matches":
+                      selected.append((suite_id, name, case["ignored"]))
+          runnable = [row for row in selected if not row[2]]
+          assert len(set(selected)) == len(selected), "unique partition inventory required"
+          assert len(runnable) == 720, "exact original partition-eight runnable inventory required"
+          required = ("marmot-app", "native_device_linking::automatic_pairing_acceptance::late_peer_proof_negative_acceptance::late_peer_proof_public_cancel_cannot_complete_original", False)
+          assert required in runnable, "original failed PublicCancel case must actually be runnable"
+          print("qualification-selected-partition-runnable:", len(runnable))
+          print("qualification-selected-partition-ignored:", len(selected) - len(runnable))
+          print("qualification-required-public-cancel-case: present-nonignored")
+          PYINVENTORY
       - name: Run experimental workspace partition without retries
         run: cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --partition count:${{ matrix.partition }}/12 --no-fail-fast
 
