@@ -7,7 +7,7 @@ on:
       extraction_cohort_baseline:
         description: Exact reviewed extraction cohort (no historical evidence reuse)
         type: string
-        default: caf4d2732221c10c68ef0665fe26d2232f3e2b84
+        default: e7826fbc13de5af33661a1b768256b247d753f17
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
@@ -44,7 +44,7 @@ permissions:
   contents: read
 
 env:
-  UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && 'caf4d2732221c10c68ef0665fe26d2232f3e2b84' || inputs.extraction_cohort_baseline }}
+  UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && 'e7826fbc13de5af33661a1b768256b247d753f17' || inputs.extraction_cohort_baseline }}
 
 jobs:
   private-reference-controls:
