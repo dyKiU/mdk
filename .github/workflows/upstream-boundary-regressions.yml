@@ -878,6 +878,54 @@ jobs:
             ${{ runner.temp }}/publication-mutation-capacity.json
           if-no-files-found: error
           retention-days: 7
+      - name: Record final six-case tracked source and index closure
+        if: always() && github.event_name == 'workflow_dispatch' && contains(fromJSON('["departure","worker-reap","relay-acquisition","upload-fixture","migration-default","migration-experimental"]'), matrix.case)
+        run: |
+          python3 - <<'PY_CLOSURE'
+          import hashlib, json, os, pathlib, re, subprocess
+          expected = os.environ['GITHUB_SHA']
+          report = dict(expected_source=expected if re.fullmatch(r'[0-9a-f]{40}', expected) else None,
+                        head=None, tree=None, index_sha256=None, head_exact=False,
+                        tracked_worktree_exact=False, index_exact=False, closure_passed=False)
+          def git(*args):
+              return subprocess.run(['git', '-c', 'core.filemode=true', *args],
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    timeout=30, check=True).stdout
+          try:
+              for key, expr in [('head', 'HEAD'), ('tree', 'HEAD^{tree}')]:
+                  value = git('rev-parse', expr).decode().strip()
+                  if not re.fullmatch(r'[0-9a-f]{40}', value):
+                      raise ValueError('closed git identity required')
+                  report[key] = value
+              report['index_sha256'] = hashlib.sha256(git('ls-files', '--stage', '-z')).hexdigest()
+              report['head_exact'] = report['head'] == report['expected_source']
+              for key, args in [('tracked_worktree_exact', ['diff', '--exit-code', 'HEAD']),
+                                ('index_exact', ['diff', '--cached', '--exit-code', 'HEAD'])]:
+                  try:
+                      git(*args)
+                      report[key] = True
+                  except subprocess.CalledProcessError:
+                      pass
+              report['closure_passed'] = all(report[k] for k in
+                  ['head_exact', 'tracked_worktree_exact', 'index_exact'])
+          except (OSError, ValueError, subprocess.SubprocessError) as error:
+              report['collection_error_category'] = type(error).__name__
+          pathlib.Path('proof').mkdir(exist_ok=True)
+          pathlib.Path('proof/final-source-closure.json').write_text(json.dumps(report, indent=2) + '\n')
+          raise SystemExit(0 if report['closure_passed'] else 1)
+          PY_CLOSURE
+      - name: Preserve exact six-case runtime evidence for independent assertion review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && github.event_name == 'workflow_dispatch' && contains(fromJSON('["departure","worker-reap","relay-acquisition","upload-fixture","migration-default","migration-experimental"]'), matrix.case)
+        with:
+          name: upstream-boundary-runtime-${{ matrix.case }}-${{ github.sha }}
+          path: |
+            proof/baseline.log
+            proof/mutant.log
+            proof/restored-control.log
+            proof/final-source-closure.json
+          if-no-files-found: error
+          retention-days: 7
 
   storage-ownership-preflight:
     if: github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings' || inputs.case == 'storage-ownership-mutations') && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
