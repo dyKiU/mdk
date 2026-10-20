@@ -64,8 +64,13 @@ class ArchiveGapTests(unittest.TestCase):
         routes = json.loads(re.search(r"fromJSON\('([^']+)'\)", union).group(1))
         self.assertIn(scope, routes)
         for job in ("experimental-test-build", "experimental-test"):
-            condition = text.split("  " + job + ":\n", 1)[1].splitlines()[0]
-            self.assertEqual(condition, "    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full' || inputs.scope == '" + scope + "'")
+            starts = list(re.finditer(r"(?m)^  " + re.escape(job) + r":\n", text))
+            self.assertEqual(len(starts), 1)
+            start = starts[0].end()
+            next_job = re.search(r"(?m)^  [A-Za-z0-9_-]+:\n", text[start:])
+            block = text[start:start + next_job.start()] if next_job else text[start:]
+            conditions = re.findall(r"(?m)^    if: (.+)$", block)
+            self.assertEqual(conditions, ["github.event_name != 'workflow_dispatch' || inputs.scope == 'full' || inputs.scope == '" + scope + "'"])
         for event, selected_scope in (("push", scope), ("pull_request", scope),
                                       ("workflow_dispatch", "full"), ("workflow_dispatch", ""),
                                       ("workflow_dispatch", "public-cancel-snapshot-diagnostic")):
