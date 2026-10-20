@@ -251,7 +251,10 @@ impl IncomingPeer {
                 .is_some();
             crate::test_support::emit_line(format_args!(
                 "local-hide-restoration-control message_present={} group_present={} frontier_retained={} wait_completed={}",
-                message_present, group_present, frontier_retained, restoration.is_ok()
+                message_present,
+                group_present,
+                frontier_retained,
+                restoration.is_ok()
             ));
         }
         restoration
