@@ -41,7 +41,10 @@ async fn run(scenario: Scenario) {
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     let mut facts = [false; 10];
     let ordinary_case = scenario == Scenario::PublicCancelWithOrdinary;
-    let public_cancel = matches!(scenario, Scenario::PublicCancel | Scenario::PublicCancelWithOrdinary);
+    let public_cancel = matches!(
+        scenario,
+        Scenario::PublicCancel | Scenario::PublicCancelWithOrdinary
+    );
     let mut ordinary_peer = None;
     let mut ordinary_facts = [false; 14];
     let mut ordinary_counts = [0usize; 6];
@@ -420,7 +423,9 @@ async fn run(scenario: Scenario) {
     }
     let (ordinary_closed, ordinary_plane_shutdown) = if let Some(peer) = ordinary_peer.as_ref() {
         peer.close_ordinary_progress_peer().await
-    } else { (false, false) };
+    } else {
+        (false, false)
+    };
     drop(ordinary_peer);
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
@@ -468,19 +473,44 @@ async fn run(scenario: Scenario) {
     if ordinary_case {
         crate::test_support::emit_line(format_args!(
             "late-peer-ordinary-progress independent_ready={} first_denial_seen={} original_closed_exact={} published_once={} source_packet_app_bound={} unrelated_group={} wait_sampled={} ordinary_projected={} custody_sampled={} queue_accepted={} same_receiver={} ordered_valid_custody={} negative_preserved={} final_receiver_matches={} no_replay={} accepted={} validation_rejections={} own_publications={} open_attempts={} routed_after_cancel={} closed_denials={} original_facts_complete={} runtime_closes={} planes_shutdown={} independent_closed={} independent_plane_shutdown={} relay_closed={} attempt_completed={}",
-            ordinary_facts[0], ordinary_facts[1], ordinary_facts[2], ordinary_facts[3],
-            ordinary_facts[4], ordinary_facts[5], ordinary_facts[6], ordinary_facts[7],
-            ordinary_facts[8], ordinary_facts[9], ordinary_facts[10], ordinary_facts[11],
-            ordinary_facts[12], ordinary_facts[13], facts[6], ordinary_counts[0], ordinary_counts[1],
-            ordinary_counts[2], ordinary_counts[3], ordinary_counts[4], ordinary_counts[5],
-            facts.iter().all(|value| *value), runtime_closes, planes_shutdown,
-            ordinary_closed, ordinary_plane_shutdown, relay_closed, attempt.is_ok()
+            ordinary_facts[0],
+            ordinary_facts[1],
+            ordinary_facts[2],
+            ordinary_facts[3],
+            ordinary_facts[4],
+            ordinary_facts[5],
+            ordinary_facts[6],
+            ordinary_facts[7],
+            ordinary_facts[8],
+            ordinary_facts[9],
+            ordinary_facts[10],
+            ordinary_facts[11],
+            ordinary_facts[12],
+            ordinary_facts[13],
+            facts[6],
+            ordinary_counts[0],
+            ordinary_counts[1],
+            ordinary_counts[2],
+            ordinary_counts[3],
+            ordinary_counts[4],
+            ordinary_counts[5],
+            facts.iter().all(|value| *value),
+            runtime_closes,
+            planes_shutdown,
+            ordinary_closed,
+            ordinary_plane_shutdown,
+            relay_closed,
+            attempt.is_ok()
         ));
         assert!(
             ordinary_facts.into_iter().all(|value| value)
                 && facts.into_iter().all(|value| value)
-                && runtime_closes == 3 && planes_shutdown == 3
-                && ordinary_closed && ordinary_plane_shutdown && relay_closed && attempt.is_ok(),
+                && runtime_closes == 3
+                && planes_shutdown == 3
+                && ordinary_closed
+                && ordinary_plane_shutdown
+                && relay_closed
+                && attempt.is_ok(),
             "cancelled sibling proof must not block independent ordinary receive"
         );
         return;
