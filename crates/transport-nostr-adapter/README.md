@@ -111,10 +111,19 @@ MarmotApp stores the cursor in its encrypted account database alongside existing
 state. There is no shared cross-route cursor cache, so activity on other routes cannot evict an
 active route's progress. State adds at most one 32-byte cursor to each existing route row.
 
+MarmotApp stages SDK progress in memory and saves a route's cursor after every owned comparison
+event has completed its ordinary ingest attempt. Capacity refusals still permit rotation, but
+remain outside inventory and cannot certify coverage. Failed network requests and interrupted
+admission preserve the pre-pass cursor.
+
 Pass budgets:
 
 - The NIP-77 remote-only selection holds at most 512 IDs from a 16,384-ID reconciliation set.
-- Each pass sends at most 16 request-local exact-ID acquisitions within the two-second comparison deadline and the
+- The first NIP-77 reply gets up to five seconds. A pass uses the earlier of its caller's absolute
+  cutoff and a twenty-second SDK allowance. MarmotApp runs a pass's routes one after another inside
+  its ten-second account-wide budget and gives each an equal share of what is left, keeping time
+  for partial-result handoff and epoch-gap window fetches.
+- Each pass sends at most 16 request-local exact-ID acquisitions within that deadline and the
   aggregate 256-item / 1-MiB-serialized-event allowance. The first request names one ID; later ones name up to 64
   consecutive IDs the same endpoints claimed, sized to the byte room left at the largest event the pass has seen,
   because a relay streams every event a request names before the byte limit can stop it. Until an event has
@@ -129,9 +138,11 @@ Pass budgets:
 - These are returned-result and SDK-received budgets, not complete wire or memory ceilings.
 
 Each exact-ID request goes only to the endpoints whose comparison claimed that ID, and
-each endpoint's comparison has its own deadline. Fast endpoint failures leave that endpoint
+each endpoint's comparison has its own deadline. Once one endpoint has compared, the others get
+until half of what was left of the pass, so a relay that answers once and then stalls cannot use
+up the time to fetch what the others claimed. Fast endpoint failures leave that endpoint
 incomplete while healthy IDs continue within the same pass budgets; a silent endpoint can still
-consume most of the two-second deadline for the IDs it claimed. A byte/item/deadline exit
+consume most of the remaining deadline for the IDs it claimed. A byte/item/deadline exit
 retains partial events but leaves incomplete every endpoint whose claimed IDs the pass did not
 return. An endpoint that claimed nothing left behind still succeeds, and
 `NostrReconciliationSummary::failed_endpoints` names the ones that failed, so a caller can

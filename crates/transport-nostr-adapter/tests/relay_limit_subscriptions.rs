@@ -361,6 +361,7 @@ async fn reconciliation_neg_open_and_id_fetches_are_production_shaped() {
             SINCE,
             UNTIL,
             &Cursor::default(),
+            tokio::time::Instant::now() + SETTLE_TIMEOUT,
         )
         .await
         .unwrap();
@@ -410,6 +411,7 @@ async fn reconciliation_on_a_full_socket_under_both_neg_policies() {
                 SINCE,
                 UNTIL,
                 &Cursor::default(),
+                tokio::time::Instant::now() + SETTLE_TIMEOUT,
             )
             .await;
         let stats = fx.limit.wait_quiet(QUIET, SETTLE_TIMEOUT).await;
@@ -472,6 +474,7 @@ async fn recovery_finds_room_beside_199_batched_groups() {
             SINCE,
             UNTIL,
             &Cursor::default(),
+            tokio::time::Instant::now() + SETTLE_TIMEOUT,
         )
         .await
         .unwrap();
@@ -1051,14 +1054,24 @@ fn route_on(endpoints: &[String], account: &MemberId) -> NostrSubscription {
     }
 }
 
-/// One reconciliation pass as the recovery owner runs it, optionally dropped
-/// after `budget`.
-async fn reconcile_pass(fx: &Fixture, endpoints: &[String], budget: Option<Duration>) -> Pass {
+/// One reconciliation pass as the recovery owner runs it, with the caller's
+/// `allowance`, optionally dropped after `budget`.
+async fn reconcile_pass(
+    fx: &Fixture,
+    endpoints: &[String],
+    allowance: Duration,
+    budget: Option<Duration>,
+) -> Pass {
     let cursor = Cursor::default();
     let started = Instant::now();
-    let pass =
-        fx.sdk
-            .reconcile_subscription(route_on(endpoints, &fx.account), &[], SINCE, UNTIL, &cursor);
+    let pass = fx.sdk.reconcile_subscription(
+        route_on(endpoints, &fx.account),
+        &[],
+        SINCE,
+        UNTIL,
+        &cursor,
+        tokio::time::Instant::now() + allowance,
+    );
     let result = match budget {
         Some(budget) => tokio::time::timeout(budget, pass).await.ok(),
         None => Some(pass.await),
@@ -1130,6 +1143,124 @@ async fn neg_sessions_after_pass(fx: &Fixture) -> usize {
     fx.limit.stats().neg_active_now()
 }
 
+/// A healthy relay may need longer than the former 500 ms first reply and
+/// two-second route ceilings to compare and serve its exact-ID history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn delayed_relay_returns_history() {
+    const STORED: usize = 10;
+    let (fx, url) = connected_fixture(LimitConfig::default(), 0).await;
+    let keys = Keys::generate();
+    let mut expected = HashSet::new();
+    for index in 0..STORED {
+        let event = EventBuilder::new(Kind::MlsGroupMessage, format!("history-{index}"))
+            .tags([Tag::custom("h", [hex::encode(route(0))])])
+            .custom_created_at(nostr_sdk::prelude::Timestamp::from_secs(
+                1_700_000_000 + index as u64,
+            ))
+            .finalize(&keys)
+            .unwrap();
+        expected.insert((event.id.to_hex(), event.content.clone()));
+        fx.database
+            .save_event(&serde_json::from_str(event.as_json().as_str()).unwrap())
+            .await
+            .unwrap();
+    }
+    fx.limit.set_client_delay(Duration::from_millis(1_200));
+    let result = fx
+        .sdk
+        .reconcile_subscription(
+            reconciliation_route(&url, &fx.account),
+            &[],
+            SINCE,
+            UNTIL,
+            &Cursor::default(),
+            tokio::time::Instant::now() + SETTLE_TIMEOUT,
+        )
+        .await;
+    // Do not delay cleanup frames or fixture teardown, even on a failed pass.
+    fx.limit.set_client_delay(Duration::ZERO);
+    let lingering = neg_sessions_after_pass(&fx).await;
+    let stats = fx.limit.stats();
+    fx.shutdown().await;
+
+    let (summary, events) = result.unwrap();
+    assert_eq!(summary.relays_succeeded, 1);
+    assert_eq!(summary.relays_failed, 0);
+    assert!(summary.failed_endpoints.is_empty());
+    assert!(summary.incomplete_endpoints.is_empty());
+    assert!(summary.endpoint_failures.is_empty());
+    assert!(!summary.order_unproven);
+    assert_eq!(summary.remote_items, STORED);
+    assert_eq!(summary.received_items, STORED);
+    assert_eq!(events.len(), STORED);
+    let returned = events
+        .into_iter()
+        .map(|event| (event.event.id, event.event.content))
+        .collect::<HashSet<_>>();
+    assert!(
+        returned == expected,
+        "every expected ID and payload is returned"
+    );
+    assert!(stats.neg_opens > 0);
+    assert!(stats.total_reqs > 0, "history uses an exact-ID fetch");
+    assert_eq!(stats.rejections_total(), 0);
+    assert_eq!(lingering, 0);
+}
+
+/// One relay answers its first NEG round and then goes silent; the other
+/// compares at once. The silent one is cut short of the pass deadline, so the
+/// history the healthy relay claimed is still fetched.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stalled_relay_leaves_time_to_fetch_the_others_history() {
+    const STORED: usize = 10;
+    let (fx, stalled) = connected_fixture(LimitConfig::default(), STORED).await;
+    let healthy = LimitRelay::start(fx.upstream_url.clone(), LimitConfig::default()).await;
+    fx.sdk
+        .client()
+        .add_relay(healthy.url())
+        .opts(fast_retry_options())
+        .await
+        .unwrap();
+    fx.sdk.client().connect().await;
+    assert!(
+        healthy
+            .wait_for(SETTLE_TIMEOUT, |s| s.open_connections() == 1)
+            .await
+    );
+    fx.limit.set_neg_fault(NegFault::StallAfterReply);
+    let rounds_before = fx.limit.stats().neg_fingerprint_rounds;
+    let (summary, events) = fx
+        .sdk
+        .reconcile_subscription(
+            route_on(&[stalled, healthy.url()], &fx.account),
+            &[],
+            SINCE,
+            UNTIL,
+            &Cursor::default(),
+            tokio::time::Instant::now() + STORM_WINDOW,
+        )
+        .await
+        .unwrap();
+    let stalled_rounds = fx.limit.stats().neg_fingerprint_rounds - rounds_before;
+    fx.limit.set_neg_fault(NegFault::None);
+    fx.shutdown().await;
+
+    assert!(
+        stalled_rounds > 0,
+        "the relay stalled after its first reply"
+    );
+    assert_eq!(events.len(), STORED, "{summary:?}");
+    assert_eq!(summary.relays_succeeded, 1, "{summary:?}");
+    assert_eq!(
+        summary
+            .endpoint_failures
+            .iter()
+            .map(|failure| failure.failure)
+            .collect::<Vec<_>>(),
+        [NostrReconciliationFailure::RouteTimeout]
+    );
+}
+
 /// Hundreds of completed passes on one connection: the NEG session count
 /// returns to zero after every pass and never approaches the 200 cap.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1140,7 +1271,7 @@ async fn neg_sessions_return_to_zero_after_each_completed_pass() {
     let mut unhealthy = 0;
     let started = Instant::now();
     for _ in 0..PASSES {
-        let pass = reconcile_pass(&fx, std::slice::from_ref(&url), None).await;
+        let pass = reconcile_pass(&fx, std::slice::from_ref(&url), SETTLE_TIMEOUT, None).await;
         unhealthy += usize::from(!pass.healthy());
         lingering.push(neg_sessions_after_pass(&fx).await);
     }
@@ -1182,7 +1313,7 @@ async fn neg_sessions_are_freed_on_every_failure_path() {
         ("completion", NegFault::None, None, 3),
         ("neg_err", NegFault::ErrOnOpen, None, 3),
         ("first_reply_timeout", NegFault::SilentOpen, None, 3),
-        ("route_deadline", NegFault::FingerprintThenStall, None, 2),
+        ("route_deadline", NegFault::FingerprintLoop, None, 2),
         (
             "dropped_awaiting_reply",
             NegFault::SilentOpen,
@@ -1199,17 +1330,30 @@ async fn neg_sessions_are_freed_on_every_failure_path() {
     let mut report = Vec::new();
     for (label, fault, budget, passes) in cases {
         fx.limit.set_neg_fault(fault);
+        let rounds_before = fx.limit.stats().neg_fingerprint_rounds;
+        // A comparison that never converges runs to the caller's deadline.
+        let allowance = if fault == NegFault::FingerprintLoop {
+            STORM_WINDOW
+        } else {
+            SETTLE_TIMEOUT
+        };
         let mut latencies = Vec::new();
         let mut outcomes = Vec::new();
         for _ in 0..passes {
-            let pass = reconcile_pass(&fx, endpoints, budget).await;
+            let pass = reconcile_pass(&fx, endpoints, allowance, budget).await;
             latencies.push(pass.elapsed.as_millis());
             outcomes.push(format!("{:?}", pass.outcome));
         }
         let lingering = neg_sessions_after_pass(&fx).await;
+        if fault == NegFault::FingerprintLoop {
+            assert!(
+                fx.limit.stats().neg_fingerprint_rounds - rounds_before > passes,
+                "route deadline cleanup must follow multiple active NEG rounds"
+            );
+        }
         fx.limit.set_neg_fault(NegFault::None);
         let notices_before = fx.limit.stats().neg_cap_notices;
-        let probe = reconcile_pass(&fx, endpoints, None).await;
+        let probe = reconcile_pass(&fx, endpoints, SETTLE_TIMEOUT, None).await;
         let probe_lingering = neg_sessions_after_pass(&fx).await;
         let notices = fx.limit.stats().neg_cap_notices - notices_before;
         eprintln!(
@@ -1239,7 +1383,7 @@ async fn neg_sessions_are_freed_on_every_failure_path() {
 async fn timed_failures(fx: &Fixture, endpoints: &[String], passes: usize) -> Vec<(u128, String)> {
     let mut out = Vec::new();
     for _ in 0..passes {
-        let pass = reconcile_pass(fx, endpoints, None).await;
+        let pass = reconcile_pass(fx, endpoints, SETTLE_TIMEOUT, None).await;
         out.push((pass.elapsed.as_millis(), format!("{:?}", pass.outcome)));
     }
     out
@@ -1252,7 +1396,7 @@ fn all_failed(results: &[(u128, String)], endpoints: usize) -> bool {
 
 /// The relay answers NEG-OPEN with strfry's NEG-cap NOTICE (no session id).
 /// nostr-sdk's first-reply check ignores that NOTICE, so the pass waits out
-/// the 500 ms first-reply timeout and the endpoint counts as failed.
+/// the first-reply timeout and the endpoint counts as failed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn neg_cap_notice_fails_after_the_first_reply_timeout() {
     let config = LimitConfig {
@@ -1279,8 +1423,10 @@ async fn neg_cap_notice_fails_after_the_first_reply_timeout() {
         stats.summary()
     );
     assert!(all_failed(&results, 2), "{results:?}");
+    // The five-second first-reply timeout ends each pass, not the caller's
+    // longer deadline.
     assert!(
-        results.iter().all(|(ms, _)| (450..1_500).contains(ms)),
+        results.iter().all(|(ms, _)| (4_900..6_500).contains(ms)),
         "{results:?}"
     );
     assert!(stats.neg_cap_notices >= 3);
@@ -1349,7 +1495,11 @@ async fn fast_and_slow_reconciliation_failure_paths() {
 }
 
 /// One pass's failure class per endpoint, in endpoint order.
-async fn failure_classes(fx: &Fixture, endpoints: &[String]) -> Vec<NostrReconciliationFailure> {
+async fn failure_classes(
+    fx: &Fixture,
+    endpoints: &[String],
+    allowance: Duration,
+) -> Vec<NostrReconciliationFailure> {
     let (summary, _) = fx
         .sdk
         .reconcile_subscription(
@@ -1358,6 +1508,7 @@ async fn failure_classes(fx: &Fixture, endpoints: &[String]) -> Vec<NostrReconci
             SINCE,
             UNTIL,
             &Cursor::default(),
+            tokio::time::Instant::now() + allowance,
         )
         .await
         .unwrap();
@@ -1403,14 +1554,32 @@ async fn reconciliation_names_why_each_relay_failed() {
             )),
         ),
         (NegFault::SilentOpen, Failure::FirstReplyTimeout),
-        (NegFault::FingerprintThenStall, Failure::RouteTimeout),
+        (NegFault::StallAfterReply, Failure::RouteTimeout),
+        (NegFault::FingerprintLoop, Failure::RouteTimeout),
     ] {
         fx.limit.set_neg_fault(fault);
+        let rounds_before = fx.limit.stats().neg_fingerprint_rounds;
+        let allowance = if matches!(fault, NegFault::StallAfterReply | NegFault::FingerprintLoop) {
+            STORM_WINDOW
+        } else {
+            SETTLE_TIMEOUT
+        };
         observed.push((
             format!("{fault:?}"),
-            failure_classes(&fx, one).await,
+            failure_classes(&fx, one, allowance).await,
             expected,
         ));
+        if fault == NegFault::StallAfterReply {
+            assert!(
+                fx.limit.stats().neg_fingerprint_rounds > rounds_before,
+                "the client processed the initial reply before the relay stalled"
+            );
+        } else if fault == NegFault::FingerprintLoop {
+            assert!(
+                fx.limit.stats().neg_fingerprint_rounds > rounds_before + 1,
+                "the route deadline must end an active, nonconverging comparison"
+            );
+        }
     }
     fx.limit.set_neg_fault(NegFault::None);
 
@@ -1434,18 +1603,18 @@ async fn reconciliation_names_why_each_relay_failed() {
         .await;
     observed.push((
         "neg_cap".into(),
-        failure_classes(&fx, &[capped.url()]).await,
+        failure_classes(&fx, &[capped.url()], SETTLE_TIMEOUT).await,
         Failure::NegCapNotice,
     ));
     observed.push((
         "not_in_pool".into(),
-        failure_classes(&fx, &["ws://127.0.0.1:9".to_owned()]).await,
+        failure_classes(&fx, &["ws://127.0.0.1:9".to_owned()], SETTLE_TIMEOUT).await,
         Failure::NotInPool,
     ));
     let dead = dead_relay(&fx.sdk).await;
     observed.push((
         "not_operational".into(),
-        failure_classes(&fx, &[dead]).await,
+        failure_classes(&fx, &[dead], SETTLE_TIMEOUT).await,
         Failure::NotOperational,
     ));
     eprintln!("[g] failure classes: {observed:?}");
