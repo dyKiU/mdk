@@ -1108,3 +1108,70 @@ def proposal_only_cancel_oracle(output, fixture, expect_failure=True, require_no
             and intended and consistent and ordered and (not require_no_fact_route or no_fact_route)
             and text.count('panicked at ')==(1 if expect_failure else 0)
             and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count']==0)}
+
+
+LOCAL_HIDE_CASE = 'local-hide-restoration-pfp'
+LOCAL_HIDE_FIXTURE = 'crates/marmot-app/src/native_device_linking/tests/automatic_forwarding_non_admin_acceptance.rs'
+LOCAL_HIDE_NAMES = [
+    'native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure',
+    'native_device_linking::tests::automatic_fresh_rejoin_acceptance::automatic_fresh_accepted_rejoin_restores_only_the_new_source_lineage',
+    'native_device_linking::tests::automatic_fresh_rejoin_acceptance::automatic_old_format_terminal_allows_only_fresh_explicit_accepted_rejoin',
+]
+LOCAL_HIDE_ENQUEUE = (
+    '        self.pending_local_group_deletion_frontier_clears\n'
+    '            .entry(hex::encode(group_id.as_slice()))\n'
+    '            .or_insert(frontier);\n')
+LOCAL_HIDE_MESSAGE = 'actual fresh ordinary traffic must restore the local hidden projection'
+
+
+def local_hide_restoration_oracle(output, fixture, phase, exit_code):
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    if phase not in {'baseline', 'mutant', 'restored-control'}:
+        raise ValueError('local-hide-owned-phase')
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+    red = phase == 'mutant'
+    names = LOCAL_HIDE_NAMES[:1] if red else LOCAL_HIDE_NAMES
+    statuses = re.findall(r'(?m)^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED)[ \t]*\r?$', text)
+    expected_statuses = sorted((name, 'FAILED' if red else 'ok') for name in names)
+    named = sorted(statuses) == expected_statuses
+    summaries = re.findall(r'test result: (ok|FAILED)\. (\d{1,9}) passed; (\d{1,9}) failed; (\d{1,9}) ignored;', text)
+    expected_counts = [('FAILED', '0', '1', '0')] if red else [('ok', '3', '0', '0')]
+    running = re.findall(r'(?m)^running ([0-9]{1,9}) tests?\r?$', text) == [str(len(names))]
+    prefix = 'local-hide-restoration-control '
+    marks = re.findall(r'(?m)^' + re.escape(prefix)
+        + r'message_present=(true|false) group_present=(true|false) frontier_retained=(true|false) wait_completed=(true|false)[ \t]*\r?$', text)
+    expected_mark = ('true', 'false', 'true', 'false') if red else ('true', 'true', 'false', 'true')
+    valid_marks = len(marks) == len(names) and all(mark == expected_mark for mark in marks)
+    marker_lines = text.count('local-hide-restoration-control')
+    valid_marks = valid_marks and marker_lines == len(names)
+    if fixture.count(LOCAL_HIDE_MESSAGE) != 1:
+        raise ValueError('local-hide-unique-original-restoration-expect')
+    own_line = next(i for i, line in enumerate(fixture.splitlines(), 1) if LOCAL_HIDE_MESSAGE in line)
+    header = (r"(?m)^[ \t]{0,8}thread '" + re.escape(LOCAL_HIDE_NAMES[0])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(LOCAL_HIDE_FIXTURE)
+        + ':' + str(own_line) + r':([0-9]{1,9}):\r?\n(?:[ \t]{0,8}\r?\n){0,2}[ \t]{0,8}'
+        + re.escape(LOCAL_HIDE_MESSAGE + ': Elapsed(())') + r'[ \t]*\r?$')
+    own_matches = list(re.finditer(header, text))
+    panic_count = text.count('panicked at ')
+    own = (red and panic_count == 1 and len(own_matches) == 1 and valid_marks
+           and text.find(prefix) < own_matches[0].start())
+    diag = compiler_diagnostics(text.encode(), cargo_test_context=('marmot-app', '--lib'))
+    compiler_zero = not diag['compiler_codes'] and diag['compiler_header_count'] == 0
+    sites = []
+    for index, name in enumerate(LOCAL_HIDE_NAMES):
+        pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(name) + r"'(?: \([0-9]+\))? panicked at "
+                   + re.escape(LOCAL_HIDE_FIXTURE) + r':([0-9]{1,9}):([0-9]{1,9}):\r?$')
+        sites.extend({'case_index': index, 'line': int(m[1]), 'column': int(m[2])}
+                     for m in re.finditer(pattern, text))
+    observations = [dict(zip(('message_present', 'group_present', 'frontier_retained', 'wait_completed'),
+                             (field == 'true' for field in mark))) for mark in marks[:3]]
+    return {'actual_expected_names': named, 'actual_running_count': running,
+            'actual_counts': summaries, 'restoration_observations': observations,
+            'restoration_marker_count': marker_lines, 'expected_restoration_facts': valid_marks,
+            'runtime_panic_coordinates': sites[:4], 'unknown_panic_count': max(0, panic_count - len(sites)),
+            'own_original_restoration_expect': own, 'panic_header_count': panic_count,
+            'compiler_diagnostics': diag, 'compiler_error_count': diag['compiler_header_count'],
+            'mutant_positive_cleanup_claim': False,
+            'evidence_passed': bool(len(text) <= 16 * 1024 * 1024 and named and running
+                and summaries == expected_counts and valid_marks and compiler_zero
+                and exit_code == (101 if red else 0) and (own if red else panic_count == 0))}

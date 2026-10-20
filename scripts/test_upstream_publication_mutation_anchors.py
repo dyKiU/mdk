@@ -914,5 +914,64 @@ class ProposalReceiptSafetyControls(unittest.TestCase):
         self.assertFalse(row['evidence_passed'])
         with self.assertRaises(ValueError): proposal_receipt_safety_oracle('', 'PRIVATE_VALUE')
 
+
+
+class LocalHideRestorationControls(unittest.TestCase):
+    """Synthetic parser metadata only; no SDK or protocol qualification."""
+    def shape(self, phase):
+        from upstream_publication_mutation_anchors import LOCAL_HIDE_NAMES, LOCAL_HIDE_FIXTURE, LOCAL_HIDE_MESSAGE
+        red = phase == 'mutant'
+        names = LOCAL_HIDE_NAMES[:1] if red else LOCAL_HIDE_NAMES
+        fixture = '// synthetic metadata fixture\n.expect("' + LOCAL_HIDE_MESSAGE + '");\n'
+        marker = ('local-hide-restoration-control message_present=true group_present='
+                  + ('false frontier_retained=true wait_completed=false' if red
+                     else 'true frontier_retained=false wait_completed=true') + '\n')
+        raw = 'running ' + str(len(names)) + (' test\n' if red else ' tests\n')
+        raw += marker * len(names)
+        if red:
+            raw += ("thread '" + LOCAL_HIDE_NAMES[0] + "' panicked at " + LOCAL_HIDE_FIXTURE + ':2:17:\n'
+                    + LOCAL_HIDE_MESSAGE + ': Elapsed(())\n')
+        raw += ''.join('test ' + name + ' ... ' + ('FAILED' if red else 'ok') + '\n' for name in names)
+        raw += ('test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.00s\n'
+                if red else 'test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.00s\n')
+        return fixture, raw
+
+    def test_actual_count_and_owned_restoration_shapes(self):
+        from upstream_publication_mutation_anchors import local_hide_restoration_oracle
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            fixture, raw = self.shape(phase)
+            self.assertTrue(local_hide_restoration_oracle(raw, fixture, phase, 101 if phase == 'mutant' else 0)['evidence_passed'])
+        fixture, raw = self.shape('mutant')
+        numeric = raw.replace("' panicked at", "' (123) panicked at")
+        self.assertTrue(local_hide_restoration_oracle(numeric, fixture, 'mutant', 101)['evidence_passed'])
+
+    def test_missing_wrong_setup_or_foreign_failure_never_qualifies(self):
+        from upstream_publication_mutation_anchors import local_hide_restoration_oracle, LOCAL_HIDE_NAMES, LOCAL_HIDE_MESSAGE
+        fixture, raw = self.shape('mutant')
+        bads = [raw.replace('message_present=true', 'message_present=false'),
+                raw.replace('group_present=false', 'group_present=true'),
+                raw.replace('frontier_retained=true', 'frontier_retained=false'),
+                raw.replace('wait_completed=false', 'wait_completed=true'),
+                raw.replace('message_present=true', 'message_present=PRIVATE_VALUE'),
+                raw.replace(LOCAL_HIDE_NAMES[0], 'foreign_test'),
+                raw.replace("thread '", "PRIVATE_VALUE thread '"),
+                raw.replace('Elapsed(())', 'PRIVATE_VALUE'),
+                raw.replace(':2:17:', ':3:17:'),
+                raw.replace(LOCAL_HIDE_MESSAGE + ': Elapsed(())', 'PRIVATE_VALUE'),
+                raw.replace('0 passed; 1 failed', '0 passed; 0 failed'),
+                raw.replace('0 ignored', '1 ignored'), raw + raw,
+                raw + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n",
+                raw + 'error[E0308]: PRIVATE_VALUE\n',
+                raw + 'PRIVATE_VALUE local-hide-restoration-control message_present=true\n',
+                raw + ' local-hide-restoration-control message_present=true\n',
+                raw + 'local-hide-restoration-controlUNKNOWN PRIVATE_VALUE\n']
+        for bad in bads:
+            row = local_hide_restoration_oracle(bad, fixture, 'mutant', 101)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        self.assertFalse(local_hide_restoration_oracle(raw, fixture, 'mutant', 0)['evidence_passed'])
+        fixture, green = self.shape('baseline')
+        self.assertFalse(local_hide_restoration_oracle(green.replace('group_present=true', 'group_present=false', 1), fixture, 'baseline', 0)['evidence_passed'])
+
 if __name__ == '__main__':
     unittest.main()

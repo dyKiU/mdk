@@ -216,20 +216,46 @@ impl IncomingPeer {
             .await
             .unwrap();
         assert!(fresh.published == 1 && fresh.message_ids.len() == 1);
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
-            while apps[0]
-                .account_storage("test")
-                .unwrap()
-                .app_storage()
-                .app_message(&group_hex, &fresh.message_ids[0])
-                .unwrap()
-                .is_none()
-            {
+        // Message projection precedes the later group/frontier checkpoint.
+        // Require both real rows within the original restoration budget.
+        let restoration = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let message_present = apps[0]
+                    .account_storage("test")
+                    .unwrap()
+                    .app_storage()
+                    .app_message(&group_hex, &fresh.message_ids[0])
+                    .unwrap()
+                    .is_some();
+                if message_present && apps[0].group("test", &group_hex).unwrap().is_some() {
+                    break;
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
         })
-        .await
-        .expect("actual fresh ordinary traffic must restore the local hidden projection");
+        .await;
+        #[cfg(feature = "test-policy-overrides")]
+        {
+            // Read only after the wait verdict is frozen; never extend its deadline.
+            let storage = apps[0].account_storage("test").unwrap();
+            let message_present = storage
+                .app_storage()
+                .app_message(&group_hex, &fresh.message_ids[0])
+                .unwrap()
+                .is_some();
+            let group_present = apps[0].group("test", &group_hex).unwrap().is_some();
+            let frontier_retained = storage
+                .app_storage()
+                .local_group_deletion_frontier(&group_hex)
+                .unwrap()
+                .is_some();
+            crate::test_support::emit_line(format_args!(
+                "local-hide-restoration-control message_present={} group_present={} frontier_retained={} wait_completed={}",
+                message_present, group_present, frontier_retained, restoration.is_ok()
+            ));
+        }
+        restoration
+            .expect("actual fresh ordinary traffic must restore the local hidden projection");
         assert!(apps[0].group("test", &group_hex).unwrap().is_some());
         eprintln!("withdrawal-control stage=before-real-leave");
         let leave = runtimes[0].leave_group("test", &self.group).await.unwrap();
