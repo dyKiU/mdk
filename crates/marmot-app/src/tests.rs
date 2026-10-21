@@ -15,6 +15,7 @@ mod suspension_close;
 mod user_blocks;
 
 use super::*;
+use crate::directory::error::DirectoryError;
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -8916,7 +8917,9 @@ async fn account_outbox_route_cap_without_inbox_remains_unknown() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(error, AppError::DirectoryLookupIncomplete(ref account) if account == id));
+    assert!(
+        matches!(error, DirectoryError::DirectoryLookupIncomplete(ref account) if account == id)
+    );
     let cached = app.directory_entry_for_account_id(id).unwrap().unwrap();
     assert_eq!(cached.relay_lists.nip65.relays.len(), 17);
     assert!(cached.relay_lists.inbox.relays.is_empty());
@@ -8940,7 +8943,9 @@ async fn account_signed_empty_inbox_with_incomplete_outbox_remains_unknown() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(error, AppError::DirectoryLookupIncomplete(ref account) if account == id));
+    assert!(
+        matches!(error, DirectoryError::DirectoryLookupIncomplete(ref account) if account == id)
+    );
     let cached = app.directory_entry_for_account_id(id).unwrap().unwrap();
     assert!(cached.relay_lists.inbox.created_at > 0);
     assert!(cached.relay_lists.inbox.relays.is_empty());
@@ -8957,7 +8962,7 @@ async fn account_signed_empty_inbox_with_incomplete_outbox_remains_unknown() {
         .await
         .unwrap_err();
     assert!(
-        matches!(error, AppError::MissingRelayLists(ref kinds) if kinds == &[MissingRelayListKind::Inbox])
+        matches!(error, DirectoryError::MissingRelayLists(ref kinds) if kinds == &[MissingRelayListKind::Inbox])
     );
 }
 
@@ -8991,7 +8996,7 @@ async fn account_read_only_nip65_returns_typed_missing_write_routes() {
         .await
         .unwrap_err();
     assert!(
-        matches!(error, AppError::MissingRelayLists(ref kinds) if kinds == &[MissingRelayListKind::Nip65])
+        matches!(error, DirectoryError::MissingRelayLists(ref kinds) if kinds == &[MissingRelayListKind::Nip65])
     );
     let cached = app.directory_entry_for_account_id(id).unwrap().unwrap();
     assert!(cached.relay_lists.nip65.relays.is_empty());
@@ -9018,7 +9023,7 @@ async fn future_dated_inbox_is_unknown_for_account_and_member_resolution() {
         .await
         .unwrap_err();
     assert!(
-        matches!(account_error, AppError::DirectoryLookupIncomplete(ref account) if account == id)
+        matches!(account_error, DirectoryError::DirectoryLookupIncomplete(ref account) if account == id)
     );
     let member_error = app
         .resolve_member_key_packages(&[id.as_str()])
@@ -9610,7 +9615,7 @@ async fn member_key_package_resolution_never_falls_back_to_cached_key_packages()
             .err()
             .expect("future-only discovery must fail closed");
         assert!(
-            matches!(error, AppError::MissingKeyPackage { account: id, reason: crate::MissingKeyPackageReason::NotFound } if id == members[0])
+            matches!(error, DirectoryError::MissingKeyPackage { account: id, reason: crate::MissingKeyPackageReason::NotFound } if id == members[0])
         );
         assert!(
             fetcher.requests.lock().unwrap().iter().any(|request| {
@@ -20878,7 +20883,7 @@ fn close_storage_releases_every_database_and_the_root_lease() {
     assert!(
         matches!(
             directory_cache.entries(),
-            Err(AppError::Storage(err)) if err.is_closed()
+            Err(DirectoryError::Storage(err)) if err.is_closed()
         ),
         "the directory cache connection must be closed, not just uncached",
     );
@@ -21242,7 +21247,7 @@ fn assert_suspension_storage_closed(
     assert!(shared.is_closed());
     assert!(matches!(
         directory.entries(),
-        Err(AppError::Storage(error)) if error.is_closed()
+        Err(DirectoryError::Storage(error)) if error.is_closed()
     ));
     for database in [session_path, shared_path] {
         for suffix in ["-wal", "-shm"] {
