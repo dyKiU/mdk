@@ -1646,6 +1646,21 @@ impl AppClient {
         } else {
             (None, None)
         };
+        let name = if let Some(peer) = direct_peer_account
+            && crate::chat_presentation::safe_name(&name).is_none()
+        {
+            // Only the authenticated direct peer's cached public metadata is shared.
+            // A directory cache miss must not block the existing chat-sharing path.
+            let profile = self
+                .app
+                .directory_entry_for_account_id(&hex::encode(peer))
+                .ok()
+                .flatten()
+                .and_then(|entry| entry.profile);
+            direct_peer::catalog_name(name, profile.as_ref())
+        } else {
+            name
+        };
         let mut record = MirroredChatEntry {
             group_id,
             source_epoch: epoch,

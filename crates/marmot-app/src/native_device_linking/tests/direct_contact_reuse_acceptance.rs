@@ -51,6 +51,25 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
             created.chat_list_row.conversation_kind,
             crate::ChatConversationKind::Direct
         );
+        let peer_name = "Named shared contact";
+        apps[0]
+            .remember_directory_profile(
+                &peer_account.account_id_hex,
+                &crate::UserProfileMetadata {
+                    display_name: Some(peer_name.to_owned()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let source_row = runtimes[0]
+            .presented_chat_list_row("test", &group_hex)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            source_row.presentation.title,
+            storage_sqlite::PresentationText::Literal(name) if name == peer_name
+        ));
         tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 if peer_app
@@ -126,6 +145,10 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
                     assert_eq!(
                         row.direct_peer_account.map(hex::encode),
                         Some(peer_account.account_id_hex.clone())
+                    );
+                    assert_eq!(
+                        row.name, peer_name,
+                        "a linked device without the contact profile must receive the source's readable direct-chat title"
                     );
                     break;
                 }
