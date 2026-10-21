@@ -62,6 +62,17 @@
   publication reserve for the body. Update exhaustive matches; the job keeps
   its checkpoint and readmits once space frees or on explicit Retry.
 
+- Rust recovery models add `RecoveryCause::SubscriptionReplay`,
+  `RecoveryPredicate::ReplayAdmission`, `RecoveryScopeCheckpoint::replay_admitted`
+  and `RecoveryReplayPlacement`. Native checkpoints require separate account-wide
+  placement before completion; scoped source facts can persist earlier.
+  Native input admission is separate from history certification and loss acknowledgment.
+  The C and UniFFI surfaces are unchanged.
+- Rust audited engine ingestion, session delivery ingestion and account delivery
+  ingestion borrow their transport input. `ReplayIngress` and `ReplayBatch` retain
+  native frames until ordered admission acknowledges them. C and UniFFI calls
+  are unchanged.
+
 ### Changed
 
 - Avatars and group images are stored as encrypted media-store cache files
@@ -186,6 +197,42 @@
   instead of repeatedly fetching only its newest 256 events (mdk#2257).
   Bounded advisory hints resume across pass cuts. Held-only traversal does
   not reset backoff or the durable park count, including after reopening.
+
+- Offline catch-up stages each group's complete range before MLS processing and
+  pages every route of a clamped reply backwards (#2375, #2381). Without a
+  durable cursor it requests retained history, not the recent live tail, even
+  when the relay refuses NIP-77. The account recovery owner preserves unresolved
+  original windows across cancellation and reopen. All native group input,
+  including live tails and local publication fanout, bypasses live-queue/spill alternation; retained spill
+  rows join the ordered range before decryption. Current waiting peers fence
+  release, and replacement requests establish their own boundaries. Unservable
+  original ranges raise the existing history notice instead of silently blocking
+  the cursor; terminal group removal retires obsolete native scopes. Native
+  backend errors remain visible and automatic retries back off. Native-fed live
+  messages run the same receive recovery and inbound projection measurement as
+  ordinary deliveries. A live cursor-check failure preserves already-durable
+  delivery counts. Committed native and comparison chunks publish during startup
+  and follow-up drains, rather than waiting for the whole batch to settle.
+  Direct catch-up failures retain already-committed native outputs in their
+  completed prefix. Native ingests contribute to the existing drain delivery
+  counts, including eventless deferred input.
+  Native input wakes `next_event` for pending convergence or epoch backfill
+  even when no visible event was produced.
+  Native turns batch optional reconciliation-inventory writes at the existing
+  four-frame boundary. Engine/app persistence, seen receipts and frame ACKs
+  remain per delivery; structural input keeps immediate inventory bookkeeping.
+  Route refresh skips convergence and epoch reads when no prior route can retire.
+  Recovered Welcomes publish `GroupJoined` before live-subscription I/O and
+  retain their grant-owned post-join history work in both streamed chunks and
+  final comparison results.
+  Epoch-gap page hints wait for every routed delivery to be retained or
+  definitively rejected, including comparison/window duplicates.
+  A recovered canonical context rearms ready retained ciphertext so deferred
+  messages retry without another relay delivery or manual convergence retry.
+  Already-held copies adopt durable spill ownership before
+  source replacement, without copying the ciphertext. Empty or silent peers do not
+  create notification loss. Sender-ratchet tolerance remains 100; timestamp/id
+  ordering does not establish sender-generation order within a single second.
 
 - `control_attachment` Remove opens the account's media store before the
   removal commits, so a store that cannot open (for example while storage

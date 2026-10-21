@@ -546,7 +546,6 @@ pub(crate) struct ScriptedPushRelayClient {
     subscribe_release: tokio::sync::Notify,
     unsubscribe_started: tokio::sync::Notify,
     unsubscribe_release: tokio::sync::Notify,
-    reissued_subscriptions: std::sync::Mutex<Vec<(String, Vec<TransportEndpoint>)>>,
 }
 
 #[derive(Default)]
@@ -867,11 +866,6 @@ impl ScriptedPushRelayClient {
         self.subscriptions.lock().unwrap().clone()
     }
 
-    /// Every REQ a lag repair has re-issued so far, with its endpoints.
-    pub(crate) fn reissued_subscriptions(&self) -> Vec<(String, Vec<TransportEndpoint>)> {
-        self.reissued_subscriptions.lock().unwrap().clone()
-    }
-
     pub(crate) fn unfloored_account_subscription_count(&self) -> usize {
         self.subscriptions
             .lock()
@@ -890,7 +884,7 @@ impl ScriptedPushRelayClient {
         self.subscribe_started.notified().await;
     }
 
-    fn release_subscribe(&self) {
+    pub(crate) fn release_subscribe(&self) {
         self.subscribe_release.notify_waiters();
     }
 
@@ -1264,30 +1258,6 @@ impl NostrRelayClient for ScriptedPushRelayClient {
         Ok(())
     }
 
-    async fn reissue_subscription(
-        &self,
-        _account_id: &cgka_traits::MemberId,
-        subscription_id: &str,
-        endpoints: &[TransportEndpoint],
-    ) -> Result<transport_nostr_adapter::SubscriptionReissue, cgka_traits::TransportAdapterError>
-    {
-        self.reissued_subscriptions
-            .lock()
-            .unwrap()
-            .push((subscription_id.to_owned(), endpoints.to_vec()));
-        Ok(transport_nostr_adapter::SubscriptionReissue {
-            relays: endpoints
-                .iter()
-                .map(|endpoint| {
-                    (
-                        endpoint.clone(),
-                        transport_nostr_adapter::RelayReissue::Sent,
-                    )
-                })
-                .collect(),
-        })
-    }
-
     async fn publish_event(
         &self,
         endpoints: &[TransportEndpoint],
@@ -1656,6 +1626,23 @@ pub(crate) async fn inject_epoch_gap_probe(app: &MarmotApp, event: NostrTranspor
     );
 }
 
+// Queue/pin contracts start at the router. Relay producers separately prove
+// their complete-range fence before handing group input to the native lane.
+async fn route_group_probe(client: &AppClient, event: NostrTransportEvent) {
+    let delivery = client
+        .adapter
+        .recovered_deliveries(NostrRelayEvent {
+            endpoint: TransportEndpoint("wss://relay.example".to_owned()),
+            subscription_id: None,
+            event,
+        })
+        .await
+        .unwrap()
+        .pop()
+        .expect("the active group route receives the probe");
+    client.relay_plane.route_account_delivery_for_test(delivery);
+}
+
 /// Script the recovery job's comparisons: every pass over the group route
 /// `nostr_group_id_hex` fetches one fresh probe from its relay, and every
 /// other route answers with nothing missing.
@@ -1950,6 +1937,7 @@ fn failed_epoch_backfill_attempt_retains_one_correlated_retry() {
                 None,
                 marmot_forensics::EpochBackfillExecutionSeam::Maintenance,
             )
+            .await
             .unwrap()
             .expect("the armed gap is granted");
         client.released_backfill_reload_pending = true;
@@ -2155,6 +2143,7 @@ fn recovery_warning_requires_qualified_local_observations_and_survives_local_com
                 Some(&mut permit),
                 marmot_forensics::EpochBackfillExecutionSeam::ExplicitCatchUp,
             )
+            .await
             .unwrap()
             .unwrap();
         // The job fails while it takes ownership of its network result.
@@ -2179,6 +2168,7 @@ fn recovery_warning_requires_qualified_local_observations_and_survives_local_com
                 Some(&mut permit),
                 marmot_forensics::EpochBackfillExecutionSeam::ExplicitCatchUp,
             )
+            .await
             .unwrap()
             .unwrap();
         assert!(qualify_group_recovery_for_test(&storage, &grant, &group_id));
@@ -2373,6 +2363,7 @@ fn qualify_group_recovery_for_test(
         .map(|scope| RecoveryScopeCheckpoint {
             token: scope.token.clone(),
             retained_known_event: false,
+            replay_admitted: false,
             endpoints: scope
                 .goal
                 .required_endpoints
@@ -2810,6 +2801,7 @@ fn a_failed_epoch_backfill_execution_paces_the_next_automatic_seam() {
                 Some(&mut permit),
                 marmot_forensics::EpochBackfillExecutionSeam::ExplicitCatchUp,
             )
+            .await
             .unwrap()
             .expect("the armed gap is granted");
         client.released_backfill_reload_pending = true;
@@ -3165,6 +3157,7 @@ fn local_epoch_progress_does_not_clear_history_or_suppress_independent_gaps() {
                 None,
                 marmot_forensics::EpochBackfillExecutionSeam::Maintenance,
             )
+            .await
             .unwrap()
             .unwrap();
         // The app refuses group changes while this gap is armed (mdk#2258),
@@ -3414,6 +3407,7 @@ fn in_flight_epoch_backfill_arm_preserves_both_demands_on_failure() {
                 None,
                 marmot_forensics::EpochBackfillExecutionSeam::Maintenance,
             )
+            .await
             .unwrap()
             .unwrap();
         let epoch = client.group_mls_state(&group_b).unwrap().epoch;
@@ -3429,6 +3423,7 @@ fn in_flight_epoch_backfill_arm_preserves_both_demands_on_failure() {
                     None,
                     marmot_forensics::EpochBackfillExecutionSeam::Receive
                 )
+                .await
                 .unwrap()
                 .is_none()
         );
@@ -3456,6 +3451,7 @@ fn in_flight_epoch_backfill_arm_preserves_both_demands_on_failure() {
                     None,
                     marmot_forensics::EpochBackfillExecutionSeam::Receive
                 )
+                .await
                 .unwrap()
                 .is_none()
         );
@@ -3465,6 +3461,7 @@ fn in_flight_epoch_backfill_arm_preserves_both_demands_on_failure() {
                 None,
                 marmot_forensics::EpochBackfillExecutionSeam::Maintenance,
             )
+            .await
             .unwrap()
             .unwrap();
         assert_eq!(retry.reservation.attempt_serial, 2);
@@ -3498,6 +3495,7 @@ fn repeated_epoch_backfill_deferral_does_not_multiply_identical_evidence() {
                 None,
                 marmot_forensics::EpochBackfillExecutionSeam::Maintenance,
             )
+            .await
             .unwrap()
             .unwrap();
         let retry = storage.recovery_retry_state().unwrap();
@@ -3515,6 +3513,7 @@ fn repeated_epoch_backfill_deferral_does_not_multiply_identical_evidence() {
                         None,
                         marmot_forensics::EpochBackfillExecutionSeam::Receive
                     )
+                    .await
                     .unwrap()
                     .is_none()
             );
@@ -3528,6 +3527,7 @@ fn repeated_epoch_backfill_deferral_does_not_multiply_identical_evidence() {
                     None,
                     marmot_forensics::EpochBackfillExecutionSeam::Maintenance
                 )
+                .await
                 .unwrap()
                 .is_none()
         );
@@ -3585,6 +3585,7 @@ fn owner_deferral_deduplicates_identical_observations_but_keeps_epoch_changes() 
                         None,
                         marmot_forensics::EpochBackfillExecutionSeam::Receive,
                     )
+                    .await
                     .unwrap(),
             );
         }
@@ -3604,6 +3605,7 @@ fn owner_deferral_deduplicates_identical_observations_but_keeps_epoch_changes() 
                         None,
                         marmot_forensics::EpochBackfillExecutionSeam::Receive
                     )
+                    .await
                     .unwrap()
                     .is_none()
             );
@@ -3648,6 +3650,7 @@ fn unresolved_epoch_backfill_scope_does_not_starve_another_group() {
                 None,
                 marmot_forensics::EpochBackfillExecutionSeam::Maintenance,
             )
+            .await
             .unwrap()
             .unwrap();
         assert!(grant.plan().unwrap().iter().any(|obligation| {
@@ -3670,51 +3673,56 @@ fn unresolved_epoch_backfill_scope_does_not_starve_another_group() {
         assert_eq!(
             storage
                 .app_storage()
-                .recovery_retry_state()
+                .pending_epoch_backfill_intents()
                 .unwrap()
-                .attempt_serial,
-            1
+                .into_iter()
+                .map(|intent| intent.group_id_hex)
+                .collect::<Vec<_>>(),
+            vec![hex::encode(phantom.as_slice())],
+            "qualified real-group coverage cannot erase the unsupported group's debt"
+        );
+        let unresolved = storage
+            .app_storage()
+            .pending_recovery_demands()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.group_id.as_deref() == Some(phantom.as_slice()))
+            .unwrap();
+        assert_eq!(
+            unresolved.eligibility,
+            storage_sqlite::RecoveryEligibility::WaitingCapability
+        );
+        client
+            .recovery_owner
+            .test_advance_clock(Duration::from_secs(300));
+        // A native replay goal may run after its source lease expires. That
+        // independent work must neither retry nor retire the unsupported scope.
+        client
+            .run_pending_epoch_backfill(marmot_forensics::EpochBackfillExecutionSeam::Maintenance)
+            .await
+            .unwrap();
+        let still_unresolved = storage
+            .app_storage()
+            .pending_recovery_demands()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.group_id.as_deref() == Some(phantom.as_slice()))
+            .unwrap();
+        assert!(still_unresolved.ticket == unresolved.ticket);
+        assert_eq!(
+            still_unresolved.eligibility,
+            storage_sqlite::RecoveryEligibility::WaitingCapability,
+            "a timer cannot investigate a group with no acquisition route repeatedly"
         );
         assert_eq!(
             storage
                 .app_storage()
                 .pending_epoch_backfill_intents()
                 .unwrap()
-                .len(),
-            1,
-            "qualified real-group coverage cannot erase the unsupported group's debt"
-        );
-        assert_eq!(
-            storage
-                .app_storage()
-                .pending_recovery_demands()
-                .unwrap()
                 .into_iter()
-                .find(|d| d.group_id.as_deref() == Some(phantom.as_slice()))
-                .unwrap()
-                .eligibility,
-            storage_sqlite::RecoveryEligibility::WaitingCapability
-        );
-        client
-            .recovery_owner
-            .test_advance_clock(Duration::from_secs(300));
-        assert!(matches!(
-            client
-                .run_pending_epoch_backfill(
-                    marmot_forensics::EpochBackfillExecutionSeam::Maintenance
-                )
-                .await
-                .unwrap(),
-            crate::EpochBackfillRunOutcome::Deferred
-        ));
-        assert_eq!(
-            storage
-                .app_storage()
-                .recovery_retry_state()
-                .unwrap()
-                .attempt_serial,
-            1,
-            "a timer cannot investigate a group with no acquisition route repeatedly"
+                .map(|intent| intent.group_id_hex)
+                .collect::<Vec<_>>(),
+            vec![hex::encode(phantom.as_slice())],
         );
         let rows = recorded_audit_rows(&app);
         assert_eq!(
@@ -3747,8 +3755,7 @@ where
 /// [`run_composed_app_runtime_test`] on a current-thread runtime, for a test
 /// that pauses the clock (Tokio allows `time::pause` only there) or builds an
 /// interleaving that needs one thread. Say why with a `//` comment on the line
-/// above the call; `async_suites_choose_their_tokio_flavor` rejects a call
-/// without one.
+/// above the call.
 pub(crate) fn run_composed_app_runtime_test_on_one_thread<F, Fut>(thread_name: &str, body: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
@@ -12539,7 +12546,7 @@ fn epoch_backfill_overflow_retries_back_off_even_after_the_queue_is_empty() {
                 &format!("retained-history-{index}"),
             );
             client.remember_seen_event(event.id.clone());
-            inject_epoch_gap_probe(&app, event).await;
+            route_group_probe(&client, event).await;
         }
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -12818,8 +12825,11 @@ fn full_account_queue_spills_durably_and_admits_every_delivery_without_loss() {
         let relay = Arc::new(ScriptedPushRelayClient::default());
         let mut app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
             .with_test_relay_client(relay.clone());
-        app.relay_plane =
-            MarmotRelayPlane::new_with_loopback(Some(Duration::from_secs(120)), relay, true);
+        app.relay_plane = MarmotRelayPlane::new_with_loopback(
+            Some(Duration::from_secs(120)),
+            relay.clone(),
+            true,
+        );
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let group_id = client.create_group("overflow spill", &[]).await.unwrap();
         let nostr_group_id_hex = app
@@ -12849,10 +12859,10 @@ fn full_account_queue_spills_durably_and_admits_every_delivery_without_loss() {
         for index in 0..transport_nostr::ACCOUNT_DELIVERY_BUFFER + NEW {
             let event = probe(index);
             expected.push(event.id.clone());
-            inject_epoch_gap_probe(&app, event).await;
+            route_group_probe(&client, event).await;
         }
         for event in known {
-            inject_epoch_gap_probe(&app, event).await;
+            route_group_probe(&client, event).await;
         }
         let health = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -12903,16 +12913,11 @@ fn full_account_queue_spills_durably_and_admits_every_delivery_without_loss() {
             .len();
         drop(client);
         let mut client = client_on_app_relay_plane(&app, "alice").await;
-        for _ in 0..spilled_before_reopen {
-            let received =
-                tokio::time::timeout(Duration::from_secs(5), client.receive_next_delivery())
-                    .await
-                    .expect("spilled rows are admitted after reopen")
-                    .unwrap();
-            let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received else {
-                panic!("a spill never creates a loss generation");
-            };
-            client.ingest_received_delivery(*delivery).await.unwrap();
+        report_scripted_eose(&app.relay_plane, &relay, every_subscription).await;
+        for _ in 0..=spilled_before_reopen {
+            if !client.admit_native_turn().await.unwrap() {
+                break;
+            }
         }
         assert!(
             storage
@@ -13002,8 +13007,8 @@ fn process_local_overflow_fence_freezes_cursor_while_marker_write_retries() {
         // fills its queue. Their in-memory max is above the older event that
         // will be omitted, but they must not promote the durable drain floor.
         for index in 0..3_u64 {
-            inject_epoch_gap_probe(
-                &app,
+            route_group_probe(
+                &client,
                 epoch_gap_probe(
                     &nostr_group_id_hex,
                     cursor_before + 4_000 - index,
@@ -13032,8 +13037,8 @@ fn process_local_overflow_fence_freezes_cursor_while_marker_write_retries() {
             if index == transport_nostr::ACCOUNT_DELIVERY_BUFFER {
                 omitted_timestamp = created_at;
             }
-            inject_epoch_gap_probe(
-                &app,
+            route_group_probe(
+                &client,
                 epoch_gap_probe(
                     &nostr_group_id_hex,
                     created_at,
@@ -13116,6 +13121,7 @@ fn process_local_overflow_fence_freezes_cursor_while_marker_write_retries() {
         // needed to prove cursor safety across this handoff and reopen.
         let grant = client
             .authorize_account_recovery(None, marmot_forensics::EpochBackfillExecutionSeam::Receive)
+            .await
             .unwrap();
         drop(grant);
         assert!(
@@ -13135,12 +13141,80 @@ fn process_local_overflow_fence_freezes_cursor_while_marker_write_retries() {
     });
 }
 
+#[test]
+fn replay_fences_cursor_on_save() {
+    run_composed_app_runtime_test("unfinished-replay-checkpoint", || async {
+        let mut fixture = LiveCursorFixture::open().await;
+        fixture._eose.0.abort();
+        let _ = (&mut fixture._eose.0).await;
+        fixture
+            .client
+            .runtime
+            .activate_transport(None)
+            .await
+            .unwrap();
+        assert!(
+            !fixture
+                .client
+                .adapter
+                .account_subscription_eose()
+                .await
+                .complete()
+        );
+
+        let id = fixture
+            .relay
+            .accepted_subscriptions()
+            .iter()
+            .rev()
+            .find(|subscription| {
+                matches!(
+                    subscription,
+                    NostrSubscription::Group { .. } | NostrSubscription::GroupBatch { .. }
+                )
+            })
+            .expect("the fresh activation issued the group's REQ")
+            .subscription_id();
+        fixture
+            .app
+            .relay_plane
+            .handle_relay_event_for_test(NostrRelayEvent {
+                endpoint: TransportEndpoint("wss://relay.example".into()),
+                subscription_id: Some(id),
+                event: fixture.probe(fixture.cursor_before + 1_000, "held ciphertext"),
+            })
+            .await
+            .unwrap();
+
+        // An independent inbox delivery may have advanced the in-memory
+        // candidate while group ciphertext is still held outside the router.
+        fixture.client.state.last_transport_timestamp = Some(fixture.cursor_before + 4_000);
+        let sealed = fixture.client.seal_transport_cursor();
+        fixture
+            .client
+            .save_state_with_pending_local_group_deletion_frontier_clears()
+            .unwrap();
+        fixture.client.settle_transport_cursor(
+            sealed,
+            marmot_forensics::TransportCursorTrigger::DrainCheckpoint,
+        );
+        assert_eq!(fixture.persisted(), Some(fixture.cursor_before));
+
+        let reopened = fixture.reopen().await;
+        assert_eq!(
+            reopened.client.checkpointed_transport_timestamp,
+            Some(reopened.cursor_before)
+        );
+    });
+}
+
 /// One account that opened with `cursor_before` persisted (unless opened
 /// without a cursor), owns a group, and has every subscription past
 /// end-of-stored-events, so live ingests may promote its transport cursor.
 pub(crate) struct LiveCursorFixture {
     pub(crate) app: MarmotApp,
     pub(crate) client: crate::AppClient,
+    relay: Arc<ScriptedPushRelayClient>,
     account_id: MemberId,
     nostr_group_id_hex: String,
     pub(crate) cursor_before: u64,
@@ -13194,7 +13268,7 @@ impl LiveCursorFixture {
             seeded.last_transport_timestamp = Some(cursor_before);
             app.save_state(&seeded).unwrap();
         }
-        let eose = scripted_eose_pump(app.relay_plane.clone(), relay, every_subscription);
+        let eose = scripted_eose_pump(app.relay_plane.clone(), relay.clone(), every_subscription);
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let group_id = client.create_group("live cursor", &[]).await.unwrap();
         let nostr_group_id_hex = app
@@ -13210,9 +13284,11 @@ impl LiveCursorFixture {
         })
         .await
         .expect("every subscription finishes replaying stored history");
+        client.synchronize_native_replay().await.unwrap();
         Self {
             app,
             client,
+            relay,
             account_id: MemberId::new(hex::decode(&account.account_id_hex).unwrap()),
             nostr_group_id_hex,
             cursor_before,
@@ -13275,6 +13351,7 @@ impl LiveCursorFixture {
         let Self {
             app,
             client,
+            relay,
             account_id,
             nostr_group_id_hex,
             cursor_before,
@@ -13286,6 +13363,7 @@ impl LiveCursorFixture {
         Self {
             app,
             client,
+            relay,
             account_id,
             nostr_group_id_hex,
             cursor_before,
@@ -13324,7 +13402,7 @@ impl LiveCursorFixture {
     /// longer asks relays for it.
     pub(crate) async fn reopen_and_admit_spilled(self, event_id: &str) -> Self {
         let mut fixture = self.reopen().await;
-        assert_eq!(fixture.ingest_next_live_delivery().await, event_id);
+        fixture.client.sync().await.unwrap();
         assert!(
             fixture
                 .client
@@ -13348,6 +13426,7 @@ impl LiveCursorFixture {
 
     pub(crate) async fn wait_for_queue_depth(&self, depth: usize) {
         tokio::time::timeout(Duration::from_secs(5), async {
+            // Queue visibility precedes the router's replay-placement acknowledgement.
             while self
                 .app
                 .relay_plane
@@ -13355,12 +13434,18 @@ impl LiveCursorFixture {
                 .await
                 .account_delivery_queue_depth
                 < depth
+                || !self
+                    .client
+                    .adapter
+                    .account_subscription_eose()
+                    .await
+                    .complete()
             {
                 tokio::task::yield_now().await;
             }
         })
         .await
-        .expect("the router queues every injected probe");
+        .expect("the router queues and acknowledges every injected probe");
     }
 
     pub(crate) async fn ingest_next_live_delivery(&mut self) -> String {
@@ -13389,7 +13474,10 @@ impl LiveCursorFixture {
     ) -> (NostrTransportEvent, cgka_traits::TransportDelivery) {
         let late = self.probe(late_at, "late");
         let delivery = self.delivery(late.clone()).await;
-        inject_epoch_gap_probe(&self.app, self.probe(created_at, "promoting")).await;
+        let promoting = self.delivery(self.probe(created_at, "promoting")).await;
+        self.app
+            .relay_plane
+            .route_account_delivery_for_test(promoting);
         self.wait_for_queue_depth(1).await;
         (late, delivery)
     }
@@ -13423,8 +13511,8 @@ fn live_ingest_keeps_the_cursor_until_every_subscription_replayed_stored_history
             .nostr_routing
             .nostr_group_id_hex;
         assert!(!client.adapter.account_subscription_eose().await.complete());
-        inject_epoch_gap_probe(
-            &app,
+        route_group_probe(
+            &client,
             epoch_gap_probe(&nostr_group_id_hex, cursor_before + 4_000, "replaying"),
         )
         .await;
@@ -13454,7 +13542,11 @@ fn live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue()
             (cursor_before + 4_000, "newer"),
             (cursor_before + 1_000, "older"),
         ] {
-            inject_epoch_gap_probe(&fixture.app, fixture.probe(created_at, marker)).await;
+            let delivery = fixture.delivery(fixture.probe(created_at, marker)).await;
+            fixture
+                .app
+                .relay_plane
+                .route_account_delivery_for_test(delivery);
         }
         fixture.wait_for_queue_depth(2).await;
 
@@ -13588,7 +13680,13 @@ fn deliveries_older_than_the_promoted_floor_go_through_the_spill_and_are_all_adm
     run_composed_app_runtime_test("live-cursor-older-burst", || async {
         let mut fixture = LiveCursorFixture::open().await;
         let cursor_before = fixture.cursor_before;
-        inject_epoch_gap_probe(&fixture.app, fixture.probe(cursor_before + 4_000, "newest")).await;
+        let newest = fixture
+            .delivery(fixture.probe(cursor_before + 4_000, "newest"))
+            .await;
+        fixture
+            .app
+            .relay_plane
+            .route_account_delivery_for_test(newest);
         fixture.wait_for_queue_depth(1).await;
         fixture.ingest_next_live_delivery().await;
         assert_eq!(fixture.persisted(), Some(cursor_before + 4_000));
@@ -13600,7 +13698,11 @@ fn deliveries_older_than_the_promoted_floor_go_through_the_spill_and_are_all_adm
         for index in 0..OLDER {
             let event = fixture.probe(cursor_before + 2_000 + index, &format!("older-{index}"));
             older.push(event.id.clone());
-            inject_epoch_gap_probe(&fixture.app, event).await;
+            let delivery = fixture.delivery(event).await;
+            fixture
+                .app
+                .relay_plane
+                .route_account_delivery_for_test(delivery);
         }
         tokio::time::timeout(Duration::from_secs(5), async {
             while fixture
@@ -13664,8 +13766,8 @@ fn live_ingest_keeps_the_cursor_behind_a_queue_omission_after_replay() {
                 .set_account_delivery_recovery_marker_for_test(&fixture.account_id, marker)
         );
         for index in 0..=transport_nostr::ACCOUNT_DELIVERY_BUFFER {
-            inject_epoch_gap_probe(
-                &fixture.app,
+            route_group_probe(
+                &fixture.client,
                 fixture.probe(
                     cursor_before + 4_000 - index as u64,
                     &format!("burst-{index}"),
@@ -17426,17 +17528,8 @@ async fn a_deferred_open_never_subscribes_a_departed_groups_route() {
         .remove_members(&removed_group, &[bob.account_id_hex.as_str()])
         .await
         .unwrap();
-    let received = tokio::time::timeout(Duration::from_secs(5), bob_client.receive_next_delivery())
-        .await
-        .expect("the removal commit must fan out to bob's group route")
-        .unwrap();
-    let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received else {
-        panic!("the test did not overflow its account delivery queue");
-    };
-    bob_client
-        .ingest_received_delivery(*delivery)
-        .await
-        .unwrap();
+    report_scripted_eose(&plane, &relay, every_subscription).await;
+    while bob_client.admit_native_turn().await.unwrap() {}
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     while !bob_client
         .runtime
@@ -17498,6 +17591,7 @@ async fn a_committed_leave_stops_routing_the_group_across_a_reopen() {
         .with_test_relay_client(relay.clone());
     remember_test_member_inbox(&app, &bob.account_id_hex, "wss://relay.example");
     let plane = MarmotRelayPlane::new(None, relay.clone());
+    let _eose = scripted_eose_pump(plane.clone(), relay.clone(), every_subscription);
 
     let mut alice = app
         .client_with_relay_plane("alice", &plane, None)
@@ -17687,20 +17781,11 @@ async fn an_admin_removal_clears_the_removed_devices_group_routes() {
         .remove_members(&removed_group, &[bob.account_id_hex.as_str()])
         .await
         .unwrap();
-    // The runtime's dominant receive path. The removal commit lands in the
-    // same epoch bob still holds, so the engine buffers it for distributed
-    // convergence instead of applying it inline.
-    let received = tokio::time::timeout(Duration::from_secs(5), bob_client.receive_next_delivery())
-        .await
-        .expect("the removal commit must fan out to bob's group route")
-        .unwrap();
-    let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received else {
-        panic!("the test did not overflow its account delivery queue");
-    };
-    bob_client
-        .ingest_received_delivery(*delivery)
-        .await
-        .unwrap();
+    // The native group lane waits for the current REQ's stored-history
+    // boundary before admitting the real locally published removal commit.
+    // It lands in bob's current epoch and buffers for convergence.
+    report_scripted_eose(&plane, &relay, every_subscription).await;
+    while bob_client.admit_native_turn().await.unwrap() {}
     // The scheduled-convergence path the account worker drives. This is the
     // field case: the removal was adopted through convergence, not inline.
     // Adoption cannot freeze until the settlement quiescence window closes, so
@@ -17764,42 +17849,6 @@ async fn an_admin_removal_clears_the_removed_devices_group_routes() {
 /// disband tombstones. The removed group is still in `state.groups`, so the
 /// rebuild seeded its subscriptions back and handed them straight to the adapter.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn key_package_publication_never_issues_a_full_history_subscription() {
-    // An unfloored activation replays every held event on every route and
-    // leaves a notification lag's loss unbounded. Publishing or rotating a
-    // KeyPackage reuses the live activation, or rebuilds it from the cursor.
-    let dir = tempfile::tempdir().unwrap();
-    AccountHome::open(dir.path())
-        .create_account("alice")
-        .unwrap();
-    let relay = Arc::new(ScriptedPushRelayClient::default());
-    let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
-        .with_test_relay_client(relay.clone());
-    let _pump = scripted_eose_pump(app.relay_plane.clone(), relay.clone(), every_subscription);
-    let mut client = client_on_app_relay_plane(&app, "alice").await;
-    client.create_group("floored", &[]).await.unwrap();
-    client.prepare_transport().await.unwrap();
-    let before = relay.accepted_subscriptions().len();
-    client.publish_key_package().await.unwrap();
-    client.rotate_key_package().await.unwrap();
-    let unfloored = relay.accepted_subscriptions()[before..]
-        .iter()
-        .filter(|subscription| {
-            matches!(
-                subscription,
-                NostrSubscription::AccountInbox { since: None, .. }
-                    | NostrSubscription::Group { since: None, .. }
-                    | NostrSubscription::GroupBatch { since: None, .. }
-            )
-        })
-        .count();
-    assert_eq!(
-        unfloored, 0,
-        "a KeyPackage publication replayed full history"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_routing_rebuild_after_a_removal_does_not_resubscribe_the_removed_group() {
     let dir = tempfile::tempdir().unwrap();
     let home = AccountHome::open(dir.path());
@@ -17839,17 +17888,8 @@ async fn a_routing_rebuild_after_a_removal_does_not_resubscribe_the_removed_grou
         .remove_members(&removed_group, &[bob.account_id_hex.as_str()])
         .await
         .unwrap();
-    let received = tokio::time::timeout(Duration::from_secs(5), bob_client.receive_next_delivery())
-        .await
-        .expect("the removal commit must fan out to bob's group route")
-        .unwrap();
-    let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received else {
-        panic!("the test did not overflow its account delivery queue");
-    };
-    bob_client
-        .ingest_received_delivery(*delivery)
-        .await
-        .unwrap();
+    report_scripted_eose(&plane, &relay, every_subscription).await;
+    while bob_client.admit_native_turn().await.unwrap() {}
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     while !bob_client
         .runtime
@@ -17944,17 +17984,8 @@ async fn a_removed_device_fails_a_composer_send_before_projecting_a_row() {
         .remove_members(&group_id, &[bob.account_id_hex.as_str()])
         .await
         .unwrap();
-    let received = tokio::time::timeout(Duration::from_secs(5), bob_client.receive_next_delivery())
-        .await
-        .expect("the removal commit must fan out to bob's group route")
-        .unwrap();
-    let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received else {
-        panic!("the test did not overflow its account delivery queue");
-    };
-    bob_client
-        .ingest_received_delivery(*delivery)
-        .await
-        .unwrap();
+    report_scripted_eose(&plane, &relay, every_subscription).await;
+    while bob_client.admit_native_turn().await.unwrap() {}
     // The removal lands in the epoch bob still holds, so convergence adopts it
     // rather than the inline commit-apply path.
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -18014,12 +18045,14 @@ async fn local_delete_compensation_preserves_primary_error_and_attempts_route_re
         .with_test_relay_client(relay.clone());
     let mut client = app.client("alice").await.unwrap();
     let group_id = client.create_group("compensation", &[]).await.unwrap();
+    let group_id_hex = hex::encode(group_id.as_slice());
     let routes_before = client.routing.snapshot().group_routes;
 
     relay.block_next_unsubscribe();
+    let deleted_group = group_id.clone();
     let delete = tokio::spawn(async move {
-        let result = client.delete_group_local(&group_id).await;
-        (result, client.routing.snapshot().group_routes)
+        let result = client.delete_group_local(&deleted_group).await;
+        (result, client)
     });
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
@@ -18028,21 +18061,41 @@ async fn local_delete_compensation_preserves_primary_error_and_attempts_route_re
     .await
     .unwrap();
     app.close_storage().unwrap();
-    relay.fail_next_subscribe();
     relay.release_unsubscribe();
 
-    let (result, routes_after) = delete.await.unwrap();
+    let (result, client) = delete.await.unwrap();
     let error = format!("{:?}", result.unwrap_err());
     assert!(
         error.contains("Closed"),
         "the original storage-delete failure must win over compensation failures: {error}"
     );
-    assert_eq!(routes_after, routes_before);
+    assert_eq!(client.routing.snapshot().group_routes, routes_before);
+    // Restoring native transport first reads durable replay state, so closed
+    // storage prevents a new REQ. Keep the route and its refresh intent instead.
+    assert!(client.has_pending_runtime_group_subscription_refresh());
+    drop(client);
+
+    let reopened = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+        .with_test_relay_client(relay.clone());
+    assert!(reopened.group("alice", &group_id_hex).unwrap().is_some());
+    assert_eq!(
+        reopened
+            .account_storage("alice")
+            .unwrap()
+            .app_storage()
+            .local_group_deletion_frontier(&group_id_hex)
+            .unwrap(),
+        None,
+    );
+    let before_restore = relay.accepted_subscriptions().len();
+    let mut restored = reopened.client("alice").await.unwrap();
+    restored.prepare_transport().await.unwrap();
+    assert_eq!(restored.routing.snapshot().group_routes, routes_before);
     assert!(
-        !relay
-            .fail_next_subscribe
-            .load(std::sync::atomic::Ordering::SeqCst),
-        "runtime route restoration must still be attempted after storage compensation fails"
+        relay.accepted_subscriptions()[before_restore..]
+            .iter()
+            .any(|subscription| subscription.carries_group(&group_id)),
+        "reopening must restore a real subscription for the undeleted group"
     );
 }
 
@@ -20139,28 +20192,26 @@ async fn an_escalation_recorded_during_a_received_delivery_rides_that_seam() {
 /// A delivery whose ingest fails must stay retryable on the same reused
 /// client.
 ///
-/// `receive_next_delivery` must not mark the id seen before
-/// `ingest_received_delivery` commits it: a pre-ingest mark would poison the
-/// seen-events index on failure, so the reused client would silently skip the
-/// event when the relay redelivers it.
+/// Native admission must not mark the id seen or acknowledge its loan before
+/// ingest commits it. The retained frame retries without another relay copy.
 #[cfg(feature = "test-policy-overrides")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_failed_ingest_leaves_the_delivery_retryable_on_the_reused_client() {
-    assert_failed_delivery_cursor_pin(FailedDeliveryRecovery::Redelivery).await;
+async fn native_failed_ingest_cursor() {
+    assert_failed_cursor_pin(FailedDeliveryRecovery::Redelivery).await;
 }
 
 /// Projection repair must release its taken delivery without relay redelivery.
 #[cfg(feature = "test-policy-overrides")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn quiet_projection_retry_releases_the_failed_delivery_cursor_pin() {
-    assert_failed_delivery_cursor_pin(FailedDeliveryRecovery::QuietProjectionRetry).await;
+async fn native_quiet_cursor_retry() {
+    assert_failed_cursor_pin(FailedDeliveryRecovery::QuietProjectionRetry).await;
 }
 
 /// A failure before engine admission still needs a real ingest before release.
 #[cfg(feature = "test-policy-overrides")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pre_engine_ingest_failure_keeps_the_delivery_cursor_pin() {
-    assert_failed_delivery_cursor_pin(FailedDeliveryRecovery::BeforeEngine).await;
+async fn native_pre_ingest_cursor() {
+    assert_failed_cursor_pin(FailedDeliveryRecovery::BeforeEngine).await;
 }
 
 #[cfg(feature = "test-policy-overrides")]
@@ -20171,7 +20222,7 @@ enum FailedDeliveryRecovery {
 }
 
 #[cfg(feature = "test-policy-overrides")]
-async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
+async fn assert_failed_cursor_pin(recovery: FailedDeliveryRecovery) {
     let dir = tempfile::tempdir().unwrap();
     let home = AccountHome::open(dir.path());
     home.create_account("alice").unwrap();
@@ -20198,18 +20249,6 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
         .create_group("retryable failed ingest", &[bob.account_id_hex.as_str()])
         .await
         .unwrap();
-    let inject = |event: NostrTransportEvent| {
-        let plane = plane.clone();
-        async move {
-            plane
-                .handle_relay_event_for_test(NostrRelayEvent {
-                    endpoint: TransportEndpoint("wss://relay.example".to_owned()),
-                    subscription_id: None,
-                    event,
-                })
-                .await
-        }
-    };
     assert!(
         bob_client
             .sync()
@@ -20219,6 +20258,8 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
             .contains(&group_id),
         "bob must join before the failing application message",
     );
+    report_scripted_eose(&plane, &relay, every_subscription).await;
+    while bob_client.admit_native_turn().await.unwrap() {}
     bob_client.take_pending_projection_updates();
     bob_client.take_pending_applied_sync_summary();
 
@@ -20236,26 +20277,21 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
         .find(|event| event.kind == transport_nostr_peeler::KIND_MARMOT_GROUP_MESSAGE)
         .cloned()
         .expect("published group message backing the send");
-    let delivery = tokio::time::timeout(Duration::from_secs(5), bob_client.receive_next_delivery())
-        .await
-        .expect("locally fanned-out application message")
-        .unwrap();
-    let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = delivery else {
-        panic!("the test did not overflow its account delivery queue");
-    };
-    let delivery = *delivery;
-    let event_id = hex::encode(delivery.message.id.as_slice());
+    let message = relay_event.to_transport_message().unwrap();
+    let event_id = hex::encode(message.id.as_slice());
     assert_eq!(event_id, relay_event.id);
-    let later_cursor = delivery.message.timestamp.0 + 10_000;
+    let later_cursor = message.timestamp.0 + 10_000;
     let probe_cursor = |client: &AppClient| {
-        let sealed = client.adapter.seal_transport_cursor(Some(later_cursor));
+        let sealed = client
+            .adapter
+            .seal_transport_cursor(Some(later_cursor), |_| true);
         client
             .adapter
             .unseal_transport_cursor(client.state.last_transport_timestamp);
         sealed
     };
     if matches!(recovery, FailedDeliveryRecovery::BeforeEngine) {
-        bob_client.fail_ingest_of = Some(delivery.message.id.clone());
+        bob_client.fail_ingest_of = Some(message.id);
     } else {
         bob_client
             .app
@@ -20263,7 +20299,7 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
             .dev_fail_ingest_after_application_event_ack = true;
     }
     bob_client
-        .ingest_received_delivery(delivery)
+        .admit_native_turn()
         .await
         .expect_err("the injected ingest failure must surface");
     assert!(
@@ -20271,7 +20307,7 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
         "a failed ingest must not mark the delivery seen",
     );
     assert!(
-        probe_cursor(&bob_client).is_some_and(|cursor| cursor < later_cursor),
+        probe_cursor(&bob_client).is_none_or(|cursor| cursor < later_cursor),
         "a taken delivery must cap the cursor while its ingest remains failed",
     );
 
@@ -20287,6 +20323,8 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
             .await
             .expect("quiet retry must complete the retained projection");
         assert!(!bob_client.has_pending_effect_projections());
+        report_scripted_eose(&plane, &relay, every_subscription).await;
+        assert!(bob_client.admit_native_turn().await.unwrap());
         assert_eq!(
             probe_cursor(&bob_client),
             Some(later_cursor),
@@ -20306,28 +20344,17 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
                     .unwrap(),
             );
             assert!(
-                probe_cursor(&bob_client).is_some_and(|cursor| cursor < later_cursor),
+                probe_cursor(&bob_client).is_none_or(|cursor| cursor < later_cursor),
                 "projection retry must not release an unaccepted delivery",
             );
         }
+        report_scripted_eose(&plane, &relay, every_subscription).await;
         assert!(
-            inject(relay_event).await.expect("route the redelivery") >= 1,
-            "the group route must accept the redelivery",
-        );
-        let redelivery =
-            tokio::time::timeout(Duration::from_secs(5), bob_client.receive_next_delivery())
+            bob_client
+                .admit_native_turn()
                 .await
-                .expect("redelivered application message")
-                .unwrap();
-        let transport_nostr::AccountDeliveryReceive::Delivery(redelivery) = redelivery else {
-            panic!("the test did not overflow its account delivery queue");
-        };
-        let redelivery = *redelivery;
-        assert_eq!(hex::encode(redelivery.message.id.as_slice()), event_id);
-        let summary = bob_client
-            .ingest_received_delivery(redelivery)
-            .await
-            .expect("the retry must ingest the redelivered event");
+                .expect("the retry must ingest the retained native frame")
+        );
         assert!(
             bob_client.seen_events_index.contains(&event_id),
             "a successful ingest must mark the delivery seen",
@@ -20337,7 +20364,7 @@ async fn assert_failed_delivery_cursor_pin(recovery: FailedDeliveryRecovery) {
             Some(later_cursor),
             "successful redelivery must release the original cursor pin",
         );
-        summary
+        bob_client.take_pending_applied_sync_summary()
     };
     // A post-ack failure already projected the message without returning its
     // summary; a pre-engine failure projected nothing. Either recovery path
@@ -20793,49 +20820,90 @@ fn a_transport_deferred_delivery_is_still_marked_seen() {
 }
 
 /// The same rule at the catch-up drain seam: a refused delivery must leave both
-/// the seen index and the transport cursor untouched there too, so the relay
-/// re-serves it on the next drain instead of the app skipping it.
+/// the seen index and the durable transport cursor untouched there too, so a
+/// restarted client's new history REQ can re-serve the exact same object.
 #[test]
 fn a_refused_delivery_stays_fetchable_through_the_catch_up_drain() {
     run_composed_app_runtime_test("refused-ingest-drain-seam", || async {
+        use cgka_traits::storage::MessageStorage;
+
         let dir = tempfile::tempdir().unwrap();
         let filled_through = crate::unix_now_seconds() - 1_000;
-        let (app, mut client, route) =
-            group_at_the_undecryptable_retention_cap(&dir, filled_through).await;
+        let relay = Arc::new(ScriptedPushRelayClient::default());
+        let (app, mut client, route) = group_at_the_undecryptable_retention_cap_with_config(
+            &dir,
+            &relay,
+            MarmotAppConfig::white_noise(),
+            filled_through,
+        )
+        .await;
+        {
+            let _eose =
+                scripted_eose_pump(app.relay_plane.clone(), relay.clone(), every_subscription);
+            client
+                .sync()
+                .await
+                .expect("the retained prefix must checkpoint");
+        }
+        assert_eq!(
+            app.load_state("alice").unwrap().last_transport_timestamp,
+            Some(filled_through),
+        );
 
         let refused = epoch_gap_probe(
             &route.nostr_group_id_hex,
             filled_through + 500,
             "refused-in-the-drain",
         );
-        let refused_id = refused.id.clone();
-        inject_epoch_gap_probe(&app, refused.clone()).await;
-        client.sync().await.expect("the drain must complete");
+        let message_id = refused.to_transport_message().unwrap().id;
+        for expected_refusals in 1..=2 {
+            // Filling the real backlog may outlast the original source lease.
+            // Each drain starts with a fresh lifecycle-owned history REQ.
+            let before_reopen = relay.accepted_subscriptions().len();
+            drop(client);
+            client = client_on_app_relay_plane(&app, "alice").await;
+            client.prepare_transport().await.unwrap();
+            let subscription_id = relay.accepted_subscriptions()[before_reopen..]
+                .iter()
+                .rev()
+                .find(|subscription| subscription.carries_group(&route.group_id))
+                .expect("the open client issued a group history REQ")
+                .subscription_id();
+            assert_eq!(
+                app.relay_plane
+                    .handle_relay_event_for_test(NostrRelayEvent {
+                        endpoint: TransportEndpoint("wss://relay.example".to_owned()),
+                        subscription_id: Some(subscription_id),
+                        event: refused.clone(),
+                    })
+                    .await
+                    .unwrap(),
+                1,
+            );
+            let _eose =
+                scripted_eose_pump(app.relay_plane.clone(), relay.clone(), every_subscription);
+            client
+                .sync()
+                .await
+                .expect("the history drain must complete");
 
-        assert_eq!(
-            recorded_ingest_outcomes(&app, &refused_id),
-            vec!["resource_refused".to_owned()],
-            "the backlog must be full, so the drain's object is refused",
-        );
-        assert!(
-            !client.seen_events_index.contains(&refused_id),
-            "the drain must not mark a refused object seen",
-        );
-        assert_eq!(
-            client.state.last_transport_timestamp,
-            Some(filled_through),
-            "nor carry the relay `since` floor past it",
-        );
-
-        // The relay re-serves it on the next drain, and the drain ingests it
-        // again rather than counting it as an already-seen skip.
-        inject_epoch_gap_probe(&app, refused).await;
-        client.sync().await.expect("the second drain must complete");
-        assert_eq!(
-            recorded_ingest_outcomes(&app, &refused_id),
-            vec!["resource_refused".to_owned(), "resource_refused".to_owned()],
-            "the re-served object must reach the engine again",
-        );
+            assert_eq!(
+                recorded_ingest_outcomes(&app, &refused.id),
+                vec!["resource_refused".to_owned(); expected_refusals],
+                "each REQ's exact re-served object must reach engine admission",
+            );
+            assert!(!client.seen_events_index.contains(&refused.id));
+            let persisted = app.load_state("alice").unwrap();
+            assert!(!persisted.seen_events.contains(&refused.id));
+            assert_eq!(client.state.last_transport_timestamp, Some(filled_through));
+            assert_eq!(persisted.last_transport_timestamp, Some(filled_through));
+            assert!(matches!(
+                app.account_storage("alice")
+                    .unwrap()
+                    .get_message(&message_id),
+                Err(cgka_traits::storage::StorageError::NotFound)
+            ));
+        }
     });
 }
 
@@ -22700,7 +22768,7 @@ fn released_transport_is_replayed_after_lost_effect_and_reopen() {
             "unsaved receipts",
             "direct ingest",
             "sdk drain",
-            "receive",
+            "native receive",
         ] {
             let dir = tempfile::tempdir().unwrap();
             let relay = Arc::new(ScriptedPushRelayClient::default());
@@ -22738,7 +22806,7 @@ fn released_transport_is_replayed_after_lost_effect_and_reopen() {
                 assert!(client.seen_events_index.contains(&probe.id));
             }
             storage.release_message_for_replay(&record).unwrap();
-            if matches!(handling, "direct ingest" | "sdk drain" | "receive") {
+            if matches!(handling, "direct ingest" | "sdk drain" | "native receive") {
                 // Readmit immediately, with no effect observation, explicit
                 // reconcile or unrelated checkpoint to clean up the cache.
                 if handling == "direct ingest" {
@@ -22748,21 +22816,16 @@ fn released_transport_is_replayed_after_lost_effect_and_reopen() {
                         .unwrap();
                 } else {
                     inject_epoch_gap_probe(&app, probe.clone()).await;
+                    report_scripted_eose(&app.relay_plane, &relay, every_subscription).await;
+                    let _eose = scripted_eose_pump(
+                        app.relay_plane.clone(),
+                        relay.clone(),
+                        every_subscription,
+                    );
                     if handling == "sdk drain" {
                         client.sync().await.unwrap();
                     } else {
-                        let received = tokio::time::timeout(
-                            Duration::from_secs(5),
-                            client.receive_next_delivery(),
-                        )
-                        .await
-                        .unwrap()
-                        .unwrap();
-                        let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received
-                        else {
-                            panic!("unexpected overflow")
-                        };
-                        client.ingest_received_delivery(*delivery).await.unwrap();
+                        assert!(client.admit_native_turn().await.unwrap());
                     }
                 }
                 assert_eq!(
@@ -22829,6 +22892,8 @@ fn released_transport_is_replayed_after_lost_effect_and_reopen() {
                     .any(|item| hex::encode(item.event_id) == probe.id)
             );
             inject_epoch_gap_probe(&app, probe.clone()).await;
+            let _eose =
+                scripted_eose_pump(app.relay_plane.clone(), relay.clone(), every_subscription);
             client.sync().await.unwrap();
             assert_eq!(
                 recorded_ingest_outcomes(&app, &probe.id).len(),
@@ -24095,11 +24160,7 @@ async fn forget_group_local_rejects_old_welcome_then_rejoins_from_fresh_invitati
         }
         delivery.message.timestamp = cgka_traits::Timestamp(cutoff.0 + 3600);
         delivery.received_at = cgka_traits::Timestamp(cutoff.0 + 3600);
-        let effects = bob_client
-            .runtime
-            .ingest_delivery(delivery.clone())
-            .await
-            .unwrap();
+        let effects = bob_client.runtime.ingest_delivery(&delivery).await.unwrap();
         assert!(matches!(
             effects.outcome,
             cgka_traits::IngestOutcome::Ignored { .. }
@@ -24115,11 +24176,7 @@ async fn forget_group_local_rejects_old_welcome_then_rejoins_from_fresh_invitati
             .client_with_relay_plane("bob", &plane, None)
             .await
             .unwrap();
-        let effects = reopened
-            .runtime
-            .ingest_delivery(delivery.clone())
-            .await
-            .unwrap();
+        let effects = reopened.runtime.ingest_delivery(&delivery).await.unwrap();
         assert!(matches!(
             effects.outcome,
             cgka_traits::IngestOutcome::Ignored { .. }
@@ -24199,7 +24256,7 @@ async fn forget_group_local_rejects_old_welcome_then_rejoins_from_fresh_invitati
         old_delivery.message = old_group_event;
         let ignored = reopened
             .runtime
-            .ingest_delivery(old_delivery)
+            .ingest_delivery(&old_delivery)
             .await
             .unwrap();
         assert!(!matches!(
@@ -24208,7 +24265,7 @@ async fn forget_group_local_rejects_old_welcome_then_rejoins_from_fresh_invitati
         ));
         assert!(ignored.effects.events.is_empty());
         assert!(app.messages("bob").unwrap().is_empty());
-        let old = reopened.runtime.ingest_delivery(delivery).await.unwrap();
+        let old = reopened.runtime.ingest_delivery(&delivery).await.unwrap();
         assert!(matches!(
             old.outcome,
             cgka_traits::IngestOutcome::Ignored { .. }

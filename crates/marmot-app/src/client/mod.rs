@@ -88,13 +88,13 @@ use push::notification_trigger_for_intent;
 #[cfg(test)]
 pub(crate) use sync::ScriptedComparisons;
 #[cfg(test)]
-pub(crate) use sync::TestComparisonActivityWitness;
-#[cfg(test)]
 pub(crate) use sync::epoch_stall_now_ms;
 pub(crate) use sync::{
-    ComparisonAdmission, ComparisonExecution, ComparisonNetworkJob, ConvergenceScheduleState,
-    EpochBackfillRunOutcome, PendingRecoverySelection, SyncMode,
+    CommittedSyncProgress, ComparisonAdmission, ComparisonExecution, ComparisonNetworkJob,
+    ConvergenceScheduleState, EpochBackfillRunOutcome, PendingRecoverySelection, SyncMode,
 };
+#[cfg(test)]
+pub(crate) use sync::{MAX_COMPARISON_ADMISSION_PER_TURN, TestComparisonActivityWitness};
 
 #[cfg(test)]
 const CREATE_GROUP_LOOKUP_CONCURRENCY: usize = 8;
@@ -630,6 +630,13 @@ fn prepared_group_image_status(
     }
 }
 
+/// Optional inventory writes are separate from per-frame durability and ACKs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InventoryWrite {
+    Immediate,
+    NativeTurn,
+}
+
 /// Outcome of one [`AppClient::refresh_group_routes`] pass, separating the
 /// in-memory routing-table delta from durable-state mutation: only the latter
 /// obligates a state save, only the former obligates a relay-subscription
@@ -792,6 +799,9 @@ pub struct AppClient {
     /// successful checkpoint. A reopened client recovers the same outputs from
     /// the durable engine outbox instead.
     pub(crate) pending_failed_sync_summary: crate::SyncSummary,
+    /// Native checkpoints already committed; retained across drain cancellation.
+    pub(super) pending_native_sync_summary: crate::SyncSummary,
+    pub(super) native_sync_deliveries: u64,
     /// Whether the last settled job certified the retained window of every
     /// explicit-history scope it compared. Explicit history reaches below
     /// that window, so this never completes it; it names why it stays open.
@@ -6709,10 +6719,11 @@ impl AppClient {
             // prune while convergence still has unresolved inputs: the
             // retained anchor is not settled yet, so conservatively keep every
             // prior address until the next stable reconciliation.
-            if !self
-                .runtime
-                .has_pending_convergence_inputs(&group_id)
-                .unwrap_or(true)
+            if !group.prior_nostr_routes.is_empty()
+                && !self
+                    .runtime
+                    .has_pending_convergence_inputs(&group_id)
+                    .unwrap_or(true)
                 && let Ok(group_record) = self.runtime.group_record(&group_id)
                 && group.prune_prior_nostr_routes(group_record.epoch.0)
             {

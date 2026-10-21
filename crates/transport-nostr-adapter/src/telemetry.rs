@@ -26,6 +26,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use cgka_traits::MessageId;
 use cgka_traits::TransportEndpoint;
@@ -72,7 +73,8 @@ pub struct RelayIndex(pub u32);
 /// Device-local assignment of stable opaque indices to relay endpoints.
 #[derive(Clone, Debug, Default)]
 pub struct RelayIndexRegistry {
-    indices: HashMap<TransportEndpoint, RelayIndex>,
+    indices: HashMap<Arc<TransportEndpoint>, RelayIndex>,
+    endpoints: Vec<Arc<TransportEndpoint>>,
     next: u32,
 }
 
@@ -90,6 +92,8 @@ impl RelayIndexRegistry {
         }
         let index = RelayIndex(self.next);
         self.next += 1;
+        let key = Arc::new(key);
+        self.endpoints.push(Arc::clone(&key));
         self.indices.insert(key, index);
         index
     }
@@ -100,25 +104,19 @@ impl RelayIndexRegistry {
 
     /// Resolve an opaque index back to its relay endpoint, if one is assigned.
     ///
-    /// This is the only reverse mapping in the module. It exists solely for the
-    /// opt-in export label boundary; the adapter gates access behind
-    /// [`RelayExportConsent`], so callers cannot reach a populated registry
-    /// without one.
+    /// Account-bound recovery borrows this mapping locally. Diagnostic export
+    /// still requires [`RelayExportConsent`] at the adapter's export boundary.
     pub fn resolve(&self, index: RelayIndex) -> Option<&TransportEndpoint> {
-        self.indices
-            .iter()
-            .find_map(|(endpoint, candidate)| (*candidate == index).then_some(endpoint))
+        self.endpoints.get(index.0 as usize).map(Arc::as_ref)
     }
 
     /// Every assigned `(index, endpoint)` pair, ascending by index.
     pub fn resolutions(&self) -> Vec<(RelayIndex, TransportEndpoint)> {
-        let mut pairs: Vec<(RelayIndex, TransportEndpoint)> = self
-            .indices
+        self.endpoints
             .iter()
-            .map(|(endpoint, index)| (*index, endpoint.clone()))
-            .collect();
-        pairs.sort_by_key(|(index, _)| index.0);
-        pairs
+            .enumerate()
+            .map(|(index, endpoint)| (RelayIndex(index as u32), endpoint.as_ref().clone()))
+            .collect()
     }
 }
 
@@ -478,22 +476,6 @@ struct RelayProgress {
     started_ms: u64,
     first_event_seen: bool,
     eose_seen: bool,
-    /// A notification-lag repair re-issued this REQ on this relay, so no
-    /// later repair re-issues it again. A re-issue that went out nowhere is
-    /// released for a later repair.
-    eose_reissued: bool,
-}
-
-/// What a notification-lag repair may do on one relay of a REQ still
-/// awaiting EOSE, from [`RelaySyncTelemetry::claim_eose_repair`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EoseRepairClaim {
-    /// Check the relay client's EOSE record, and re-issue the REQ once when
-    /// it has none. The re-issue is claimed.
-    Reissue,
-    /// An earlier repair re-issued the REQ here: only check the relay
-    /// client's EOSE record, which costs no traffic.
-    Check,
 }
 
 /// Progress of one subscription across the relays it was issued to.
@@ -515,8 +497,7 @@ struct StagedSubscriptionProgress {
     rollback_eose: HashMap<(String, RelayIndex), u64>,
 }
 
-/// Local recorder for subscription sync timing and the initial-sync gate. It
-/// also records which relays a notification-lag repair re-issued a REQ to.
+/// Local recorder for subscription sync timing and the initial-sync gate.
 ///
 /// Diagnostic only; must never feed convergence or branch selection.
 #[derive(Clone, Debug, Default)]
@@ -736,44 +717,6 @@ impl RelaySyncTelemetry {
             .map(|progress| progress.eose_seen)
     }
 
-    /// Claim one relay of a committed subscription for a notification-lag
-    /// repair, when that relay has not reported EOSE for a REQ started at or
-    /// before `started_by_ms`. Every such repair may check the relay client's
-    /// EOSE record, but only the first may re-issue the REQ, so a replay that
-    /// lags again cannot loop. A new registration of the REQ starts over, and
-    /// a close forgets it.
-    pub(crate) fn claim_eose_repair(
-        &mut self,
-        subscription_id: &str,
-        relay: RelayIndex,
-        started_by_ms: u64,
-    ) -> Option<EoseRepairClaim> {
-        let progress = self
-            .subscriptions
-            .get_mut(subscription_id)
-            .and_then(|subscription| subscription.relays.get_mut(&relay))?;
-        if progress.eose_seen || progress.started_ms > started_by_ms {
-            return None;
-        }
-        if progress.eose_reissued {
-            return Some(EoseRepairClaim::Check);
-        }
-        progress.eose_reissued = true;
-        Some(EoseRepairClaim::Reissue)
-    }
-
-    /// Release a repair's re-issue on this relay for a later repair, when
-    /// nothing went out.
-    pub(crate) fn release_eose_reissue(&mut self, subscription_id: &str, relay: RelayIndex) {
-        if let Some(progress) = self
-            .subscriptions
-            .get_mut(subscription_id)
-            .and_then(|subscription| subscription.relays.get_mut(&relay))
-        {
-            progress.eose_reissued = false;
-        }
-    }
-
     /// Aggregate, privacy-safe snapshot of subscription sync timing.
     pub fn snapshot(&self) -> RelaySyncSnapshot {
         let tracked = self.subscriptions.len()
@@ -869,7 +812,6 @@ fn subscription_progress(relays: &[RelayIndex], now_ms: u64) -> SubscriptionProg
                         started_ms: now_ms,
                         first_event_seen: false,
                         eose_seen: false,
-                        eose_reissued: false,
                     },
                 )
             })
@@ -1287,46 +1229,6 @@ mod tests {
         // Reissued: the prior EOSE no longer counts.
         telem.record_subscription_start("sub", &[A], 100);
         assert_eq!(telem.subscription_synced("sub"), Some(false));
-    }
-
-    #[test]
-    fn lag_repair_claims_each_relay_awaiting_eose_until_released() {
-        use EoseRepairClaim::{Check, Reissue};
-        let mut telem = RelaySyncTelemetry::default();
-        telem.record_subscription_start("sub", &[A, B, C], 100);
-        telem.record_eose("sub", A, 110);
-
-        assert_eq!(telem.claim_eose_repair("sub", A, 200), None, "had EOSE");
-        assert_eq!(
-            telem.claim_eose_repair("sub", B, 99),
-            None,
-            "started after the lag"
-        );
-        assert_eq!(telem.claim_eose_repair("sub", B, 200), Some(Reissue));
-        assert_eq!(
-            telem.claim_eose_repair("sub", B, 300),
-            Some(Check),
-            "a later repair only checks"
-        );
-        assert_eq!(telem.claim_eose_repair("sub", RelayIndex(9), 200), None);
-        assert_eq!(telem.claim_eose_repair("unknown", A, 200), None);
-        // Claiming changes no gate: only the relay's own EOSE does.
-        assert_eq!(telem.subscription_endpoint_eose("sub", B), Some(false));
-
-        // A released re-issue lets a later repair re-issue again.
-        telem.release_eose_reissue("sub", B);
-        assert_eq!(telem.claim_eose_repair("sub", B, 300), Some(Reissue));
-        telem.record_eose("sub", B, 400);
-        assert_eq!(telem.claim_eose_repair("sub", B, 500), None);
-
-        // A fresh start of the same id is a new REQ, without any re-issue.
-        telem.record_subscription_start("sub", &[B], 500);
-        assert_eq!(telem.claim_eose_repair("sub", B, 500), Some(Reissue));
-        // Staged starts are not live yet and cannot be claimed.
-        telem.begin_staged_subscription_starts();
-        telem.stage_subscription_start("staged", &[A], 600);
-        assert_eq!(telem.claim_eose_repair("staged", A, 700), None);
-        telem.rollback_staged_subscription_starts();
     }
 
     #[test]

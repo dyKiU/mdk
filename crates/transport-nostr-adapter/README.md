@@ -75,6 +75,119 @@ Direct and account-adapter sends share these counters. Endpoint fanout and authe
 remain one logical attempt; dropping an in-flight publication records one cancellation.
 Account, endpoint-safety, and envelope validation stay outside this accounting boundary.
 
+## Ordered subscription replay
+
+Initial activation, group-subscription sync, and recovery maintenance stage group deliveries through stored
+replay and any backward pages, then release each group's batch in `(created_at, event id)` order. Live
+arrivals during release queue behind that batch. Each REQ/relay/route owns its historical claims and admission
+state. A shared ciphertext body is retained once per destination group; failure or retirement removes only
+that source's claims. A fulfilled predecessor keeps its held range during handoff. Paging runs per route from
+the outset, finishes all routes of one MLS group together, and waits for its history to leave the pool before
+paging the next group. Groups use a common ordering across overlapping REQs.
+
+An initial replay gets a 30-second waiting interval, reconciled with its first observed connection boundary.
+Clamped routes each get a 30-second paging allowance when their service starts, reusing
+`REPLAY_PAGE_LIMITS.max_duration`; queueing, peer-release waits and delivery draining do not spend it.
+Arriving events and repeated loss do not extend an active lease. An empty expired group stream becomes dormant; a
+first or newer connection can reopen waiting. Late history without that restart is discarded with its original
+loss floor, not certified by wire EOSE. Lost partial history also stays incomplete. A silent or terminally
+refused peer cannot freeze available history indefinitely. Fresh requests have fresh ownership. This does not
+establish ordering across unavailable relay history. Every replacement REQ establishes its own boundary, even
+for an equivalent or narrower repack. Each valid waiting peer fences group payload release until EOSE or its
+finite lease settles; another peer's EOSE is not permission to release ciphertext early. Group delivery uses verified raw SDK
+copies, so SDK duplicate suppression cannot consume the only copy of ciphertext discarded by a cancelled
+attempt. Retired subscription copies cannot bypass admission.
+
+An empty waiting endpoint or cancelled empty acquisition does not create notification loss. Discarded
+ciphertext retains its original floor. Late inbox copies remain countable so a clamped replay still triggers
+backward paging.
+
+Transport receivers use each relay's ordered SDK notifications, including connection and receiver-loss
+boundaries. Every queued payload carries reader/connection epochs. A warm reconnect resets admission before
+the SDK restores the same REQ IDs; old queued EOSE cannot satisfy the new generation. Authentication alone
+does not change the connection epoch or restart an active capture. Receiver loss fences the source until the
+account recovery owner grants a full-window capture. Forced paging is not a physical
+EOSE: late stored copies remain historical until their stream ends. Only transport-owned REQ payloads enter
+this frontier; acquisition replies stay with their request-local collectors. Direct SDK subscribers and the
+directory client keep their independent Client streams.
+
+`AccountRecoveryOwner` persists unresolved original windows as a `SubscriptionReplay` goal. Borrowed
+`ReplayAdmissionStatus` source views describe issued requests and current-epoch admission without allocating.
+Source membership, query windows and ordered epochs change its generation; page progress and ACKs do not.
+The generation remains distinct across account activation replacement.
+
+The app registers `ReplayIngress` before activation, including durable group spill rows as retained input.
+Every group frame then uses this lane, including local publication fanout, post-EOSE and untracked live tails; none enters the ordinary
+delivery queue. Each complete group range moves into a `ReplayBatch`, bypassing live-queue/spill alternation. The owner
+borrows the oldest frame through ordinary ingest and acknowledges it afterwards. Cancellation before ACK
+returns that frame and its suffix without copying ciphertext. A leased group holds its newer arrivals;
+other ready groups take turns. Retained spill input joins remote pages before any of that range decrypts,
+even when the current relay no longer holds those local copies.
+New source metadata, a restart or distinct historical input revokes an unstarted loan: `delivery()` returns `None`, and dropping the
+batch returns its suffix for merging after the new range completes. `take_batch(Some(group))` distinguishes
+that pending boundary from empty input. Same-account repacks preserve held live bodies. Ingest that already
+committed still ACKs its frame: revoking a loan cannot undo durable MLS progress. Spill settlement must succeed
+before its corresponding native ACK.
+Local fanout neither records relay history nor settles an outstanding source boundary. Inbox and legacy-only
+adapter consumers retain their ordinary delivery path.
+
+Only the owner's frozen `ReplayCapturePlan` starts recovery IO. It binds the account, source generation,
+issued REQ and endpoint, and retains the existing process recovery credit through accepted IO cleanup.
+Explicit captures refetch the original window, not a recent tail or an existing truncated continuation.
+Taking over capture in the same wire epoch preserves held ciphertext. Mechanical continuation of a physically
+clamped native reply remains automatic. Live REQs and the SDK registry stay unchanged; a private fetch cannot
+restore a terminally refused REQ. SDK EOSE flags cannot bypass queued history.
+
+A per-account supervisor owns queued capture tickets, paging and delivery draining independently of
+notification workers. Ticket installation and ready-channel placement commit synchronously under the admission
+lock. Cancelling a notification worker cannot strand a queued capture or an accepted delivery. Dropping an
+owner capture cancels its IO without releasing its credit before cleanup. The account owner alone decides
+retry, completion and retirement; the adapter and relay plane have no quiet-period recovery scheduler.
+Account retirement cancels accepted work and reports only ciphertext actually discarded.
+
+Each account's pending ciphertext, including retained supplements, leased native batches, inbox and
+ready-delivery backpressure, is bounded by
+`REPLAY_BUFFER_MAX_ITEMS` (32,000 copies, the 500-event page limit times 64 pages) and
+`REPLAY_BUFFER_MAX_BYTES` (32 MiB of payload). Native leases stay charged until ACK. One serialized legacy
+delivery-channel draining batch can retain another batch's allowance concurrently. Each native ACK frees
+its frame's allowance for subsequent input. A separate 32,000-ID released-event window suppresses repeated
+live copies, not historical refetches.
+Delivery metadata, router-placement pins and the SDK notification queue are outside the payload cap; it does
+not bound RSS or wire bytes. Interrupted pages get one fresh request at the same boundary within the page
+bound. Overflow, failed paging, a saturated second, deadline expiry and cancellation discard the affected
+owner's partial history and report its floor when ciphertext was discarded; they never certify it or release
+its newest partial page. Failure of one transport tag discards the source's whole affected MLS-group unit,
+not a newer suffix from another tag of that group. Healthy peer claims and independent groups survive.
+
+`dispatch_sdk_replay` is the SDK entry point; its private payload dispatcher cannot bypass generation checks.
+`take_replay_status` transfers retained loss to the consumer's existing recovery fence and holds a read guard
+through its synchronous cursor seal. Drop the status before awaiting again. `replay_loss_notified` wakes the
+router without consuming evidence. Loss survives replacement until imported. Buffered and releasing ciphertext
+holds the cursor, but a dead relay alone does not: all-relay EOSE is a separate certificate. The router calls
+`ack_replay_delivery` only after installing its queue/spill pin or recording loss, closing the
+adapter-to-router gap. The account owner persists limited native admission only after pending bytes and
+nondurable spill handoffs are clear, including every native batch ACK. A source whose range is already
+queued to the owner needs no additional acquisition while those bytes drain. Limited native admission never
+certifies exhaustive history or acknowledges queue/notification loss. Its cached permission must match the
+guarded source generation at cursor seal.
+A pending owner observation does not authorize the cursor, but already-acquired bytes need no new IO.
+The owner drops borrowed source observations before SQLite writes and rechecks their generation at seal.
+Unservable original windows park visibly without capture credit or loss charges; terminal group retirement
+removes only obsolete native scope debt. Durable native ACKs can advance the cursor through the existing live
+promotion path once current sources drain. Save failures keep the target pending; replayed durable receipts
+can restore it after reopen without duplicate plaintext notifications.
+
+Timestamp sorting leaves the existing 100-generation sender-ratchet tolerance unchanged: more than 100
+messages from one sender in the same second can still exceed it because event-id order is not
+sender-generation order; backdated events can also disagree with sender generations. Trusted cursor floors
+retain their configured rewind. With no durable cursor, the app
+requests full retained history instead of substituting the recent live tail, including when the relay refuses
+NIP-77. Recovery maintenance also pages from its Welcome-anchored floor. Cursor checkpoints retain their
+previous floor while replay is staged, leased to the owner or not yet placed by the delivery router.
+An unfloored plane query, including one caused by an untrusted future cursor or explicit full-history policy,
+stays unfloored; the app does not replace it with a recent-tail fallback.
+Ordinary comparison acquisition is unchanged.
+
 ## Recovery maintenance sessions
 
 `install_group_maintenance_recovery_subscription` accepts the account recovery owner's durable attempt serial and

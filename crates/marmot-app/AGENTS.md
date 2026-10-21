@@ -141,8 +141,8 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   the checkpoint commits, the notice publication seam and dismissal, and cursor commits after their save succeeds.
   Never add a row per scheduler evaluation, per live ingest, or on the router path; the router only counts
   placements. Rows are best effort: an audit-only read that fails skips the row, never the recovery step. The
-  relay plane's lag-lost EOSE repair only queues a bounded `EoseRepairReport`; the worker's
-  `publish_history_notice_changes` seam records it as `subscription_eose_repaired`. The same seam drains the
+  account owner's native input goal uses cause `subscription_replay` in those existing rows, without loss
+  charges or history certificates. `subscription_eose_repaired` remains historical decoding only. The publication seam drains the
   adapter's queued subscription refusals (`take_subscription_refusals`) into one `subscription_refused` row. Scenario
   tests live in
   `src/client/audit_recovery/scenario_tests.rs` and `sync/comparison_job.rs`.
@@ -292,23 +292,37 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   loss with the REQ floor its SDK context reported at the lag, and enqueue the generation's control record. Only an
   unexpected consumer exit closes the route and sends the worker through reconnect (mdk#2070). The worker persists
   notification loss before waiting for its control record.
-- A lag may also lose end-of-stored-events. Never mark EOSE complete at a lag: live cursor promotion
-  would advance the cursor while a relay was still sending history. The lag schedules the adapter's `reissue_subscriptions_awaiting_eose` for its
-  receiver's scope, marked at the lag, to run once the receiver has gone `NOTIFICATION_LAG_EOSE_REPAIR_SETTLE`
-  without another lag. A later lag postpones it. Re-issuing earlier restarts replays still arriving. A repair that
-  leaves relays unrepaired (`EoseReissueSummary::failed_relays`) schedules itself again the same way, for the same lag
-  mark.
+- AccountRecoveryOwner owns the SubscriptionReplay goal, original unresolved windows, retry and completion.
+  Synchronize borrowed source observations at lifecycle, grant, checkpoint and worker-watch seams. Preserve
+  unresolved floors across cancellation/reopen; an unfloored query must not become a recent tail. Capture only
+  current sources authorized by the frozen selected grant, through the existing credited comparison job.
+  Passive replay_admitted needs current-epoch full-range placement and no pending bytes/nondurable spill;
+  it spends no retry credit and never qualifies history, maintenance, known-event or real loss predicates.
+  Empty silence is not notification loss. No adapter/relay-plane quiet repair scheduler or alternate owner.
+- Register `ReplayIngress` before activation, seeding durable group spill rows before native source release.
+  Admit complete group batches through the owner's ordinary recovered-ingest path, sharing four actual
+  ingests per turn with comparison input, never through live/spill alternation. Select the oldest known
+  same-group frame across both sources; a pending native range fences that group, not independent groups.
+  Borrow each frame until ACK; cancellation or loan revocation leaves the frame
+  retained. Native batches keep holding the cursor, but acquired ranges spend no new network retry credit
+  while draining. Keep retained spill receipt settlement and independent-group turns.
 - Move `checkpointed_transport_timestamp` only through `AppClient::seal_transport_cursor`, never straight to
-  `state.last_transport_timestamp`. The seal runs under the lock the router places each delivery under, so it is the
-  commit's one decision point: it returns nothing while loss or a spill hand-off is pending, caps the commit at the
+  `state.last_transport_timestamp`. The seal holds adapter admission stable through the router's placement lock,
+  importing any discarded replay into the existing loss fence before deciding. It returns nothing while staged,
+  releasing or not-yet-placed replay, loss, or a spill hand-off is pending, and caps the commit at the
   lowest delivery a restart still fetches that is queued or taken and not yet released, and raises the restart floor
   before the save, so the router spills a delivery that arrives during the save and falls below it; before the
-  account's first settled floor that is every older delivery. A live ingest promotes with its own save only after every
-  account subscription reported EOSE and once the account has a settled floor, and leaves the floor raised. A drain
+  account's first settled floor that is every older delivery. A live ingest promotes with its own save only when
+  the owner's completed/explicitly retired native goal matches the guarded source generation and the account
+  has a settled floor, and leaves the floor raised. A drain
   checkpoint, settled loss or retired notice confirms what its seal reached with `settle_transport_cursor` once its save
   succeeds, which ends the spilling. Every failed save undoes its seal with `abandon_transport_cursor`. Keep every
   condition cursor safety relies on inside the seal: anything read before an `.await` or a save is stale by the time
   that save commits. See `docs/marmot-architecture/further-context/account-recovery.md` section 6.
+- With no durable transport cursor, activation requests retained history rather than inventing a recent-tail floor.
+  A trusted cursor keeps its configured rewind, bounded by unresolved original native windows. All-relay EOSE
+  remains separate from the owner's limited native admission; a silent peer alone must not prevent a seal once
+  available replay is placed and the matching native goal is completed or explicitly retired.
 - Every path that takes a delivery from the account queue calls `release_account_delivery` once its ingest returns
   `Ok`, or when it skips the delivery as already held, and before the save that follows. Never release on an ingest
   error: the key must keep capping the checkpoint that failure runs, because newest-first replay has usually remembered
@@ -447,8 +461,7 @@ every thread its stack (`thread_stack_size`). Only a test that needs one thread 
 `#[tokio::test(start_paused = true)]` for a clock paused from the start (Tokio allows that only on the current-thread
 runtime), otherwise `flavor = "current_thread"`, `run_composed_app_runtime_test_on_one_thread`, or
 `Builder::new_current_thread()` with a `//` comment on the line above saying why.
-`async_suites_choose_their_tokio_flavor` rejects a bare `#[tokio::test]` and any of those one-thread pins without that
-comment. When a multi-thread test waits for an effect, wait for the state it expects rather than the next event: other
+When a multi-thread test waits for an effect, wait for the state it expects rather than the next event: other
 tasks run between your steps, and window subscriptions keep only the latest snapshot. `Notify::notify_waiters` reaches
 only waiters already registered, so a fixture signal either uses `notify_one`'s permit or the waiter `enable()`s its
 `notified()` before announcing it waits.
