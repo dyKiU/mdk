@@ -1516,8 +1516,17 @@ impl AppClient {
         &self,
         entry: &mut AutomaticChannel,
     ) -> Result<(), AccountSharingError> {
+        let Ok(profile_version) = self.app.shared_storage().and_then(|storage| {
+            storage
+                .directory_presentation_version()
+                .map_err(crate::AppError::from)
+        }) else {
+            // Preserve known metadata until the directory is readable; record/send work still proceeds.
+            return Ok(());
+        };
         let current: [u8; 32] = Sha256::digest(
-            serde_json::to_vec(&self.state.groups).map_err(|_| AccountSharingError::NotReady)?,
+            serde_json::to_vec(&(&self.state.groups, profile_version))
+                .map_err(|_| AccountSharingError::NotReady)?,
         )
         .into();
         if entry.inventory_digest != Some(current) {
