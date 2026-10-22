@@ -392,7 +392,8 @@ pub(in crate::native_device_linking) struct OrdinaryProgressPublication {
     pub(in crate::native_device_linking) sender: String,
     pub(in crate::native_device_linking) published_once: bool,
     pub(in crate::native_device_linking) source_row_bound: bool,
-    pub(in crate::native_device_linking) native_watch: Option<transport_nostr_adapter::NativeFrameWatchForTest>,
+    pub(in crate::native_device_linking) native_watch:
+        Option<transport_nostr_adapter::NativeFrameWatchForTest>,
 }
 
 impl IncomingPeer {
@@ -476,7 +477,8 @@ impl IncomingPeer {
                 };
                 // Arm the exact target only after the actual sender binding and
                 // before the real publish continues. The handle owns no consumer.
-                *callback_watch.lock().unwrap() = recipient.as_ref()
+                *callback_watch.lock().unwrap() = recipient
+                    .as_ref()
                     .and_then(|identity| identity.watch(&group, request.message.id.as_slice()));
                 *callback_binding.lock().unwrap() = Some(bound);
                 true

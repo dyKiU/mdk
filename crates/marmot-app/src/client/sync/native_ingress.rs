@@ -269,7 +269,9 @@ impl AppClient {
             }
         };
         #[cfg(feature = "test-policy-overrides")]
-        if ingested { batch.observe_frame_for_test(true); }
+        if ingested {
+            batch.observe_frame_for_test(true);
+        }
         batch.acknowledge().await;
         if durable {
             if !ingested {

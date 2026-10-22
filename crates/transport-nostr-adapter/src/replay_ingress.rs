@@ -401,7 +401,9 @@ impl ReplayIngress {
 
 #[cfg(feature = "test-policy-overrides")]
 impl ReplayConsumer {
-    pub(super) fn serial_for_test(&self) -> u64 { self.serial }
+    pub(super) fn serial_for_test(&self) -> u64 {
+        self.serial
+    }
 }
 
 impl Drop for ReplayConsumer {
@@ -420,20 +422,33 @@ impl Drop for ReplayConsumer {
 #[cfg(feature = "test-policy-overrides")]
 impl ReplayIngressState {
     pub(super) fn queued_frame_for_test(
-        &self, serial: u64, account: &MemberId, group: &GroupId, packet: &[u8],
+        &self,
+        serial: u64,
+        account: &MemberId,
+        group: &GroupId,
+        packet: &[u8],
     ) -> bool {
         let queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
-        queue.consumer == Some(serial) && queue.ready.values().any(|data|
-            &data.group == group && data.scope.load(Ordering::Acquire)
-                && data.gate.load(Ordering::Acquire) && data.deliveries.iter().any(|frame|
-                    frame.origin == ReplayFrameOrigin::Remote
-                        && &frame.delivery.account_id == account
-                        && frame.delivery.group_id_hint.as_ref() == Some(group)
-                        && frame.delivery.message.id.as_slice() == packet))
+        queue.consumer == Some(serial)
+            && queue.ready.values().any(|data| {
+                &data.group == group
+                    && data.scope.load(Ordering::Acquire)
+                    && data.gate.load(Ordering::Acquire)
+                    && data.deliveries.iter().any(|frame| {
+                        frame.origin == ReplayFrameOrigin::Remote
+                            && &frame.delivery.account_id == account
+                            && frame.delivery.group_id_hint.as_ref() == Some(group)
+                            && frame.delivery.message.id.as_slice() == packet
+                    })
+            })
     }
 
     pub(super) fn consumer_is_current_for_test(&self, serial: u64) -> bool {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).consumer == Some(serial)
+        self.queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .consumer
+            == Some(serial)
     }
 }
 
@@ -442,7 +457,10 @@ impl ReplayIngress {
     #[cfg(feature = "test-policy-overrides")]
     pub fn consumer_identity_for_test(&self) -> super::NativeConsumerIdentityForTest {
         super::native_frame_probe::identity(
-            &self.consumer, &self.shared, &self.state, &self.account,
+            &self.consumer,
+            &self.shared,
+            &self.state,
+            &self.account,
         )
     }
 }
@@ -451,14 +469,29 @@ impl ReplayBatch {
     /// Read-only test observation; never opens or acknowledges a delivery.
     #[cfg(feature = "test-policy-overrides")]
     pub fn observe_frame_for_test(&self, ingested: bool) {
-        let Some(data) = self.data.as_ref() else { return; };
-        let Some(frame) = data.deliveries.front() else { return; };
-        let current = self.shared.queue.lock().unwrap_or_else(|p| p.into_inner())
-            .consumer == Some(self._consumer.serial);
-        if current && data.scope.load(Ordering::Acquire)
-            && data.gate.load(Ordering::Acquire) && frame.origin == ReplayFrameOrigin::Remote {
+        let Some(data) = self.data.as_ref() else {
+            return;
+        };
+        let Some(frame) = data.deliveries.front() else {
+            return;
+        };
+        let current = self
+            .shared
+            .queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .consumer
+            == Some(self._consumer.serial);
+        if current
+            && data.scope.load(Ordering::Acquire)
+            && data.gate.load(Ordering::Acquire)
+            && frame.origin == ReplayFrameOrigin::Remote
+        {
             super::native_frame_probe::record(
-                &self._consumer, &self.state, &self.account, &frame.delivery,
+                &self._consumer,
+                &self.state,
+                &self.account,
+                &frame.delivery,
                 if ingested { 1 } else { 0 },
             );
         }
@@ -513,11 +546,20 @@ impl ReplayBatch {
             // method return. Test facts cannot change this branch or its result.
             #[cfg(feature = "test-policy-overrides")]
             {
-                let current = self.shared.queue.lock().unwrap_or_else(|p| p.into_inner())
-                    .consumer == Some(self._consumer.serial);
+                let current = self
+                    .shared
+                    .queue
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .consumer
+                    == Some(self._consumer.serial);
                 if remote && data.gate.load(Ordering::Acquire) && current {
                     super::native_frame_probe::record(
-                        &self._consumer, &self.state, &self.account, &delivery, 2,
+                        &self._consumer,
+                        &self.state,
+                        &self.account,
+                        &delivery,
+                        2,
                     );
                 }
             }

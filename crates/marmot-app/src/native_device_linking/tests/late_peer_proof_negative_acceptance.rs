@@ -618,16 +618,27 @@ async fn run(scenario: Scenario) {
         ));
         crate::test_support::emit_line(format_args!(
             "late-peer-native-route before_current={} armed_current={} consumer_current={} bounded={} complete={} ordered_before_verdict={} route_before_verdict={} final_consumer_matches={} frame_custody_before_verdict={} borrowed={} ingested={} acknowledged={}",
-            native_route[0], native_route[1], native_route[2], native_route[3],
-            native_route[4], native_route[5], native_route[6], native_route[7], native_route[8],
-            native_counts[0], native_counts[1], native_counts[2],
+            native_route[0],
+            native_route[1],
+            native_route[2],
+            native_route[3],
+            native_route[4],
+            native_route[5],
+            native_route[6],
+            native_route[7],
+            native_route[8],
+            native_counts[0],
+            native_counts[1],
+            native_counts[2],
         ));
         let custody_complete = (ordinary_facts[8..12].iter().all(|value| *value)
-                && ordinary_facts[13] && route_before_verdict)
+            && ordinary_facts[13]
+            && route_before_verdict)
             || native_route.into_iter().all(|value| value);
         assert!(
             ordinary_facts[..8].iter().all(|value| *value)
-                && ordinary_facts[12] && custody_complete
+                && ordinary_facts[12]
+                && custody_complete
                 && facts.into_iter().all(|value| value)
                 && runtime_closes == 3
                 && planes_shutdown == 3

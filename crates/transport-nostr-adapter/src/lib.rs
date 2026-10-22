@@ -77,6 +77,8 @@ pub use live_delivery::{
 
 mod acquisition;
 mod key_package;
+#[cfg(feature = "test-policy-overrides")]
+mod native_frame_probe;
 #[cfg(feature = "sdk")]
 #[doc(hidden)]
 pub mod network_proxy;
@@ -84,8 +86,6 @@ mod publish_accounting;
 mod relay_list;
 mod replay_admission;
 mod replay_ingress;
-#[cfg(feature = "test-policy-overrides")]
-mod native_frame_probe;
 #[cfg(feature = "test-policy-overrides")]
 pub use native_frame_probe::{NativeConsumerIdentityForTest, NativeFrameWatchForTest};
 #[cfg(feature = "sdk")]

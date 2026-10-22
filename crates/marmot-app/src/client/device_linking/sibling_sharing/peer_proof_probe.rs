@@ -154,7 +154,10 @@ impl AppClient {
             });
         Some(Snapshot {
             receiver_identity: self.adapter.receiver_snapshot_for_test().1,
-            native_identity: self.recovery_owner.native_ingress.as_ref()
+            native_identity: self
+                .recovery_owner
+                .native_ingress
+                .as_ref()
                 .map(|ingress| ingress.consumer_identity_for_test()),
             protected_group: scope.protected.group_id.clone(),
             // PEER_NEGATIVE_TEST_BEGIN
