@@ -80,6 +80,12 @@
       "original_file_sha256": "c5fc93bb6796feb2e71aaf9e39c8e54b19d254a59c887008acccfebe597ea22d",
       "sha256": "e152273246d2a9792b22cadbc0c643a16de4d8957add0253a6be70f8ed3629a3",
       "adaptation": "Explicit White Noise deployment required by integrated E18 UniFFI options; preserve secret store, pairing relay selection, relay policy, protocol actions, assertions and deadlines."
+    },
+    "published-interop.sh": {
+      "source": "existing hosted historical/default/experimental interop route",
+      "original_file_sha256": "a2849a1f0ca4b94f3a48cde23e2314a204d394b96da3c7834b7aa29b3c703c5b",
+      "sha256": "faeb8f68bd0cf310b3df2781c5bd1eae9518c0b56536bcf8854f1e036c59f680",
+      "adaptation": "Build current default/experimental public workers through real installer-created isolated app overlays and validated current-API compiler mode; historical0.13 four-argument worker build and original transport/runtime oracles unchanged."
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

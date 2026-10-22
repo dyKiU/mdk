@@ -12,6 +12,26 @@ python3 scripts/upstream_apple_ci/install.py --packages packages \
   --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform ios \
   --output "$RUNNER_TEMP/interop-experimental-sdk"
 mkdir -p "$RUNNER_TEMP/published-assets" "$RUNNER_TEMP/interop-evidence"
+# Current public API flags are supplied only through the app's authenticated
+# overlay build mode. Never change the historical peer's original checkout.
+build_current_worker() {
+  local profile="$1" packages="$2" producer="$3" binary="$4" modules="$5"
+  local app="$RUNNER_TEMP/interop-${profile}-app"
+  local package="$app/Packages/MarmotKit"
+  test ! -e "$app"
+  git clone --no-hardlinks --no-checkout "$PWD/ios" "$app"
+  git -C "$app" checkout --detach "$IOS_SHA"
+  test "$(git -C "$app" rev-parse HEAD)" = "$IOS_SHA"
+  test -z "$(git -C "$app" status --porcelain)"
+  SDK_SOURCE_REPOSITORY="${SDK_SOURCE_REPOSITORY:-$PWD}" \
+    python3 scripts/upstream_apple_ci/install.py --profile "$profile" --packages "$packages" \
+    --source "$SOURCE_SHA" --run-id "$producer" --platform ios --app "$app" --app-sha "$IOS_SHA"
+  SDK_SOURCE_REPOSITORY="${SDK_SOURCE_REPOSITORY:-$PWD}" \
+    bash ios/scripts/public-chat-acceptance/build.sh \
+    "$package/LOCAL_BUILD_INPUTS/MarmotKit.swift" \
+    "$package/Artifacts/MarmotKit.xcframework/ios-arm64-simulator" \
+    "$binary" "$modules" "$package" "$SOURCE_SHA" "$producer" "$profile"
+}
 if [[ "$peer_profile" == historical ]]; then
   gh release download marmotkit-v0.13.0 --repo marmot-protocol/mdk \
     --pattern MarmotKitFFI-0.13.0.xcframework.zip \
@@ -29,14 +49,10 @@ else
     --source "$SOURCE_SHA" --run-id "$DEFAULT_SDK_RUN_ID" --platform ios \
     --output "$RUNNER_TEMP/interop-default-sdk"
   python3 scripts/upstream_apple_ci/profile-interop-evidence.py prepare
-  bash ios/scripts/public-chat-acceptance/build.sh \
-    "$RUNNER_TEMP/interop-default-sdk/MarmotKit.swift" \
-    "$RUNNER_TEMP/interop-default-sdk/MarmotKit.xcframework/ios-arm64-simulator" \
+  build_current_worker default packages-default "$DEFAULT_SDK_RUN_ID" \
     "$RUNNER_TEMP/published-worker" "$RUNNER_TEMP/published-worker-modules"
 fi
-bash ios/scripts/public-chat-acceptance/build.sh \
-  "$RUNNER_TEMP/interop-experimental-sdk/MarmotKit.swift" \
-  "$RUNNER_TEMP/interop-experimental-sdk/MarmotKit.xcframework/ios-arm64-simulator" \
+build_current_worker experimental packages "$SDK_RUN_ID" \
   "$RUNNER_TEMP/experimental-worker" "$RUNNER_TEMP/experimental-worker-modules"
 runtime=$(xcrun simctl list runtimes --json | python3 -c 'import json,sys; r=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-26")]; print(max(r,key=lambda r:tuple(map(int,r["version"].split("."))))["identifier"])')
 device_type=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; rows=json.load(sys.stdin)["devices"].get(sys.argv[1], []); compatible=[r for r in rows if r.get("isAvailable") and r["name"].startswith("iPhone") and r.get("deviceTypeIdentifier")]; print(compatible[0]["deviceTypeIdentifier"])' "$runtime")
