@@ -294,8 +294,11 @@ impl AppClient {
                     if self.read_private_echo_plan()?.as_ref() != Some(plan) {
                         return Ok(());
                     }
-                    self.admit_recovered_delivery(&delivery, super::sync::InventoryWrite::Immediate)
-                        .await?;
+                    self.admit_recovered_delivery(
+                        &delivery,
+                        super::sync::InventoryWrite::Immediate,
+                    )
+                    .await?;
                 }
             }
         }
