@@ -10,6 +10,9 @@ import subprocess
 
 from upstream_avatar_ready_turn_chain import capture, compiler_diagnostics
 from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
+from upstream_sdk_replay_pfp import (CASES as SDK_CASES, SOURCES as SDK_SOURCES, FIXTURE as SDK_FIXTURE,
+    mutate as sdk_mutate, oracle as sdk_oracle, parser_controls as sdk_parser_controls,
+    panic_coordinates as sdk_panic_coordinates, partial_counts as sdk_partial_counts)
 from upstream_publication_mutation_anchors import ExactCancellationMutation, secondary_prefix_omission
 
 SOURCE = 'crates/marmot-app/src/runtime/account_worker.rs'
@@ -36,6 +39,14 @@ FAILURES = {'fresh-external-output', 'pristine-inputs', 'source-identity', 'fixt
 
 def sha(value):
     return hashlib.sha256(value).hexdigest()
+
+
+FAILURES.update({
+    'sdk-private-cohort-only', 'sdk-exact-manual-workflow-source', 'sdk-case',
+    'sdk-one-original-anchor', 'sdk-exact-inverse', 'sdk-one-own-label',
+    'sdk-one-own-assert', 'sdk-own-condition', 'sdk-parser-positive',
+    'sdk-parser-thread-form', 'sdk-parser-negative',
+})
 
 
 def failure(error):
@@ -188,18 +199,37 @@ def parser_controls(fixture):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--case', choices=sorted(CASES), required=True)
+    parser.add_argument('--case', choices=sorted(set(CASES) | set(SDK_CASES)), required=True)
     parser.add_argument('--source', required=True)
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--preflight', action='store_true')
     args = parser.parse_args()
+    sdk_case = args.case in SDK_CASES
+    if sdk_case and args.cohort != 'experimental':
+        raise ValueError('sdk-private-cohort-only')
+    source_path = SDK_SOURCES[args.case] if sdk_case else SOURCE
+    fixture_path = SDK_FIXTURE if sdk_case else FIXTURE
+    selected_name = SDK_CASES[args.case] if sdk_case else CASES[args.case]
+    package = 'transport-nostr-adapter' if sdk_case else 'marmot-app'
+    coordinates = sdk_panic_coordinates if sdk_case else runtime_panic_coordinates
+    if sdk_case:
+        ref = os.environ.get('GITHUB_REF', '')
+        workflow = 'dyKiU/mdk/.github/workflows/upstream-boundary-regressions.yml@' + ref
+        if (os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'
+                or not ref.startswith('refs/heads/ci/upstream-develop-dy-')
+                or os.environ.get('GITHUB_WORKFLOW_REF') != workflow
+                or os.environ.get('GITHUB_WORKFLOW_SHA') != os.environ.get('GITHUB_SHA')
+                or args.source != os.environ.get('GITHUB_SHA')):
+            raise ValueError('sdk-exact-manual-workflow-source')
     root, output = Path.cwd().resolve(), args.output.resolve()
     if output.exists() or output == root or root in output.parents:
         raise ValueError('fresh-external-output')
     output.parent.mkdir(parents=True, exist_ok=True)
     features = FEATURES if args.cohort == 'experimental' else ','.join(
         flag for flag in FEATURES.split(',') if flag != 'marmot-app/experimental-device-sync')
+    if sdk_case:
+        features = 'sdk,experimental-device-sync,test-policy-overrides'
     proof = {'complete': False, 'case': args.case, 'cohort': args.cohort,
              'runs': [], 'runtime_mutation_qualification': False}
     before = leaf = original = None
@@ -213,16 +243,16 @@ def main():
         modes = {name: stat.S_IMODE(Path(name).lstat().st_mode) for name in before}
         if git('diff', '--name-only', 'HEAD') or git('diff', '--cached', '--name-only'):
             raise ValueError('pristine-inputs')
-        original, fixture = Path(SOURCE).read_bytes(), Path(FIXTURE).read_text()
-        if original != subprocess.check_output(['git', 'show', args.source + ':' + SOURCE]):
+        original, fixture = Path(source_path).read_bytes(), Path(fixture_path).read_text()
+        if original != subprocess.check_output(['git', 'show', args.source + ':' + source_path]):
             raise ValueError('source-identity')
-        if fixture.encode() != subprocess.check_output(['git', 'show', args.source + ':' + FIXTURE]):
+        if fixture.encode() != subprocess.check_output(['git', 'show', args.source + ':' + fixture_path]):
             raise ValueError('fixture-identity')
-        mutant = secondary_prefix_omission(original.decode()).encode()
+        mutant = (sdk_mutate(args.case, original.decode()) if sdk_case else secondary_prefix_omission(original.decode())).encode()
         proof.update(source=args.source, tooling=head, source_tree=git('rev-parse', args.source + '^{tree}'), tooling_tree=git('rev-parse', 'HEAD^{tree}'),
                      source_sha256=sha(original), mutant_sha256=sha(mutant), fixture_sha256=sha(fixture.encode()),
-                     lock_sha256=sha(Path('Cargo.lock').read_bytes()), expected_test=CASES[args.case])
-        proof['parser_controls'] = parser_controls(fixture)
+                     lock_sha256=sha(Path('Cargo.lock').read_bytes()), expected_test=selected_name)
+        proof['parser_controls'] = sdk_parser_controls(fixture) if sdk_case else parser_controls(fixture)
         if args.preflight:
             unchanged = (frozen_inputs() == before and git('rev-parse', 'HEAD') == head
                          and git('ls-files', '--stage') == index
@@ -234,7 +264,9 @@ def main():
                      'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'RUSTC_BOOTSTRAP']
         environment = {'CARGO_INCREMENTAL': '1', 'CARGO_BUILD_JOBS': '2', 'CARGO_PROFILE_DEV_DEBUG': '0',
                        'CARGO_PROFILE_TEST_DEBUG': '0', 'CARGO_TERM_COLOR': 'never'}
-        if any(os.environ.get(key) for key in flags_env) or any(os.environ.get(k) != v for k, v in environment.items()):
+        if (any(os.environ.get(key) for key in flags_env) or any(os.environ.get(k) != v for k, v in environment.items())
+                or sdk_case and any(value for key,value in os.environ.items()
+                                    if key.startswith('CARGO_TARGET_') and key.endswith('_RUSTFLAGS'))):
             raise ValueError('compiler-environment')
         if os.environ.get('RUST_MIN_STACK') != '4194304':
             raise ValueError('original-stack')
@@ -245,10 +277,10 @@ def main():
         proof.update(rustc=rustc, cargo=subprocess.check_output(['cargo', '-V'], text=True).strip(),
                      features=features.split(','), compiler_environment=environment,
                      retries=0, test_threads=1, rust_min_stack=4194304)
-        leaf = ExactCancellationMutation(Path(SOURCE))
+        leaf = ExactCancellationMutation(Path(source_path))
         def exact(content):
             expected = dict(before)
-            expected[SOURCE] = dict(before[SOURCE], sha256=sha(content))
+            expected[source_path] = dict(before[source_path], sha256=sha(content))
             return (frozen_inputs() == expected and git('rev-parse', 'HEAD') == head
                     and git('ls-files', '--stage') == index
                     and all(stat.S_IMODE(Path(name).lstat().st_mode) == value for name, value in modes.items()))
@@ -259,8 +291,8 @@ def main():
             row = {'phase': phase, 'qualified': False, 'source_sha256': sha(content)}
             proof['runs'].append(row)
             save()
-            flags = ['--locked', '-p', 'marmot-app', '--lib', '--features', features]
-            selection = 'package(marmot-app) & binary(=marmot_app) & test(=' + CASES[args.case] + ')'
+            flags = ['--locked', '-p', package, '--lib', '--features', features]
+            selection = 'package(' + package + ') & binary(=' + package.replace('-', '_') + ') & test(=' + selected_name + ')'
             code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list', *flags,
                 '--message-format', 'json', '-E', selection], 1800, separate=True)
             row['inventory'] = dict(exit_code=code, elapsed_seconds=elapsed, stdout_sha256=sha(raw),
@@ -272,24 +304,26 @@ def main():
             inventory = json.loads(raw)
             matched = [(name, case['ignored']) for suite in inventory['rust-suites'].values()
                        for name, case in suite['testcases'].items() if case['filter-match']['status'] == 'matches']
-            if (len(matched) != 1 or matched[0][0] != CASES[args.case]
+            if (len(matched) != 1 or matched[0][0] != selected_name
                     or matched[0][1] is not False):
                 raise ValueError('inventory-one-nonignored')
             row['inventory']['selected_nonignored'] = 1
             save()
             if not exact(content):
                 raise ValueError('phase-inputs')
-            code, raw, elapsed, _ = capture(['cargo', 'test', *flags, CASES[args.case],
+            code, raw, elapsed, _ = capture(['cargo', 'test', *flags, selected_name,
                 '--', '--exact', '--test-threads=1', '--show-output'], 1800)
             row['body'] = dict(exit_code=code, elapsed_seconds=elapsed, raw_sha256=sha(raw), raw_bytes=len(raw),
-                               compiler_diagnostics=compiler_diagnostics(raw, cargo_test_context=('marmot-app', '--lib')),
-                               runtime_panic_coordinates=runtime_panic_coordinates(raw))
+                               compiler_diagnostics=compiler_diagnostics(raw, cargo_test_context=(package, '--lib')),
+                               runtime_panic_coordinates=coordinates(raw))
+            if sdk_case:
+                row['body']['counts'] = sdk_partial_counts(raw)
             save()
-            row['body'].update(oracle(raw, args.case, fixture, phase == 'mutant'))
+            row['body'].update((sdk_oracle if sdk_case else oracle)(raw, args.case, fixture, phase == 'mutant'))
             row['all_inputs_exact'] = exact(content)
             if phase == 'mutant':
                 survived = (code == 0 and row['all_inputs_exact']
-                            and oracle(raw, args.case, fixture, False)['evidence_passed'])
+                            and (sdk_oracle if sdk_case else oracle)(raw, args.case, fixture, False)['evidence_passed'])
                 row['counterfactual_outcome'] = ('survived' if survived else
                     'intended-runtime-failure' if code == 101 and row['body']['evidence_passed']
                     else 'unqualified')
@@ -308,7 +342,7 @@ def main():
         try:
             if leaf is not None:
                 leaf.check()
-                if Path(SOURCE).read_bytes() != original:
+                if Path(source_path).read_bytes() != original:
                     leaf.write(original)
                 proof['source_restored'] = exact(original)
                 if baseline_passed and proof['source_restored']:

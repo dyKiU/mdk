@@ -82,15 +82,15 @@ def compiler_diagnostics(raw, *, cargo_test_context=None):
     # reviewed source positions, never diagnostic text or unreviewed paths.
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     codes = sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]', text)))
-    # Only the exact caller that actually invokes Cargo test -p marmot-app
-    # --lib may classify its terminal runtime wrapper. Existing callers retain
+    # Only the two explicitly admitted Cargo package/--lib contexts may
+    # classify their own terminal runtime wrapper. Existing callers retain
     # their original nextest-only behavior. This is not a generic error filter.
-    if cargo_test_context is not None and cargo_test_context != ('marmot-app', '--lib'):
+    if cargo_test_context is not None and cargo_test_context not in {('marmot-app', '--lib'), ('transport-nostr-adapter', '--lib')}:
         raise ValueError('unsupported-cargo-test-context')
     lines = text.splitlines()
     cargo_wrappers = {
         'error: test failed, to rerun pass `--lib`',
-        'error: test failed, to rerun pass `-p marmot-app --lib`',
+        'error: test failed, to rerun pass `-p ' + (cargo_test_context[0] if cargo_test_context else 'marmot-app') + ' --lib`',
     }
     candidates = [i for i, line in enumerate(lines)
                   if cargo_test_context is not None and line in cargo_wrappers]
@@ -103,7 +103,8 @@ def compiler_diagnostics(raw, *, cargo_test_context=None):
     sites = set()
     unknown = 0
     for path, line, column in re.findall(r'^\s*--> ([^\s]+\.rs):(\d+):(\d+)\s*$', text, re.M):
-        if path not in COMPILER_SOURCES or not (1 <= int(line) <= 1_000_000
+        if path not in (COMPILER_SOURCES | ({'crates/transport-nostr-adapter/src/sdk_client.rs', 'crates/transport-nostr-adapter/src/lib.rs'}
+                    if cargo_test_context == ('transport-nostr-adapter', '--lib') else set())) or not (1 <= int(line) <= 1_000_000
                                                 and 1 <= int(column) <= 1_000_000):
             unknown += 1
         else:
