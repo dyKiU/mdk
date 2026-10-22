@@ -4,6 +4,11 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      c_acceptance_only:
+        description: Explicit same-source C departure or shared/static history smoke; no release
+        type: choice
+        options: [none, departure, history-smoke, all]
+        default: none
       generation_only:
         description: Generate canonical source before final qualification without running product tests
         type: boolean
@@ -36,7 +41,7 @@ env:
 
 jobs:
   prepare:
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') || (github.event_name == 'workflow_dispatch' && inputs.generation_only && github.ref_name == 'ci/upstream-integration-refresh-20261018')
+    if: (github.event_name != 'workflow_dispatch' || !inputs.c_acceptance_only || inputs.c_acceptance_only == 'none') && (startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') || (github.event_name == 'workflow_dispatch' && inputs.generation_only && github.ref_name == 'ci/upstream-integration-refresh-20261018'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -403,5 +408,52 @@ jobs:
           path: |
             ${{ runner.temp }}/lock-preview/dependency-lock.patch
             ${{ runner.temp }}/lock-preview/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  c-acceptance:
+    if: github.event_name == 'workflow_dispatch' && inputs.c_acceptance_only != 'none' && inputs.c_acceptance_only && !inputs.generation_only && startsWith(github.ref_name, 'ci/upstream-develop-dy-')
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ${{ fromJSON(inputs.c_acceptance_only == 'all' && '["departure","history-smoke"]' || inputs.c_acceptance_only == 'departure' && '["departure"]' || '["history-smoke"]') }}
+    runs-on: ${{ matrix.mode == 'departure' && 'ubuntu-latest' || 'macos-26' }}
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-c-acceptance-${{ matrix.mode }}
+          cache-on-failure: true
+      - name: Post-cache capacity admission and real C bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+          SOURCE_SHA: ${{ github.sha }}
+          C_ACCEPTANCE_MODE: ${{ matrix.mode }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Explicit actual C acceptance' --output "$RUNNER_TEMP/c-capacity.json"
+          python3 scripts/qualify_c_departure_acceptance.py --mode "$C_ACCEPTANCE_MODE" --source "$SOURCE_SHA" --output "$RUNNER_TEMP/c-acceptance.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: actual-c-acceptance-${{ matrix.mode }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/c-acceptance.json
+            ${{ runner.temp }}/c-capacity.json
           if-no-files-found: error
           retention-days: 7
