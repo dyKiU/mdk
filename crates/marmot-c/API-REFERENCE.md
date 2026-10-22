@@ -1039,27 +1039,27 @@ Deep-free a chat storage page, its rows and its borrowed cursor. NULL is a no-op
 ### `marmot_client_new_with_options`
 
 ```c
-MarmotStatus marmot_client_new_with_options(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, uint32_t relay_policy, const struct MarmotSecretStore *store, struct MarmotClient **out_client);
+MarmotStatus marmot_client_new_with_options(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, uint32_t relay_policy, const struct MarmotSecretStore *store, const struct MarmotDeployment *deployment, struct MarmotClient **out_client);
 ```
 
-Create a client with an explicit relay policy and optional host secret store. `store == NULL` selects the platform keychain. Loopback opt-in does not permit private/link-local relays or plaintext public endpoints. Ownership of the store transfers only on success, as with `marmot_client_new_with_secret_store`.
+Create a client with an explicit relay policy, optional host secret store and the required deployment. `store == NULL` selects the platform keychain. Loopback opt-in does not permit private/link-local relays or plaintext public endpoints. Ownership of the store transfers only on success, as with `marmot_client_new_with_secret_store`.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotnew_with_options) · [Header contract](include/marmot.h#L6446)
 
 ### `marmot_client_new`
 
 ```c
-MarmotStatus marmot_client_new(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, struct MarmotClient **out_client);
+MarmotStatus marmot_client_new(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, const struct MarmotDeployment *deployment, struct MarmotClient **out_client);
 ```
 
-Create a Marmot client rooted at `root_path`, connected to `relay_urls` (`relay_urls_len` entries). On success writes the new handle to `out_client`. Uses the platform keychain-backed account store, matching the UniFFI constructor.
+Create a Marmot client rooted at `root_path`, connected to `relay_urls` (`relay_urls_len` entries), for the required `deployment`, which is copied during the call. A NULL deployment returns `MARMOT_STATUS_NULL_POINTER` before anything opens. On success writes the new handle to `out_client`. Uses the platform keychain under the deployment's keychain service, matching the UniFFI constructor.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotnew) · [Header contract](include/marmot.h#L6464)
 
 ### `marmot_client_new_with_cursor_persistence`
 
 ```c
-MarmotStatus marmot_client_new_with_cursor_persistence(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, uint32_t cursor_persistence, struct MarmotClient **out_client);
+MarmotStatus marmot_client_new_with_cursor_persistence(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, uint32_t cursor_persistence, const struct MarmotDeployment *deployment, struct MarmotClient **out_client);
 ```
 
 Create a Marmot client with an explicit durable transport-cursor policy. Identical to `marmot_client_new`, which is `MARMOT_CURSOR_PERSISTENCE_ADVANCE`.
@@ -1069,7 +1069,7 @@ Create a Marmot client with an explicit durable transport-cursor policy. Identic
 ### `marmot_client_new_with_secret_store`
 
 ```c
-MarmotStatus marmot_client_new_with_secret_store(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, const struct MarmotSecretStore *store, struct MarmotClient **out_client);
+MarmotStatus marmot_client_new_with_secret_store(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, const struct MarmotSecretStore *store, const struct MarmotDeployment *deployment, struct MarmotClient **out_client);
 ```
 
 Create a Marmot client whose account signing keys live in caller-owned storage instead of the platform keychain. Otherwise identical to `marmot_client_new`.
@@ -1079,20 +1079,20 @@ Create a Marmot client whose account signing keys live in caller-owned storage i
 ### `marmot_client_new_with_client_name`
 
 ```c
-MarmotStatus marmot_client_new_with_client_name(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, const char *client_name, uint32_t cursor_persistence, const struct MarmotSecretStore *store, struct MarmotClient **out_client);
+MarmotStatus marmot_client_new_with_client_name(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, const char *client_name, uint32_t cursor_persistence, const struct MarmotSecretStore *store, const struct MarmotDeployment *deployment, struct MarmotClient **out_client);
 ```
 
-Open with an optional public client name for newly prepared KeyPackages. NULL or whitespace-only `client_name` omits the tag. Signed retries keep their original tags. NULL `store` selects the platform keychain. Store ownership transfers only on success, as with `marmot_client_new_with_secret_store`.
+Open with an optional public client name for newly prepared KeyPackages and the required deployment. NULL or whitespace-only `client_name` omits the tag. Signed retries keep their original tags. NULL `store` selects the platform keychain. Store ownership transfers only on success, as with `marmot_client_new_with_secret_store`.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotnew_with_client_name) · [Header contract](include/marmot.h#L6531)
 
 ### `marmot_client_new_with_configuration`
 
 ```c
-MarmotStatus marmot_client_new_with_configuration(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, const struct MarmotClientOptions *options, struct MarmotClient **out_client);
+MarmotStatus marmot_client_new_with_configuration(const char *root_path, const char *const *relay_urls, uintptr_t relay_urls_len, const struct MarmotClientOptions *options, const struct MarmotDeployment *deployment, struct MarmotClient **out_client);
 ```
 
-Create a client with combined relay, cursor, label and secret-storage options. NULL options uses defaults. Store ownership transfers only on success, with the same callback lifetime contract as marmot_client_new_with_secret_store.
+Create a client with combined relay, cursor, label and secret-storage options and the required deployment, copied during the call. NULL options uses defaults; a NULL deployment is refused, as with `marmot_client_new`. Store ownership transfers only on success, with the same callback lifetime contract as marmot_client_new_with_secret_store.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotnew_with_configuration) · [Header contract](include/marmot.h#L6549)
 
@@ -2117,7 +2117,7 @@ Reset this group on this account-device without publishing. Deletes local app an
 MarmotStatus marmot_follow_user(const struct MarmotClient *client, const char *account_ref, const char *user_ref, struct MarmotStringList **out);
 ```
 
-Follow `user_ref` and publish the updated list. Writes the new follow set. Free with `marmot_string_list_free`.
+Follow `user_ref` and publish the updated list, keeping its other tags and content. Writes the new follow set. Returns `MARMOT_STATUS_FOLLOW_LIST_TOO_LARGE`, publishing nothing, when the list has 2,048 follows or more. Free with `marmot_string_list_free`.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotfollow_user) · [Header contract](include/marmot.h#L8976)
 
@@ -4968,7 +4968,7 @@ Unblock a user and publish the updated list. Requires relay synchronization.
 MarmotStatus marmot_unfollow_user(const struct MarmotClient *client, const char *account_ref, const char *user_ref, struct MarmotStringList **out);
 ```
 
-Unfollow `user_ref` and publish the updated list. Free with `marmot_string_list_free`.
+Unfollow `user_ref` and publish the updated list, keeping its other tags and content. Returns `MARMOT_STATUS_FOLLOW_LIST_TOO_LARGE`, publishing nothing, when the list has 2,048 follows or more. Free with `marmot_string_list_free`.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotunfollow_user) · [Header contract](include/marmot.h#L8991)
 
@@ -5153,7 +5153,7 @@ Free a value of this type returned by this library. NULL is a no-op.
 MarmotStatus marmot_watch_agent_text_stream(const struct MarmotClient *client, const char *account_ref, const char *group_id_hex, const char *stream_id_hex, const uint8_t *server_cert_der, uintptr_t server_cert_der_len, uint8_t insecure_local, struct MarmotAgentStreamSubscription **out_sub);
 ```
 
-Watch a live agent text stream over the brokered QUIC channel. Pass `stream_id_hex = NULL` to follow the latest stream in the group. `server_cert_der` (+ `server_cert_der_len`) pins a self-signed broker certificate; pass NULL with length 0 to use platform trust. The bytes are copied — the caller keeps ownership. `insecure_local` is loopback-only for testing. Free with `marmot_agent_stream_subscription_free`.
+Watch a live agent text stream over the brokered QUIC channel. Pass `stream_id_hex = NULL` to follow the latest stream in the group. `server_cert_der` (+ `server_cert_der_len`) pins a self-signed broker certificate; pass NULL with length 0 to use the bundled public-CA roots (not the OS trust store). The bytes are copied — the caller keeps ownership. `insecure_local` is loopback-only for testing. Free with `marmot_agent_stream_subscription_free`.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotwatch_agent_text_stream) · [Header contract](include/marmot.h#L12359)
 
@@ -5706,7 +5706,7 @@ Create a client with `marmot_client_new_with_configuration`'s options plus a dep
 MarmotStatus marmot_deployment_white_noise(struct MarmotDeployment **out);
 ```
 
-Create White Noise's deployment as this build compiled it, the values every constructor uses without a deployment until the neutral default lands. Free it with `marmot_deployment_free`; a client constructed with it keeps its own copy.
+Create White Noise's deployment, the one White Noise hosts pass to every constructor. Free it with `marmot_deployment_free`; a client constructed with it keeps its own copy.
 
 [Header contract](include/marmot.h#L10792)
 

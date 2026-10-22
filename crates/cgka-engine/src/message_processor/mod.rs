@@ -796,7 +796,7 @@ impl<S: StorageProvider> Engine<S> {
     /// a typed `StaleReason` inside `Ok(IngestOutcome::Stale { .. })`.
     pub(crate) async fn do_ingest(
         &mut self,
-        msg: TransportMessage,
+        msg: &TransportMessage,
         #[cfg(feature = "experimental-device-sync")] live_delivery: Option<
             crate::private_enrollment_request::LiveEnrollmentDelivery,
         >,
@@ -810,7 +810,7 @@ impl<S: StorageProvider> Engine<S> {
         self.retryable_unpersisted_ingest_id = None;
         self.last_ingest_left_object_unpersisted = false;
         #[cfg(feature = "experimental-device-sync")]
-        if let Some(outcome) = self.ingest_private_commit_echo(&msg).await? {
+        if let Some(outcome) = self.ingest_private_commit_echo(msg).await? {
             // Authorization refusal remains marker-free, so the exact object
             // may later return after genuine dispatch intent.
             self.last_ingest_left_object_unpersisted = matches!(
@@ -836,9 +836,9 @@ impl<S: StorageProvider> Engine<S> {
             });
         }
         if self.sent_message_ids.contains(&msg.id) {
-            let group_id = record_group_id(&msg);
+            let group_id = record_group_id(msg);
             self.persist_transport_message_for_existing_group(
-                &msg,
+                msg,
                 &group_id,
                 EpochId(0),
                 MessageState::Sent,
@@ -854,10 +854,10 @@ impl<S: StorageProvider> Engine<S> {
         }
         let result = match &msg.envelope {
             TransportEnvelope::Welcome { recipient } => {
-                self.ingest_welcome(&msg, recipient.clone()).await
+                self.ingest_welcome(msg, recipient.clone()).await
             }
             TransportEnvelope::GroupMessage { transport_group_id } => {
-                self.ingest_group_message(&msg, transport_group_id.clone())
+                self.ingest_group_message(msg, transport_group_id.clone())
                     .await
             }
         };

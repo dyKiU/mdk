@@ -8,6 +8,18 @@
   keep enrollment gated. Regenerate Swift/Kotlin alongside the matching library.
 ### Breaking changes
 
+- `AttachmentTransferStateFfi` adds `CleanedBySetting`: the account's "Keep
+  media" setting removed the body (mdk#2314 step 10); download again is
+  allowed, as for `Removed`. Update exhaustive Swift `switch` / Kotlin `when`
+  handling.
+
+- `AttachmentMigrationStateFfi` adds `Compacting`: the account database is
+  being compacted to return its free pages to the filesystem (mdk#2314 step
+  6), and the other usage figures are from just before it started. Update
+  exhaustive Swift `switch` / Kotlin `when` handling.
+
+- Every `Marmot` constructor requires a `MarmotDeploymentFfi` (host-configuration brief, PRs 2 and 3): `MarmotOptions.deployment` has no default, and `new`, `newWithOptions`, `newWithSecretStore`, `newWithCursorPersistence` and `newWithClientName` take it as their last argument. It holds the deployment's recovery relays, discovery indexers, media and image servers, Open Ranking (`OpenRankingProviderFfi`), KeyPackage client preference, moderation label namespace and keychain service; `marmot_deployment_white_noise()` and `marmot_deployment_neutral()` build one. Without a `SecretStore`, the platform keychain opens under the deployment's `keychain_service`. White Noise apps pass `marmotDeploymentWhiteNoise()` at every construction, including background and notification-extension runtimes, which keeps their behaviour and keychain unchanged. Unset values fall back to nothing: `marmotDeploymentNeutral()` creates text-only groups and refuses group images. Regenerate bindings; Swift and Kotlin hosts fail to build until every construction passes a deployment.
+
 - `AttachmentStorageUsageFfi` adds `migration` (`AttachmentMigrationStateFfi`:
   `NotNeeded`, `Running`, `Paused`, `Complete`) and `migration_bytes`: where
   the background move of legacy database bodies into the media store stands
@@ -40,9 +52,20 @@
   maps here instead of `Runtime`. Ask the user to free space. Regenerate bindings and update
   exhaustive Swift `switch` / Kotlin `when` handling.
 - `MarmotKitError` adds `InvalidEditTarget`, returned by `edit_message` (see Fixed). Regenerate bindings and update exhaustive Swift `switch` / Kotlin `when` handling.
+- `MarmotKitError` adds `FollowListTooLarge`, returned by `follow_user` and `unfollow_user` (see Fixed). Regenerate bindings and update exhaustive Swift `switch` / Kotlin `when` handling.
 - `MarmotKitError` adds `GroupCommitUndelivered`: a group change was refused because the group's last change has not reached every group relay yet (mdk#2255). Regenerate bindings and update exhaustive Swift `switch` / Kotlin `when` handling.
 
 ### Added
+
+- `attachmentKeepMedia` and `setAttachmentKeepMedia` with
+  `AttachmentKeepMediaFfi` (`Forever`, `OneYear`, `SixMonths`, `ThirtyDays`):
+  the opt-in "Keep media" setting (mdk#2314 step 10). Setting a window removes
+  what is already past it and returns the count. See
+  [Manage storage](ATTACHMENT-ACCESS.md#manage-storage).
+
+- `AttachmentStorageUsageFfi::cache_bytes`: the avatar and group-image cache,
+  each stored image once (mdk#2314 step 9). Show it next to a "Clear cache"
+  action (`clear_avatar_cache`).
 
 - Manage storage (mdk#2314 step 5): `attachment_storage_usage`,
   `attachment_storage_by_chat`, `largest_retained_attachments` (paged largest
@@ -51,7 +74,6 @@
   `control_attachment` Remove, and released media-store files are deleted
   before the call returns. See [Manage storage](ATTACHMENT-ACCESS.md#manage-storage).
 
-- `MarmotOptions.deployment` takes a `MarmotDeploymentFfi` (with `OpenRankingProviderFfi`) for the deployment's recovery relays, discovery indexers, media and image servers, Open Ranking, KeyPackage client preference, moderation label namespace and keychain service; `marmot_deployment_white_noise()` and `marmot_deployment_neutral()` build one. Without a `SecretStore`, the platform keychain now opens under the deployment's `keychain_service`. An omitted deployment is White Noise's, unchanged, until the neutral default lands, when every constructor will require one (host-configuration brief, PR 2).
 - `open_attachment_handoff` and `release_attachment_handoff`, with record
   `AttachmentHandoffFfi` (mdk#2314 step 4): a private plaintext copy of a
   retained attachment, lent under a lease to an OS surface that needs a real
@@ -70,6 +92,8 @@
 - `Marmot::group_commit_delivery` returns the relays still owed the group's last change (`GroupCommitDeliveryFfi`), and `Marmot::acknowledge_group_commit_undelivered` lets one change through after `GroupCommitUndelivered` once the user accepts the risk. See [the delivery notes](README.md#history-may-be-incomplete-notices).
 
 ### Fixed
+
+- `follow_user` and `unfollow_user` change only the followed account's `p` tag in the current kind-3 contact list; petnames, relay hints, other tags and the content stay as published (mdk#2268). Before, every edit dropped them. A list with 2,048 follows or more, the most MDK reads from one list, returns `FollowListTooLarge` and publishes nothing, where it used to be republished cut to 2,048 follows.
 
 - `edit_message` returns `InvalidEditTarget`, publishing nothing, unless the target is an available chat message this account sent. Before, an edit of another account's message, a reaction or a deleted message was published to the group and reported as sent, then ignored by every recipient. The check uses this device's view when the edit is requested; recipients stay authoritative.
 

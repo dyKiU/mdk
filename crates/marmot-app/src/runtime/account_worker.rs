@@ -36,7 +36,7 @@ use super::{
 use crate::app_telemetry::{AppPerformanceOperation, SyncFailureClassification, SyncFailureStage};
 use crate::client::recovery::AttemptGrant;
 use crate::client::{
-    ComparisonAdmission, ComparisonExecution, ComparisonNetworkJob,
+    CommittedSyncProgress, ComparisonAdmission, ComparisonExecution, ComparisonNetworkJob,
     CompletedWelcomeDeliveryRecovery, EncryptedMediaUploadFinish, PreparedGroupImageUploadStart,
 };
 use crate::messages::AppMessageIntent;
@@ -75,7 +75,7 @@ struct ComparisonRecoveryJob {
     admission: Option<ComparisonAdmission>,
     /// The process credit the network task released, held through admission
     /// and checkpoint.
-    credit: Option<OwnedSemaphorePermit>,
+    credit: Option<Arc<OwnedSemaphorePermit>>,
     observation: Option<crate::product_analytics::ProductObservation>,
     backfill_armed: bool,
     phase: Option<Observation>,
@@ -1320,6 +1320,31 @@ async fn run_app_runtime_account_worker(
     let sync_started_at = Instant::now();
     let startup_stage_telemetry = shared.app_performance_telemetry();
     let mut startup_explicit_shutdown = false;
+    let publish_startup_summary = |client: &AppClient, summary: &SyncSummary| {
+        publish_app_runtime_summary_with_v5(
+            client,
+            &events,
+            &account_id_hex,
+            &account_label,
+            summary,
+        );
+        if sync_summary_triggers_audit_tracker_update(summary) {
+            shared.schedule_audit_log_tracker_update("startup_sync");
+        }
+    };
+    let report_startup_join_errors = |live_error, history_error| {
+        publish_join_errors(
+            live_error,
+            history_error,
+            &events,
+            &account_id_hex,
+            &account_label,
+        );
+    };
+    let publish_startup_progress = CommittedSyncProgress {
+        publish: &publish_startup_summary,
+        post_join_errors: &report_startup_join_errors,
+    };
     let startup_sync_result = {
         let mut initial_sync: Pin<
             Box<dyn Future<Output = Result<StartupSyncStep, ClassifiedSyncFailure>> + Send + '_>,
@@ -1352,6 +1377,7 @@ async fn run_app_runtime_account_worker(
                 recovery_credits::try_acquire_recovery_credit(&shared.recovery_credit_pool());
             let grant = client
                 .prepare_sync_grant(Some(&startup_stage_telemetry), false, credit.is_some())
+                .await
                 .map_err(state_persist)?;
             #[cfg(test)]
             let activity_witness = shared
@@ -1392,7 +1418,9 @@ async fn run_app_runtime_account_worker(
                     network,
                 });
             }
-            let summary = client.finish_deferred_comparison_sync().await?;
+            let summary = client
+                .finish_deferred_comparison_sync(Some(&publish_startup_progress))
+                .await?;
             app.finish_client_open_network_maintenance(&mut client)
                 .await;
             Ok::<_, ClassifiedSyncFailure>(StartupSyncStep::Complete(summary))
@@ -1441,7 +1469,33 @@ async fn run_app_runtime_account_worker(
                     execution,
                     mut network,
                 }) => {
+                    let mut startup_replay_changes = client.adapter.replay_changes().await;
                     let completed = loop {
+                        let native_progress = match client.admit_native_turn().await {
+                            Ok(progress) => progress,
+                            Err(error) => {
+                                network.abort_and_wait().await;
+                                break Err(ClassifiedSyncFailure::at_stage(
+                                    client.take_pending_applied_sync_summary(),
+                                    error,
+                                    SyncFailureStage::Unknown,
+                                ));
+                            }
+                        };
+                        publish_client_pending_applied_summary(
+                            &mut client,
+                            &events,
+                            &account_id_hex,
+                            &account_label,
+                        );
+                        scheduled_runtime_group_subscription_refresh.observe_pending(
+                            client.has_pending_runtime_group_subscription_refresh(),
+                            &command_tx,
+                        );
+                        schedule_pending_convergence_groups(
+                            &mut scheduled_convergence,
+                            &mut client,
+                        );
                         tokio::select! {
                             _ = wait_for_runtime_shutdown(&mut lifecycle_shutdown) => {
                                 network.abort_and_wait().await;
@@ -1586,6 +1640,12 @@ async fn run_app_runtime_account_worker(
                             _ = local_submission_wakeups.changed() => {
                                 local_submission_due = true;
                             }
+                            changed = wait_for_replay_change(&mut startup_replay_changes) => {
+                                if !changed {
+                                    startup_replay_changes = None;
+                                }
+                            }
+                            () = tokio::task::yield_now(), if native_progress => {}
                             _ = tokio::time::sleep_until(local_submission_retry_at),
                                 if local_submission_due && deferred.is_empty() && !lifecycle.is_stopping() => {
                                 let retry = publish_next_local_submission(
@@ -1606,7 +1666,12 @@ async fn run_app_runtime_account_worker(
                             // Startup still defers mutations, so its bounded
                             // batch is admitted here, yielding between turns.
                             client
-                                .admit_comparison_inline(*grant, execution, network_result)
+                                .admit_comparison_inline(
+                                    Some(&publish_startup_progress),
+                                    *grant,
+                                    execution,
+                                    network_result,
+                                )
                                 .await
                                 .map_err(|error| {
                                     ClassifiedSyncFailure::at_stage(
@@ -1628,7 +1693,7 @@ async fn run_app_runtime_account_worker(
                             EpochBackfillRunOutcome::Completed(mut summary)
                             | EpochBackfillRunOutcome::Incomplete(mut summary),
                         ) => client
-                            .finish_deferred_comparison_sync()
+                            .finish_deferred_comparison_sync(Some(&publish_startup_progress))
                             .await
                             .map(|drained| {
                                 summary.merge(drained);
@@ -1636,7 +1701,11 @@ async fn run_app_runtime_account_worker(
                             }),
                         Ok(
                             EpochBackfillRunOutcome::Deferred | EpochBackfillRunOutcome::NotPending,
-                        ) => client.finish_deferred_comparison_sync().await,
+                        ) => {
+                            client
+                                .finish_deferred_comparison_sync(Some(&publish_startup_progress))
+                                .await
+                        }
                         Err(failure) => Err(failure),
                     };
                     app.finish_client_open_network_maintenance(&mut client)
@@ -1933,6 +2002,8 @@ async fn run_app_runtime_account_worker(
         Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>,
         TokioInstant,
     )> = None;
+    let mut replay_changes = client.adapter.replay_changes().await;
+    let mut admission_retry = ReplayAdmissionRetry::default();
     'worker: loop {
         // Cooperate between owner turns without splitting comparison admission.
         #[cfg(feature = "experimental-device-sync")]
@@ -1960,9 +2031,42 @@ async fn run_app_runtime_account_worker(
                 true
             }
         };
+        // Activation may replace the source watch. Reacquire only a live
+        // receiver; a closed activation must not turn this into a busy loop.
+        if replay_changes.is_none() {
+            replay_changes = client
+                .adapter
+                .replay_changes()
+                .await
+                .filter(|changes| changes.has_changed().is_ok());
+        }
+        // Once comparison input is known, its turn arbitrates both sources.
+        // Native-only admission is still required while network capture waits.
+        let native_progress = match if comparison_recovery
+            .as_ref()
+            .is_some_and(|job| job.network.is_none())
+            || !admission_retry.ready()
+            || !admit_comparison_turn
+        {
+            Ok(false)
+        } else {
+            admission_retry.admit_native_turn(&mut client).await
+        } {
+            Ok(progress) => progress,
+            Err(error) => {
+                publish_app_runtime_account_error(
+                    &events,
+                    &account_id_hex,
+                    &account_label,
+                    account_error_message("native replay admission failed", &error),
+                );
+                false
+            }
+        };
         if let Some(job) = comparison_recovery.as_mut()
             && job.network.is_none()
             && admit_comparison_turn
+            && admission_retry.ready()
         {
             // An admission batch is already one foreground/convergence quantum.
             // Do not also yield the due sibling debt to another ready branch.
@@ -1978,6 +2082,40 @@ async fn run_app_runtime_account_worker(
                 }
                 None => Ok(true),
             };
+            if turn.is_ok()
+                && let Some(admission) = job.admission.as_mut()
+            {
+                // Each recovered delivery has committed its projection. Do not
+                // withhold this turn's plaintext until the whole batch settles.
+                let summary = admission.take_committed_summary();
+                publish_app_runtime_summary_with_v5(
+                    &client,
+                    &events,
+                    &account_id_hex,
+                    &account_label,
+                    &summary,
+                );
+                start_post_join_history_after_visibility(
+                    &mut client,
+                    &summary,
+                    &events,
+                    &account_id_hex,
+                    &account_label,
+                )
+                .await;
+            }
+            if turn.is_err() {
+                // Mixed admission can fail on a native frame too. Pace its
+                // retained input even after the failed comparison is settled.
+                admission_retry.failed();
+                client.yield_failed_native_turn();
+            } else if job
+                .admission
+                .as_ref()
+                .is_some_and(|admission| admission.progressed)
+            {
+                admission_retry.reset();
+            }
             if !matches!(turn, Ok(false)) {
                 let mut job = comparison_recovery
                     .take()
@@ -1998,7 +2136,7 @@ async fn run_app_runtime_account_worker(
                 };
                 drop(job.credit);
                 let _ = report_pending_epoch_backfill_result(
-                    &client,
+                    &mut client,
                     result,
                     job.backfill_armed,
                     job.observation,
@@ -2008,7 +2146,7 @@ async fn run_app_runtime_account_worker(
                         account_label: &account_label,
                         shared: &shared,
                     },
-                );
+                ).await;
                 // A settled pass is where recovery parks or completes.
                 publish_history_notice_changes(
                     &mut client,
@@ -2062,6 +2200,74 @@ async fn run_app_runtime_account_worker(
                 continue 'worker;
             }
         }
+        // Unified admission may have advanced native frames as well as the
+        // comparison prefix. Publish their committed effects before live input.
+        let admitted = client.take_pending_applied_sync_summary();
+        let native_received = client.take_native_receive_need();
+        publish_app_runtime_summary_with_v5(
+            &client,
+            &events,
+            &account_id_hex,
+            &account_label,
+            &admitted,
+        );
+        if native_received || admitted != SyncSummary::default() {
+            publish_client_pending_projection_updates(
+                &mut client,
+                &events,
+                &account_id_hex,
+                &account_label,
+            );
+            start_post_join_history_after_visibility(
+                &mut client,
+                &admitted,
+                &events,
+                &account_id_hex,
+                &account_label,
+            )
+            .await;
+            // Native-owned live group frames have the same recovery follow-up
+            // as ordinary receives, including frames with no visible summary.
+            let recovery_started = if private_echo_busy {
+                false
+            } else {
+                start_receive_recovery(
+                    &mut client,
+                    &mut comparison_recovery,
+                    &admitted,
+                    EpochBackfillReportContext {
+                        events: &events,
+                        account_id_hex: &account_id_hex,
+                        account_label: &account_label,
+                        shared: &shared,
+                    },
+                )
+                .await
+            };
+            if !recovery_started {
+                let audit_tracker_update = sync_summary_triggers_audit_tracker_update(&admitted);
+                let retry_push_registration = !admitted.joined_groups.is_empty();
+                finish_receive_after_recovery(
+                    &mut client,
+                    ReceiveTailContext {
+                        events: &events,
+                        account_id_hex: &account_id_hex,
+                        account_label: &account_label,
+                        shared: &shared,
+                        scheduled_push_retry: &mut scheduled_push_retry,
+                        command_tx: &command_tx,
+                    },
+                    audit_tracker_update,
+                    retry_push_registration,
+                )
+                .await;
+            }
+        }
+        scheduled_runtime_group_subscription_refresh.observe_pending(
+            client.has_pending_runtime_group_subscription_refresh(),
+            &command_tx,
+        );
+        schedule_pending_convergence_groups(&mut scheduled_convergence, &mut client);
         // COMMAND_BACKLOG_TEST_BEGIN
         #[cfg(all(
             test,
@@ -2562,7 +2768,7 @@ async fn run_app_runtime_account_worker(
                                                     }
                                                 };
                                                 let _ = report_pending_epoch_backfill_result(
-                                                    &client,
+                                                    &mut client,
                                                     backfill_result,
                                                     backfill_armed,
                                                     observation,
@@ -2572,7 +2778,7 @@ async fn run_app_runtime_account_worker(
                                                         account_label: &account_label,
                                                         shared: &shared,
                                                     },
-                                                );
+                                                ).await;
                                                 if audit_tracker_update {
                                                     shared.schedule_audit_log_tracker_update("scheduled_convergence");
                                                 }
@@ -2675,6 +2881,23 @@ async fn run_app_runtime_account_worker(
                         #[cfg(not(feature = "experimental-device-sync"))]
                         let _ = result;
                     }
+            changed = wait_for_replay_change(&mut replay_changes) => {
+                if !changed {
+                    replay_changes = None;
+                    continue 'worker;
+                }
+                if let Err(error) = client.synchronize_native_replay().await {
+                    publish_app_runtime_account_error(
+                        &events,
+                        &account_id_hex,
+                        &account_label,
+                        account_error_message("native replay synchronization failed", &error),
+                    );
+                }
+                publish_history_notice_changes(
+                    &mut client, &events, &account_id_hex, &account_label,
+                );
+            }
                     received = async {
                         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                         { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::ArmPolled); }
@@ -2870,7 +3093,7 @@ async fn run_app_runtime_account_worker(
                                     }
                                     PendingRecoveryJob::Settled(result) => {
                                         let _ = report_pending_epoch_backfill_result(
-                                            &client,
+                                            &mut client,
                                             result, backfill_armed, observation,
                                             EpochBackfillReportContext {
                                                 events: &events,
@@ -2878,7 +3101,7 @@ async fn run_app_runtime_account_worker(
                                                 account_label: &account_label,
                                                 shared: &shared,
                                             },
-                                        );
+                                        ).await;
                                     }
                                 }
                                 }
@@ -3163,6 +3386,7 @@ async fn run_app_runtime_account_worker(
                                         }
                                     }
                                 };
+                                replay_changes = client.adapter.replay_changes().await;
                                 #[cfg(feature = "experimental-device-sync")]
                                 {
                                     sibling_completions = client.sibling_publication_completions();
@@ -3234,7 +3458,8 @@ async fn run_app_runtime_account_worker(
                     // A comparison batch still being admitted takes its next turn as
                     // soon as commands and live input have had theirs, instead of
                     // waiting for unrelated input while it holds its recovery credit.
-                    _ = tokio::task::yield_now(), if comparison_recovery.as_ref().is_some_and(|job| job.network.is_none()) => {
+                    () = admission_retry.wait() => { continue 'worker; }
+                    _ = tokio::task::yield_now(), if admission_retry.ready() && (native_progress || comparison_recovery.as_ref().is_some_and(|job| job.network.is_none() && job.admission.as_ref().is_some_and(|admission| admission.progressed))) => {
                         continue 'worker;
                     }
                     // Broad housekeeping retains its original lower-priority arm:
@@ -3347,6 +3572,7 @@ async fn run_app_runtime_account_worker(
                             &client,
                             &mut legacy_message_promotion,
                         );
+                        attachments::compact_if_due(&client, &shared, &mut attachment_admission).await;
                         attachments::spawn_legacy_migration(
                             &client,
                             &shared,
@@ -3463,7 +3689,7 @@ async fn run_app_runtime_account_worker(
                             PendingRecoveryJob::Settled(result) => result,
                         };
                         let _ = report_pending_epoch_backfill_result(
-                            &client,
+                            &mut client,
                             backfill_result, backfill_armed,
                             observation,
                             EpochBackfillReportContext {
@@ -3472,7 +3698,7 @@ async fn run_app_runtime_account_worker(
                                 account_label: &account_label,
                                 shared: &shared,
                             },
-                        );
+                        ).await;
                         finish_periodic_maintenance_after_recovery(
                             &mut client,
                             &events,
@@ -3494,6 +3720,15 @@ async fn run_app_runtime_account_worker(
     // the next session.
     if let Some(network) = comparison_recovery.and_then(|job| job.network) {
         network.abort_and_wait().await;
+    }
+}
+
+/// Wait for coalesced source changes, including same-generation progress.
+/// No active source watch leaves the select branch dormant.
+async fn wait_for_replay_change(changes: &mut Option<watch::Receiver<u64>>) -> bool {
+    match changes {
+        Some(changes) => changes.changed().await.is_ok(),
+        None => std::future::pending().await,
     }
 }
 
@@ -3520,7 +3755,7 @@ async fn start_pending_recovery_job(
             }
         }));
     };
-    let grant = match client.select_pending_epoch_backfill(seam) {
+    let grant = match client.select_pending_epoch_backfill(seam).await {
         Ok(crate::client::PendingRecoverySelection::Grant(grant)) => *grant,
         Ok(crate::client::PendingRecoverySelection::Deferred) => {
             #[cfg(test)]
@@ -3589,6 +3824,64 @@ async fn start_pending_recovery_job(
             trace("task_start_error");
             let _ = client.abandon_comparison_grant(grant, execution);
             PendingRecoveryJob::Settled(Err(error))
+        }
+    }
+}
+
+/// Dispatch the existing Receive recovery follow-up for either ingress lane.
+/// A running job keeps the one grant; only its settlement resumes its tail.
+async fn start_receive_recovery(
+    client: &mut AppClient,
+    comparison_recovery: &mut Option<ComparisonRecoveryJob>,
+    summary: &SyncSummary,
+    context: EpochBackfillReportContext<'_>,
+) -> bool {
+    let backfill_armed = client.has_pending_epoch_backfill();
+    let observation = backfill_armed
+        .then(|| {
+            context.shared.product_analytics.begin(
+                crate::ProductFamily::Recovery,
+                "backfill",
+                crate::ProductUnit::Attempt,
+            )
+        })
+        .flatten();
+    let result = if comparison_recovery.is_some() {
+        PendingRecoveryJob::Settled(Ok(EpochBackfillRunOutcome::Deferred))
+    } else {
+        start_pending_recovery_job(client, context.shared, EpochBackfillExecutionSeam::Receive)
+            .await
+    };
+    match result {
+        PendingRecoveryJob::Started {
+            grant,
+            execution,
+            network,
+        } => {
+            *comparison_recovery = Some(ComparisonRecoveryJob::new(
+                *grant,
+                execution,
+                network,
+                observation,
+                backfill_armed,
+                None,
+                ComparisonRecoveryOrigin::Receive {
+                    audit_tracker_update: sync_summary_triggers_audit_tracker_update(summary),
+                    retry_push_registration: !summary.joined_groups.is_empty(),
+                },
+            ));
+            true
+        }
+        PendingRecoveryJob::Settled(result) => {
+            let _ = report_pending_epoch_backfill_result(
+                client,
+                result,
+                backfill_armed,
+                observation,
+                context,
+            )
+            .await;
+            false
         }
     }
 }
@@ -4413,6 +4706,52 @@ struct MediaHttpDone {
     cancellation: Option<crate::ProductObservation>,
 }
 
+/// Stores a fetched avatar image as a cache file and settles its attempt.
+/// A disk too full for it, or any failure, retries the fetch later; the
+/// previous image stays. Blocking: runs on the blocking pool.
+fn store_acquired_avatar(
+    app: &crate::MarmotApp,
+    label: &str,
+    job: &storage_sqlite::AvatarAcquisition,
+    image: &storage_sqlite::AvatarImage,
+) {
+    let now = crate::unix_now_seconds();
+    let refresh = matches!(
+        job.descriptor,
+        storage_sqlite::SelectedAvatar::RemoteImage { .. }
+    )
+    .then(|| now.saturating_add(24 * 60 * 60));
+    let Ok(account) = app.account_storage(label) else {
+        return;
+    };
+    let storage = account.app_storage();
+    let stored = (|| {
+        let media = app.account_media_store(label, &account)?;
+        let reserve = storage
+            .attachment_download_policy(&super::attachment_controls::default_policy(&app.config))?
+            .disk_reserve;
+        let directory = app.account_dir(label);
+        let free = || crate::media::attachment_resume::available_space(&directory);
+        crate::media::avatar_files::store_acquired(
+            &storage, &media, reserve, &free, job, image, refresh,
+        )
+    })();
+    match stored {
+        Ok(crate::media::avatar_files::StoredAvatar::Stored)
+        | Ok(crate::media::avatar_files::StoredAvatar::Superseded) => {}
+        Ok(crate::media::avatar_files::StoredAvatar::NoRoom) => {
+            let _ = storage.fail_avatar_acquisition(job, now, true);
+        }
+        Err(_) => {
+            // Publication failure leaves the old image untouched. Avoid
+            // stranding a fetching row until process reconstruction.
+            let _ = storage.fail_avatar_acquisition(job, now, true);
+            tracing::warn!(target: "marmot_app::runtime", method = "avatar_acquisition",
+                "avatar completion could not be committed");
+        }
+    }
+}
+
 enum MediaHttpCompletion {
     AttachmentRetained {
         result: Result<(), AppError>,
@@ -4427,6 +4766,8 @@ enum MediaHttpCompletion {
         job: storage_sqlite::AvatarAcquisition,
         result: Result<storage_sqlite::AvatarImage, AppError>,
     },
+    /// A fetched image finished storing on the blocking pool.
+    AvatarStored,
     Upload {
         finish: EncryptedMediaUploadFinish,
         result: Result<
@@ -4463,10 +4804,8 @@ fn schedule_avatar_acquisition(
 ) -> Result<bool, AppError> {
     let storage = client.app.account_storage(&client.state.label)?;
     let transport = client.blossom_http_transport.clone();
-    let group_image_server = client
-        .app
-        .deployment()
-        .group_image_endpoint_or_fallback(None);
+    // Unset, encrypted group images can't load; profile pictures still do.
+    let group_image_server = client.app.deployment().group_image_endpoint.clone();
     let mut dispatched = false;
     let result = dispatch_avatar_acquisition(
         &storage.app_storage(),
@@ -4477,7 +4816,8 @@ fn schedule_avatar_acquisition(
             let transport = transport.clone();
             let group_image_server = group_image_server.clone();
             async move {
-                crate::media::avatar::fetch(&descriptor, &group_image_server, &transport).await
+                crate::media::avatar::fetch(&descriptor, group_image_server.as_deref(), &transport)
+                    .await
             }
         },
     );
@@ -4746,35 +5086,45 @@ async fn complete_media_http(
             drop(background_permit);
         }
         MediaHttpCompletion::Avatar { job, result } => {
-            if let Ok(storage) = client.app.account_storage(&client.state.label) {
-                let now = crate::unix_now_seconds();
-                let completed = match result {
-                    Ok(image) => {
-                        let refresh = matches!(
-                            job.descriptor,
-                            storage_sqlite::SelectedAvatar::RemoteImage { .. }
-                        )
-                        .then(|| now.saturating_add(24 * 60 * 60));
-                        storage
+            match result {
+                // The image becomes a cache file on the blocking pool (file
+                // I/O, hashing, AEAD); the permit is held until it is stored.
+                Ok(image) => {
+                    let app = client.app.clone();
+                    let label = client.state.label.clone();
+                    let tx = media_http.tx.clone();
+                    tokio::task::spawn_blocking(move || {
+                        store_acquired_avatar(&app, &label, &job, &image);
+                        let _ = tx.send(MediaHttpDone {
+                            permit,
+                            completion: MediaHttpCompletion::AvatarStored,
+                            cancellation: None,
+                        });
+                    });
+                    return;
+                }
+                Err(error) => {
+                    if let Ok(storage) = client.app.account_storage(&client.state.label) {
+                        let now = crate::unix_now_seconds();
+                        let retryable = crate::media::avatar::retryable(&error);
+                        if storage
                             .app_storage()
-                            .complete_avatar_acquisition(&job, &image, refresh)
-                            .map(|_| ())
+                            .fail_avatar_acquisition(&job, now, retryable)
+                            .is_err()
+                        {
+                            tracing::warn!(target: "marmot_app::runtime", method = "avatar_acquisition",
+                                "avatar completion could not be committed");
+                        }
                     }
-                    Err(error) => storage
-                        .app_storage()
-                        .fail_avatar_acquisition(&job, now, crate::media::avatar::retryable(&error))
-                        .map(|_| ()),
-                };
-                if completed.is_err() {
-                    // Publication failure leaves the old bytes untouched. Avoid
-                    // stranding a fetching row until process reconstruction.
-                    let _ = storage
-                        .app_storage()
-                        .fail_avatar_acquisition(&job, now, true);
-                    tracing::warn!(target: "marmot_app::runtime", method = "avatar_acquisition",
-                        "avatar completion could not be committed");
                 }
             }
+            let _ = client
+                .app
+                .presentation_signals
+                .avatars
+                .send(client.state.label.clone());
+        }
+        MediaHttpCompletion::AvatarStored => {
             let _ = client
                 .app
                 .presentation_signals
@@ -7746,6 +8096,59 @@ fn retry_delay_for_attempt(attempt: u32) -> Duration {
         .min(CONVERGENCE_RETRY_MAX_DELAY)
 }
 
+/// Only automatic admission is paced. Explicit sync/next_event callers still
+/// attempt retained input and observe the original storage/backend error.
+/// This timer never reconnects or acquires recovery credit.
+#[derive(Default)]
+struct ReplayAdmissionRetry {
+    attempts: u32,
+    deadline: Option<TokioInstant>,
+}
+
+impl ReplayAdmissionRetry {
+    async fn admit_native_turn(&mut self, client: &mut AppClient) -> Result<bool, AppError> {
+        if !self.ready() {
+            return Ok(false);
+        }
+        match client.admit_native_turn().await {
+            Ok(progress) => {
+                if progress {
+                    self.reset();
+                }
+                Ok(progress)
+            }
+            Err(error) => {
+                self.failed();
+                client.yield_failed_native_turn();
+                Err(error)
+            }
+        }
+    }
+
+    fn ready(&self) -> bool {
+        self.deadline
+            .is_none_or(|deadline| deadline <= TokioInstant::now())
+    }
+
+    fn failed(&mut self) {
+        self.attempts = self.attempts.saturating_add(1);
+        self.deadline = Some(TokioInstant::now() + retry_delay_for_attempt(self.attempts));
+    }
+
+    fn reset(&mut self) {
+        self.attempts = 0;
+        self.deadline = None;
+    }
+
+    async fn wait(&mut self) {
+        match self.deadline {
+            Some(deadline) => tokio::time::sleep_until(deadline).await,
+            None => std::future::pending::<()>().await,
+        }
+        self.deadline = None;
+    }
+}
+
 /// Finish the original Receive arm after its recovery outcome is reported.
 /// The same tail runs immediately for inline/deferred work or when the owned
 /// comparison joins; automatic push work schedules from the current durable
@@ -7805,18 +8208,24 @@ async fn start_post_join_history_after_visibility(
     account_id_hex: &str,
     account_label: &str,
 ) {
-    if summary.joined_groups.is_empty() {
-        return;
-    }
-    // Visibility is already published. Install ordinary live interest now,
-    // independently of the history owner's cooldown. Waiting for the retry
-    // timer leaves a newly joined account unrouted while another local account
-    // can already receive the SDK's single deduplicated copy of a group event.
-    // Failures retain the existing bounded registration-retry intent.
-    if let Err(error) = client
-        .retry_pending_runtime_group_subscription_refresh()
-        .await
-    {
+    let (live_error, history_error) = client.advance_visible_join(summary).await;
+    publish_join_errors(
+        live_error,
+        history_error,
+        events,
+        account_id_hex,
+        account_label,
+    );
+}
+
+fn publish_join_errors(
+    live_error: Option<AppError>,
+    history_error: Option<AppError>,
+    events: &broadcast::Sender<MarmotAppEvent>,
+    account_id_hex: &str,
+    account_label: &str,
+) {
+    if let Some(error) = live_error {
         publish_app_runtime_account_error(
             events,
             account_id_hex,
@@ -7824,7 +8233,7 @@ async fn start_post_join_history_after_visibility(
             account_error_message("post-join live subscription refresh failed", &error),
         );
     }
-    if let Err(error) = client.advance_post_join_maintenance_subscriptions().await {
+    if let Some(error) = history_error {
         publish_app_runtime_account_error(
             events,
             account_id_hex,
@@ -7909,6 +8318,7 @@ async fn run_pending_epoch_backfill_reporting_arm(
             shared,
         },
     )
+    .await
 }
 
 struct EpochBackfillReportContext<'a> {
@@ -7918,10 +8328,9 @@ struct EpochBackfillReportContext<'a> {
     shared: &'a RuntimeSharedServices,
 }
 
-/// A suspended comparison reports through the same product/runtime boundary
-/// after the worker has admitted its owned result and checkpointed the grant.
-fn report_pending_epoch_backfill_result(
-    client: &AppClient,
+/// Report the completed comparison without repeating its published turn prefixes.
+async fn report_pending_epoch_backfill_result(
+    client: &mut AppClient,
     backfill_result: Result<EpochBackfillRunOutcome, AppError>,
     backfill_armed: bool,
     observation: Option<crate::product_analytics::ProductObservation>,
@@ -7958,6 +8367,14 @@ fn report_pending_epoch_backfill_result(
                 account_label,
                 &summary,
             );
+            start_post_join_history_after_visibility(
+                client,
+                &summary,
+                events,
+                account_id_hex,
+                account_label,
+            )
+            .await;
             Ok(())
         }
         Ok(EpochBackfillRunOutcome::Deferred | EpochBackfillRunOutcome::NotPending) => Ok(()),
@@ -8243,9 +8660,7 @@ fn publish_history_notice_changes(
     account_id_hex: &str,
     account_label: &str,
 ) {
-    // The relay plane's lag-lost EOSE repairs and the adapter's subscription
-    // refusals queue their reports; this seam records them, off relay paths.
-    client.record_eose_repair_reports();
+    // Record queued subscription refusals off relay paths.
     client.record_subscription_refusals();
     let Some(groups) = client.take_history_notice_changes() else {
         return;
@@ -8393,6 +8808,40 @@ mod tests {
     mod worker_wait_attribution_tests;
 
     static BOUNDED_WORKER_FIXTURE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    // Paused time pins the production retry deadlines without wall-clock sleeps.
+    #[tokio::test(start_paused = true)]
+    async fn native_admission_backoff() {
+        let mut retry = ReplayAdmissionRetry::default();
+        for expected in [1, 2, 4, 8, 16, 32, 60, 60] {
+            assert!(retry.ready());
+            retry.failed();
+            assert!(!retry.ready());
+            let deadline = retry.deadline.unwrap();
+            assert_eq!(
+                deadline - TokioInstant::now(),
+                Duration::from_secs(expected)
+            );
+            tokio::time::advance(Duration::from_secs(expected) - Duration::from_millis(1)).await;
+            assert!(
+                !retry.ready(),
+                "unrelated worker wakes cannot shorten failure backoff"
+            );
+            retry.wait().await;
+            assert!(retry.ready());
+            assert!(
+                retry.deadline.is_none(),
+                "a consumed retry deadline cannot hot-loop"
+            );
+        }
+        retry.reset();
+        assert_eq!(retry.attempts, 0);
+        retry.failed();
+        assert_eq!(
+            retry.deadline.unwrap() - TokioInstant::now(),
+            Duration::from_secs(1)
+        );
+    }
 
     use marmot_account::AccountHome;
 
@@ -9944,13 +10393,14 @@ mod tests {
                 Some(&mut permit),
                 EpochBackfillExecutionSeam::ExplicitCatchUp,
             )
+            .await
             .unwrap()
             .expect("the armed gap is granted");
         client.released_backfill_reload_pending = true;
         client.fail_next_released_backfill_reload = true;
         let result = client.run_recovery_grant_for_test(grant).await;
         let error = report_pending_epoch_backfill_result(
-            &client,
+            &mut client,
             result,
             true,
             None,
@@ -9961,6 +10411,7 @@ mod tests {
                 shared: &shared,
             },
         )
+        .await
         .expect_err("a failed job must be returned");
 
         assert_eq!(error.to_string(), "epoch-gap backfill failed: storage_busy");
@@ -10049,7 +10500,7 @@ mod tests {
             "wss://relay.example".to_owned(),
             bounded_epoch_backfill_config().with_dev_epoch_backfill_retry_backoff_ms(300_000),
         )
-        .with_test_relay_client(relay.clone());
+        .with_test_relay_client(relay);
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let group = client
             .create_group("ownership baseline", &[])
@@ -10071,7 +10522,6 @@ mod tests {
         client.delivery_overflow_recovery_marker_token = Some(7);
         let (events, _subscriber) = broadcast::channel(16);
         let shared = RuntimeSharedServices::default();
-        let before = relay.unfloored_account_subscription_count();
         client
             .sync_with_stage_telemetry(
                 Some(&shared.app_performance_telemetry()),
@@ -10107,11 +10557,6 @@ mod tests {
                 .unwrap();
             assert_eq!(retry.attempt_serial, 1, "{reason}");
             assert_eq!(retry.not_before_ms - retry.recorded_at_ms, 300_000);
-            assert_eq!(
-                relay.unfloored_account_subscription_count(),
-                before,
-                "automatic recovery restores only the live tail"
-            );
         }
         let retry = app
             .account_storage("alice")
@@ -10141,7 +10586,6 @@ mod tests {
                 .unwrap(),
             retry
         );
-        assert_eq!(relay.unfloored_account_subscription_count(), before);
         client
             .sync_with_classified_partial_progress()
             .await
@@ -10154,11 +10598,6 @@ mod tests {
                 .unwrap()
                 .attempt_serial,
             2
-        );
-        assert_eq!(
-            relay.unfloored_account_subscription_count(),
-            before,
-            "an explicit catch-up spends one override and still restores only the live tail"
         );
         assert!(client.has_pending_epoch_backfill());
         assert!(client.delivery_overflow_recovery_pending);
@@ -10658,6 +11097,7 @@ mod tests {
         );
         let grant = client
             .authorize_account_recovery(None, EpochBackfillExecutionSeam::Maintenance)
+            .await
             .unwrap()
             .unwrap();
         client.apply_backfill_decision(

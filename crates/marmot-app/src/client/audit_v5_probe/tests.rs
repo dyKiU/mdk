@@ -1392,7 +1392,7 @@ async fn offworker_startup_receive_retains_join_after_checkpoint_failure() {
             .reject_checkpoints = false;
         let replay = scenario
             .bob
-            .finish_deferred_comparison_sync()
+            .finish_deferred_comparison_sync(None)
             .await
             .unwrap();
         assert_eq!(replay.joined_groups, vec![group]);
@@ -1405,7 +1405,7 @@ async fn offworker_startup_receive_retains_join_after_checkpoint_failure() {
         );
         let next = scenario
             .bob
-            .finish_deferred_comparison_sync()
+            .finish_deferred_comparison_sync(None)
             .await
             .unwrap();
         assert!(

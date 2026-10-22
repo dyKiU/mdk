@@ -2869,6 +2869,7 @@ fn app_error(error: AppError) -> SubjectError {
         | AppError::MissingDefaultRelays
         | AppError::MissingRelayLists(_)
         | AppError::FollowListUnavailable
+        | AppError::FollowListTooLarge
         | AppError::ExternalSignerMismatch
         | AppError::ExternalSignerRejected
         | AppError::MissingDirectoryEntry(_)

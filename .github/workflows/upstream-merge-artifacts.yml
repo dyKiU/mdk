@@ -8,6 +8,10 @@ on:
         description: Generate canonical source before final qualification without running product tests
         type: boolean
         default: false
+      refresh_lock_only:
+        description: Resolve the merged dependency lock remotely and export its exact source patch only
+        type: boolean
+        default: false
       source_sha:
         description: Exact merged91e-or-descendant source for dedicated source-regeneration preview
         type: string
@@ -164,7 +168,7 @@ jobs:
           if-no-files-found: error
 
   source-regeneration:
-    if: github.event_name == 'workflow_dispatch' && inputs.generation_only && startsWith(github.ref_name, 'ci/upstream-source-regeneration-')
+    if: github.event_name == 'workflow_dispatch' && inputs.generation_only && startsWith(github.ref_name, 'ci/upstream-source-regeneration-') && !inputs.refresh_lock_only
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -320,5 +324,84 @@ jobs:
             ${{ runner.temp }}/source-regeneration-evidence/header.patch
             ${{ runner.temp }}/source-regeneration-evidence/api-reference.patch
             ${{ runner.temp }}/source-regeneration-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  dependency-lock-preview:
+    if: github.event_name == 'workflow_dispatch' && inputs.generation_only && inputs.refresh_lock_only && startsWith(github.ref_name, 'ci/upstream-source-regeneration-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Require exact task-owned source before checkout
+        run: |
+          python3 - <<'PY_REQUEST'
+          import os,re
+          assert os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk'
+          assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-source-regeneration-')
+          assert re.fullmatch('[0-9a-f]{40}',os.environ['SOURCE_SHA'])
+          assert os.environ['SOURCE_SHA']==os.environ['GITHUB_SHA']
+          PY_REQUEST
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Record original dependency source
+        run: |
+          python3 - <<'PY_BEFORE'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          git=lambda *a:subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD')==os.environ['SOURCE_SHA']
+          assert not git('status','--porcelain')
+          out=Path(os.environ['RUNNER_TEMP'])/'lock-preview'
+          out.mkdir(mode=0o700)
+          d=dict(source=os.environ['SOURCE_SHA'],tree=git('rev-parse','HEAD^{tree}'),
+                 lock_before_sha256=hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+                 command=['cargo','update','--workspace'],product_test_bodies=0,qualification_passed=False)
+          (out/'inputs.json').write_text(json.dumps(d,indent=2)+'\n')
+          PY_BEFORE
+      - name: Install exact repository Rust toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - name: Resolve merged workspace lock without compiling
+        id: resolve
+        run: cargo update --workspace
+      - name: Export only the exact dependency source patch
+        if: always() && steps.resolve.outcome != 'skipped'
+        env:
+          RESOLVE_OUTCOME: ${{ steps.resolve.outcome }}
+        run: |
+          python3 - <<'PY_AFTER'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          git=lambda *a:subprocess.check_output(['git',*a],text=True).strip()
+          out=Path(os.environ['RUNNER_TEMP'])/'lock-preview'
+          d=json.loads((out/'inputs.json').read_text())
+          patch=subprocess.check_output(['git','diff','--binary','--','Cargo.lock'])
+          d.update(resolve_outcome=os.environ['RESOLVE_OUTCOME'],
+                   head_unchanged=git('rev-parse','HEAD')==d['source'],
+                   only_lock_changed=set(git('diff','--name-only').splitlines())<= {'Cargo.lock'},
+                   index_and_untracked_pristine=not git('diff','--cached','--name-only') and not git('ls-files','--others','--exclude-standard'),
+                   lock_after_sha256=hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+                   patch_sha256=hashlib.sha256(patch).hexdigest(),patch_bytes=len(patch))
+          d['preview_complete']=d['resolve_outcome']=='success' and d['head_unchanged'] and d['only_lock_changed'] and d['index_and_untracked_pristine']
+          (out/'dependency-lock.patch').write_bytes(patch)
+          (out/'result.json').write_text(json.dumps(d,indent=2)+'\n')
+          if not d['preview_complete']:raise SystemExit(1)
+          PY_AFTER
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: dependency-lock-preview-${{ inputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/lock-preview/dependency-lock.patch
+            ${{ runner.temp }}/lock-preview/result.json
           if-no-files-found: error
           retention-days: 7

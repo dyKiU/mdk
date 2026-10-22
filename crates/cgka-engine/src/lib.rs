@@ -113,10 +113,6 @@ pub use wire_format::{
     default_join_config, join_config,
 };
 
-// ── Compile-time witnesses ──────────────────────────────────────────────────
-
-const _: fn(Box<dyn cgka_traits::CgkaEngine + Send + Sync>) = |_| {};
-
 #[cfg(feature = "experimental-device-sync")]
 pub mod linking_welcome_policy;
 

@@ -39,7 +39,7 @@ epoch-scoped readability; `MockPeeler` stays right for everything else.
     behavior the engine relies on)
 
 - **File:** `scaffold.rs`
-  - **Owns:** `EngineBuilder` validation; `Box<dyn CgkaEngine>` witness
+  - **Owns:** `EngineBuilder` validation and empty-engine behavior
 
 - **File:** `accepted_welcome_receipts.rs`
   - **Owns:** Default-off exact accepted-Welcome/KPref/account/MLS-signer evidence, independent same-account device joins, wrong inputs, transactional failure/retry, encrypted reopen. No enrollment or roster authorization.

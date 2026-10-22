@@ -53,6 +53,7 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
         );
         let peer_name = "Named shared contact";
         apps[0]
+            .directory()
             .remember_directory_profile(
                 &peer_account.account_id_hex,
                 &crate::UserProfileMetadata {
@@ -165,12 +166,14 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
         }
         let updated_peer_name = "Updated shared contact";
         let previous_profile_time = apps[0]
+            .directory()
             .directory_entry_for_account_id(&peer_account.account_id_hex)
             .unwrap()
             .and_then(|entry| entry.profile)
             .map(|profile| profile.created_at)
             .unwrap_or(0);
         apps[0]
+            .directory()
             .remember_directory_profile(
                 &peer_account.account_id_hex,
                 &crate::UserProfileMetadata {
@@ -182,6 +185,7 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
             .unwrap();
         assert_eq!(
             apps[0]
+                .directory()
                 .directory_entry_for_account_id(&peer_account.account_id_hex)
                 .unwrap()
                 .unwrap()

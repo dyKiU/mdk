@@ -17,6 +17,11 @@ versioning through the workspace version in the root `Cargo.toml`.
   preparation retries typed storage contention at most twice; publication is
   never repeated by that readiness check.
 
+
+- `wn follows add` / `remove` and the MarmotKit `follow_user` / `unfollow_user` keep petnames, relay hints, other tags
+  and the content of the account's kind-3 contact list, changing only the followed account's `p` tag (mdk#2268).
+  A list with 2,048 follows or more, the most MDK reads from one list, is refused with `follow_list_too_large`
+  instead of being republished cut to 2,048 follows.
 - The retention sweep status `deferred_scan_exhausted` no longer exists
   (mdk#2425); the sweep has no page cap to hit.
 
@@ -30,6 +35,13 @@ versioning through the workspace version in the root `Cargo.toml`.
   which could be the main thread. Generated bindings are unchanged. `SecretStore` and external-signer callbacks,
   already required to be thread-safe, can now run concurrently on more threads. See the
   [threading model](../marmot-uniffi/README.md#threading-model).
+- Watching an agent stream on Android no longer aborts the host app when the QUIC broker presents a
+  CA-signed certificate (mdk#2324). Default broker trust used the OS certificate verifier, which on
+  Android panics because MarmotKit never sets up its JNI state; the panic aborted the process inside
+  the QUIC connection driver. Brokers are now verified against the bundled Mozilla roots
+  (`webpki-roots`) that relays and HTTP already use, on every platform. A broker behind a private or
+  enterprise CA that only the OS trust store accepted must now be pinned by passing that CA's root
+  certificate as `--server-cert-der-hex` or `server_cert_der`.
 - `wn messages edit` refuses, publishing nothing, unless the target is an available chat message this account sent, and reports `invalid_edit_target` in JSON output. Before, it published an edit of another account's message, a reaction or a deleted message that every recipient ignored.
 - Invites and key-package lookups whose relay lookup ran out of time or relay coverage now fail
   with JSON code `directory_lookup_incomplete` and the affected `account_id` instead of

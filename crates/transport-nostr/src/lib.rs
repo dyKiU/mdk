@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::{
-    Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak,
+    Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -14,7 +14,7 @@ use cgka_traits::{
     TransportEndpointFailureKind, TransportEndpointRejectionCategory, TransportGroupSubscription,
     TransportGroupSync, TransportPublishFailure, TransportPublishReport, TransportPublishRequest,
 };
-use futures::{Stream, StreamExt, stream::FuturesUnordered};
+use futures::{FutureExt, Stream, StreamExt, stream::FuturesUnordered};
 use nostr_sdk::NotificationUpdate;
 use nostr_sdk::prelude::{
     Client as NostrSdkClient, ClientNotification, Filter, Kind, PublicKey, RelayMessage, RelayUrl,
@@ -29,11 +29,12 @@ use transport_nostr_adapter::{
     AccountSubscriptionEose, NostrAcquisitionCancellation, NostrAcquisitionError,
     NostrAcquisitionRequest, NostrAcquisitionResult, NostrNotificationLossFloor,
     NostrPublishOutcome, NostrReconciliationItem, NostrReconciliationSummary, NostrRelayClient,
-    NostrSdkRelayClient, NostrSdkRelayHealth, NostrSubscription, NostrTransportAdapter,
-    NotificationLagMark, RelayExportConsent, RelayLabelResolution, RelayRegistrationOutcome,
+    NostrSdkNotification, NostrSdkRelayClient, NostrSdkRelayHealth, NostrSubscription,
+    NostrTransportAdapter, RelayExportConsent, RelayLabelResolution, RelayRegistrationOutcome,
     SubscriptionAttempt,
 };
 
+pub use transport_nostr_adapter::{ReplayAdmissionStatus, ReplayCaptureOutcome, ReplayCapturePlan};
 use transport_nostr_peeler::NostrTransportEvent;
 
 #[cfg(all(
@@ -158,14 +159,7 @@ const RELAY_NOTIFICATION_RESTART_HEALTHY_RUNTIME: Duration = Duration::from_secs
 /// client's per-receiver notification buffer, which bounded the inline
 /// consumer this queue replaced.
 const RELAY_NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 4096;
-/// How long a relay notification receiver must run without another lag
-/// before the REQs whose end-of-stored-events a lag may have lost are
-/// re-issued. A re-issue restarts the relay's replay of that REQ, so it waits
-/// out the burst that caused the lag. Under sustained overload lags recur
-/// within seconds, and re-issuing at each one would keep restarting replays
-/// that are still arriving. Waiting costs little: until the repair, the next
-/// activation re-subscribes, as it did before the repair existed.
-const NOTIFICATION_LAG_EOSE_REPAIR_SETTLE: Duration = Duration::from_secs(30);
+
 const ACCOUNT_PUBLISH_WAIT: Duration = Duration::from_secs(20);
 
 /// The process-wide relay plane every account shares.
@@ -450,62 +444,8 @@ struct RelayPlaneTransport {
     account_notification_forwarders: Mutex<HashMap<MemberId, JoinHandle<()>>>,
     directory_notification_forwarder: Mutex<Option<JoinHandle<()>>>,
     notification_forwarder_health: Arc<RelayNotificationForwarderHealth>,
-    /// Lag-lost EOSE repairs waiting for their receiver to settle, one per
-    /// receiver scope: an account, or `None` for a receiver shared across
-    /// accounts. A later lag in the same scope postpones the repair.
-    eose_repairs: std::sync::Mutex<HashMap<Option<MemberId>, EoseRepairSchedule>>,
-    /// [`NOTIFICATION_LAG_EOSE_REPAIR_SETTLE`] in milliseconds; tests shorten
-    /// it.
-    eose_repair_settle_ms: AtomicU64,
-    /// Finished lag-lost EOSE repairs waiting for an account worker to record
-    /// them, oldest first, bounded by [`EOSE_REPAIR_REPORTS_MAX`]. The
-    /// repair only pushes; recording happens on the worker, so it never
-    /// waits on audit.
-    eose_repair_reports: std::sync::Mutex<EoseRepairReports>,
+
     shutting_down: AtomicBool,
-}
-
-/// At most this many unrecorded repair reports are kept; older ones are
-/// dropped and counted.
-const EOSE_REPAIR_REPORTS_MAX: usize = 64;
-
-#[derive(Default)]
-struct EoseRepairReports {
-    pending: std::collections::VecDeque<EoseRepairReport>,
-    /// Evicted reports whose receiver had no later pending report to carry
-    /// the count. A scalar, so the accounting stays bounded with the queue.
-    dropped_unattributed: u64,
-}
-
-/// One finished lag-lost EOSE repair pass, for its audit row.
-#[derive(Clone, Debug)]
-pub struct EoseRepairReport {
-    /// The lagging receiver's account, or `None` for a receiver shared
-    /// across accounts.
-    pub scope: Option<MemberId>,
-    /// Whether this pass followed an earlier one that left relays
-    /// unrepaired, rather than a lag directly.
-    pub follow_up: bool,
-    /// Lags folded into this pass while its receiver settled.
-    pub lags: u64,
-    pub summary: transport_nostr_adapter::EoseReissueSummary,
-    /// Whether a follow-up repair was scheduled for the failed relays.
-    pub follow_up_scheduled: bool,
-    /// Earlier reports for this scope dropped at the queue bound, carried
-    /// forward onto this one when they were evicted.
-    pub dropped_before: u64,
-}
-
-/// A lag-lost EOSE repair waiting for its receiver to settle.
-struct EoseRepairSchedule {
-    /// When the repair may run, unless a later lag postpones it.
-    due: tokio::time::Instant,
-    /// The latest lag: only REQs issued by then are re-issued.
-    lag: NotificationLagMark,
-    /// Audit only: lags folded into this schedule, and whether it retries an
-    /// earlier pass's unrepaired relays.
-    lags: u64,
-    follow_up: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -651,8 +591,8 @@ pub struct AccountDeliveryOverflow {
     pub earliest_dropped: Option<u64>,
     pub notification_losses: u64,
     pub notification_token: u64,
-    /// Lowest REQ `since` floor among this generation's notification lags, or
-    /// `None` when any lag's floor is unknown.
+    /// Lowest REQ `since` floor among this generation's notification or replay
+    /// losses, or `None` when any loss's floor is unknown.
     pub notification_floor: Option<u64>,
     pub queue_depth: usize,
     pub elapsed_ms: u64,
@@ -730,8 +670,8 @@ struct AccountDeliveryOverflowInner {
     /// whether any dropped delivery's time was unknown.
     earliest_dropped: Option<u64>,
     earliest_dropped_unknown: bool,
-    /// Running minimum of the notification lags' REQ floors, and whether any
-    /// lag's floor was unknown.
+    /// Running minimum of notification and replay losses' REQ floors, and
+    /// whether any loss's floor was unknown.
     notification_floor: Option<u64>,
     notification_floor_unknown: bool,
     /// What the account queue holds, and the restart floors a cursor commit
@@ -816,8 +756,8 @@ fn account_delivery_restart_key(delivery: &TransportDelivery) -> u64 {
 enum AccountDeliveryLossCharge {
     /// A delivery the queue omitted, with its wire `created_at` if known.
     Drop { created_at: Option<u64> },
-    /// A consumer lag, bounded by the REQ floors that could have delivered
-    /// the lost notifications.
+    /// A notification or staged-replay loss, bounded by the REQ floors that
+    /// could have delivered the lost history.
     Notification { floor: NostrNotificationLossFloor },
 }
 
@@ -1003,8 +943,14 @@ impl AccountDeliveryOverflowState {
         epoch: u64,
         lookback: Option<u64>,
         candidate: Option<u64>,
+        replay: &mut ReplayAdmissionStatus<'_>,
+        authorize: impl FnOnce(&ReplayAdmissionStatus<'_>) -> bool,
     ) -> Option<u64> {
         let mut state = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        replay.spill_pending = state.spill_in_flight > 0;
+        if replay.pending || replay.spill_pending || !authorize(replay) {
+            return None;
+        }
         if state.pending || state.spill_in_flight > 0 || state.admission.epoch != epoch {
             return None;
         }
@@ -1077,7 +1023,7 @@ impl AccountDeliveryOverflowState {
         self.record_loss(queue_depth, AccountDeliveryLossCharge::Drop { created_at })
     }
 
-    /// Record a consumer lag with the REQ floor read at the lag, returning the
+    /// Record notification or replay loss with its REQ floor, returning the
     /// generation only when this caller must enqueue its control record.
     fn record_notification_loss(&self, floor: NostrNotificationLossFloor) -> Option<u64> {
         self.record_loss(0, AccountDeliveryLossCharge::Notification { floor })
@@ -1104,7 +1050,7 @@ impl AccountDeliveryOverflowState {
         match charge {
             AccountDeliveryLossCharge::Notification { floor } => {
                 state.notification_losses = state.notification_losses.saturating_add(1);
-                // Each lag mints a token, so a changed floor always imports as
+                // Each loss mints a token, so a changed floor always imports as
                 // new loss and bumps the obligation's revision.
                 state.notification_token = rand::rngs::OsRng.next_u64() & i64::MAX as u64;
                 match floor.since_seconds() {
@@ -1908,11 +1854,6 @@ impl MarmotRelayPlane {
             account_notification_forwarders: Mutex::new(HashMap::new()),
             directory_notification_forwarder: Mutex::new(None),
             notification_forwarder_health: Arc::new(RelayNotificationForwarderHealth::default()),
-            eose_repairs: std::sync::Mutex::new(HashMap::new()),
-            eose_repair_settle_ms: AtomicU64::new(
-                NOTIFICATION_LAG_EOSE_REPAIR_SETTLE.as_millis() as u64
-            ),
-            eose_repair_reports: std::sync::Mutex::new(EoseRepairReports::default()),
             shutting_down: AtomicBool::new(false),
         });
         let this = Self {
@@ -2382,35 +2323,6 @@ impl MarmotRelayPlane {
             .transport
             .adapter
             .take_subscription_refusals(account)
-    }
-
-    #[doc(hidden)]
-    pub fn take_eose_repair_reports(
-        &self,
-        account: &MemberId,
-        shared: bool,
-    ) -> Vec<EoseRepairReport> {
-        let mut reports = self
-            .inner
-            .transport
-            .eose_repair_reports
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if reports.pending.is_empty() {
-            return Vec::new();
-        }
-        let mut taken = Vec::new();
-        let mut kept = std::collections::VecDeque::new();
-        for report in std::mem::take(&mut reports.pending) {
-            let own = report.scope.as_ref() == Some(account);
-            if own || (shared && report.scope.is_none()) {
-                taken.push(report);
-            } else {
-                kept.push_back(report);
-            }
-        }
-        reports.pending = kept;
-        taken
     }
 
     /// Drain the per-relay subscription-registration outcomes `account`
@@ -2928,12 +2840,9 @@ impl MarmotRelayPlane {
                 sdk_relay_client.shutdown_accounts(),
             )
             .await;
-            let timed_out = timeout(
-                RELAY_PLANE_SHUTDOWN_WAIT,
-                sdk_relay_client.client().shutdown(),
-            )
-            .await
-            .is_err();
+            let timed_out = timeout(RELAY_PLANE_SHUTDOWN_WAIT, sdk_relay_client.shutdown())
+                .await
+                .is_err();
             if timed_out {
                 tracing::warn!(
                     target: "marmot_app::relay_plane",
@@ -3046,16 +2955,7 @@ impl MarmotRelayPlane {
                     .send(DirectoryRelayPlaneEvent::RecoveryRequired);
             }
             *forwarder = Some(spawn_directory_notification_forwarder(
-                Arc::new(SdkRelayNotificationSource {
-                    client: client.clone(),
-                    loss: None,
-                    #[cfg(all(
-                        any(test, feature = "test-support"),
-                        feature = "experimental-device-sync",
-                        feature = "test-policy-overrides"
-                    ))]
-                    disposition_observer: None,
-                }),
+                client.notifications_with_gaps(),
                 self.inner.transport.directory_events.clone(),
                 self.inner.directory.clone(),
             ));
@@ -3070,77 +2970,99 @@ impl MarmotRelayPlane {
         let adapter = transport.adapter.clone();
         let handle = handle.spawn(async move {
             // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-            #[cfg(all(
-                any(test, feature = "test-support"),
-                feature = "experimental-device-sync",
-                feature = "test-policy-overrides"
-            ))]
+            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
             let mut ingress = account_ingress_schedule_for_test::Router::default();
             // COMMAND_INGRESS_SCHEDULE_TEST_END
             loop {
                 // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-                #[cfg(all(
-                    any(test, feature = "test-support"),
-                    feature = "experimental-device-sync",
-                    feature = "test-policy-overrides"
-                ))]
-                ingress.control(&transport.test_account_ingress_schedule, |delivery| {
-                    route_account_delivery(&transport, delivery);
-                });
-                #[cfg(all(
-                    any(test, feature = "test-support"),
-                    feature = "experimental-device-sync",
-                    feature = "test-policy-overrides"
-                ))]
+                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                {
+                    let mut routed = Vec::new();
+                    ingress.control(&transport.test_account_ingress_schedule, |delivery| {
+                        routed.push((delivery.account_id.clone(), delivery.message.id.clone()));
+                        route_account_delivery(&transport, delivery);
+                    });
+                    for (account, message) in routed {
+                        adapter.ack_replay_delivery(&account, &message).await;
+                    }
+                }
+                // COMMAND_INGRESS_SCHEDULE_TEST_END
+                // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                 let received = tokio::select! {
                     biased;
                     _ = transport.test_account_ingress_schedule.changed.notified() => continue,
                     received = adapter.receive_observed() => received,
+                    () = adapter.replay_loss_notified() => {
+                        let accounts = account_deliveries_read(&transport.account_deliveries)
+                            .keys().cloned().collect::<Vec<_>>();
+                        for account in accounts {
+                            let status = adapter.take_replay_status(&account).await;
+                            if let Some(loss) = status.loss {
+                                // Import consumed evidence before any next await.
+                                import_replay_loss(&transport, &account, loss);
+                            }
+                        }
+                        continue;
+                    }
                 };
-                #[cfg(not(all(
-                    any(test, feature = "test-support"),
-                    feature = "experimental-device-sync",
-                    feature = "test-policy-overrides"
-                )))]
-                let received = adapter.receive_observed().await;
+                #[cfg(not(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides")))]
                 // COMMAND_INGRESS_SCHEDULE_TEST_END
-                let Ok(Some(delivery)) = received else {
-                    break;
+                let received = tokio::select! {
+                    received = adapter.receive_observed() => received,
+                    () = adapter.replay_loss_notified() => {
+                        let accounts = account_deliveries_read(&transport.account_deliveries)
+                            .keys().cloned().collect::<Vec<_>>();
+                        for account in accounts {
+                            let status = adapter.take_replay_status(&account).await;
+                            if let Some(loss) = status.loss {
+                                // Import consumed evidence before any next await.
+                                import_replay_loss(&transport, &account, loss);
+                            }
+                        }
+                        continue;
+                    }
                 };
+                let Ok(Some(delivery)) = received else { break; };
                 // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-                #[cfg(all(
-                    any(test, feature = "test-support"),
-                    feature = "experimental-device-sync",
-                    feature = "test-policy-overrides"
-                ))]
+                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                 let delivery = {
-                    ingress.control(&transport.test_account_ingress_schedule, |delivery| {
-                        route_account_delivery(&transport, delivery);
-                    });
-                    ingress.delivery(delivery, |delivery| {
-                        route_account_delivery(&transport, delivery)
-                    })
+                    let mut routed = Vec::new();
+                    let delivery = {
+                        let mut route = |delivery: transport_nostr_adapter::ObservedTransportDelivery| {
+                            routed.push((delivery.account_id.clone(), delivery.message.id.clone()));
+                            route_account_delivery(&transport, delivery);
+                        };
+                        ingress.control(&transport.test_account_ingress_schedule, &mut route);
+                        ingress.delivery(delivery, &mut route)
+                    };
+                    for (account, message) in routed {
+                        adapter.ack_replay_delivery(&account, &message).await;
+                    }
+                    delivery
                 };
-                #[cfg(all(
-                    any(test, feature = "test-support"),
-                    feature = "experimental-device-sync",
-                    feature = "test-policy-overrides"
-                ))]
-                let Some(delivery) = delivery else {
-                    continue;
-                };
+                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                let Some(delivery) = delivery else { continue; };
                 // COMMAND_INGRESS_SCHEDULE_TEST_END
+                let account = delivery.account_id.clone();
+                let message = delivery.message.id.clone();
+                // Preserve private provenance through actual placement. Native
+                // replay's admission pin is released only after queue/spill/loss.
                 route_account_delivery(&transport, delivery);
+                adapter.ack_replay_delivery(&account, &message).await;
             }
             // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-            #[cfg(all(
-                any(test, feature = "test-support"),
-                feature = "experimental-device-sync",
-                feature = "test-policy-overrides"
-            ))]
-            ingress.finish(&transport.test_account_ingress_schedule, |delivery| {
-                route_account_delivery(&transport, delivery);
-            });
+            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            {
+                let mut routed = Vec::new();
+                ingress.finish(&transport.test_account_ingress_schedule, |delivery| {
+                    routed.push((delivery.account_id.clone(), delivery.message.id.clone()));
+                    route_account_delivery(&transport, delivery);
+                });
+                for (account, message) in routed {
+                    adapter.ack_replay_delivery(&account, &message).await;
+                }
+            }
             // COMMAND_INGRESS_SCHEDULE_TEST_END
         });
         *router = Some(handle);
@@ -3281,17 +3203,6 @@ impl MarmotRelayPlane {
         );
     }
 
-    /// Shorten how long a receiver must go without another lag before its
-    /// lag-lost EOSE repair runs.
-    #[cfg(any(test, feature = "test-support"))]
-    #[doc(hidden)]
-    pub fn set_eose_repair_settle_for_test(&self, settle: Duration) {
-        self.inner
-            .transport
-            .eose_repair_settle_ms
-            .store(settle.as_millis() as u64, Ordering::Relaxed);
-    }
-
     /// The SDK relay client the plane runs on, for tests that build a whole
     /// app and so cannot reach the plane's private state.
     #[cfg(any(test, feature = "test-support"))]
@@ -3414,6 +3325,9 @@ enum RelayNotificationConsumerExit {
 }
 
 type RelayNotificationStream =
+    Pin<Box<dyn Stream<Item = NotificationUpdate<NostrSdkNotification>> + Send>>;
+
+type DirectoryNotificationStream =
     Pin<Box<dyn Stream<Item = NotificationUpdate<ClientNotification>> + Send>>;
 
 struct RelayNotificationConsumerOutcome {
@@ -3492,6 +3406,10 @@ trait RelayNotificationSource: Send + Sync {
     fn record_loss(&self, _skipped: u64) -> NostrNotificationLossFloor {
         NostrNotificationLossFloor::Unbounded
     }
+    /// Native sources may already have charged their own gap before yielding.
+    fn record_lag(&self, skipped: u64, abandoned: u64) -> NostrNotificationLossFloor {
+        self.record_loss(skipped.saturating_add(abandoned))
+    }
     fn receiver_replaced(&self) {}
     /// Classify a relay's `CLOSED` reason as this source's SDK client settles
     /// the REQ. Without a known client the authenticator is unknown, which
@@ -3518,8 +3436,7 @@ struct NotificationWorkerFailureHook {
 }
 
 struct SdkRelayNotificationSource {
-    client: NostrSdkClient,
-    loss: Option<NostrSdkRelayClient>,
+    client: NostrSdkRelayClient,
     #[cfg(all(
         any(test, feature = "test-support"),
         feature = "experimental-device-sync",
@@ -3538,34 +3455,32 @@ impl RelayNotificationSource for SdkRelayNotificationSource {
         self.disposition_observer.clone()
     }
     fn notifications(&self) -> RelayNotificationStream {
-        self.client.notifications_with_gaps()
+        self.client.notifications()
     }
 
     fn is_shutdown(&self) -> bool {
-        self.client.is_shutdown()
+        self.client.client().is_shutdown()
     }
 
     fn record_loss(&self, skipped: u64) -> NostrNotificationLossFloor {
-        let Some(loss) = &self.loss else {
-            return NostrNotificationLossFloor::Unbounded;
-        };
-        loss.record_notification_gap(skipped);
+        self.client.record_notification_gap(skipped);
+        // Fence all retained source/worker frames before the supervisor resumes
+        // this same receiver. A live REQ may never emit another EOSE.
+        self.client.notification_receiver_replaced();
         // Read at the lag: a later subscription change could raise it past
         // an event this gap lost.
-        loss.notification_loss_floor()
+        self.client.notification_loss_floor()
     }
 
-    fn receiver_replaced(&self) {
-        if let Some(loss) = &self.loss {
-            loss.notification_receiver_replaced();
-        }
+    fn record_lag(&self, _skipped: u64, abandoned: u64) -> NostrNotificationLossFloor {
+        // Native source loss has already advanced the ordered reader frontier.
+        // Only the frontend worker's additional abandoned tail remains to charge.
+        self.client.record_notification_gap(abandoned);
+        self.client.notification_loss_floor()
     }
 
     fn subscription_refusal(&self, reason: &str) -> transport_nostr_adapter::SubscriptionRefusal {
-        match &self.loss {
-            Some(client) => client.subscription_refusal(reason),
-            None => transport_nostr_adapter::sdk_subscription_refusal(reason, None),
-        }
+        self.client.subscription_refusal(reason)
     }
 }
 
@@ -3582,8 +3497,7 @@ fn spawn_relay_notification_forwarder_scoped(
     account_id: Option<MemberId>,
 ) -> JoinHandle<()> {
     let source: Arc<dyn RelayNotificationSource> = Arc::new(SdkRelayNotificationSource {
-        client: sdk_relay_client.client().clone(),
-        loss: Some(sdk_relay_client),
+        client: sdk_relay_client,
         #[cfg(all(
             any(test, feature = "test-support"),
             feature = "experimental-device-sync",
@@ -3601,12 +3515,11 @@ fn spawn_relay_notification_forwarder_scoped(
 /// receiver. A gap here invalidates directory coverage without interrupting
 /// an account's live delivery or attributing the loss to an account.
 fn spawn_directory_notification_forwarder(
-    source: Arc<dyn RelayNotificationSource>,
+    mut receiver: DirectoryNotificationStream,
     events: broadcast::Sender<DirectoryRelayPlaneEvent>,
     directory: DirectoryRelayPlane,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut receiver = source.notifications();
         loop {
             match receiver.next().await {
                 Some(NotificationUpdate::Notification(ClientNotification::Event {
@@ -3859,7 +3772,7 @@ async fn run_relay_notification_consumer_scoped(
 ) -> RelayNotificationConsumerOutcome {
     let (sender, mut event_rx) = mpsc::channel(RELAY_NOTIFICATION_EVENT_QUEUE_CAPACITY);
     #[cfg(feature = "experimental-device-sync")]
-    let mut acquisition = adapter.live_notification_receiver(account_id.clone());
+    let mut acquisition = transport_nostr_adapter::SdkLiveNotificationReceiver::new(adapter.clone(), account_id.clone());
     // Channel capacity returns to its maximum when a panicked worker drops
     // the receiver, even though queued work was discarded. Count admitted
     // items independently until each worker operation actually finishes.
@@ -3925,7 +3838,7 @@ async fn run_relay_notification_consumer_scoped(
             }
             update = receiver.next() => match update {
                 Some(NotificationUpdate::Notification(notification)) => {
-                    if matches!(notification, ClientNotification::Shutdown) {
+                    if matches!(notification, NostrSdkNotification::Shutdown) {
                         let abandoned = pending.load(Ordering::SeqCst);
                         return if abandoned > 0 {
                             RelayNotificationConsumerOutcome::lagged(
@@ -3941,7 +3854,7 @@ async fn run_relay_notification_consumer_scoped(
                         };
                     }
                     #[cfg(feature = "experimental-device-sync")]
-                    let capture = capture_live_notification(&mut acquisition, &notification).await;
+                    let capture = acquisition.capture(&notification).await;
                     #[cfg(not(feature = "experimental-device-sync"))]
                     let capture = ();
                     pending.fetch_add(1, Ordering::SeqCst);
@@ -3963,13 +3876,13 @@ async fn run_relay_notification_consumer_scoped(
                     source.notification_queued();
                 }
                 Some(NotificationUpdate::Lagged { skipped }) => {
-                    let abandoned = skipped
-                        .saturating_add(pending.load(Ordering::SeqCst));
-                    return RelayNotificationConsumerOutcome::lagged(
+                    let abandoned = pending.load(Ordering::SeqCst);
+                    let lag_floor = source.record_lag(skipped, abandoned);
+                    return RelayNotificationConsumerOutcome {
                         receiver,
-                        source.as_ref(),
-                        abandoned,
-                    );
+                        exit: RelayNotificationConsumerExit::Lagged(skipped.saturating_add(abandoned)),
+                        lag_floor,
+                    };
                 }
                 None => {
                     let abandoned = pending.load(Ordering::SeqCst);
@@ -3993,7 +3906,7 @@ async fn run_relay_notification_consumer_scoped(
 
 #[cfg(test)]
 async fn handle_relay_notification(
-    notification: ClientNotification,
+    notification: NostrSdkNotification,
     adapter: &NostrTransportAdapter,
     account_id: Option<&MemberId>,
     classify_closed: &(dyn Fn(&str) -> transport_nostr_adapter::SubscriptionRefusal + Sync),
@@ -4017,43 +3930,8 @@ async fn handle_relay_notification(
     .await
 }
 
-#[cfg(feature = "experimental-device-sync")]
-async fn capture_live_notification(
-    acquisition: &mut transport_nostr_adapter::LiveNotificationReceiver,
-    notification: &ClientNotification,
-) -> Option<transport_nostr_adapter::CapturedLiveRelayEvent> {
-    match notification {
-        ClientNotification::Message { relay_url, message } => {
-            if let RelayMessage::EndOfStoredEvents(subscription) = message.as_ref() {
-                acquisition
-                    .observe_eose(
-                        TransportEndpoint(relay_url.to_string()),
-                        subscription.as_str(),
-                    )
-                    .await;
-            }
-            None
-        }
-        ClientNotification::Event {
-            relay_url,
-            subscription_id,
-            event,
-        } => {
-            let event = NostrTransportEvent::from_nostr_event(event).ok()?;
-            acquisition
-                .capture(&transport_nostr_adapter::NostrRelayEvent {
-                    endpoint: TransportEndpoint(relay_url.to_string()),
-                    subscription_id: Some(subscription_id.to_string()),
-                    event,
-                })
-                .ok()
-        }
-        _ => None,
-    }
-}
-
 async fn handle_relay_notification_captured(
-    notification: ClientNotification,
+    notification: NostrSdkNotification,
     adapter: &NostrTransportAdapter,
     account_id: Option<&MemberId>,
     #[cfg(feature = "experimental-device-sync")] capture: Option<
@@ -4079,7 +3957,7 @@ async fn handle_relay_notification_captured(
         }
     };
     #[cfg(feature = "experimental-device-sync")]
-    let shutdown = NostrSdkRelayClient::dispatch_sdk_notification_captured(
+    let shutdown = NostrSdkRelayClient::dispatch_sdk_replay_captured(
         notification,
         adapter,
         account_id,
@@ -4095,7 +3973,7 @@ async fn handle_relay_notification_captured(
     )
     .await;
     #[cfg(not(feature = "experimental-device-sync"))]
-    let shutdown = transport_nostr_adapter::dispatch_sdk_notification(
+    let shutdown = transport_nostr_adapter::dispatch_sdk_replay(
         notification,
         adapter,
         account_id,
@@ -4154,24 +4032,9 @@ fn recover_relay_notification_forwarder_scoped(
                 if account_id.is_some_and(|account_id| account_id != route_account_id) {
                     continue;
                 }
-                // A queued or deferred control record already carries this
-                // generation, and the worker persists the lag without one.
-                if let Some(generation) = route.overflow.record_notification_loss(floor) {
-                    enqueue_account_delivery_overflow_signal(
-                        &route.sender,
-                        &route.overflow,
-                        generation,
-                    );
-                }
+                record_account_loss(&route.overflow, Some(&route.sender), floor);
             }
             drop(routes);
-            // The lag may also have lost end-of-stored-events. It cannot tell
-            // which, so it repairs coverage rather than marking any complete.
-            schedule_eose_repair(
-                transport,
-                account_id,
-                transport.adapter.notification_lag_mark(),
-            );
             let health = &transport.notification_forwarder_health;
             RelayNotificationForwarderHealth::increment(&health.restarts, 1);
             RelayNotificationForwarderHealth::increment(&health.lag_incidents, 1);
@@ -4222,180 +4085,6 @@ fn recover_relay_notification_forwarder_scoped(
         }
         RelayNotificationConsumerExit::Shutdown => {}
     }
-}
-
-/// Schedule a repair of the end-of-stored-events a lag on this receiver may
-/// have lost, for the REQs issued by `lag`. `account_id` is the lagging
-/// receiver's account, or `None` for a receiver shared across accounts. The
-/// repair runs once the receiver has gone
-/// [`NOTIFICATION_LAG_EOSE_REPAIR_SETTLE`] without another lag. A later lag in
-/// the same scope postpones it and widens it to the REQs issued by then. A
-/// repair that leaves relays unrepaired schedules itself again the same way.
-fn schedule_eose_repair(
-    transport: &Arc<RelayPlaneTransport>,
-    account_id: Option<&MemberId>,
-    lag: NotificationLagMark,
-) {
-    schedule_eose_repair_pass(transport, account_id, lag, false);
-}
-
-fn schedule_eose_repair_pass(
-    transport: &Arc<RelayPlaneTransport>,
-    account_id: Option<&MemberId>,
-    lag: NotificationLagMark,
-    follow_up: bool,
-) {
-    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-        return;
-    };
-    let settle = Duration::from_millis(transport.eose_repair_settle_ms.load(Ordering::Relaxed));
-    let due = tokio::time::Instant::now() + settle;
-    let scope = account_id.cloned();
-    let mut repairs = transport
-        .eose_repairs
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(pending) = repairs.get_mut(&scope) {
-        pending.due = due;
-        pending.lag = pending.lag.max(lag);
-        if !follow_up {
-            // A lag that postpones a pending follow-up owns the pass: it
-            // widens it to the REQs issued by the lag.
-            pending.lags = pending.lags.saturating_add(1);
-            pending.follow_up = false;
-        }
-        return;
-    }
-    repairs.insert(
-        scope.clone(),
-        EoseRepairSchedule {
-            due,
-            lag,
-            lags: u64::from(!follow_up),
-            follow_up,
-        },
-    );
-    drop(repairs);
-    runtime.spawn(run_eose_repair(Arc::downgrade(transport), scope));
-}
-
-/// Wait until a scheduled repair is due, then repair each REQ of its scope
-/// that a relay has not answered with end-of-stored-events. Holds the plane
-/// only weakly, so it never keeps a shut-down plane alive.
-async fn run_eose_repair(transport: Weak<RelayPlaneTransport>, scope: Option<MemberId>) {
-    let (transport, lag, lags, follow_up) = loop {
-        let due = {
-            let Some(transport) = transport.upgrade() else {
-                return;
-            };
-            let repairs = transport
-                .eose_repairs
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let Some(pending) = repairs.get(&scope) else {
-                return;
-            };
-            pending.due
-        };
-        tokio::time::sleep_until(due).await;
-        let Some(transport) = transport.upgrade() else {
-            return;
-        };
-        let lag = {
-            let mut repairs = transport
-                .eose_repairs
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            match repairs.get(&scope) {
-                Some(pending) if pending.due <= tokio::time::Instant::now() => repairs
-                    .remove(&scope)
-                    .map(|pending| (pending.lag, pending.lags, pending.follow_up)),
-                // A later lag postponed it.
-                Some(_) => None,
-                None => return,
-            }
-        };
-        if let Some((lag, lags, follow_up)) = lag {
-            break (transport, lag, lags, follow_up);
-        }
-    };
-    if transport.shutting_down.load(Ordering::SeqCst) {
-        return;
-    }
-    // The repair may wait for the subscription lifecycle lock.
-    let adapter = transport.adapter.clone();
-    let weak = Arc::downgrade(&transport);
-    drop(transport);
-    let summary = adapter
-        .reissue_subscriptions_awaiting_eose(scope.as_ref(), lag)
-        .await;
-    tracing::info!(
-        target: "marmot_app::relay_plane",
-        method = "repair_lag_lost_eose",
-        awaiting_relays = summary.awaiting_relays,
-        complete_relays = summary.complete_relays,
-        reissued_relays = summary.reissued_relays,
-        failed_relays = summary.failed_relays,
-        "repaired subscriptions whose end-of-stored-events a notification lag may have lost",
-    );
-    let unrepaired = summary.failed_relays;
-    let Some(transport) = weak.upgrade() else {
-        return;
-    };
-    let follow_up_scheduled = unrepaired > 0 && !transport.shutting_down.load(Ordering::SeqCst);
-    push_eose_repair_report(
-        &transport,
-        EoseRepairReport {
-            scope: scope.clone(),
-            follow_up,
-            lags,
-            summary,
-            follow_up_scheduled,
-            dropped_before: 0,
-        },
-    );
-    if !follow_up_scheduled {
-        return;
-    }
-    // Each unrepaired relay's claim was released. A relay that keeps failing
-    // is tried again at most once per settle window, while a re-issue that
-    // went out keeps its claim, so a replay that lags again cannot loop.
-    tracing::info!(
-        target: "marmot_app::relay_plane",
-        method = "repair_lag_lost_eose",
-        unrepaired_relays = unrepaired,
-        "scheduling another lag-lost end-of-stored-events repair",
-    );
-    schedule_eose_repair_pass(&transport, scope.as_ref(), lag, true);
-}
-
-/// Queue a finished repair for its audit row, dropping the oldest at the
-/// bound. Never waits: the lock guards a small in-memory queue.
-fn push_eose_repair_report(transport: &RelayPlaneTransport, report: EoseRepairReport) {
-    let mut reports = transport
-        .eose_repair_reports
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let mut report = report;
-    if reports.pending.len() >= EOSE_REPAIR_REPORTS_MAX
-        && let Some(dropped) = reports.pending.pop_front()
-    {
-        // Carry the count to this receiver's next surviving report, the new
-        // one included; otherwise keep only a bounded scalar.
-        let carried = dropped.dropped_before.saturating_add(1);
-        if let Some(next) = reports
-            .pending
-            .iter_mut()
-            .find(|pending| pending.scope == dropped.scope)
-        {
-            next.dropped_before = next.dropped_before.saturating_add(carried);
-        } else if report.scope == dropped.scope {
-            report.dropped_before = report.dropped_before.saturating_add(carried);
-        } else {
-            reports.dropped_unattributed = reports.dropped_unattributed.saturating_add(carried);
-        }
-    }
-    reports.pending.push_back(report);
 }
 
 impl MarmotRelayPlaneAccountAdapter {
@@ -4820,6 +4509,7 @@ impl MarmotRelayPlaneAccountAdapter {
         reconcile_since: u64,
         reconcile_until: u64,
         progress: &dyn transport_nostr_adapter::NostrReconciliationProgress,
+        deadline: tokio::time::Instant,
     ) -> Result<
         Option<(
             NostrReconciliationSummary,
@@ -4855,6 +4545,7 @@ impl MarmotRelayPlaneAccountAdapter {
                 reconcile_since,
                 reconcile_until,
                 progress,
+                deadline,
             )
             .await;
         let metric = result
@@ -4878,6 +4569,7 @@ impl MarmotRelayPlaneAccountAdapter {
         reconcile_since: u64,
         reconcile_until: u64,
         progress: &dyn transport_nostr_adapter::NostrReconciliationProgress,
+        deadline: tokio::time::Instant,
     ) -> Result<
         Option<(
             NostrReconciliationSummary,
@@ -4919,6 +4611,7 @@ impl MarmotRelayPlaneAccountAdapter {
                 reconcile_since,
                 reconcile_until,
                 progress,
+                deadline,
             )
             .await;
         let metric = result
@@ -4932,57 +4625,6 @@ impl MarmotRelayPlaneAccountAdapter {
             .record_reconciliation(&metric)
             .await;
         Ok(Some(result?))
-    }
-
-    /// Fetch the newest kind-445 events of one group route from `endpoints`,
-    /// inside `[since, until]` and `limits`. The answer is investigation, not
-    /// coverage. Relays send the page newest first, so only a page a relay
-    /// ended itself holds its oldest events; a relay cut short by a budget or
-    /// the deadline, and a request the plane refuses, contribute nothing.
-    #[doc(hidden)]
-    pub async fn acquire_group_window(
-        &self,
-        transport_group_id: [u8; 32],
-        endpoints: Vec<TransportEndpoint>,
-        since: u64,
-        until: u64,
-        limits: transport_nostr_adapter::NostrAcquisitionLimits,
-    ) -> Vec<transport_nostr_adapter::NostrRelayEvent> {
-        let request = NostrAcquisitionRequest {
-            account_id: self.account_id.clone(),
-            scope: transport_nostr_adapter::NostrAcquisitionScope::GroupWindow {
-                transport_group_id,
-                since,
-                until,
-                newest: Some(limits.max_received_items_per_endpoint),
-            },
-            endpoints,
-            limits,
-        };
-        let Ok(result) = self
-            .relay_plane
-            .acquire_history(request, NostrAcquisitionCancellation::new())
-            .await
-        else {
-            return Vec::new();
-        };
-        result
-            .endpoints
-            .into_iter()
-            .filter(|answer| {
-                answer.end == transport_nostr_adapter::NostrAcquisitionEnd::RequestPolicySatisfied
-            })
-            .flat_map(|answer| {
-                let endpoint = answer.endpoint;
-                answer.events.into_iter().map(move |event| {
-                    transport_nostr_adapter::NostrRelayEvent {
-                        endpoint: endpoint.clone(),
-                        subscription_id: None,
-                        event,
-                    }
-                })
-            })
-            .collect()
     }
 
     /// This account's deliveries for one owned comparison event. The worker
@@ -5333,6 +4975,71 @@ impl MarmotRelayPlaneAccountAdapter {
         self.relay_plane.subscription_rebuild_lookback_secs()
     }
 
+    /// Borrow wire admission while retaining its source-generation guard.
+    /// Even with no active sources, the returned status borrows this account
+    /// and adapter; absence is not a synthetic replay completion certificate.
+    #[doc(hidden)]
+    pub async fn replay_admission(&self) -> ReplayAdmissionStatus<'_> {
+        let mut status = self
+            .relay_plane
+            .inner
+            .transport
+            .adapter
+            .take_replay_status(&self.account_id)
+            .await;
+        if let Some(loss) = status.loss {
+            import_replay_loss(&self.relay_plane.inner.transport, &self.account_id, loss);
+        }
+        let placement = self
+            .delivery_overflow
+            .inner
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        status.spill_pending = placement.spill_in_flight > 0;
+        status
+    }
+
+    /// Observe source revisions and admission progress without scheduling IO.
+    #[doc(hidden)]
+    pub async fn replay_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        self.relay_plane
+            .inner
+            .transport
+            .adapter
+            .replay_changes(&self.account_id)
+            .await
+    }
+
+    /// Execute only the immutable source batch authorized by the account owner.
+    #[doc(hidden)]
+    pub async fn capture_replay(
+        &self,
+        plan: ReplayCapturePlan,
+        cancellation: NostrAcquisitionCancellation,
+    ) -> Result<ReplayCaptureOutcome, TransportAdapterError> {
+        self.relay_plane
+            .inner
+            .transport
+            .adapter
+            .capture_replay(&self.account_id, plan, cancellation)
+            .await
+    }
+
+    /// Register ordered native input before activation. Retained group spill
+    /// joins the recovered range before the owner decrypts any of its frames.
+    #[doc(hidden)]
+    pub async fn open_replay_ingress(
+        &self,
+        retained: Vec<TransportDelivery>,
+    ) -> Result<transport_nostr_adapter::ReplayIngress, TransportAdapterError> {
+        self.relay_plane
+            .inner
+            .transport
+            .adapter
+            .open_replay_ingress(&self.account_id, retained)
+            .await
+    }
+
     /// How far a commit may promote the transport cursor, decided under the
     /// router's placement lock: at most `candidate`, and never past a
     /// delivery still queued, or taken and not yet released, that the
@@ -5341,12 +5048,33 @@ impl MarmotRelayPlaneAccountAdapter {
     /// its current cursor. The restart floor rises here, before the commit's
     /// save runs, so a delivery that arrives during that save and falls below
     /// it is spilled rather than queued.
+    /// `authorize` consults only cached account-owner policy while the source
+    /// guard and placement lock are held; it must not perform DB or network IO.
     #[doc(hidden)]
-    pub fn seal_transport_cursor(&self, candidate: Option<u64>) -> Option<u64> {
+    pub fn seal_transport_cursor(
+        &self,
+        candidate: Option<u64>,
+        authorize: impl FnOnce(&ReplayAdmissionStatus<'_>) -> bool,
+    ) -> Option<u64> {
+        // Staged replay is not under the router's placement lock yet. A
+        // synchronous checkpoint must not pass it. Contention conservatively
+        // defers the cursor; never block an account worker to read admission.
+        let mut replay = self
+            .relay_plane
+            .inner
+            .transport
+            .adapter
+            .take_replay_status(&self.account_id)
+            .now_or_never()?;
+        if let Some(loss) = replay.loss {
+            import_replay_loss(&self.relay_plane.inner.transport, &self.account_id, loss);
+        }
         self.delivery_overflow.seal_cursor(
             self.delivery_epoch,
             self.cursor_lookback_secs(),
             candidate,
+            &mut replay,
+            authorize,
         )
     }
 
@@ -5921,6 +5649,47 @@ fn persist_retired_queue_loss(
     if overflow.start_marker_persistence() {
         let overflow = overflow.clone();
         tokio::spawn(async move { overflow.persist_marker_before_drop(marker).await });
+    }
+}
+
+/// Charge replay loss to the account's process-lifetime fence, even if its
+/// route was retired while the adapter status was being awaited.
+fn import_replay_loss(
+    transport: &RelayPlaneTransport,
+    account_id: &MemberId,
+    floor: NostrNotificationLossFloor,
+) {
+    let routes = account_deliveries_read(&transport.account_deliveries);
+    if let Some(route) = routes.get(account_id) {
+        record_account_loss(&route.overflow, Some(&route.sender), floor);
+    } else if let Some(overflow) = transport
+        .account_overflow_states
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(account_id)
+    {
+        record_account_loss(overflow, None, floor);
+    }
+}
+
+fn record_account_loss(
+    overflow: &AccountDeliveryOverflowState,
+    sender: Option<&mpsc::Sender<AccountDeliveryEvent>>,
+    floor: NostrNotificationLossFloor,
+) {
+    // A queued or deferred control record already carries this generation;
+    // the worker imports subsequent losses from the same pending snapshot.
+    if let Some(generation) = overflow.record_notification_loss(floor)
+        && let Some(sender) = sender
+    {
+        enqueue_account_delivery_overflow_signal(sender, overflow, generation);
+    }
+    if sender.is_none_or(mpsc::Sender::is_closed) {
+        overflow
+            .inner
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retired_loss_unsignalled = true;
     }
 }
 

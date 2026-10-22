@@ -40,14 +40,31 @@ def simulator_origin():
 
 
 class ArchiveGapTests(unittest.TestCase):
-    def test_real_current_source_workflows_bind_twelve_partitions(self):
+    def test_real_current_source_workflows_bind_reviewed_partitions(self):
         import subprocess
         root = Path(__file__).resolve().parents[1]
         source = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-        # This draft is for Root's reviewed twelve-partition union, not the
-        # owner's historical five-partition checkout. Both objects are real Git.
-        for cohort in ("default", "experimental"):
-            self.assertEqual(source_partition_count(source, cohort), 12)
+        # Upstream reduced default CI to seven shards; experimental stays twelve.
+        # Bind each archive/runtime denominator to the actual immutable source.
+        for cohort, count in (("default", 7), ("experimental", 12)):
+            self.assertEqual(source_partition_count(source, cohort), count)
+
+    def test_current_seven_partition_origin_exact_union(self):
+        run, jobs, artifact = origin()
+        jobs = [dict(jobs[0], id=i, name=f"Rust tests ({i}/7)") for i in range(1, 8)]
+        self.assertEqual(len(validate_origin(run, jobs, artifact, "default", 7, "a" * 40,
+                                             expected_partitions=7)), 7)
+        variants = [jobs[:-1], jobs + [jobs[0]],
+                    jobs + [dict(jobs[0], id=8, name="Rust tests (8/7)")],
+                    jobs[:-1] + [dict(jobs[-1], name="Rust tests (7/12)")]]
+        for changed in variants:
+            with self.assertRaises(ValueError):
+                validate_origin(run, changed, artifact, "default", 7, "a" * 40,
+                                expected_partitions=7)
+        for count in (True, 0, 6, 8, 13):
+            with self.assertRaises(ValueError):
+                validate_origin(run, jobs, artifact, "default", 7, "a" * 40,
+                                expected_partitions=count)
 
     def test_current_twelve_partition_origin_exact_union(self):
         run, jobs, artifact = origin()
@@ -86,7 +103,7 @@ class ArchiveGapTests(unittest.TestCase):
                 + "    strategy:\n      matrix:\n        partition: "
                 + json.dumps(list(range(1, count + 1))) + "\n"
                 + "    steps:\n      - run: cargo nextest run --partition count:${{ matrix.partition }}/" + str(count) + "\n")
-        for count in (5, 12):
+        for count in (5, 7, 12):
             self.assertEqual(workflow_partition_count(workflow(count), "default"), count)
         good = workflow(12)
         variants = [good.replace("[1, 2,", "[1, 1,"),

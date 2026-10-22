@@ -480,8 +480,8 @@ uploads. Without `--server`, the upload targets the ordered endpoints in the gro
 component: frozen V1 (`0x8008`) for already-joined legacy groups and V2 (`0x800b`) for current-profile groups. Upload
 JSON returns an `attachments` array with each attachment's `plaintext_sha256`, `ciphertext_sha256`, and locators.
 
-**Endpoints.** Newly created groups use MDK's built-in ciphertext-compatible endpoint list unless the application was
-compiled with `MARMOT_ENCRYPTED_MEDIA_BLOB_ENDPOINTS`. Endpoint policy is signed group state, so upgrading MDK changes
+**Endpoints.** Newly created groups use White Noise's ciphertext-compatible endpoint list, which `wn` takes from
+its White Noise deployment. Endpoint policy is signed group state, so upgrading MDK changes
 defaults for new groups only. An active group admin runs `media set-endpoints <group-hex> <url> [...]`
 (`--locator-kind` defaults to `blossom-v1`) to replace a group's default endpoints without changing its media version.
 Non-admins get `not_group_admin`; the response carries the refreshed `encrypted_media` component.
@@ -535,6 +535,9 @@ wn usage-diagnostics enable
 wn usage-diagnostics disable
 ```
 
+- `follows add|remove` edits your current contact list on the relay: it adds or removes that account's `p` tag and keeps
+  every other tag and the content. A list with 2,048 follows or more is refused with `follow_list_too_large`, since
+  MDK reads no more than that from one list.
 - `users search` searches your follow graph; `--radius START..END` defaults to `0..1` (0 is you, 1 who you follow, 2
   follows-of-follows).
 - `notifications subscribe` streams daemon-backed local notification updates as JSON lines.
@@ -596,8 +599,9 @@ only exception, and it opens loopback only. A pinned `--server-cert-der-hex` is 
 unflagged loopback, private, link-local, and CGNAT targets are rejected; local probes therefore need
 `wn stream receive --bind 127.0.0.1:4450` plus `--insecure-local` on send. The client source bind is a family-matched
 wildcard (`0.0.0.0:0` / `[::]:0`) and does not authorize the remote destination. Use
-`quic://quic-broker.ipf.dev:4450` with platform trust for the shared production broker, and `--insecure-local` only for
-loopback development with generated self-signed certificates.
+`quic://quic-broker.ipf.dev:4450` with default trust for the shared production broker, and `--insecure-local` only for
+loopback development with generated self-signed certificates. Default trust verifies broker certificates against the
+bundled Mozilla roots (`webpki-roots`) that relays and HTTP also use, not the OS trust store.
 
 ### Sync
 

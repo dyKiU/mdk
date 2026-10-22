@@ -144,6 +144,7 @@ still land on the same epoch and group state. The engine — not relay order or 
 | | [`transport-quic-broker`](crates/transport-quic-broker/README.md) | Memory-only preview broker (`marmot-quic-broker`); [deployment](docs/quic-broker-deployment.md) |
 | App | [`marmot-account`](crates/marmot-account/README.md) | Account homes, key storage, transport orchestration |
 | | [`marmot-app`](crates/marmot-app/README.md) | Multi-account app runtime used by every front end |
+| | [`nostr-directory`](crates/nostr-directory/README.md) | Directory of other people's public Nostr data: lookups, search, KeyPackage resolution |
 | | [`marmot-markdown`](crates/marmot-markdown/README.md) | CommonMark + Nostr display parser for messages |
 | | [`marmot-forensics`](crates/marmot-forensics/README.md) | Append-only JSONL forensic audit schema |
 | Bindings | [`marmot-uniffi`](crates/marmot-uniffi/README.md) | MarmotKit: Swift and Kotlin bindings |
@@ -242,6 +243,10 @@ MDK versions the whole workspace as one compatibility cohort and publishes separ
 commit: the source snapshot (`v<version>`), the `wn-agent` connector (`wn-agent-v<version>`), MarmotKit bindings
 (`marmotkit-v<version>`), and the C bindings (`marmotc-v<version>`). The [release guide](release.md) is the checklist;
 per-release notes live in [`docs/release/`](docs/release/).
+
+Nightly pre-releases such as `marmotkit-v0.14.0-nightly.20261020` are built every day from the newest master commit that
+passed CI. They are for testing only: pin a formal release for anything you ship, expect each nightly to be deleted
+after 30 days, and don't count on going back to an older nightly. See [nightly builds](release.md#nightly-builds).
 
 ## License
 

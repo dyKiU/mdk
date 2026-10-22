@@ -4,6 +4,14 @@
 
 ### Breaking changes
 
+- `AttachmentTransferState` adds `CleanedBySetting`: the account's "Keep
+  media" setting removed the body (mdk#2314 step 10). Update exhaustive
+  matches.
+
+- `record_reconciliation_items` replaces
+  `record_transport_reconciliation_item`. It accepts a cloneable iterator of
+  borrowed route/item pairs and commits the advisory inventory batch atomically,
+  retaining the existing per-route floor, cap and recovery-fence rules.
 - App storage has its own handle, `SqliteAppStorage`.
   `SqliteAccountStorage::app_storage()` returns one over the same connection:
   it opens nothing, closes with the account storage, and fails the same way
@@ -75,8 +83,77 @@
   a partial index for parked rows, and keeps ciphertext checkpoints for jobs
   parked on disk space.
 - `AttachmentTransferState` adds `StorageBlocked`; update exhaustive matches.
+- Migration 0114 advances account storage to schema 114 on first open. Older
+  binaries reject the upgraded database; downgrade is unsupported. It rebuilds
+  `avatar_assets` so an image can be file-backed (new `byte_len`, `bytes`
+  optional when present) and adds `avatar_file_refs`. The rebuild copies at
+  most 32 MiB of database-held images, smallest first; owners beyond that are
+  dropped as if evicted (with their recency, fetch and identity-demand rows)
+  and are fetched again when shown. On a full 128 MiB cache this bounds the
+  open-time cost to about 1.1 s and 166 MiB of extra disk on a desktop
+  (debug build), against 1.8 s and 265 MiB for copying everything.
+- `AvatarAssetRead` gains `file` (`AvatarStoredFile`): a file-backed image
+  comes back there, with `image` empty, for the caller to read through the
+  media store. `AttachmentStorageUsage` gains `cache_bytes`.
 
 ### Added
+
+- The opt-in "Keep media" setting (mdk#2314 step 10, migration 0116):
+  `AttachmentKeepMedia` (Forever by default, one year, six months, 30 days),
+  `attachment_keep_media` / `set_attachment_keep_media`, and
+  `clean_attachments_past_keep_window`, a bounded batch that removes retained
+  attachments past the window, and unfinished automatic downloads the user
+  never requested, as explicit `Remove` does but records them as cleaned by
+  the setting. Age is the later of the message's received time and
+  the last explicit request for the body (`keep_from`, set by explicit
+  requests, retries and download-again). `request_automatic_acquisition` is
+  `request_attachment_acquisition` for automatic demand: a slot already past
+  the window and not yet requested is recorded as cleaned instead of fetched.
+  An explicit `Remove` of a cleaned slot records it as removed by you.
+
+- Moving avatars onto the media store (mdk#2314 step 9b):
+  `AvatarPublication::for_acquisition` publishes a claimed fetch's image and
+  settles the attempt in the same commit (`settle_avatar_acquisition` settles
+  a refused one), and `AvatarPublication::for_migration` moves a
+  database-held image into a file without changing its content revision or
+  recency. `database_held_avatars` (smallest first), `database_avatar_body`,
+  `drop_corrupt_database_avatar` and `database_avatar_bytes` are the
+  migration's database side, and
+  `ready_media_file` finds the file a publication would reuse, so the move
+  can verify it before giving up the database copy.
+
+- Avatars and group images in the media store's cache category (mdk#2314
+  step 9): `AvatarPublication` is the `media_store::PublishTarget` for one
+  source generation (`AvatarFileImage` describes the image), fenced on the
+  content revision like `publish_avatar`. Identical images share one file;
+  the 128 MiB budget counts each file once, and eviction reports the files it
+  released for an immediate unlink. `discard_avatar_file` reports a missing or
+  corrupt file: it is marked lost, and every owner sharing it is cleared and
+  refetched. `AttachmentStorageUsage::cache_bytes` totals the cache in both
+  layouts.
+
+- New account databases are created with `auto_vacuum=INCREMENTAL`, so
+  freed pages return to the filesystem without the one-time compaction
+  older databases need (mdk#2314 step 6). Existing databases keep their mode
+  until compacted.
+- Database compaction (mdk#2314 step 6): `database_space` reports the account
+  database's pages (`DatabaseSpace`: size, free pages, live bytes, whether it
+  is incremental), `compact_database` switches it to
+  `auto_vacuum=INCREMENTAL` with one `VACUUM` between WAL checkpoints (an
+  interrupted one changes nothing; closing the storage stops one still
+  building its copy, which polls the close latch, but its final write-back
+  cannot be interrupted, so callers keep the live database small), and
+  `reclaim_free_pages` returns freed
+  pages in bounded steps afterwards (`PageReclaim`). Both truncate the WAL
+  without waiting on readers and report whether they did;
+  `wal_truncate_pending` says one a reader on another connection blocked is
+  still owed (recorded with the connection locked), and `truncate_wal`
+  retries it.
+  `DatabaseCloser::begin_close` (and `CloseableConnection::begin_close`)
+  latches a database closed without waiting, which also stops a
+  compaction still building its copy, so an owner can free work blocked
+  behind it before closing. `AttachmentMigrationState` adds
+  `Compacting`.
 
 - Moving legacy attachment bodies into the media store (mdk#2314 step 6):
   `legacy_attachment_bodies` lists completed legacy database bodies smallest

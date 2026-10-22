@@ -3167,9 +3167,11 @@ where
         Ok(output)
     }
 
+    /// Ingest a borrowed delivery through the ordinary engine and publication path.
+    /// Its transport owner retains the frame until the operation is acknowledged.
     pub async fn ingest_delivery(
         &mut self,
-        delivery: TransportDelivery,
+        delivery: &TransportDelivery,
     ) -> AccountResult<AccountIngestEffects> {
         self.ingest_delivery_with_observer(delivery, |_, _, _| {})
             .await
@@ -3177,9 +3179,10 @@ where
 
     /// Observe completed phase timings without changing ingest/publication ordering.
     /// Cancellation does not emit a completed phase; callers own whole-operation tracking.
+    /// The delivery and its wire payload remain borrowed through every phase.
     pub async fn ingest_delivery_with_observer(
         &mut self,
-        delivery: TransportDelivery,
+        delivery: &TransportDelivery,
         observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
     ) -> AccountResult<AccountIngestEffects> {
         self.ingest_delivery_observed(delivery, None, observe).await
@@ -3189,7 +3192,7 @@ where
     #[cfg(feature = "experimental-device-sync")]
     pub async fn ingest_private_enrollment_delivery_with_observer_until(
         &mut self,
-        delivery: TransportDelivery,
+        delivery: &TransportDelivery,
         deadline: web_time::Instant,
         observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
     ) -> AccountResult<AccountIngestEffects> {
@@ -3199,7 +3202,7 @@ where
 
     async fn ingest_delivery_observed(
         &mut self,
-        delivery: TransportDelivery,
+        delivery: &TransportDelivery,
         deadline: Option<web_time::Instant>,
         mut observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
     ) -> AccountResult<AccountIngestEffects> {
@@ -4511,6 +4514,11 @@ where
     /// delivery-aware tagging.
     pub fn tracked_outbound_welcome_ids(&self) -> AccountResult<Vec<cgka_traits::MessageId>> {
         Ok(self.session.tracked_outbound_welcome_ids()?)
+    }
+
+    /// Outstanding Welcome obligations and tracked IDs from one engine scan.
+    pub fn welcome_delivery_index(&self) -> AccountResult<cgka_session::WelcomeDeliveryIndex> {
+        Ok(self.session.welcome_delivery_index()?)
     }
 
     /// Delivery is already externally visible when this runs. A local state

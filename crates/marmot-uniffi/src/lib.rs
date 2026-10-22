@@ -200,12 +200,11 @@ pub(crate) fn timeline_query_from_ffi(
     })
 }
 
-/// Composable runtime construction options. Omitted policies use public-only
-/// endpoints and an advancing cursor. Omitted labels stay untagged; omitted
-/// secret storage uses the platform keychain under the deployment's
-/// keychain service. An omitted deployment is
-/// [`marmot_deployment_white_noise`] until the neutral default lands.
-#[derive(Clone, Default, uniffi::Record)]
+/// Composable runtime construction options. The deployment is required.
+/// Omitted policies use public-only endpoints and an advancing cursor.
+/// Omitted labels stay untagged; omitted secret storage uses the platform
+/// keychain under the deployment's keychain service.
+#[derive(Clone, uniffi::Record)]
 pub struct MarmotOptions {
     #[uniffi(default = None)]
     pub relay_policy: Option<RelayPolicyFfi>,
@@ -227,16 +226,30 @@ pub struct MarmotOptions {
     pub pairing_relay_urls: Option<Vec<String>>,
     /// Deployment services: recovery relays, discovery indexers, media and
     /// image servers, Open Ranking, KeyPackage client preference, moderation
-    /// label namespace and keychain service. Omitted is
-    /// `marmot_deployment_white_noise()` for now.
-    #[uniffi(default = None)]
-    pub deployment: Option<MarmotDeploymentFfi>,
+    /// label namespace and keychain service. Required, with no default, so a
+    /// host can't silently open a different keychain service: White Noise
+    /// apps pass `marmot_deployment_white_noise()`.
+    pub deployment: MarmotDeploymentFfi,
 }
 
 impl MarmotOptions {
+    /// Options with only the deployment set; every policy at its default.
+    pub fn for_deployment(deployment: MarmotDeploymentFfi) -> Self {
+        Self {
+            relay_policy: None,
+            cursor_persistence: None,
+            client_name: None,
+            secret_store: None,
+            attachment_acquisition_mode: None,
+            moderation_report_config: None,
+            pairing_relay_urls: None,
+            deployment,
+        }
+    }
+
     fn app_config(&self) -> MarmotAppConfig {
         let relay_policy = self.relay_policy.unwrap_or(RelayPolicyFfi::PublicOnly);
-        let config = MarmotAppConfig::white_noise()
+        MarmotAppConfig::default()
             .with_attachment_acquisition_mode(
                 self.attachment_acquisition_mode.unwrap_or_default().into(),
             )
@@ -255,11 +268,8 @@ impl MarmotOptions {
             )
             .with_key_package_client_name(self.client_name.clone())
             .with_moderation_report_config(self.moderation_report_config.clone().map(Into::into))
-            .with_pairing_relay_urls(self.pairing_relay_urls.clone().unwrap_or_default());
-        match &self.deployment {
-            Some(deployment) => config.with_deployment(deployment.clone().into()),
-            None => config,
-        }
+            .with_pairing_relay_urls(self.pairing_relay_urls.clone().unwrap_or_default())
+            .with_deployment(self.deployment.clone().into())
     }
 }
 
@@ -272,8 +282,9 @@ pub struct Marmot {
 #[marmot_uniffi_macros::on_tokio_runtime]
 #[uniffi::export]
 impl Marmot {
-    /// Open with any combination of runtime options. Existing constructors are
-    /// compatibility wrappers around this entry point.
+    /// Open with any combination of runtime options, including the required
+    /// deployment. The other constructors are wrappers around this entry
+    /// point and take the deployment as their last argument.
     #[uniffi::constructor]
     pub fn new_with_configuration(
         root_path: String,
@@ -296,6 +307,7 @@ impl Marmot {
         relay_urls: Vec<String>,
         relay_policy: RelayPolicyFfi,
         secret_store: Option<Arc<dyn SecretStore>>,
+        deployment: MarmotDeploymentFfi,
     ) -> Result<Arc<Self>, MarmotKitError> {
         Self::new_with_configuration(
             root_path,
@@ -303,15 +315,15 @@ impl Marmot {
             MarmotOptions {
                 relay_policy: Some(relay_policy),
                 secret_store,
-                ..Default::default()
+                ..MarmotOptions::for_deployment(deployment)
             },
         )
     }
 
     /// Open the Marmot app at `root_path`, configured with the given default
-    /// relay URLs. Account secrets (Nostr private keys) are stored in the
-    /// platform keyring (Keychain on Apple platforms, Android's native
-    /// keyring on Android) via the default keychain-backed account home —
+    /// relay URLs and `deployment`. Account secrets (Nostr private keys) are
+    /// stored in the platform keyring (Keychain on Apple platforms, Android's
+    /// native keyring on Android) under the deployment's keychain service —
     /// not in a plaintext file. Fallible because initializing the platform
     /// secret store can fail or another process may own the same root
     /// ([`MarmotKitError::RuntimeBusy`]). Root ownership is nonblocking and
@@ -319,8 +331,16 @@ impl Marmot {
     /// after [`Marmot::shutdown`]. Call [`Marmot::start`] before subscribing
     /// to events.
     #[uniffi::constructor]
-    pub fn new(root_path: String, relay_urls: Vec<String>) -> Result<Arc<Self>, MarmotKitError> {
-        Self::new_with_configuration(root_path, relay_urls, MarmotOptions::default())
+    pub fn new(
+        root_path: String,
+        relay_urls: Vec<String>,
+        deployment: MarmotDeploymentFfi,
+    ) -> Result<Arc<Self>, MarmotKitError> {
+        Self::new_with_configuration(
+            root_path,
+            relay_urls,
+            MarmotOptions::for_deployment(deployment),
+        )
     }
 
     /// Open the Marmot app with host-supplied account-secret storage instead
@@ -341,13 +361,14 @@ impl Marmot {
         root_path: String,
         relay_urls: Vec<String>,
         secret_store: Arc<dyn SecretStore>,
+        deployment: MarmotDeploymentFfi,
     ) -> Result<Arc<Self>, MarmotKitError> {
         Self::new_with_configuration(
             root_path,
             relay_urls,
             MarmotOptions {
                 secret_store: Some(secret_store),
-                ..Default::default()
+                ..MarmotOptions::for_deployment(deployment)
             },
         )
     }
@@ -371,13 +392,14 @@ impl Marmot {
         root_path: String,
         relay_urls: Vec<String>,
         cursor_persistence: CursorPersistenceFfi,
+        deployment: MarmotDeploymentFfi,
     ) -> Result<Arc<Self>, MarmotKitError> {
         Self::new_with_configuration(
             root_path,
             relay_urls,
             MarmotOptions {
                 cursor_persistence: Some(cursor_persistence),
-                ..Default::default()
+                ..MarmotOptions::for_deployment(deployment)
             },
         )
     }
@@ -392,6 +414,7 @@ impl Marmot {
         client_name: Option<String>,
         cursor_persistence: CursorPersistenceFfi,
         secret_store: Option<Arc<dyn SecretStore>>,
+        deployment: MarmotDeploymentFfi,
     ) -> Result<Arc<Self>, MarmotKitError> {
         Self::new_with_configuration(
             root_path,
@@ -400,7 +423,7 @@ impl Marmot {
                 client_name,
                 cursor_persistence: Some(cursor_persistence),
                 secret_store,
-                ..Default::default()
+                ..MarmotOptions::for_deployment(deployment)
             },
         )
     }
@@ -570,7 +593,7 @@ mod tests {
 
     #[test]
     fn runtime_options_defaults_and_combined_policies() {
-        let defaults = MarmotOptions::default().app_config();
+        let defaults = MarmotOptions::for_deployment(marmot_deployment_neutral()).app_config();
         assert!(!defaults.allow_loopback_relay_endpoints);
         assert!(!defaults.allow_loopback_blob_endpoints);
         assert_eq!(
@@ -582,7 +605,7 @@ mod tests {
         assert_eq!(
             MarmotOptions {
                 pairing_relay_urls: Some(vec!["wss://relay.example.com".into()]),
-                ..Default::default()
+                ..MarmotOptions::for_deployment(marmot_deployment_neutral())
             }
             .app_config()
             .pairing_relay_urls,
@@ -595,7 +618,7 @@ mod tests {
         assert_eq!(
             MarmotOptions {
                 attachment_acquisition_mode: Some(AttachmentAcquisitionModeFfi::HostManaged),
-                ..Default::default()
+                ..MarmotOptions::for_deployment(marmot_deployment_neutral())
             }
             .app_config()
             .attachment_acquisition_mode,
@@ -610,7 +633,7 @@ mod tests {
                 relay_policy: Some(policy),
                 cursor_persistence: Some(CursorPersistenceFfi::Frozen),
                 client_name: Some(" whitenoise ".into()),
-                ..Default::default()
+                ..MarmotOptions::for_deployment(marmot_deployment_neutral())
             }
             .app_config();
             assert_eq!(config.allow_loopback_relay_endpoints, relay);
@@ -629,17 +652,15 @@ mod tests {
     #[test]
     fn runtime_options_carry_the_deployment() {
         assert_eq!(
-            MarmotOptions::default().app_config().deployment,
-            marmot_app::MarmotAppConfig::white_noise().deployment,
-            "an omitted deployment is White Noise's as compiled, for now"
+            MarmotOptions::for_deployment(marmot_deployment_white_noise())
+                .app_config()
+                .deployment,
+            marmot_app::MarmotDeployment::white_noise(),
         );
-        let neutral = MarmotOptions {
-            deployment: Some(MarmotDeploymentFfi {
-                keychain_service: " org.example.app ".into(),
-                ..marmot_deployment_neutral()
-            }),
-            ..Default::default()
-        }
+        let neutral = MarmotOptions::for_deployment(MarmotDeploymentFfi {
+            keychain_service: " org.example.app ".into(),
+            ..marmot_deployment_neutral()
+        })
         .app_config();
         assert_eq!(
             neutral.deployment,
@@ -658,7 +679,7 @@ mod tests {
         let directory = vec!["wss://directory.options.example".to_owned()];
         let config = MarmotOptions {
             pairing_relay_urls: Some(pairing.clone()),
-            deployment: Some(MarmotDeploymentFfi {
+            deployment: MarmotDeploymentFfi {
                 recovery_operated_relays: vec![
                     " wss://recovery.options.example ".into(),
                     "".into(),
@@ -668,8 +689,8 @@ mod tests {
                 new_group_media_endpoints: vec![" https://media.options.example ".into()],
                 keychain_service: " org.example.composed-options ".into(),
                 ..marmot_deployment_neutral()
-            }),
-            ..Default::default()
+            },
+            ..MarmotOptions::for_deployment(marmot_deployment_neutral())
         }
         .app_config()
         .with_directory_relay_urls(directory.clone());

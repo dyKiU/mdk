@@ -1783,6 +1783,7 @@ impl AppClient {
             // A directory cache miss must not block the existing chat-sharing path.
             let profile = self
                 .app
+                .directory()
                 .directory_entry_for_account_id(&hex::encode(peer))
                 .ok()
                 .flatten()

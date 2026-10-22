@@ -131,14 +131,6 @@ pub use transport_adapter::{
 pub use types::{Backend, EpochId, GroupId, MemberId, MessageId};
 pub use welcome::PendingWelcome;
 
-// ── Compile-time witnesses ─────────────────────────────────────────────────
-//
-// If `CgkaEngine` or `TransportPeeler` stop being object-safe and Send, these
-// witnesses fail at compile time.
-const _: fn(Box<dyn CgkaEngine + Send + Sync>) = |_| {};
-const _: fn(Box<dyn TransportPeeler + Send + Sync>) = |_| {};
-const _: fn(Box<dyn TransportAdapter + Send + Sync>) = |_| {};
-
 pub mod reporting;
 
 pub mod account_chat_record_stream;

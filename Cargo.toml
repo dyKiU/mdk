@@ -7,6 +7,7 @@ exclude = [
 members = [
     "crates/fs-private",
     "crates/media-store",
+    "crates/nostr-directory",
     "crates/traits",
     "crates/cgka-engine",
     "crates/cgka-session",
@@ -117,12 +118,13 @@ keyring-core = "1"
 quinn = { version = "0.11", default-features = false, features = ["log", "runtime-tokio", "rustls-ring"] }
 rcgen = "0.14"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
-# Direct verifier for the transports' ALPN-carrying Rustls client configs.
-# Quinn's convenience verifier feature is unused and would add a second copy.
-rustls-platform-verifier = "0.6"
-nostr = { git = "https://github.com/erskingardner/rust-nostr", rev = "a9c7a6423d104c603de6ea8244265ea17f0f9d89", default-features = false, features = ["std", "rand", "os-rng", "nip04", "nip49", "nip59"] }
-nostr-sdk = { git = "https://github.com/erskingardner/rust-nostr", rev = "a9c7a6423d104c603de6ea8244265ea17f0f9d89", features = ["local-relay"] }
-nostr-gossip = { git = "https://github.com/erskingardner/rust-nostr", rev = "a9c7a6423d104c603de6ea8244265ea17f0f9d89" }
+# Bundled Mozilla roots for the QUIC preview transports' default trust: the
+# same anchors relay WebSockets and HTTP use (via tokio-tungstenite/reqwest).
+# The OS verifier needs JNI setup on Android that MarmotKit hosts never run.
+webpki-roots = "1.0"
+nostr = { git = "https://github.com/erskingardner/rust-nostr", rev = "48801bf6f2f1cd55bb1729e94159946c8832a786", default-features = false, features = ["std", "rand", "os-rng", "nip04", "nip49", "nip59"] }
+nostr-sdk = { git = "https://github.com/erskingardner/rust-nostr", rev = "48801bf6f2f1cd55bb1729e94159946c8832a786", features = ["local-relay"] }
+nostr-gossip = { git = "https://github.com/erskingardner/rust-nostr", rev = "48801bf6f2f1cd55bb1729e94159946c8832a786" }
 nostr-relay-builder = "0.44"
 # OTLP export (behind the marmot-app `otlp-export` feature): map pre-aggregated
 # relay telemetry straight to the OTLP protobuf and POST it over the existing
@@ -144,6 +146,7 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 # workspace-internal
 fs-private = { path = "crates/fs-private" }
 media-store = { path = "crates/media-store" }
+nostr-directory = { path = "crates/nostr-directory" }
 cgka-traits = { path = "crates/traits" }
 cgka-engine = { path = "crates/cgka-engine" }
 cgka-session = { path = "crates/cgka-session" }

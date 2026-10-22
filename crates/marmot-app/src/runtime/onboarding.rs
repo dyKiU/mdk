@@ -1586,8 +1586,8 @@ impl AccountManager {
                 // Cache even imperfect signed data for settings visibility;
                 // routing still filters it through the relay safety chokepoint.
                 if let Some(event) = event {
-                    self.app
-                        .ingest_directory_relay_event(DirectoryRelayEventRecord {
+                    self.app.directory().ingest_directory_relay_event(
+                        DirectoryRelayEventRecord {
                             endpoints: c
                                 .options
                                 .discovery_relays
@@ -1596,7 +1596,8 @@ impl AccountManager {
                                 .map(TransportEndpoint)
                                 .collect(),
                             event,
-                        })?;
+                        },
+                    )?;
                 }
                 c.set(step, status, findings);
             }
@@ -2413,20 +2414,11 @@ impl AccountManager {
             )
             .await?;
         self.require_live_onboarding_attempt(&c)?;
-        // Every configured source, including each searched public indexer, must
-        // finish: a timeout may hide a newer record. Unreachable user-declared
-        // hints cannot establish absence either.
-        let indexers: HashSet<String> = self
-            .app
-            .discovery_indexer_relays()
-            .iter()
-            .map(|endpoint| relay_key(&endpoint.0))
-            .collect();
+        // Every source, including declared relays and public indexers, must
+        // finish: a timeout may hide a newer record even if another source answers.
         if completed.is_empty()
-            || c.options
-                .discovery_relays
+            || sources
                 .iter()
-                .chain(sources.iter().filter(|s| indexers.contains(&relay_key(s))))
                 .any(|endpoint| !completed.contains(&relay_key(endpoint)))
             || (records.is_empty() && !failures.is_empty())
         {
@@ -2652,6 +2644,7 @@ impl AccountManager {
         match outcome {
             Ok(outcome) if !outcome.accepted.is_empty() => {
                 self.app
+                    .directory()
                     .ingest_directory_relay_event(DirectoryRelayEventRecord {
                         endpoints,
                         event: event.clone(),
@@ -2823,7 +2816,7 @@ fn relay_repair_event(
             .and_then(|e| serde_json::from_str::<serde_json::Value>(&e.content).ok())
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
-        if let Some(patch) = crate::directory::records::profile_content_json(profile).as_object() {
+        if let Some(patch) = nostr_directory::profile_content_json(profile).as_object() {
             content.extend(patch.clone());
         }
         // None means preserve; an explicitly supplied empty string clears a

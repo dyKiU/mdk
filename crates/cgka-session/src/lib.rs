@@ -9,6 +9,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use cgka_engine::account_identity_proof::AccountIdentityProofSigner;
 use cgka_engine::canonicalization::CanonicalizationPolicy;
+pub use cgka_engine::engine::WelcomeDeliveryIndex;
 use cgka_engine::feature_registry::FeatureRegistry;
 use cgka_engine::{Engine, EngineBuilder};
 use cgka_traits::app_components::{AppComponentId, AppComponentSet, default_group_components};
@@ -1251,6 +1252,11 @@ impl AccountDeviceSession {
         Ok(self.engine.tracked_outbound_welcome_ids()?)
     }
 
+    /// Outstanding Welcome obligations and tracked IDs from one engine scan.
+    pub fn welcome_delivery_index(&self) -> SessionResult<WelcomeDeliveryIndex> {
+        Ok(self.engine.welcome_delivery_index()?)
+    }
+
     /// Complete one retained outbound Welcome delivery obligation after the
     /// transport reports the required acknowledgements.
     pub fn mark_sent_welcome_delivered(&self, id: &MessageId) -> SessionResult<()> {
@@ -1680,9 +1686,11 @@ impl AccountDeviceSession {
             .drain_authenticated_enrollment_requests_up_to(available)
     }
 
+    /// Ingest without taking ownership of the delivery or copying its wire payload.
+    /// The transport owner may release the frame after successful acknowledgement.
     pub async fn ingest_delivery(
         &mut self,
-        delivery: TransportDelivery,
+        delivery: &TransportDelivery,
     ) -> SessionResult<IngestEffects> {
         self.ingest_delivery_observed(delivery, None).await
     }
@@ -1691,7 +1699,7 @@ impl AccountDeviceSession {
     #[cfg(feature = "experimental-device-sync")]
     pub async fn ingest_private_enrollment_delivery_until(
         &mut self,
-        delivery: TransportDelivery,
+        delivery: &TransportDelivery,
         deadline: web_time::Instant,
     ) -> SessionResult<IngestEffects> {
         self.ingest_delivery_observed(delivery, Some(deadline))
@@ -1700,7 +1708,7 @@ impl AccountDeviceSession {
 
     async fn ingest_delivery_observed(
         &mut self,
-        delivery: TransportDelivery,
+        delivery: &TransportDelivery,
         deadline: Option<web_time::Instant>,
     ) -> SessionResult<IngestEffects> {
         tracing::debug!(
@@ -1708,26 +1716,26 @@ impl AccountDeviceSession {
             method = "ingest_delivery",
             "ingesting transport delivery"
         );
-        let transport_context = audit_transport_context(delivery.source);
+        let transport_context = audit_transport_context(delivery.source.clone());
         #[cfg(feature = "experimental-device-sync")]
         let outcome = if let Some(deadline) = deadline {
             self.engine
                 .ingest_private_enrollment_delivery_with_audit_context_until(
-                    delivery.message,
+                    &delivery.message,
                     Some(transport_context),
                     deadline,
                 )
                 .await?
         } else {
             self.engine
-                .ingest_with_audit_context(delivery.message, Some(transport_context))
+                .ingest_with_audit_context(&delivery.message, Some(transport_context))
                 .await?
         };
         #[cfg(not(feature = "experimental-device-sync"))]
         let outcome = {
             let _ = deadline;
             self.engine
-                .ingest_with_audit_context(delivery.message, Some(transport_context))
+                .ingest_with_audit_context(&delivery.message, Some(transport_context))
                 .await?
         };
         let left_object_unpersisted = self.engine.last_ingest_left_object_unpersisted();

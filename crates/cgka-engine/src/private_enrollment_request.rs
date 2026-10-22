@@ -673,7 +673,7 @@ impl<S: StorageProvider + 'static> Engine<S> {
         message: cgka_traits::TransportMessage,
     ) -> Result<cgka_traits::IngestOutcome, EngineError> {
         self.ingest_private_enrollment_delivery_with_audit_context_until(
-            message,
+            &message,
             None,
             Instant::now() + Duration::from_secs(600),
         )
@@ -686,15 +686,16 @@ impl<S: StorageProvider + 'static> Engine<S> {
         message: cgka_traits::TransportMessage,
         deadline: Instant,
     ) -> Result<cgka_traits::IngestOutcome, EngineError> {
-        self.ingest_private_enrollment_delivery_with_audit_context_until(message, None, deadline)
+        self.ingest_private_enrollment_delivery_with_audit_context_until(&message, None, deadline)
             .await
     }
 
     /// Acquisition deadline is metadata only, cannot extend an existing clock,
     /// and must originate from the caller's actual in-process live receipt.
+    /// The transport owner retains the borrowed wire until acknowledgement.
     pub async fn ingest_private_enrollment_delivery_with_audit_context_until(
         &mut self,
-        message: cgka_traits::TransportMessage,
+        message: &cgka_traits::TransportMessage,
         transport_context: Option<marmot_forensics::AuditTransportContext>,
         acquisition_deadline: Instant,
     ) -> Result<cgka_traits::IngestOutcome, EngineError> {
