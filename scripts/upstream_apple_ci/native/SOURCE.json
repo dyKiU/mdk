@@ -3,8 +3,8 @@
   "source_directory": "tools/native-sync-acceptance",
   "files": {
     "build.sh": "6decb26858b6c89de3bab5fa1df055eeb95565f563bab84ed0a45adb93415dea",
-    "Acceptance.swift": "ac82ce3266c1da5589eea71588bb6a9090084e6b5f89f510f9b28db30c4c939b",
-    "Agent.swift": "c5fc93bb6796feb2e71aaf9e39c8e54b19d254a59c887008acccfebe597ea22d",
+    "Acceptance.swift": "5a9ae01bc401086dfa9cbc370b034d44aaa2f733252ba67cd021c72724216953",
+    "Agent.swift": "e152273246d2a9792b22cadbc0c643a16de4d8957add0253a6be70f8ed3629a3",
     "StoreControls.swift": "8aa26c6b119e032960a104b4a7a90504e98845c3a89dbb1c06b68776133f44ba",
     "one_scan.py": "6bee7a076633e380ae714b116db4135c147c2981916b0c859255b787daff6423",
     "cross_host.py": "ecde36dcf38a5d2963592f2caa29c13c58cdb76983146dc2f70b9957e0766808",

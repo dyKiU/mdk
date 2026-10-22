@@ -66,6 +66,20 @@
       "source": "new closed SDK profile and trusted Git F provenance validator",
       "sha256": "15c176c3b049032d857c05c0ff5e86952dbc81cb06efbff81f8dcf3efabfdd7f",
       "scope": "Default two-feature and experimental three-feature Apple artifacts; no private sync authority or release adoption"
+    },
+    "native/Acceptance.swift": {
+      "source": "tools/native-sync-acceptance/Acceptance.swift",
+      "workspace_commit": "be04fc60b6a4c40bd85423fbf9e35e8982ae4b84",
+      "original_file_sha256": "ac82ce3266c1da5589eea71588bb6a9090084e6b5f89f510f9b28db30c4c939b",
+      "sha256": "5a9ae01bc401086dfa9cbc370b034d44aaa2f733252ba67cd021c72724216953",
+      "adaptation": "Explicit White Noise deployment required by integrated E18 UniFFI options; preserve secret store, pairing relay selection, relay policy, protocol actions, assertions and deadlines."
+    },
+    "native/Agent.swift": {
+      "source": "tools/native-sync-acceptance/Agent.swift",
+      "workspace_commit": "be04fc60b6a4c40bd85423fbf9e35e8982ae4b84",
+      "original_file_sha256": "c5fc93bb6796feb2e71aaf9e39c8e54b19d254a59c887008acccfebe597ea22d",
+      "sha256": "e152273246d2a9792b22cadbc0c643a16de4d8957add0253a6be70f8ed3629a3",
+      "adaptation": "Explicit White Noise deployment required by integrated E18 UniFFI options; preserve secret store, pairing relay selection, relay policy, protocol actions, assertions and deadlines."
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

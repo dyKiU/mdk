@@ -53,7 +53,8 @@ final class AcceptanceAgent {
         store = try TaskSecretStore(directory: root.appendingPathComponent("credentials", isDirectory: true))
         let relay = try NativeAcceptance.relayURL()
         var options = MarmotOptions(
-            relayPolicy: .allowLoopback, clientName: "native-cross-host-acceptance", secretStore: store)
+            relayPolicy: .allowLoopback, clientName: "native-cross-host-acceptance", secretStore: store,
+            deployment: marmotDeploymentWhiteNoise())
         #if NATIVE_ONE_SCAN_ACCEPTANCE
             if relay.hasPrefix("wss://") {
                 options.relayPolicy = .publicOnly

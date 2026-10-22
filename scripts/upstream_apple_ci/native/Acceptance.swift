@@ -142,7 +142,7 @@ struct NativeAcceptance {
                 rootPath: root.path, relayUrls: [relay],
                 options: MarmotOptions(
                     relayPolicy: .allowLoopback, clientName: "native-acceptance",
-                    secretStore: store))
+                    secretStore: store, deployment: marmotDeploymentWhiteNoise()))
             stage = "runtime-start"
             try await runtime.start()
             do {
@@ -214,7 +214,7 @@ struct NativeAcceptance {
         let b = try Marmot.newWithConfiguration(
             rootPath: bRoot.path, relayUrls: [relay],
             options: MarmotOptions(
-                relayPolicy: .allowLoopback, clientName: "native-acceptance-recipient", secretStore: bStore))
+                relayPolicy: .allowLoopback, clientName: "native-acceptance-recipient", secretStore: bStore, deployment: marmotDeploymentWhiteNoise()))
         try await b.start()
         do {
             stage = "second-public-onboarding"
