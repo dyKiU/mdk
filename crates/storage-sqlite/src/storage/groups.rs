@@ -511,6 +511,7 @@ mod tests {
         store.put_message(&message).unwrap();
         store
             .put_pending_application_event(&GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group.id.clone(),
                 message_id: message.id.clone(),
@@ -569,6 +570,7 @@ mod tests {
             .unwrap();
         store
             .put_pending_application_event(&GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group.id.clone(),
                 message_id: mid(1),

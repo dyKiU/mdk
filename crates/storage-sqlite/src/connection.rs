@@ -1346,6 +1346,49 @@ impl StorageProvider for SqliteAccountStorage {
         Some(self)
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_welcome_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::storage::AcceptedWelcomeStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage>
+    {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_device_invite_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_device_invite::PrivateDeviceInviteStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_group_genesis::DeviceGroupGenesisStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::roster_ack_capture::RosterAckCaptureStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_linking_key_package::PurposeKeyPackageStorage> {
+        Some(self)
+    }
+
     fn group_replay_state_fingerprint(
         &self,
         group_id: &cgka_traits::types::GroupId,

@@ -294,6 +294,7 @@ mod tests {
         for message_id in [mid(1), mid(2)] {
             store
                 .put_pending_application_event(&GroupEvent::MessageReceived {
+                    source_leaf: None,
                     authority: None,
                     group_id: g0.id.clone(),
                     message_id,

@@ -71,6 +71,12 @@ mod audit_recovery;
 mod audit_v5_app_update;
 pub(crate) mod audit_v5_probe;
 mod delivery_spill;
+#[cfg(feature = "experimental-device-sync")]
+#[allow(
+    dead_code,
+    reason = "Private owner commands await account-worker integration"
+)]
+pub(crate) mod device_linking;
 pub(crate) mod epoch_stall;
 pub(crate) mod history_notices;
 mod invite_recovery;
@@ -483,6 +489,10 @@ pub struct AppClient {
     pub(crate) runtime_telemetry: Option<AppPerformanceTelemetry>,
     pub(crate) send_telemetry: Option<AppPerformanceTelemetry>,
     pub(crate) app: MarmotApp,
+    // Drop verifier secrets and fence this attempt while the session lease and
+    // engine storage are still held by this client.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) linking_owner: device_linking::AccountLinkingOwner,
     pub(crate) runtime: AppRuntime,
     pub(crate) maintenance_observation_generation: Option<crate::DiagnosticsPermit>,
     // Struct fields drop in declaration order. Keep the engine-owning runtime

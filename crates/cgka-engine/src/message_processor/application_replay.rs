@@ -7,7 +7,7 @@
 use super::{AdvanceConvergenceStatus, DeferredPeelExecution};
 use crate::engine::Engine;
 use crate::openmls_projection::{
-    OpenMlsContentKind, OpenMlsProjectionError, ReplayProfilePolicy,
+    CurrentApplicationResult, OpenMlsContentKind, OpenMlsProjectionError, ReplayProfilePolicy,
     process_current_openmls_application, project_mls_message,
 };
 use cgka_traits::engine::{AppMessageInvalidationReason, GroupEvent};
@@ -243,14 +243,18 @@ impl<S: StorageProvider> Engine<S> {
             let (events, invalidated) = self
                 .storage
                 .with_transaction(|storage| {
-                    let observations = if horizon_reason.is_none() {
+                    let processed = if horizon_reason.is_none() {
                         process_current_openmls_application(storage, group_id, &message, profile)?
                     } else {
-                        Vec::new()
+                        CurrentApplicationResult {
+                            observations: Vec::new(),
+                            private_handled: false,
+                        }
                     };
-                    let events = Self::application_replay_events(group_id, &observations)?;
+                    let events =
+                        Self::application_replay_events(group_id, &processed.observations)?;
                     let invalidated =
-                        if events.is_empty() {
+                        if events.is_empty() && !processed.private_handled {
                             Some(horizon_reason.unwrap_or(
                                 AppMessageInvalidationReason::UndecryptableInCanonicalState,
                             ))

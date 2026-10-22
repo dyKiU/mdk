@@ -31,10 +31,14 @@ mod chat_presentation;
 mod codec;
 mod connection;
 mod delivery_spill;
+#[cfg(feature = "experimental-device-sync")]
+mod device_linking;
 pub use delivery_spill::{
     DeliverySpillDisposition, DeliverySpillLimits, SpilledDelivery, SpilledDeliveryBatch,
     SpilledDeliveryDeferral,
 };
+#[cfg(feature = "experimental-device-sync")]
+pub use device_linking::{DeviceLinkingBinding, DeviceLinkingError, DeviceLinkingOutcome};
 mod encrypted_media_secrets;
 mod local_submissions;
 mod message_drafts;
@@ -48,6 +52,17 @@ mod query_work_test_support;
 mod recovery_health;
 mod shared;
 mod storage;
+#[cfg(feature = "experimental-device-sync")]
+mod synchronized_history;
+#[cfg(feature = "experimental-device-sync")]
+pub use synchronized_history::{
+    MAX_SYNCHRONIZED_HISTORY_BYTES, MAX_SYNCHRONIZED_HISTORY_CHUNK_BYTES,
+    MAX_SYNCHRONIZED_HISTORY_CHUNKS, MAX_SYNCHRONIZED_HISTORY_PAGE,
+    MAX_SYNCHRONIZED_HISTORY_RECORDS_PER_CHUNK, MAX_SYNCHRONIZED_HISTORY_TRANSFERS,
+    ProvenancedSynchronizedHistoryRecord, SynchronizedHistoryBinding, SynchronizedHistoryError,
+    SynchronizedHistoryImportProgress, SynchronizedHistoryManifest, SynchronizedHistoryRecord,
+    synchronized_history_chunk_digest,
+};
 mod timeline;
 mod user_blocks;
 pub use user_blocks::{BlockListSnapshot, BlockedUser, PendingBlockPublication, StoredBlockList};
@@ -159,3 +174,27 @@ pub use attachment_acquisition::{
     AttachmentDownloadPolicy, AttachmentTransferFrame, AttachmentTransferState,
     AttachmentTransferStatus,
 };
+
+#[cfg(feature = "experimental-device-sync")]
+mod accepted_welcome;
+
+#[cfg(feature = "experimental-device-sync")]
+mod device_linking_key_package;
+
+#[cfg(feature = "experimental-device-sync")]
+mod roster_ack_capture;
+
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod device_group_genesis_tests;
+
+#[cfg(feature = "experimental-device-sync")]
+mod device_group_genesis;
+
+#[cfg(feature = "experimental-device-sync")]
+mod accepted_device_group_anchor;
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod accepted_device_group_anchor_tests;
+#[cfg(feature = "experimental-device-sync")]
+mod private_device_invite;
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod private_device_invite_tests;

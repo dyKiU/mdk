@@ -1,3 +1,5 @@
+#[cfg(feature = "experimental-device-sync")]
+mod device_linking_startup;
 mod draft_lifecycle;
 mod group_lookup;
 mod key_package_inventory;
@@ -2050,6 +2052,7 @@ fn recovery_warning_requires_qualified_local_observations_and_survives_local_com
         effects
             .events
             .push(cgka_traits::engine::GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group_id.clone(),
                 message_id: cgka_traits::MessageId::new(vec![0xa1; 32]),
@@ -17438,6 +17441,7 @@ async fn local_delete_restart_preserves_rotated_route_relay_pairs_for_resurrecti
     assert!(fresh.failures.is_empty());
     let effects = marmot_account::AccountDeviceEffects {
         events: vec![cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: fresh.reports[0].message_id.clone(),
@@ -17547,6 +17551,7 @@ async fn local_delete_batch_suppresses_historical_chat_in_both_event_orders() {
         assert!(fresh.failures.is_empty());
         let epoch = client.runtime.group_record(&group_id).unwrap().epoch;
         let historical_event = cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: historical.reports[0].message_id.clone(),
@@ -17557,6 +17562,7 @@ async fn local_delete_batch_suppresses_historical_chat_in_both_event_orders() {
             encrypted_media_secret: None,
         };
         let fresh_event = cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: fresh.reports[0].message_id.clone(),
@@ -17634,6 +17640,7 @@ async fn account_open_recovers_first_fresh_chat_after_protocol_projection_crash(
     assert!(fresh.failures.is_empty());
     let message_id = fresh.reports[0].message_id.clone();
     let event = cgka_traits::engine::GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: group_id.clone(),
         message_id: message_id.clone(),
@@ -17718,6 +17725,7 @@ async fn account_open_keeps_first_fresh_chat_pending_when_group_projection_is_un
     assert!(fresh.failures.is_empty());
     let message_id = fresh.reports[0].message_id.clone();
     let event = cgka_traits::engine::GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: group_id.clone(),
         message_id,
@@ -21399,6 +21407,7 @@ async fn check_received_media_source_epoch_secret(carried_secret: bool) {
 
     let effects = marmot_account::AccountDeviceEffects {
         events: vec![cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: sent.reports[0].message_id.clone(),

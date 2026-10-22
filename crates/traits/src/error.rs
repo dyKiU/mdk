@@ -210,6 +210,9 @@ pub enum EngineError {
     #[error("invalid welcome")]
     InvalidWelcome,
 
+    #[error("{0}")]
+    LinkingWelcomeDenied(crate::device_linking_key_package::LinkingWelcomeDenied),
+
     /// This device has no private bundle for any KeyPackage referenced by the
     /// Welcome. Retrying the same invitation cannot recreate that material.
     #[error(
@@ -281,6 +284,7 @@ impl EngineError {
             EngineError::Peeler(_) => "peeler",
             EngineError::Serialize(_) => "serialize",
             EngineError::InvalidWelcome => "invalid_welcome",
+            EngineError::LinkingWelcomeDenied(_) => "linking_welcome_denied",
             EngineError::MissingWelcomeKeyPackage => "missing_welcome_key_package",
             EngineError::WelcomeAlreadyProcessed => "welcome_already_processed",
             EngineError::Backend(_) => "backend",

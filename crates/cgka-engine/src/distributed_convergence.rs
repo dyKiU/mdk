@@ -1533,23 +1533,29 @@ impl<S: StorageProvider> Engine<S> {
             Vec::new()
         };
         let pre_apply_commit_states = self.pre_apply_commit_states(&result)?;
-        let (observations, application_events) = self.storage.with_transaction(|storage| {
-            let observations = apply_openmls_canonicalization_result_with_profile_policy(
-                storage,
-                group_id,
-                &result,
-                max_retained_anchor_rewind,
-                replay_profile_policy,
-            )?;
-            storage.put_convergence_pass(&completed_pass)?;
-            let application_events = Self::application_replay_events(group_id, &observations)?;
-            for event in &application_events {
-                storage
-                    .put_pending_application_event(event)
-                    .map_err(storage_projection_error)?;
-            }
-            Ok::<_, OpenMlsProjectionError>((observations, application_events))
-        })?;
+        let (observations, application_events, handled_private_ids) =
+            self.storage.with_transaction(|storage| {
+                let applied = apply_openmls_canonicalization_result_with_profile_policy(
+                    storage,
+                    group_id,
+                    &result,
+                    max_retained_anchor_rewind,
+                    replay_profile_policy,
+                )?;
+                let observations = applied.observations;
+                storage.put_convergence_pass(&completed_pass)?;
+                let application_events = Self::application_replay_events(group_id, &observations)?;
+                for event in &application_events {
+                    storage
+                        .put_pending_application_event(event)
+                        .map_err(storage_projection_error)?;
+                }
+                Ok::<_, OpenMlsProjectionError>((
+                    observations,
+                    application_events,
+                    applied.handled_private_ids,
+                ))
+            })?;
         // mdk#1472: completing the pass opens the gate that held queued
         // outbound intents. A drain that ran before the settle consumed the
         // one-shot schedule edge without releasing them, so completion must
@@ -1642,7 +1648,7 @@ impl<S: StorageProvider> Engine<S> {
             .map_err(|error| OpenMlsProjectionError::Storage(error.to_string()))?
         };
         self.events_buf.extend(application_events);
-        self.emit_invalidated_app_events(group_id, &result)?;
+        self.emit_invalidated_app_events(group_id, &result, &handled_private_ids)?;
         self.emit_rejected_proposal_convergence_audits(group_id, &result);
         self.emit_rolled_back_commits(group_id, &result, &pre_apply_commit_states)?;
         self.emit_superseded_processed_commits(group_id, &result)?;
@@ -1957,6 +1963,7 @@ impl<S: StorageProvider> Engine<S> {
                 retention,
                 authority,
                 encrypted_media_secret,
+                source_leaf,
                 ..
             } = observation
             else {
@@ -1979,6 +1986,7 @@ impl<S: StorageProvider> Engine<S> {
                 message_id: message_id_from_hex(message_id)?,
                 epoch: cgka_traits::EpochId(*source_epoch),
                 sender: MemberId::new(sender.clone()),
+                source_leaf: source_leaf.clone(),
                 payload: payload.clone(),
                 retention: Some(*retention),
                 authority: *authority,
@@ -1992,8 +2000,14 @@ impl<S: StorageProvider> Engine<S> {
         &mut self,
         group_id: &GroupId,
         result: &CanonicalizationResult,
+        handled_private_ids: &std::collections::BTreeSet<Vec<u8>>,
     ) -> Result<(), OpenMlsProjectionError> {
         for invalidated in &result.invalidated_app_messages {
+            if handled_private_ids
+                .contains(message_id_from_hex(&invalidated.message_id)?.as_slice())
+            {
+                continue;
+            }
             // A future-epoch decrypt miss is retryable and must not be
             // announced as permanently gone. The same reason at or below the
             // resulting tip is terminal, however, and must reach the app.

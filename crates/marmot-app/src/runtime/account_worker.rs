@@ -336,6 +336,31 @@ pub(crate) struct AccountWorkerRuntime {
 }
 
 pub(crate) enum AccountWorkerCommand {
+    #[cfg(feature = "experimental-device-sync")]
+    DeviceLinkingVerifier(Box<super::device_linking::VerifierCommand>),
+    #[cfg(feature = "experimental-device-sync")]
+    PrepareDeviceLinking {
+        respond: oneshot::Sender<
+            Result<
+                crate::client::device_linking::PreparedDeviceLinking,
+                crate::client::device_linking::ClientLinkingError,
+            >,
+        >,
+    },
+    #[cfg(feature = "experimental-device-sync")]
+    CancelDeviceLinking {
+        scope: cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        respond: oneshot::Sender<Result<(), crate::client::device_linking::ClientLinkingError>>,
+    },
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    MaintainDeviceLinkingAtForTest {
+        now: Instant,
+        respond: oneshot::Sender<Result<(), crate::client::device_linking::ClientLinkingError>>,
+    },
     CatchUp {
         respond: oneshot::Sender<Result<(), AccountCatchUpFailure>>,
     },
@@ -1743,6 +1768,10 @@ async fn run_app_runtime_account_worker(
     let product_backlog = shared.product_analytics.backlog_source();
     let mut maintenance_tick = interval(Duration::from_secs(15));
     maintenance_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    #[cfg(feature = "experimental-device-sync")]
+    let mut linking_tick = interval(Duration::from_secs(1));
+    #[cfg(feature = "experimental-device-sync")]
+    linking_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
     let mut presentation_wakeups = app.presentation_signals.subscribe_work();
@@ -2681,6 +2710,24 @@ async fn run_app_runtime_account_worker(
             // waiting for unrelated input while it holds its recovery credit.
             _ = tokio::task::yield_now(), if comparison_recovery.as_ref().is_some_and(|job| job.network.is_none()) => {
                 continue 'worker;
+            }
+            // Pairing expiry cannot wait for optional network recovery. The
+            // original deadline is also checked by every verifier/join access.
+            _ = async {
+                #[cfg(feature = "experimental-device-sync")]
+                { linking_tick.tick().await; }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                std::future::pending::<()>().await;
+            }, if cfg!(feature = "experimental-device-sync") => {
+                #[cfg(feature = "experimental-device-sync")]
+                if !lifecycle.is_stopping()
+                    && client.maintain_device_linking(Instant::now()).await.is_err() {
+                    tracing::debug!(
+                        target: "marmot_app::device_linking",
+                        method = "worker_expiry_tick",
+                        "device linking cleanup deferred"
+                    );
+                }
             }
             _ = maintenance_tick.tick() => {
                 local_submission_due = true;
@@ -4316,6 +4363,44 @@ fn account_worker_command_future<'a>(
     } = context;
     let storage_permit = shared.product_analytics.permit();
     match command {
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::DeviceLinkingVerifier(command) => Box::pin(async move {
+            super::device_linking::handle_verifier_command(client, *command).await;
+            true
+        }),
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::PrepareDeviceLinking { respond } => Box::pin(async move {
+            // Retire an undeliverable preparation in the same serial turn.
+            if let Err(Ok(prepared)) = respond.send(client.prepare_device_linking().await)
+                && client
+                    .cancel_device_linking_scope(&prepared.scope)
+                    .await
+                    .is_err()
+            {
+                tracing::debug!(
+                    target: "marmot_app::device_linking",
+                    method = "worker_abandoned_prepare",
+                    "device linking cleanup deferred"
+                );
+            }
+            true
+        }),
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::CancelDeviceLinking { scope, respond } => Box::pin(async move {
+            let _ = respond.send(client.cancel_device_linking_scope(&scope).await);
+            true
+        }),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        AccountWorkerCommand::MaintainDeviceLinkingAtForTest { now, respond } => {
+            Box::pin(async move {
+                let _ = respond.send(client.maintain_device_linking(now).await);
+                true
+            })
+        }
         AccountWorkerCommand::ConnectivityRestored { respond } => Box::pin(async move {
             let result = client.note_connectivity_restored().map(|_| ());
             scheduled_convergence.wake_after_connectivity_restored();
@@ -7203,6 +7288,64 @@ mod tests {
         }
     }
 
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[tokio::test]
+    async fn device_linking_abandoned_prepare_retires_its_exact_attempt() {
+        use cgka_traits::StorageProvider;
+
+        let dir = tempfile::tempdir().unwrap();
+        AccountHome::open(dir.path())
+            .create_account("alice")
+            .unwrap();
+        let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+            .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
+        let runtime = super::super::MarmotAppRuntime::new(app.clone());
+        runtime.reconcile_accounts().await.unwrap();
+        let accounts = runtime.accounts();
+        let commands = accounts.worker_commands("alice").await.unwrap();
+        let (respond, receiver) = oneshot::channel();
+        drop(receiver);
+        commands
+            .send(AccountWorkerCommand::PrepareDeviceLinking { respond })
+            .await
+            .unwrap();
+        // A serial command is the barrier; this clock cannot expire the attempt.
+        accounts
+            .maintain_device_linking_at_for_test("alice", std::time::Instant::now())
+            .await
+            .unwrap();
+        let storage = app.account_storage("alice").unwrap();
+        assert!(
+            storage
+                .device_linking_key_package_storage()
+                .unwrap()
+                .purpose_key_package()
+                .unwrap()
+                .is_none(),
+            "a prepared attempt whose caller disappeared must be retired immediately"
+        );
+        let next = accounts.prepare_device_linking("alice").await.unwrap();
+        assert_eq!(next.scope.generation, 2);
+        assert!(
+            storage
+                .device_linking_key_package_storage()
+                .unwrap()
+                .purpose_key_package()
+                .unwrap()
+                .unwrap()
+                .scope
+                == next.scope
+        );
+        accounts
+            .cancel_device_linking("alice", &next.scope)
+            .await
+            .unwrap();
+        runtime.shutdown().await;
+    }
+
     #[tokio::test]
     async fn conversation_capture_retries_while_snapshot_work_owns_client_even_without_snapshot() {
         let dir = tempfile::tempdir().unwrap();
@@ -9458,6 +9601,7 @@ mod tests {
         summary
             .events
             .push(cgka_traits::engine::GroupEvent::MessageReceived {
+                source_leaf: None,
                 group_id,
                 message_id: message_id.clone(),
                 sender: cgka_traits::MemberId::new(vec![0x11; 32]),

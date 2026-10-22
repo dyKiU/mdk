@@ -90,6 +90,12 @@ mod client;
 mod config;
 pub mod conversation_presentation;
 mod conversions;
+#[cfg(feature = "experimental-device-sync")]
+#[allow(
+    dead_code,
+    reason = "Experimental adapter awaits account-worker enrollment integration"
+)]
+mod device_linking;
 mod directory;
 mod drafts;
 mod local_submissions;
@@ -1323,6 +1329,8 @@ struct KeyPackageRecord {
 }
 
 struct OpenAppAccount {
+    #[cfg(feature = "experimental-device-sync")]
+    linking_owner: client::device_linking::AccountLinkingOwner,
     runtime: AppRuntime,
     audit_v5_peel_slot: Arc<Mutex<client::audit_v5_probe::PeelSlot>>,
     session_guard: AppAccountSessionGuard,
@@ -1873,6 +1881,8 @@ impl MarmotApp {
             send_telemetry: None,
             app: self.clone(),
             maintenance_observation_generation: self.product_analytics.permit(),
+            #[cfg(feature = "experimental-device-sync")]
+            linking_owner: open.linking_owner,
             runtime: open.runtime,
             _session_guard: open.session_guard,
             adapter: open.adapter,
@@ -4309,7 +4319,31 @@ impl MarmotApp {
         if let Some(timing) = dev_maintenance_timing(&self.config) {
             runtime = runtime.with_maintenance_timing(timing);
         }
+        #[cfg(feature = "experimental-device-sync")]
+        let linking_owner = {
+            // This successful construction holds the exclusive account-session
+            // guard. Competing or earlier failed opens never clear a live flow.
+            let storage = Arc::new(self.account_storage(label)?);
+            storage.abandon_device_linking_on_startup()?;
+            runtime
+                .session_mut()
+                .cleanup_unjoined_linking_key_package_on_startup()
+                .map_err(cgka_session::SessionError::from)?;
+            let owner = client::device_linking::AccountLinkingOwner::attach(
+                storage,
+                &runtime.session().self_id(),
+            )?;
+            runtime
+                .session_mut()
+                .install_trusted_linking_welcome_policy(owner.welcome_policy());
+            runtime
+                .session_mut()
+                .install_trusted_private_invite_policy(owner.invite_policy());
+            owner
+        };
         Ok(OpenAppAccount {
+            #[cfg(feature = "experimental-device-sync")]
+            linking_owner,
             runtime,
             audit_v5_peel_slot,
             session_guard,

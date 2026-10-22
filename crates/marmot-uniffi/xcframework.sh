@@ -67,17 +67,14 @@ CRATE_NAME="marmot-uniffi"
 LIB_BASENAME="marmot_uniffi"
 FRAMEWORK_NAME="MarmotKit"
 
+# Native slices and their Swift generator must select exactly the same features.
+selected_features="$(python3 "$TOOL_DIR/marmotkit_features.py" csv)"
 FEATURE_ARGS=()
 BINDGEN_FEATURES="cli"
-if [[ "${OTLP_EXPORT:-0}" == "1" || "${OTLP_EXPORT:-}" == "true" ]]; then
-  FEATURE_ARGS=(--features otlp-export)
-  BINDGEN_FEATURES="cli,otlp-export"
+if [[ -n "$selected_features" ]]; then
+  FEATURE_ARGS=(--features "$selected_features")
+  BINDGEN_FEATURES="cli,$selected_features"
 fi
-if [[ "${PRODUCT_ANALYTICS_EXPORT:-0}" == "1" || "${PRODUCT_ANALYTICS_EXPORT:-}" == "true" ]]; then
-  FEATURE_ARGS+=(--features product-analytics-export)
-  BINDGEN_FEATURES="${BINDGEN_FEATURES},product-analytics-export"
-fi
-
 
 # Run from the workspace root so cargo resolves the right Cargo.toml no
 # matter where this script was invoked from (e.g. the iOS repo's

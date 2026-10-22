@@ -211,6 +211,110 @@ mod migration_0100_attachment_explicit_priority;
 mod migration_0101_outgoing_attachment_uploads;
 #[path = "migrations/0102_attachment_emoji_role.rs"]
 mod migration_0102_attachment_emoji_role;
+#[path = "migrations/0103_synchronized_history.rs"]
+mod migration_0103_synchronized_history;
+#[path = "migrations/0104_device_linking_attempt.rs"]
+mod migration_0104_device_linking_attempt;
+#[path = "migrations/0105_accepted_welcome_receipts.rs"]
+mod migration_0105_accepted_welcome_receipts;
+#[path = "migrations/0106_device_linking_key_package.rs"]
+mod migration_0106_device_linking_key_package;
+
+#[path = "migrations/0107_roster_ack_capture.rs"]
+mod migration_0107_roster_ack_capture;
+#[path = "migrations/0108_device_group_genesis.rs"]
+mod migration_0108_device_group_genesis;
+#[path = "migrations/0109_accepted_device_group_anchor.rs"]
+mod migration_0109_accepted_device_group_anchor;
+#[path = "migrations/0110_private_device_invite.rs"]
+mod migration_0110_private_device_invite;
+
+#[cfg(test)]
+mod synchronized_history_schema_tests {
+    #[test]
+    fn roster_ack_capture_is_separate_bounded_fact_storage() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM roster_ack_capture_facts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        #[cfg(not(feature = "experimental-device-sync"))]
+        assert!(
+            cgka_traits::storage::StorageProvider::roster_ack_capture_storage(&storage).is_none()
+        );
+    }
+    #[test]
+    fn linking_private_key_package_needs_atomic_purpose_ownership() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM device_linking_key_package",
+                [],
+                |row| row.get(0),
+            )
+            .expect("private linking packages need generation ownership before offers");
+        assert_eq!(count, 0);
+        #[cfg(not(feature = "experimental-device-sync"))]
+        assert!(
+            cgka_traits::storage::StorageProvider::device_linking_key_package_storage(&storage)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn accepted_welcome_needs_exact_device_bound_receipt() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM accepted_welcome_receipts",
+                [],
+                |row| row.get(0),
+            )
+            .expect(
+                "accepted device enrollment needs exact Welcome and consumed KeyPackage evidence",
+            );
+        assert_eq!(count, 0);
+        #[cfg(not(feature = "experimental-device-sync"))]
+        assert!(
+            cgka_traits::storage::StorageProvider::accepted_welcome_storage(&storage).is_none()
+        );
+    }
+
+    #[test]
+    fn device_linking_needs_a_durable_generation_fence() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM device_linking_attempt", [], |row| {
+                row.get(0)
+            })
+            .expect("verification attempts need durable generation fencing before emitting offers");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn synchronized_history_has_separate_provenance_storage() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM synchronized_history_records",
+                [],
+                |row| row.get(0),
+            )
+            .expect("accepted account history needs its own provenance-bearing table");
+        assert_eq!(count, 0);
+        let evidence: i64 = conn
+            .query_row("SELECT count(*) FROM cgka_messages", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(evidence, 0);
+    }
+}
 
 #[path = "migrations/0082_deletion_provenance.rs"]
 mod migration_0082_deletion_provenance;
@@ -736,6 +840,46 @@ const MIGRATIONS: &[Migration] = &[
         version: 102,
         name: "0102_attachment_emoji_role",
         apply: migration_0102_attachment_emoji_role::apply,
+    },
+    Migration {
+        version: 103,
+        name: "0103_synchronized_history",
+        apply: migration_0103_synchronized_history::apply,
+    },
+    Migration {
+        version: 104,
+        name: "0104_device_linking_attempt",
+        apply: migration_0104_device_linking_attempt::apply,
+    },
+    Migration {
+        version: 105,
+        name: "0105_accepted_welcome_receipts",
+        apply: migration_0105_accepted_welcome_receipts::apply,
+    },
+    Migration {
+        version: 106,
+        name: "0106_device_linking_key_package",
+        apply: migration_0106_device_linking_key_package::apply,
+    },
+    Migration {
+        version: 107,
+        name: "0107_roster_ack_capture",
+        apply: migration_0107_roster_ack_capture::apply,
+    },
+    Migration {
+        version: 108,
+        name: "0108_device_group_genesis",
+        apply: migration_0108_device_group_genesis::apply,
+    },
+    Migration {
+        version: 109,
+        name: "0109_accepted_device_group_anchor",
+        apply: migration_0109_accepted_device_group_anchor::apply,
+    },
+    Migration {
+        version: 110,
+        name: "0110_private_device_invite",
+        apply: migration_0110_private_device_invite::apply,
     },
 ];
 
@@ -4115,5 +4259,175 @@ mod poll_response_edge_tests {
             .unwrap(),
             1
         );
+    }
+}
+
+#[cfg(test)]
+mod device_group_genesis_tests {
+    use super::*;
+
+    #[test]
+    fn private_device_group_genesis_schema_is_separate_fact_storage() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run(&mut connection, MIGRATIONS).unwrap();
+        let count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM device_group_genesis_selection",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        // Birth provenance is separate from MLS messages or application evidence.
+        run(&mut connection, MIGRATIONS).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod accepted_device_group_anchor_tests {
+    use super::*;
+    use cgka_traits::storage::StorageProvider;
+    #[test]
+    fn accepted_device_group_anchor_schema_is_separate_and_bounded() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run(&mut connection, MIGRATIONS).unwrap();
+        let count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM accepted_device_group_anchor",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        run(&mut connection, MIGRATIONS).unwrap();
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        assert_eq!(
+            storage.accepted_device_group_anchor_storage().is_some(),
+            cfg!(feature = "experimental-device-sync")
+        );
+    }
+}
+
+#[cfg(test)]
+mod private_device_invite_tests {
+    use super::*;
+
+    #[test]
+    fn private_device_invite_schema_preserves_confirmed_anchor_separately() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run(&mut connection, MIGRATIONS).unwrap();
+        for table in [
+            "private_device_invite_counter",
+            "private_device_invite_staging",
+            "private_device_invite_confirmed",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0);
+        }
+        run(&mut connection, MIGRATIONS).unwrap();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(2,1)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(1,-1)",
+                    []
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(1,2)",
+                    []
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run(&mut connection, MIGRATIONS).unwrap();
+        connection.execute_batch("INSERT INTO cgka_groups(id,epoch,record) VALUES(X'03',0,X'7b7d');
+            INSERT INTO private_device_invite_staging(singleton,generation,account,local_device,group_id,binding,raw_commit,raw_welcome,phase)
+            VALUES(1,1,zeroblob(32),zeroblob(32),X'03',X'01',X'02',X'03',0);
+            INSERT INTO private_device_invite_confirmed(singleton,generation,account,local_device,group_id,binding)
+            VALUES(1,1,zeroblob(32),zeroblob(32),X'03',X'04');").unwrap();
+        assert!(
+            connection
+                .execute("UPDATE private_device_invite_staging SET phase=2", [])
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET raw_commit=zeroblob(262145)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET raw_welcome=zeroblob(2097153)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET binding=zeroblob(131073)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET transport=zeroblob(16777217)",
+                    []
+                )
+                .is_err()
+        );
+        connection
+            .execute("UPDATE private_device_invite_staging SET phase=4", [])
+            .unwrap();
+        let (binding, denied): (Vec<u8>, bool) = connection
+            .query_row(
+                "SELECT binding,denied FROM private_device_invite_confirmed",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(binding == [4] && !denied);
+        connection
+            .execute("DELETE FROM cgka_groups WHERE id=X'03'", [])
+            .unwrap();
+        let (binding, denied): (Vec<u8>, bool) = connection
+            .query_row(
+                "SELECT binding,denied FROM private_device_invite_confirmed",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(binding == [4] && denied);
     }
 }

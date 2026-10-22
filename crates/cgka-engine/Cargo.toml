@@ -8,6 +8,7 @@ description = "OpenMLS-backed CGKA engine implementation."
 
 [features]
 default = []
+experimental-device-sync = ["storage-sqlite/experimental-device-sync"]
 # Explicit escape hatch for engine/session integration tests that need custom
 # settlement or rewind policies. Production/app consumers must not enable it.
 test-policy-overrides = []
@@ -54,6 +55,7 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 openmls = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
+rusqlite.workspace = true
 storage-sqlite = { workspace = true, features = ["storage-format-benchmarks"] }
 tokio = { workspace = true, features = ["macros"] }
 test-log.workspace = true

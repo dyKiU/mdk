@@ -2430,6 +2430,9 @@ pub(crate) fn classify_engine_error(error: &EngineError) -> (SubjectFailureCateg
         // to caller input (the pinned epoch), not a protocol failure.
         | EngineError::AppMessageEpochMismatch { .. }
         | EngineError::AppMessageEpochUnsettled { .. }
+        // A private exact-Welcome policy denial is an expected refusal, not
+        // a new protocol/conformance outcome or a failure of MLS processing.
+        | EngineError::LinkingWelcomeDenied(_)
         | EngineError::InvalidWelcome
         | EngineError::MissingWelcomeKeyPackage
         | EngineError::WelcomeAlreadyProcessed
@@ -2499,7 +2502,9 @@ fn observe_engine_error(error: &EngineError) -> String {
         // Every decode failure the engine can reach, not an admin-policy
         // verdict: `audit_helpers::engine_error_kind` names it the same way.
         EngineError::Serialize(_) => "serialize",
-        EngineError::InvalidWelcome => "invalid_welcome",
+        // Reuse the existing Welcome diagnostic; private verifier details must
+        // not become normative trace values or escape into simulator reports.
+        EngineError::InvalidWelcome | EngineError::LinkingWelcomeDenied(_) => "invalid_welcome",
         EngineError::MissingWelcomeKeyPackage => "missing_welcome_key_package",
         EngineError::WelcomeAlreadyProcessed => "welcome_already_processed",
         EngineError::InvalidTransition(_) => "invalid_transition",

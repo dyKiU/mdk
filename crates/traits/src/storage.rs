@@ -943,6 +943,18 @@ pub trait DeferredPeelGenerationStorage {
 
 // ── StorageProvider aggregate ───────────────────────────────────────────────
 
+/// Optional accepted-join evidence capability. Facts only, never authorization.
+pub trait AcceptedWelcomeStorage: Send + Sync {
+    fn put_accepted_welcome_receipt(
+        &self,
+        receipt: &crate::accepted_welcome::AcceptedWelcomeReceipt,
+    ) -> StorageResult<()>;
+    fn accepted_welcome_receipt(
+        &self,
+        id: &MessageId,
+    ) -> StorageResult<Option<crate::accepted_welcome::AcceptedWelcomeReceipt>>;
+}
+
 /// The single storage type parameter carried by the engine.
 ///
 /// Marmot storage concerns live on this trait. OpenMLS storage is exposed
@@ -1029,6 +1041,47 @@ pub trait StorageProvider:
     /// remain valid `StorageProvider`s, while production SQLCipher storage
     /// exposes the durable maintenance capability.
     fn maintenance_storage(&self) -> Option<&dyn MaintenanceStorage> {
+        None
+    }
+
+    /// Unsupported backends explicitly provide no enrollment receipt. Supported
+    /// implementations must propagate failures and participate in the join transaction.
+    fn accepted_welcome_storage(&self) -> Option<&dyn AcceptedWelcomeStorage> {
+        None
+    }
+
+    /// Optional outgoing private Add staging facts. Defaults unavailable.
+    fn private_device_invite_storage(
+        &self,
+    ) -> Option<&dyn crate::private_device_invite::PrivateDeviceInviteStorage> {
+        None
+    }
+
+    /// Optional trusted-core accepted successor facts. Defaults unavailable.
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage> {
+        None
+    }
+
+    /// Optional private-group creation provenance. Unsupported backends grant nothing.
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn crate::device_group_genesis::DeviceGroupGenesisStorage> {
+        None
+    }
+
+    /// Optional atomic experimental fact capture, never an authorization store.
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn crate::roster_ack_capture::RosterAckCaptureStorage> {
+        None
+    }
+
+    /// Optional atomic purpose ownership; unavailable backends fail closed.
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn crate::device_linking_key_package::PurposeKeyPackageStorage> {
         None
     }
 

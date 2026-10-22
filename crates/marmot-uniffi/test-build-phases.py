@@ -152,6 +152,29 @@ class BuildPhases(unittest.TestCase):
         self.assertTrue((self.crate / "build/ios/swift/marmot_uniffi.swift").exists())
         self.assertFalse((self.crate / "output").exists())
 
+    def test_experimental_device_sync_reaches_every_apple_compiler(self):
+        for script in ["xcframework.sh", "xcframework-macos.sh"]:
+            with self.subTest(script=script):
+                if self.log.exists():
+                    self.log.unlink()
+                self.run_phase(script, EXPERIMENTAL_DEVICE_SYNC="1")
+                cargo = [c for c in self.commands() if c["tool"] == "cargo"]
+                self.assertGreaterEqual(len(cargo), 3)
+                for command in cargo:
+                    features = set()
+                    args = command["args"]
+                    for index, argument in enumerate(args):
+                        if argument == "--features":
+                            features.update(args[index + 1].split(","))
+                    self.assertIn("experimental-device-sync", features)
+                    self.assertNotIn("test-policy-overrides", features)
+
+    def test_ordinary_apple_bindings_do_not_enable_device_sync(self):
+        self.run_phase("xcframework.sh", "generate", EXPERIMENTAL_DEVICE_SYNC="0")
+        self.run_phase("xcframework-macos.sh", "native", EXPERIMENTAL_DEVICE_SYNC="0")
+        for command in self.commands():
+            self.assertNotIn("experimental-device-sync", ",".join(command["args"]))
+
     def test_ios_assembly_preserves_inputs_and_does_not_compile(self):
         self.run_phase("xcframework.sh", "generate")
         for target in TARGETS[:2]:
@@ -266,7 +289,8 @@ class BuildPhases(unittest.TestCase):
         self.assertEqual(self.commands(), [])
 
     def provenance(self, *args, success=True):
-        result = subprocess.run([sys.executable, str(TOOLS / "build-provenance.py"), *map(str, args)],
+        script = os.environ.get("BUILD_TEST_PROVENANCE_SCRIPT", str(TOOLS / "build-provenance.py"))
+        result = subprocess.run([sys.executable, script, *map(str, args)],
             env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         return result
@@ -335,6 +359,13 @@ class BuildPhases(unittest.TestCase):
                 data = json.loads(paths[0].read_text())
                 paths[0].write_text(json.dumps(data | {"cargo": "different"}))
                 self.provenance("verify", platform, *paths, success=False)
+
+    def test_apple_provenance_rejects_mixed_experimental_inputs(self):
+        self.env["EXPERIMENTAL_DEVICE_SYNC"] = "0"
+        paths = self.record_inputs(["swift", "ios-device", "ios-simulator"])
+        self.env["EXPERIMENTAL_DEVICE_SYNC"] = "1"
+        self.provenance("verify", "ios", *paths, success=False)
+        self.assertFalse(Path(self.env["GITHUB_ENV"]).exists())
 
     def test_snapshot_verification_hashes_the_builder_profile(self):
         workflow = (TOOLS.parents[1] / ".github/workflows/bindings.yaml").read_text()

@@ -6670,6 +6670,7 @@ mod tests {
             effects
                 .events
                 .push(cgka_traits::engine::GroupEvent::MessageReceived {
+                    source_leaf: None,
                     authority: None,
                     group_id: group_id.clone(),
                     message_id: sent.reports[0].message_id.clone(),

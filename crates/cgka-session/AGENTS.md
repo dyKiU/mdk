@@ -19,9 +19,24 @@ key derivation, relay sync, or UI projection.
 - Keep storage-only legacy-format promotion explicit and host-scheduled after readiness; do not add it to the
   session-open critical path or widen the generic engine storage API for it.
 - Prefer behavior tests over internal state assertions.
+- Experimental private genesis methods delegate creation, fresh origin validation
+  and exact retirement to the engine. Keep consent and roster settlement in the
+  account-scoped App coordinator; a reopened birth must never restore a verifier.
+  Public-boundary regressions live in `tests/session_lifecycle/private_device_genesis.rs`.
+- Nostr consumer tests independently check authenticated source-leaf metadata when
+  the feature is enabled and absence when disabled. Existing `test-policy-overrides`
+  belong only to test invocations, never production native artifacts.
 
 ## Verification
 
 ```sh
 cargo test -p cgka-session
 ```
+
+
+Feature-only private invite preparation, borrowed cleanup and exact raw-attempt
+retirement remain thin Engine forwarders in `src/lib.rs`. The components variant
+of private genesis creation passes transport-neutral App components before
+protected birth capture; routing generation belongs to the App. Do not embed
+Nostr or SDK policy here. Opaque prepared objects must survive failed cleanup for
+an exact retry; durable facts do not restore consent.

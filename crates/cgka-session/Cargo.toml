@@ -7,6 +7,7 @@ publish.workspace = true
 
 [features]
 default = []
+experimental-device-sync = ["cgka-engine/experimental-device-sync", "storage-sqlite/experimental-device-sync"]
 test-policy-overrides = ["cgka-engine/test-policy-overrides"]
 
 [dependencies]

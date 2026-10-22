@@ -40,6 +40,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tls_codec::{Deserialize as _, Serialize as _};
 
+// Application bytes must be consumed while the receive ratchet transaction is
+// open. Other content retains OpenMLS's original variant and admission path.
+enum DirectProcessedContent {
+    Application(Vec<u8>),
+    Other(ProcessedMessageContent),
+}
+
 /// Internal ingest result. An opaque row has no lineage verdict until a live
 /// caller needs to report one. Retry sweeps only maintain its durable lifecycle;
 /// classifying their discarded result would rescan the commit graph per row.
@@ -309,6 +316,17 @@ impl<S: StorageProvider> Engine<S> {
             Ok(gid) => {
                 self.persist_transport_message(msg, &gid, EpochId(0), MessageState::Processed)?;
                 Ok(IngestOutcome::Processed)
+            }
+            #[cfg(feature = "experimental-device-sync")]
+            Err(EngineError::LinkingWelcomeDenied(_)) => {
+                self.retryable_unpersisted_ingest_id = Some(msg.id.clone());
+                // A valid private-purpose Welcome may arrive before its live
+                // verifier token. Exclude it without poisoning exact later
+                // retry or aborting the generic inbox drain. No dedup marker,
+                // private consumption, approval or retry queue is created.
+                Ok(IngestOutcome::Ignored {
+                    category: InputRejectionCategory::AuthorizationFailed,
+                })
             }
             Err(EngineError::WelcomeAlreadyProcessed) => {
                 self.storage.put_ingress_dedup_marker(&msg.id)?;
@@ -1251,7 +1269,56 @@ impl<S: StorageProvider> Engine<S> {
                 MessageState::Created,
                 &raw_msg_id,
             )?;
-            Ok::<_, EngineError>(mls_group.process_message(&provider, proto))
+            let processed = match mls_group.process_message(&provider, proto) {
+                Ok(processed) => processed,
+                Err(error) => return Ok::<_, EngineError>(Err(error)),
+            };
+            let sender = member_id_of_processed_message(&processed, &mls_group);
+            let source_leaf =
+                crate::identity::source_leaf_proof_of_processed_message(&processed, &mls_group);
+            #[cfg(feature = "experimental-device-sync")]
+            let capture_source =
+                self.authenticated_capture_source(&processed, &mls_group, &group_id)?;
+            let mut retired_wrapper = None;
+            let (content, captured) = match processed.into_content() {
+                ProcessedMessageContent::ApplicationMessage(bytes) => {
+                    let payload = bytes.into_bytes();
+                    #[cfg(feature = "experimental-device-sync")]
+                    let captured = self.capture_authenticated_payload(
+                        capture_source,
+                        &payload,
+                        sender.as_ref(),
+                        &msg.id,
+                    )?;
+                    #[cfg(not(feature = "experimental-device-sync"))]
+                    let captured: Option<bool> = None;
+                    if captured.is_some() {
+                        _storage.update_message_state(&msg.id, MessageState::Processed)?;
+                        match _storage.get_message(&raw_msg_id) {
+                            Ok(record)
+                                if matches!(
+                                    record.state,
+                                    MessageState::PeelDeferred | MessageState::Retryable
+                                ) =>
+                            {
+                                _storage.update_message_state(&raw_msg_id, MessageState::Failed)?;
+                                retired_wrapper = Some(record);
+                            }
+                            Ok(_) | Err(StorageError::NotFound) => {}
+                            Err(error) => return Err(EngineError::Storage(error)),
+                        }
+                    }
+                    (DirectProcessedContent::Application(payload), captured)
+                }
+                other => (DirectProcessedContent::Other(other), None),
+            };
+            Ok::<_, EngineError>(Ok((
+                sender,
+                source_leaf,
+                content,
+                captured,
+                retired_wrapper,
+            )))
         })? {
             Ok(p) => p,
             // Every arm below transitions a row that may carry a commit's
@@ -1408,10 +1475,40 @@ impl<S: StorageProvider> Engine<S> {
             }
         };
 
-        // Classify content.
-        let sender_id = member_id_of_processed_message(&processed, &mls_group);
-        match processed.into_content() {
-            ProcessedMessageContent::ApplicationMessage(bytes) => {
+        // Private controls already committed their ratchet, facts and terminal
+        // disposition together. They never become host-provided app evidence.
+        let (sender_id, source_leaf, content, captured, retired_wrapper) = processed;
+        if let Some(accepted) = captured {
+            if let Some(record) = retired_wrapper {
+                self.audit_group(
+                    &record.group_id,
+                    crate::audit_helpers::message_state_transition_event(
+                        hex::encode(raw_msg_id.as_slice()),
+                        Some(record.state),
+                        MessageState::Failed,
+                        Some(record.epoch),
+                        "private_roster_capture",
+                    ),
+                );
+                if record.state == MessageState::PeelDeferred {
+                    self.note_peel_deferred_row_retired(&record);
+                }
+            }
+            self.seen_message_ids.insert(msg.id.clone());
+            self.return_mls_group(&group_id, mls_group);
+            return reported(if accepted {
+                IngestOutcome::Processed
+            } else {
+                IngestOutcome::Ignored {
+                    category: InputRejectionCategory::AuthorizationFailed,
+                }
+            });
+        }
+        match content {
+            DirectProcessedContent::Other(ProcessedMessageContent::ApplicationMessage(_)) => Err(
+                EngineError::Backend("unprepared direct application input".into()),
+            ),
+            DirectProcessedContent::Application(payload) => {
                 let Some(sender) = sender_id else {
                     // OpenMLS allows external senders for some
                     // ProcessedMessageContent variants but Marmot
@@ -1438,7 +1535,6 @@ impl<S: StorageProvider> Engine<S> {
                         category: InputRejectionCategory::InvalidSignature,
                     });
                 };
-                let payload = bytes.into_bytes();
                 let app_event =
                     match crate::app_payload::validate_app_payload_for_sender(&payload, &sender) {
                         Ok(event) => event,
@@ -1537,6 +1633,7 @@ impl<S: StorageProvider> Engine<S> {
                     group_id: group_id.clone(),
                     message_id: msg.id.clone(),
                     sender,
+                    source_leaf,
                     epoch: msg_epoch,
                     payload,
                     authority,
@@ -1567,7 +1664,7 @@ impl<S: StorageProvider> Engine<S> {
                 self.return_mls_group(&group_id, mls_group);
                 reported(IngestOutcome::Processed)
             }
-            ProcessedMessageContent::ProposalMessage(queued) => {
+            DirectProcessedContent::Other(ProcessedMessageContent::ProposalMessage(queued)) => {
                 if let Err(error) = self.strict_cutover_rejects_legacy_group_addition(
                     &group_id,
                     matches!(queued.proposal(), Proposal::Add(_)),
@@ -1628,16 +1725,16 @@ impl<S: StorageProvider> Engine<S> {
                 self.valid_proposal_groups.insert(group_id);
                 reported(IngestOutcome::Processed)
             }
-            ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
-                reported(self.terminalize_rejected_proposal(
-                    &group_id,
-                    &msg.id,
-                    Some(&raw_msg_id),
-                    ProposalRejectionCategory::UnsupportedProposal,
-                )?)
-            }
-            ProcessedMessageContent::OwnPendingCommit
-            | ProcessedMessageContent::OwnPrivateMessage => {
+            DirectProcessedContent::Other(
+                ProcessedMessageContent::ExternalJoinProposalMessage(_),
+            ) => reported(self.terminalize_rejected_proposal(
+                &group_id,
+                &msg.id,
+                Some(&raw_msg_id),
+                ProposalRejectionCategory::UnsupportedProposal,
+            )?),
+            DirectProcessedContent::Other(ProcessedMessageContent::OwnPendingCommit)
+            | DirectProcessedContent::Other(ProcessedMessageContent::OwnPrivateMessage) => {
                 // This normally returns through the durable sent-content
                 // marker before OpenMLS processing. Keep the library-level
                 // classification as a safe fallback, but do not merge the
@@ -1650,8 +1747,8 @@ impl<S: StorageProvider> Engine<S> {
                     category: InputRejectionCategory::OwnEcho,
                 })
             }
-            ProcessedMessageContent::StagedCommitMessage(_)
-            | ProcessedMessageContent::UnresolvedAppDataCommit(_) => {
+            DirectProcessedContent::Other(ProcessedMessageContent::StagedCommitMessage(_))
+            | DirectProcessedContent::Other(ProcessedMessageContent::UnresolvedAppDataCommit(_)) => {
                 // Direct ingest never stages a commit: one at or above the live
                 // epoch entered convergence above, and OpenMLS refuses every
                 // other with `WrongEpoch`. Merging belongs to convergence alone,

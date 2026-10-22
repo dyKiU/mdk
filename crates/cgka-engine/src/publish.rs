@@ -74,6 +74,8 @@ impl<S: StorageProvider> Engine<S> {
             .epoch_manager
             .group_for_pending(pending)
             .ok_or(EngineError::UnknownPending)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.forbid_generic_private_publish(&group_id)?;
         let mls_gid = openmls::group::GroupId::from_slice(group_id.as_slice());
 
         // Read the bookkeeping a successful confirm needs BEFORE any mutation,
@@ -181,6 +183,10 @@ impl<S: StorageProvider> Engine<S> {
                         .merge_pending_commit(&tx_provider)
                         .map_err(|e| EngineError::Backend(format!("merge_pending: {e:?}")))?;
                     crate::app_components::validate_current_profile_group_invariants(&mls_group)?;
+                    #[cfg(feature = "experimental-device-sync")]
+                    crate::roster_ack_capture::invalidate_capture_for_tree(
+                        storage, &group_id, &mls_group,
+                    )?;
                     if let Some(stamp) = own_commit_stamp.as_mut() {
                         stamp.resulting_epoch_authenticator = Some(
                             crate::openmls_projection::own_commit_post_merge_epoch_authenticator(
@@ -380,6 +386,8 @@ impl<S: StorageProvider> Engine<S> {
             .epoch_manager
             .group_for_pending(pending)
             .ok_or(EngineError::UnknownPending)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.forbid_generic_private_publish(&group_id)?;
         let kind = self
             .epoch_manager
             .kind_for_pending(pending)

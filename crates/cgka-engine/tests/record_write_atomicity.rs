@@ -799,6 +799,38 @@ impl cgka_traits::storage::DeferredPeelGenerationStorage for FaultStorage {
 }
 
 impl StorageProvider for FaultStorage {
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_welcome_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::storage::AcceptedWelcomeStorage> {
+        self.inner.accepted_welcome_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_linking_key_package::PurposeKeyPackageStorage> {
+        self.inner.device_linking_key_package_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::roster_ack_capture::RosterAckCaptureStorage> {
+        self.inner.roster_ack_capture_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_group_genesis::DeviceGroupGenesisStorage> {
+        self.inner.device_group_genesis_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage>
+    {
+        self.inner.accepted_device_group_anchor_storage()
+    }
+    // This fixture intentionally does not expose private_device_invite_storage.
     type Mls = <SqliteAccountStorage as StorageProvider>::Mls;
 
     fn mls_storage(&self) -> &Self::Mls {
@@ -2974,5 +3006,77 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
             IngestOutcome::TransportDeferred { .. }
         ),
         "the completed retirement released the account bytes"
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+fn backend_without_private_invite() -> (cgka_engine::Engine<FaultStorage>, SqliteAccountStorage) {
+    let inner = SqliteAccountStorage::in_memory().unwrap();
+    let handle = inner.clone();
+    let backend = FaultStorage {
+        inner,
+        fault: PutGroupFault::default(),
+        capability_fault: CapabilityWriteFault::default(),
+        leave_write_fault: LeaveWriteFault::default(),
+        intent_write_fault: LeaveWriteFault::default(),
+        failed_state_fault: FailedStateWriteFault::default(),
+        release_fault: LeaveWriteFault::default(),
+        preparation_delay: PreparationDelay::default(),
+        retained_anchor_rewinds: RetainedAnchorRewindCounter::default(),
+    };
+    assert!(backend.accepted_welcome_storage().is_some());
+    assert!(backend.device_linking_key_package_storage().is_some());
+    assert!(backend.roster_ack_capture_storage().is_some());
+    assert!(backend.device_group_genesis_storage().is_some());
+    assert!(backend.accepted_device_group_anchor_storage().is_some());
+    assert!(backend.private_device_invite_storage().is_none());
+    let engine = EngineBuilder::new(backend)
+        .protocol_profile(cgka_traits::group::ProtocolProfile::Current)
+        .identity(pad32(b"backend-without-private-invite"))
+        .account_identity_proof_signer(proof_signer(b"backend-without-private-invite"))
+        .peeler(Box::new(MockPeeler))
+        .build()
+        .unwrap();
+    (engine, handle)
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_outgoing_capability_before_signed_advertising() {
+    let (mut engine, _) = backend_without_private_invite();
+    let package = engine.fresh_key_package().await.unwrap();
+    let metadata = cgka_engine::key_package::key_package_metadata(&package).unwrap();
+    assert!(
+        !metadata
+            .app_components
+            .contains(&cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID),
+        "a backend without outgoing persistence must not sign private-profile support"
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_outgoing_capability_before_genesis_creation() {
+    let (mut engine, storage) = backend_without_private_invite();
+    assert!(storage.private_device_invite_storage().is_some());
+    assert!(
+        matches!(
+            engine.create_private_device_group_genesis(),
+            Err(
+                cgka_engine::device_group_genesis::GenesisFactoryError::Genesis(
+                    cgka_traits::device_group_genesis::GenesisError::Unsupported
+                )
+            )
+        ),
+        "the actual wrapper omits outgoing capability despite its inner SQLite supporting it"
+    );
+    assert!(storage.list_groups().unwrap().is_empty());
+    assert!(
+        storage
+            .device_group_genesis_storage()
+            .unwrap()
+            .genesis_selection()
+            .unwrap()
+            .is_none()
     );
 }

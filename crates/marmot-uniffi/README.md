@@ -885,6 +885,14 @@ The generated Swift file is platform-independent: `output/MarmotKit.swift` and `
 same UniFFI surface, and releases publish it once. The Kotlin binding is generated from the same host library metadata,
 so it exposes the same `Marmot` object, subscription objects, records, enums, and error variants.
 
+Apple builds accept `EXPERIMENTAL_DEVICE_SYNC=1` to select the default-off
+`experimental-device-sync` Rust feature. `marmotkit_features.py` applies the same
+selection to native slices, the Swift generator, packaging manifests and assembly
+provenance. Set the flag consistently for every phase; assembly rejects mixed
+feature inputs. Kotlin/Android builders do not select this experimental feature.
+This build flag does not expose a native linking API or establish synchronization;
+the private protocol and enrollment coordinator require further implementation.
+
 No generated Swift or Kotlin files are committed here; the output directories are ignored because generated bindings
 and packaged native libraries are derived artifacts. Regenerate them from this crate before vendoring into an app
 repository. For published artifacts, exact release and snapshot URLs, checksums, provenance and generated-source

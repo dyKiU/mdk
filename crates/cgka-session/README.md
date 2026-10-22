@@ -60,3 +60,52 @@ cargo test -p cgka-session
   `target/session-stack-chaos/`.
 
 Test placement rules: [`tests/AGENTS.md`](tests/AGENTS.md).
+
+With the default-off `experimental-device-sync` feature,
+`accepted_welcome_receipt` forwards the engine's read-only exact accepted-join
+facts. A receipt does not establish a settled device roster or authorize
+enrollment, chat, or history transfer. Unsupported storage yields no receipt.
+
+Under default-off `experimental-device-sync`, `fresh_linking_key_package`
+creates a private non-last-resort package without transport or publication.
+An accepted Welcome consumes that exact private bundle; public last-resort
+packages keep their normal behavior. This generator alone provides no bounded
+cleanup lifecycle or enrollment permission. The account owner must bind exact
+attempt provenance, fence generic Welcome admission, and clean unused packages.
+`tests/session_lifecycle/single_use_key_packages.rs` covers encrypted reopen,
+exact consumption and refusal of reuse through the public session boundary.
+
+The experimental session forwards exact purpose resolution/retirement and the
+synchronous exclusive-startup cleanup seam. A trusted account runtime may install
+a Welcome policy holding a real opaque verifier result; native hosts receive no
+approval boolean or enrollment grant from these methods. Purpose-owned material
+must not use the public last-resort publication lifecycle.
+`candidate_device_group_snapshot` forwards bounded, indexed local-tree evidence;
+it requires a compatible, locally stable same-account group and conveys no
+approved-roster, enrollment or history permission.
+
+### Experimental private-group origin lifecycle
+
+With `experimental-device-sync`, `AccountDeviceSession` delegates private
+self-only creation, fresh persisted-origin validation and exact generation
+retirement to the engine. These methods produce neither publish work nor SDK
+consent, enrollment or settled-roster permission. Ordinary one-member groups
+remain candidates and cannot be promoted into creation origins. Session reopen
+validates the actual stored tree and account-device signer; retirement permanently
+fences the selected birth while preserving its immutable provenance. Physical
+cleanup of the old private MLS/group projection remains a coordinator concern.
+
+`tests/session_lifecycle/private_device_genesis.rs` covers reopen and exact
+retirement, ordinary-group rejection and independent device signers for the same
+account through the public session boundary. The full test harness uses
+`experimental-device-sync,test-policy-overrides`; never enable the latter in
+native development/release artifacts.
+
+
+The experimental private-genesis components variant forwards validated initial
+App components to Engine creation, before protected birth capture. Dedicated
+private invite preparation and borrowed cleanup are thin Engine forwarders;
+Session neither wraps Nostr events nor owns SDK consent. Raw-only retirement
+requires the exact active attempt. Borrowed retirement keeps the caller's opaque
+preparation available after a storage failure. These operations do not dispatch,
+confirm or deliver a private batch.

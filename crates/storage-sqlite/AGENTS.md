@@ -16,7 +16,8 @@ not "fix" it into the per-account database.
 | --- | --- |
 | `src/connection.rs` | SQLCipher key application, operational PRAGMAs, options, aggregate handle. |
 | `src/codec.rs` | JSON serialization helpers and SQLite error mapping. |
-| `src/migrations.rs` | Rust migration runner and migration tests. |
+| `src/migrations.rs` | Upstream core and separate private registry, migration tests. |
+| `src/private_migration_ledger.rs`, `src/private_migration_ledger_tests.rs` | Single-transaction core/private upgrade, exact old103–110 receipt/schema bridge and immutable original receipt audit; no state reinterpretation or permission. |
 | `src/migrations/` | Numbered Rust migration bodies plus upgrade/query-work tests; see its local `AGENTS.md`. |
 | `src/storage/` | Marmot engine storage tables by concern; see its local `AGENTS.md`. |
 | `src/storage/snapshots/` | Snapshot/checkpoint capture, restoration and the consistent replay-state fingerprint; see its local `AGENTS.md`. |
@@ -24,6 +25,13 @@ not "fix" it into the per-account database.
 | `src/account_recovery.rs` | Account-private recovery ledger, evidence import and durable retry reservations; `account_recovery/` holds typed joins, frozen scope checkpoints, loss acknowledgment and (`notice.rs`) parked "history may be incomplete" occurrences with their explicit retirement (`state = 2`, never coverage), (`stall.rs`) qualified stall observations, (`comparison.rs`) bounded operational comparison (never a coverage predicate), (`demand.rs`) typed joins for non-legacy callers, and (`observe.rs`) read-only transition facts for the owner's audit rows: a demand write's `RecoveryDemandTransition` read before and after it in the same transaction, and `recovery_obligation_status`. Transition reporting never changes demand. The app owner supplies validated facts and owns execution policy. |
 | `src/delivery_spill.rs` | Durable overflow tail of the in-memory account delivery queue: bounded spill, seen/released dedup, oldest-first reads and per-row removal after ingest. |
 | `src/recovery_health.rs` | Durable reports of unsuccessful automatic synchronization recovery. |
+| `src/synchronized_history.rs`, `src/synchronized_history/tests.rs` | Default-off experimental archive import with separate provenance, staged completion, bounded receipts and retention fences; never engine evidence or live app-event projection. |
+| `src/accepted_device_group_anchor.rs`, `src/accepted_device_group_anchor_tests.rs` | Schema109 bounded accepted-successor facts, exact local selection/owner/purpose fences and permanent denial; separate from genesis, never SDK reconstruction or settlement authority. |
+| `src/private_device_invite.rs`, `src/private_device_invite_tests.rs` | Provisional schema110 outgoing raw/wrapped/dispatch/unknown/confirmed facts with separate retained confirmed lineage, exact retries and transactional transitions. Trusted-core persistence only; never SDK consent, publication proof or native draft admission. |
+| `src/accepted_welcome.rs`, `src/accepted_welcome/tests.rs` | Default-off immutable accepted-join facts in schema105; exact Welcome/KPref/signers/epoch, atomic with real join, never enrollment or settled-roster permission. |
+| `src/device_group_genesis.rs` | Schema108 bounded selected immutable local birth, checked generation, account/device scope and permanent active denial; metadata never verifier permission. |
+| `src/device_linking_key_package.rs` | Schema106 singleton purpose ownership, exact reserved scope and frozen context, same-transaction factory/cleanup and commit fences; never verifier permission. |
+| `src/device_linking.rs`, `src/device_linking/tests.rs` | Default-off device-local verifier generation/context/flow fencing and terminal facts; no verifier secrets, roster authorization, or membership evidence. The runtime explicitly abandons pending attempts on startup. |
 | `src/transport_reconciliation.rs` | Account-private NIP-77 set-reconciliation inventory. |
 | `src/pending_welcome_delivery.rs` | Durable pointer to a confirmed create/invite whose Welcome publish failed, for re-delivery (mdk#352). |
 | `src/local_submissions.rs` | Device-local submission identity and durable admission before engine work. |
@@ -80,3 +88,18 @@ cargo clippy -p storage-sqlite --all-targets -- -D warnings
 # Ignored file-backed v1 -> v2 operational benchmark:
 just bench-storage-upgrade
 ```
+
+The separate experimental ledger records private revisions1–8; frozen body file
+prefixes103–110 are historical and must not be adopted as upstream core numbers.
+Receipt/audit rows reject update/delete/replace; immutable legacy-origin tags
+require complete matching audit rows on reopen. Recognition is selected core102
+only, not permission to adopt future upstream103. Keep audited receipt identity/time and exact denial/crypto/publication data
+unchanged across the bridge. Test partial encrypted prefixes, schema/receipt
+mismatch, mid-transfer faults, idempotence and genuine old-writer pending-MLS
+reopen. The ignored Engine two-writer operational fixture requires explicitly
+recorded original/new runner stages; do not count its default ignored run as proof.
+
+Private-data insert triggers activate an irreversible negative cohort marker in
+the same SQL unit. Never clear it during retirement/snapshot restore or use it
+as an authorization input. Default builds refuse activated cohorts and old
+private lineage before writes; empty ordinary schemas must still reopen.

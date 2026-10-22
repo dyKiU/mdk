@@ -40,10 +40,16 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 | --- | --- |
 | `engine.rs` | `Engine<S>`, `EngineBuilder`, `CgkaEngine` impl, `drain_events` / `drain_auto_publish` / `drain_auto_proposals` queues |
 | `identity.rs` | Local signer + credential bundle; `member_id_of_processed_message` / `member_id_of_sender` chokepoints |
+| `device_group_genesis.rs` | Default-off atomic private-profile MLS birth factory, fresh protected original-tree evidence, permanent active-denial fencing; no SDK/settlement/chat/history permission |
+| `device_group_snapshot.rs` | Default-off bounded same-account candidate from actual indexed MLS leaves, local epoch/convergence gates and private commitment; no settled roster or grants |
+| `private_linking_join.rs` | Default-off complete private batch route and purpose/full-tree successor validation; live lease transport checks before private consumption;105/106/109 plus crypto/group/dispositions atomic; raw private bypass denied; injected-policy tests separate from genuine SDK consent |
+| `private_device_invite.rs`, `private_device_invite/preparation.rs`, `private_device_invite/confirmation.rs` | Default-off actual single-use KP/single-Add validators and trusted owned-lease preparation; raw/final110-only bytes, no ordinary Sent replay or deliverable Welcome; generic confirm/fail stay denied; sealed exact own-echo reconciles atomically, with expired-Add library seam still unresolved |
+| `private_device_invite_prepare_tests.rs` | Genuine isolated MLS Add, injected encrypted SQL rollback/exact retry, original-lease cancellation and dedicated commit-only dispatch; injected policy is not the App SDK proof |
 | `provider.rs` | Ad-hoc `OpenMlsProvider` adapter composed from crypto + storage |
 | `feature_registry.rs` | Runtime feature → capability-requirement registry |
 | `capabilities.rs` | `cgka_traits::Capability` ↔ OpenMLS `Capabilities` translation |
 | `capability_manager.rs` | `feature_status`, `upgradeable_capabilities`, write-through per-leaf cache population |
+| `linking_welcome_policy.rs` | Default-off trusted runtime lease injection; authenticated staged facts, original deadline/one-shot memory consumption, no enrollment/history grants |
 | `key_package.rs` | `fresh_key_package`, KeyPackage parse-time lifetime / OpenMLS accepted-range checks (refresh scheduling is a higher-layer concern) |
 | `group_lifecycle.rs` | `do_create_group`, `do_join_welcome`, `retry_rejoins_after_trusted_removal` |
 | `message_processor/` | `mod.rs`: entry points (`do_ingest`, `do_send`, convergence/queue drains, `replay_buffered_messages`), shared helpers, re-exports. `ingest.rs`: inbound path, peel/snapshot recovery, `convergence_ingest_outcome`. `send.rs`: `do_send_*` incl. `do_send_invite` / `do_send_leave`, MIP-03 guards. `store.rs`: durable persistence, dedup classification, stored-message transitions, `retire_raw_wrapper`. `application_replay.rs`: bounded background drain of retained canonical applications |
@@ -82,6 +88,11 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 
 Features (`Cargo.toml`): `test-policy-overrides`, `test-crash-hooks`, `test-conformance-snapshot`. All three are
 test-only; production/app consumers must not enable them.
+
+The default-off `experimental-device-sync` feature additionally captures accepted-Welcome
+facts through an optional storage capability and exposes a read-only receipt query. It is
+not enrollment, settled-roster authorization, or adopted wire framing. `tests/accepted_welcome_receipts.rs`
+owns exact signer/KPref bindings, failure rollback/retry, and encrypted reopen.
 
 ## Design deviations
 

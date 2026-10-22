@@ -1633,6 +1633,7 @@ mod tests {
 
     fn application_event(message_id: cgka_traits::MessageId) -> GroupEvent {
         GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: gid(1),
             message_id,

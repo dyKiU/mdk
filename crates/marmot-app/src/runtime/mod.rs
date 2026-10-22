@@ -110,6 +110,13 @@ pub use attachment_history::{
 mod avatar_access;
 pub use avatar_access::{LocalAvatarRead, MAX_AVATAR_BATCH_BYTES, MAX_AVATAR_BATCH_ITEMS};
 mod commands;
+#[cfg(feature = "experimental-device-sync")]
+#[allow(
+    dead_code,
+    reason = "private worker lifecycle before native pairing integration"
+)]
+mod device_linking;
+
 mod event_routing;
 mod local_submissions;
 mod onboarding;

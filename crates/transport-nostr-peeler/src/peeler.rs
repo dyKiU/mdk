@@ -95,7 +95,7 @@ impl NostrMlsPeeler {
         self
     }
 
-    fn welcome_signer(&self) -> Result<&Arc<dyn MarmotNostrSigner>, PeelerError> {
+    pub(crate) fn welcome_signer(&self) -> Result<&Arc<dyn MarmotNostrSigner>, PeelerError> {
         self.welcome_signer
             .as_ref()
             .ok_or_else(|| PeelerError::MissingContext {
@@ -359,6 +359,24 @@ impl TransportPeeler for NostrMlsPeeler {
         })
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    async fn wrap_private_linking_welcome(
+        &self,
+        payload: &EncryptedPayload,
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<TransportMessage>, PeelerError> {
+        self.wrap_private_welcome_batch(payload, context).await
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn peel_private_linking_welcome_batch(
+        &self,
+        messages: &[TransportMessage],
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<u8>, PeelerError> {
+        NostrMlsPeeler::peel_private_linking_welcome_batch(self, messages, context).await
+    }
+
     async fn wrap_welcome_with_metadata(
         &self,
         payload: &EncryptedPayload,
@@ -514,7 +532,7 @@ fn ensure_group_routing_matches(
     }
 }
 
-fn ensure_welcome_routing_matches(
+pub(crate) fn ensure_welcome_routing_matches(
     event: &NostrTransportEvent,
     msg: &TransportMessage,
 ) -> Result<(), PeelerError> {

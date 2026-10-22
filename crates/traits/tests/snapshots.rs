@@ -708,6 +708,7 @@ fn snapshot_group_events() {
     insta::assert_json_snapshot!(
         "event_message_received",
         GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: gid(),
             message_id: mid(),
@@ -721,6 +722,7 @@ fn snapshot_group_events() {
     insta::assert_json_snapshot!(
         "event_message_received_with_authority",
         GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: Some(cgka_traits::app_event::AppMessageAuthority {
                 source_context: [43; 32],
                 moderation_grant: false,
@@ -735,6 +737,7 @@ fn snapshot_group_events() {
         }
     );
     let with_media_secret = GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: gid(),
         message_id: mid(),
@@ -1002,4 +1005,131 @@ fn disband_tombstone_announced_defaults_false_for_old_records() {
     }))
     .unwrap();
     assert!(!legacy.announced);
+}
+
+#[test]
+fn snapshot_accepted_welcome_receipt() {
+    let receipt = cgka_traits::accepted_welcome::AcceptedWelcomeReceipt {
+        welcome_id: mid(),
+        content_id: MessageId::new(vec![0xcc; 3]),
+        group_id: gid(),
+        consumed_key_package_ref: vec![1, 2, 3],
+        own_account: mem_id(),
+        own_signature_public_key: vec![4, 5, 6],
+        welcomer_account: MemberId::new(b"bob".to_vec()),
+        welcomer_signature_public_key: vec![7, 8, 9],
+        joined_epoch: EpochId(10),
+        joined_epoch_authenticator_digest: [0x11; 32],
+    };
+    insta::assert_json_snapshot!("accepted_welcome_receipt", receipt);
+}
+
+#[test]
+fn snapshot_purpose_owned_key_package_metadata() {
+    use cgka_traits::device_linking_key_package::{
+        PurposeAttemptScope, PurposeContextBinding, PurposeKeyPackage,
+    };
+    let package = PurposeKeyPackage {
+        scope: PurposeAttemptScope {
+            account: [1; 32],
+            local_device: [2; 32],
+            generation: 3,
+        },
+        public_bytes: vec![4, 5, 6],
+        reference: vec![7, 8, 9],
+        signature_public_key: vec![2; 32],
+        context: Some(PurposeContextBinding {
+            nonce: [10; 32],
+            context_digest: [11; 32],
+        }),
+        consumed: false,
+    };
+    insta::assert_json_snapshot!("purpose_owned_key_package", package);
+}
+
+#[test]
+fn snapshot_roster_ack_capture_fact_metadata() {
+    let fact = cgka_traits::roster_ack_capture::RosterAckCaptureFact {
+        format_version: 1,
+        generation: 2,
+        leaf_index: 7,
+        signature_public_key: vec![3; 32],
+        message_id: MessageId::new(vec![4, 5, 6]),
+    };
+    insta::assert_json_snapshot!("roster_ack_capture_fact", fact);
+}
+
+#[test]
+fn snapshot_roster_ack_capture_local_scope_metadata() {
+    use cgka_traits::roster_ack_capture::{RosterAckCaptureLeaf, RosterAckCaptureState};
+    let state = RosterAckCaptureState {
+        format_version: 1,
+        generation: 2,
+        invalidated: false,
+        account: MemberId::new(vec![1; 32]),
+        local_device: vec![2; 32],
+        group_id: GroupId::new(vec![3, 4, 5]),
+        epoch: EpochId(6),
+        epoch_authenticator_digest: [7; 32],
+        roster_commitment: [8; 32],
+        leaves: vec![RosterAckCaptureLeaf {
+            leaf_index: 9,
+            signature_public_key: vec![2; 32],
+        }],
+        round_nonce: Some([10; 32]),
+        challenge_source: None,
+        outbound: None,
+        prepared_ciphertext: Some(vec![11, 12, 13]),
+    };
+    insta::assert_json_snapshot!("roster_ack_capture_scope", state);
+}
+
+#[test]
+fn snapshot_accepted_device_group_anchor_scope() {
+    let scope = cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorScope {
+        account: [1; 32],
+        local_device: [2; 32],
+        selection_generation: 3,
+    };
+    insta::assert_json_snapshot!("accepted_device_group_anchor_scope", scope);
+}
+
+#[test]
+fn snapshot_private_device_invite_scope_origins_and_phases() {
+    use cgka_traits::private_device_invite::{
+        PrivateInviteOrigin, PrivateInvitePhase, PrivateInviteScope,
+    };
+    let scope = PrivateInviteScope {
+        account: [1; 32],
+        local_device: [2; 32],
+        staging_generation: 3,
+    };
+    insta::assert_json_snapshot!(
+        "private_device_invite_scope_origins_phases",
+        serde_json::json!({
+            "scope": scope,
+            "origins": [PrivateInviteOrigin::Genesis(4), PrivateInviteOrigin::Accepted(5), PrivateInviteOrigin::Confirmed(6)],
+            "phases": [PrivateInvitePhase::RawStaged, PrivateInvitePhase::Wrapped, PrivateInvitePhase::Dispatching,
+                PrivateInvitePhase::PublicationUnknown, PrivateInvitePhase::Retired, PrivateInvitePhase::Confirmed],
+        })
+    );
+}
+
+#[test]
+fn snapshot_private_linking_welcome_context() {
+    let context = cgka_traits::peeler::PrivateLinkingWelcomeContext {
+        account: [1; 32],
+        approver: [2; 32],
+        recipient: [3; 32],
+        approver_generation: 4,
+        recipient_generation: 5,
+        group_id: cgka_traits::GroupId::new(vec![6; 19]),
+        nonce: [7; 32],
+        context_digest: [8; 32],
+        key_package_reference: [9; 32],
+        key_package_digest: [10; 32],
+        commit_digest: [11; 32],
+        welcome_digest: [12; 32],
+    };
+    insta::assert_json_snapshot!("private_linking_welcome_context", context);
 }

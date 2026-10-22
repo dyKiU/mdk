@@ -176,3 +176,171 @@ For the Marmot app-component model used by new groups, see
 
 Single internal consumer; not semver-stable. Versioned with the workspace. For readiness and open production work, see
 [`current-state.md`](../../docs/marmot-architecture/overview/current-state.md).
+
+## Experimental accepted-join evidence
+
+`experimental-device-sync` exposes a read-only accepted-Welcome receipt query.
+On capable stores, real joins persist exact Welcome/content/group/consumed
+KeyPackage and receiver/welcomer MLS signer bindings in the same transaction as
+all accepted-join writes. Errors roll back private KeyPackage consumption and
+leave the identical Welcome retryable. Unsupported stores provide no receipt.
+These facts grant no enrollment, settled roster, messaging, or history access.
+The receipt accessor enforces the existing live-group hydration/quarantine gate.
+No adopted wire identifiers or conformance versions change.
+
+The same experimental feature captures `MessageReceived.source_leaf` only
+while authenticated OpenMLS application processing still holds the exact source
+epoch tree. One helper serves direct ingestion and stored replay. It binds the
+actual leaf index/signature key to the source epoch and a SHA-256 epoch
+authenticator digest. Direct delayed applications yield no proof instead of
+looking up an old leaf index in the current tree. Replay may yield an exact
+historical proof after reauthenticating that tree; consumers must reject it for
+current enrollment acknowledgments when its epoch or branch differs from the
+authoritative settlement. Ordinary historical account attribution is unchanged.
+
+The optional event field decodes legacy absence and omits `None`, so default
+serialized events stay unchanged. Capture is off by default. Synthetic fixtures
+and recovered moderation-only application events carry `None`. Debug output
+redacts all evidence. These facts do not provide a settled roster or permission
+for enrollment, messages or archive import.
+
+`Engine::candidate_device_group_snapshot` reads a bounded same-account candidate
+from the actual OpenMLS tree, preserving occupied leaf indices rather than
+enumerating the account-level projected member vector. It requires matching
+local stable epochs, a current-profile live group, distinct device signature
+keys, no pending commit, no active convergence pass or scheduled convergence,
+and no queued outbound intent. Durable reads share a read snapshot. The private
+domain-separated commitment includes group/account, epoch, epoch authenticator
+digest, and sorted indexed leaves. Debug output redacts identities and hashes.
+This candidate is not an authoritative device roster or grant: devices at
+different stable epochs produce different commitments until an authenticated
+settlement exchange is implemented.
+
+Focused synthetic real-MLS checks:
+
+```sh
+cargo test --locked -p cgka-engine --features experimental-device-sync --test accepted_welcome_receipts
+cargo test --locked -p cgka-engine --features experimental-device-sync --test device_group_snapshot
+```
+
+With the default-off `experimental-device-sync` feature,
+`resolve_linking_key_package` atomically creates or resolves one exact single-use
+package owned by a checked local reservation. `retire_linking_key_package`
+removes only its terminal attempt's exact private bundle and public ownership,
+including expired packages without treating cleanup as fresh admission.
+`cleanup_unjoined_linking_key_package_on_startup` is a synchronous exclusive-open
+seam after durable verifier abandonment; it also removes verified-but-unjoined
+material. The existing standalone private generator remains an unbounded lower
+level experiment and is not the purpose factory.
+
+Purpose-owned Welcomes require an injected trusted runtime policy. Its one-shot
+lease checks authenticated staged group/receiver/welcomer facts and the original
+live deadline before SQL commit. Commit notification consumes memory-only verifier
+evidence after storage commits; it grants no settled roster or history access.
+Without a live policy, generic inbox ingestion excludes the object without a
+dedup marker, preserving exact later retry. The injected policy contract is private
+experimental integration, not adopted Marmot framing or a host approval boolean.
+
+### Experimental private device-group genesis
+
+With `experimental-device-sync`, `create_private_device_group_genesis` creates a fresh solo Current-profile MLS group, projection, capability cache, and immutable birth fact in one SQL transaction. It explicitly requires private application component `0xf574` with the fixed `whitenoise.experimental.device-group.v1` payload. The optional feature/component is advertised only when all required experimental storage capabilities exist: accepted Welcome receipts, purpose-owned KeyPackages, authenticated ACK capture, genesis provenance, accepted successor anchors and outgoing private-invite staging. A backend missing outgoing staging cannot advertise the private component in signed KeyPackages or allocate genesis. It is not a Marmot interoperability allocation. Generic solo candidates cannot become genesis, and generic private-group sends remain denied pending trusted SDK-held outgoing and control paths.
+
+After normal reopen hydration, `validated_private_device_group_genesis` can return fresh opaque evidence only for the protected birth matching actual local identity and the original authenticated tree/profile/epoch. This evidence never arms a verifier, grants enrollment, proves settled membership, or permits history. Birth metadata stays immutable; actual unexpected adopted transitions and deletion permanently deny active use, including after crypto A-to-B-to-A rewind. Explicit retirement permits a fresh checked local selection generation. Accepted recipient successor provenance is a separate store and is never fabricated as locally created genesis.
+
+### Private invitation metadata validation
+
+The experimental `validate_private_invite_input` and `validate_private_staged_add` helpers inspect real signed single-use packages and actual OpenMLS source/staged trees. They enforce the exact private profile, local source signer, same account, indexed predecessor preservation and precisely one approved Add. The construction fixture explicitly excludes stored proposals with `consume_proposal_store(false)`. Returned metadata cannot authorize an invitation or reconstruct SAS consent. Trusted private preparation and retained outgoing staging are described below; metadata alone never authorizes publication.
+
+## Experimental trusted private Add preparation
+
+`prepare_private_device_invite` requires a trusted core policy holding an owned,
+original-deadline Approver verification lease. The engine derives the actual
+private-profile predecessor and validates one exact single-use KeyPackage; it
+stages only that Add with `consume_proposal_store(false)`. The actual MLS pending
+commit and bounded raw commit/Welcome ledger entry share one SQL transaction.
+Async wrapping retains the lease, revalidates the actual staged successor, and
+caches transport only in the dedicated outgoing ledger. Neither ordinary
+`MessageState::Sent` replay nor an accessor exposes a deliverable Welcome.
+
+The opaque prepared value retains the same lease through a dedicated trusted
+publisher invocation. Dispatch intent precedes the side effect, with the same original lease checked
+before each publisher-future poll; cancellation
+before intent atomically retires the draft and clears MLS pending state. Once
+dispatch may have happened, the fact remains publication-unknown and generic
+confirm/fail paths are denied. A reopened ledger never reconstructs consent.
+Exact authenticated own-echo reconciliation and protected successor installation
+are described below. Dedicated Welcome delivery and complete restart/publication
+coordination remain required; this foundation does not grant enrollment, settled
+membership, chat or history. The App's genuine SDK adapter is a separate check.
+
+Private preparation uses `TransportPeeler::wrap_private_linking_welcome`, whose
+default is unsupported. It derives the full private context from validated actual
+Add bindings and freezes the exact bounded Welcome batch only in110. It never
+falls back to an ordinary public-KeyPackage Welcome or invents a public event ID.
+The batch is still withheld pending authenticated membership confirmation.
+
+The account actor may check the opaque prepared lease for negative housekeeping
+and borrow it for atomic retirement, retaining it after SQL failure. Raw-only
+retirement before a prepared continuation exists requires the exact active
+approver scope; absent/terminal work is a no-op and Wrapped/uncertain work is
+refused. These cleanup APIs never recreate permission or schedule publication.
+Genuine SQL-fault tests distinguish MLS Backend/Serialize errors from consent
+denial. Dedicated Welcome delivery remains separate unfinished integration;
+authenticated confirmation has the partial checkpoint described below.
+
+`create_private_device_group_genesis_with_components` accepts bounded, validated
+transport-neutral initial bytes while injecting the mandatory private profile
+internally. The empty variant remains available for transport-neutral tests.
+Caller routing must be real authenticated MLS dictionary state before birth
+capture; the factory generates no Nostr identity/routing data and assumes no
+universal GroupId length. It writes the durable opaque route projection with
+creation/birth and updates the memory resolver only after commit. A genuine
+SQL-fault/encrypted-reopen regression proves atomic rollback and signed route
+roundtrip; actual App Nostr integration is verified separately.
+
+### Partial authenticated private confirmation
+
+The experimental ingress recognizes the exact retained private commit before
+ordinary dedup and held-publish gates. Cached transport identity is only a hint:
+fresh actual OpenMLS processing must produce `OwnPendingCommit` with the exact
+source epoch, own indexed leaf, MLS signer and account credential. The actual
+retained staged single Add supplies the package and full successor; no public
+source-proof DTO, caller success flag or saved verifier fact authorizes a merge.
+
+One SQL unit performs the protected outgoing origin CAS before the actual merge,
+then verifies the actual merged full tree and atomically writes birth/ACK denial,
+projections/capabilities, processed commit evidence, retained anchors and immutable
+checkpoint. Failure discards the fresh MLS object and rolls back the whole unit.
+The matching private batch remains in the dedicated ledger, never ordinary Sent
+or OutboundWelcome rows. Early cached echo refusal writes no dedup marker. Reopen
+preserves uncertain actual staged Add and a negative held-publication barrier;
+it does not reconstruct SDK consent or make a Welcome deliverable.
+
+Six focused crypto-ingest tests pass, including genuine post-CAS MLS/projection
+SQL faults, exact encrypted-reopen retry, denied-origin preservation and byte/
+route substitution. The desired seventh test remains failing: pinned OpenMLS
+validates an Add package's current lifetime before producing its own-pending
+signal. A previously dispatched Add whose package expires therefore remains
+uncertain and blocked. Do not count the six-test run (which explicitly skips this
+known failure) as complete reconciliation. A reviewed authenticated retained-own-
+commit library seam is required; no clocks, validation flags or forged
+OwnPendingCommit result are substituted. Ordinary fresh package validation
+continues enforcing lifetime. Recipient admission, settlement, history and
+native integration remain separate requirements.
+
+The default-off `join_private_linking_welcome_batch` accepts only a complete
+transport-authenticated private batch (1–86 messages, at most 16 MiB encoded,
+at most 2 MiB raw Welcome). It requires the actual single-use purpose package
+and a trusted live lease: transport-context checks precede private-key
+consumption, followed by authenticated private-profile/full-tree checks and the
+lease's verified predecessor. Accepted receipt105, purpose consumption106,
+independently derived successor109, MLS/group writes and complete-batch ingress
+dispositions share one transaction. A backend or lease failure restores the
+package and leaves the exact input retryable. Raw/ordinary private-profile
+Welcomes cannot substitute for this route; established ordinary profiles keep
+existing behavior. Neither these facts nor the crypto-derived
+`private_device_profile` metadata settle the roster or grant history access.
+Integration tests in `accepted_welcome_receipts/private_batch.rs` use injected
+Engine policies and pass-through batch transport, not genuine SDK consent or
+NIP59; the App owns that further integration. SQLCipher reopen tests explicitly
+inject a new test lease and never reconstruct consent from persisted facts.

@@ -141,6 +141,29 @@ pub trait TransportPeeler: Send + Sync {
         recipient: &MemberId,
     ) -> Result<TransportMessage, PeelerError>;
 
+    /// Default-deny private enrollment transport, separate from ordinary Welcomes.
+    async fn wrap_private_linking_welcome(
+        &self,
+        _payload: &EncryptedPayload,
+        _context: &PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<TransportMessage>, PeelerError> {
+        Err(PeelerError::MissingContext {
+            label: "private_linking_transport".into(),
+        })
+    }
+
+    /// Authenticate and reassemble a complete private Welcome batch. The exact
+    /// context is binding metadata, never permission to consume a KeyPackage.
+    async fn peel_private_linking_welcome_batch(
+        &self,
+        _messages: &[TransportMessage],
+        _context: &PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<u8>, PeelerError> {
+        Err(PeelerError::MissingContext {
+            label: "private_linking_transport".into(),
+        })
+    }
+
     async fn wrap_welcome_with_metadata(
         &self,
         payload: &EncryptedPayload,
@@ -149,4 +172,23 @@ pub trait TransportPeeler: Send + Sync {
     ) -> Result<TransportMessage, PeelerError> {
         self.wrap_welcome(payload, recipient).await
     }
+}
+
+/// Experimental private enrollment transport binding. Authenticated metadata
+/// only: matching it never grants SDK consent or permission to join an MLS group.
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrivateLinkingWelcomeContext {
+    pub account: [u8; 32],
+    pub approver: [u8; 32],
+    pub recipient: [u8; 32],
+    pub approver_generation: u64,
+    pub recipient_generation: u64,
+    pub group_id: crate::GroupId,
+    pub nonce: [u8; 32],
+    pub context_digest: [u8; 32],
+    pub key_package_reference: [u8; 32],
+    pub key_package_digest: [u8; 32],
+    pub commit_digest: [u8; 32],
+    pub welcome_digest: [u8; 32],
 }

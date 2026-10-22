@@ -728,6 +728,18 @@ impl<S: StorageProvider> Engine<S> {
         // the current call may suppress its own seen-cache insertion.
         self.retryable_unpersisted_ingest_id = None;
         self.last_ingest_left_object_unpersisted = false;
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(outcome) = self.ingest_private_commit_echo(&msg).await? {
+            // Authorization refusal remains marker-free, so the exact object
+            // may later return after genuine dispatch intent.
+            self.last_ingest_left_object_unpersisted = matches!(
+                outcome,
+                IngestOutcome::Ignored {
+                    category: InputRejectionCategory::AuthorizationFailed
+                }
+            );
+            return Ok(outcome);
+        }
         // Durable dedup / own-echo check. Storage is consulted before the hot
         // cache so a restarted engine can classify replayed transport messages
         // the same way as a running process.

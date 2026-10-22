@@ -88,6 +88,18 @@ impl<S: StorageProvider> Engine<S> {
                 },
             ));
         }
+        #[cfg(feature = "experimental-device-sync")]
+        if self.with_mls_group(&group_id, |group| {
+            crate::device_group_genesis::has_private_component(group)
+        })? {
+            return Err(EngineError::InvalidTransition(
+                cgka_traits::engine_state::InvalidTransition {
+                    from: "PrivateDeviceGroup",
+                    to: crate::audit_helpers::send_intent_kind_str(&intent),
+                    reason: "authenticated private-group approval is required",
+                },
+            ));
+        }
         // Retain the intent behind every own group evolution through the
         // rewind horizon, so a supersession can re-issue it
         // (mdk#1734). The baseline is read before staging so it describes the
