@@ -832,14 +832,14 @@ impl QuorumCancelledDelivery {
         let undelivered = self.requests.len().saturating_sub(delivered);
         if undelivered == 0 {
             tracing::debug!(
-                target: "marmot_app::directory",
+                target: "marmot_app",
                 method = "complete_quorum_cancelled_delivery",
                 delivered,
                 "replaceable identity records reached quorum-cancelled relays"
             );
         } else {
             tracing::warn!(
-                target: "marmot_app::directory",
+                target: "marmot_app",
                 method = "complete_quorum_cancelled_delivery",
                 delivered,
                 undelivered,
@@ -8330,7 +8330,7 @@ async fn publish_public_indexer_copies(
         .await;
     if outcomes.len() != requests.len() {
         tracing::warn!(
-            target: "marmot_app::directory",
+            target: "marmot_app",
             method = "publish_public_indexer_copies",
             expected = requests.len(),
             actual = outcomes.len(),
@@ -8359,7 +8359,7 @@ fn observe_public_indexer_outcomes(
     }
     if failed != 0 {
         tracing::warn!(
-            target: "marmot_app::directory",
+            target: "marmot_app",
             method = "observe_public_indexer_outcomes",
             accepted,
             failed,
