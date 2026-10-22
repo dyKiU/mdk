@@ -1588,7 +1588,9 @@ async fn private_ledger_real_crypto_old_writer_fixture() {
         .prepare("SELECT original_version,original_name,original_applied_at_unix_seconds,private_version FROM cgka_experimental_device_sync_migration_bridge_audit ORDER BY original_version")
         .unwrap();
     let audited: Vec<(i64, String, i64, i64)> = statement
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
@@ -1601,7 +1603,10 @@ async fn private_ledger_real_crypto_old_writer_fixture() {
             )
             .unwrap();
         let suffix = name.split_once('_').unwrap().1;
-        assert_eq!(receipt, (format!("{:04}_{suffix}", index + 1), *applied_at, 1));
+        assert_eq!(
+            receipt,
+            (format!("{:04}_{suffix}", index + 1), *applied_at, 1)
+        );
     }
     let expected: Vec<_> = legacy
         .into_iter()
