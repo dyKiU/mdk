@@ -5,11 +5,11 @@ MODE = 'old-direct-lookup'
 SELECTOR = 'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation'
 DEFINITIONS = {
     'macos': ('whitenoise-mac/Core/MarmotClient.swift',
-              '267f4bbebc7adc30006ea51e562fd0071f5aee43c1e5855cec4afe1d05fc9f8b',
-              '96f021cdd5fbbdf392309996b577ba7542d114d1a397a5356c40c6386f8a8047'),
+              'ada63677eb0b461a272a288bf16433d3b61d29b80f8285b08d07d67d56b53319',
+              '60099dd28073fd9c0bbf5a51d1a45b8cae96a140ef0765929dcbc5a9f7d10297'),
     'ios': ('whitenoise-ios/Core/MarmotClient.swift',
-            'e104f358bb4ebb20ee2f922037261801bd2c8b475c3aa55b359a120499ce3c3a',
-            'c18391b267d1a160641e73e02dc74b1d858bab47d1f135756087803e57de0f93'),
+            '0bb7cbca3c85c3e389db2df549995bd6b8f3c1943ca43cc8c8bc6ddfde9637c3',
+            'a61be614fbc3a2701f990862eb956445a37881048dfad76b8088f73e3cb7fe9a'),
 }
 
 
