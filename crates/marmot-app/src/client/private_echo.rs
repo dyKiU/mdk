@@ -296,7 +296,7 @@ impl AppClient {
                     }
                     self.admit_recovered_delivery(
                         &delivery,
-                        super::sync::InventoryWrite::Immediate,
+                        crate::client::InventoryWrite::Immediate,
                     )
                     .await?;
                 }
