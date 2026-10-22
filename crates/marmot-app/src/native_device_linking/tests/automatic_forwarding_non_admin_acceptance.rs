@@ -403,14 +403,23 @@ impl IncomingPeer {
         // Observe this actual sender plane only. The callback captures no live
         // client/session, supplies no ACK, and retires after one bound application.
         let storage = self.app.account_storage("test").unwrap();
-        let account = cgka_traits::MemberId::new(hex::decode(
-            self.app.account_home().account("test").unwrap().account_id_hex,
-        ).unwrap());
+        let account = cgka_traits::MemberId::new(
+            hex::decode(
+                self.app
+                    .account_home()
+                    .account("test")
+                    .unwrap()
+                    .account_id_hex,
+            )
+            .unwrap(),
+        );
         let group = self.group.clone();
         let binding = std::sync::Arc::new(std::sync::Mutex::new(None));
         let callback_binding = binding.clone();
-        let observation = self.app.relay_plane.observe_publications_for_test(
-            std::sync::Arc::new(move |request| {
+        let observation = self
+            .app
+            .relay_plane
+            .observe_publications_for_test(std::sync::Arc::new(move |request| {
                 let bound = (|| -> Option<(String, String, String)> {
                     if request.account_id != account
                         || !matches!(&request.target,
@@ -422,7 +431,8 @@ impl IncomingPeer {
                     }
                     let fanout = storage.outbound_fanout(&request.message.id).ok()??;
                     let application = fanout.application_message()?;
-                    if fanout.request() != request || fanout.group_id() != Some(&group)
+                    if fanout.request() != request
+                        || fanout.group_id() != Some(&group)
                         || application.group_id != group
                     {
                         return None;
@@ -430,13 +440,15 @@ impl IncomingPeer {
                     // Applications have no pending_origin_message_id. Their
                     // own Sent record retains BOTH the exact outer and MLS wire.
                     let row = storage.get_message(&request.message.id).ok()?;
-                    if row.id != request.message.id || row.group_id != group
+                    if row.id != request.message.id
+                        || row.group_id != group
                         || row.epoch != application.source_epoch
                         || row.state != cgka_traits::message::MessageState::Sent
                     {
                         return None;
                     }
-                    let payload = cgka_traits::message::StoredMessagePayload::decode(&row.payload).ok()?;
+                    let payload =
+                        cgka_traits::message::StoredMessagePayload::decode(&row.payload).ok()?;
                     if payload.as_exact_transport() != Some(&request.message)
                         || payload.own_application_stamp()?.sender != account
                     {
@@ -445,16 +457,21 @@ impl IncomingPeer {
                     let wire = payload.as_openmls_wire()?;
                     let mut expected_wire = request.message.clone();
                     expected_wire.payload = wire.payload.clone();
-                    if wire != &expected_wire { return None; }
-                    Some((application.app_event_id.clone(),
+                    if wire != &expected_wire {
+                        return None;
+                    }
+                    Some((
+                        application.app_event_id.clone(),
                         hex::encode(request.message.id.as_slice()),
-                        hex::encode(Sha256::digest(&wire.payload))))
+                        hex::encode(Sha256::digest(&wire.payload)),
+                    ))
                 })();
-                let Some(bound) = bound else { return false; };
+                let Some(bound) = bound else {
+                    return false;
+                };
                 *callback_binding.lock().unwrap() = Some(bound);
                 true
-            }),
-        );
+            }));
         let sent = self
             .runtime
             .send_message(
