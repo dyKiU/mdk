@@ -8254,8 +8254,8 @@ pub use runtime::{
     RetainedAttachmentAsset, RuntimeAttachmentTransferSubscription,
 };
 pub use runtime::{
-    AttachmentMigrationState, AttachmentStorageUsage, ChatAttachmentUsage, ChatUsageCursor,
-    RetainedAttachmentSummary, RetainedSizeCursor,
+    AttachmentKeepMedia, AttachmentMigrationState, AttachmentStorageUsage, ChatAttachmentUsage,
+    ChatUsageCursor, RetainedAttachmentSummary, RetainedSizeCursor,
 };
 
 pub use runtime::{
