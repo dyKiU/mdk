@@ -70,6 +70,24 @@ COMPILER_SOURCES = frozenset({
 })
 
 
+SDK_COMPILER_SOURCES = frozenset({
+    'crates/transport-nostr-adapter/src/acquisition.rs',
+    'crates/transport-nostr-adapter/src/key_package.rs',
+    'crates/transport-nostr-adapter/src/lib.rs',
+    'crates/transport-nostr-adapter/src/live_delivery.rs',
+    'crates/transport-nostr-adapter/src/native_frame_probe.rs',
+    'crates/transport-nostr-adapter/src/network_proxy.rs',
+    'crates/transport-nostr-adapter/src/publish_accounting.rs',
+    'crates/transport-nostr-adapter/src/relay_list.rs',
+    'crates/transport-nostr-adapter/src/replay_admission.rs',
+    'crates/transport-nostr-adapter/src/replay_ingress.rs',
+    'crates/transport-nostr-adapter/src/sdk_client.rs',
+    'crates/transport-nostr-adapter/src/telemetry.rs',
+    'crates/traits/src/lib.rs',
+    'crates/traits/src/transport.rs',
+})
+
+
 def failure_category(error):
     if (type(error) is ValueError and len(error.args) == 1
             and type(error.args[0]) is str and error.args[0] in FAILURE_CATEGORIES):
@@ -77,7 +95,7 @@ def failure_category(error):
     return 'unknown'
 
 
-def compiler_diagnostics(raw, *, cargo_test_context=None):
+def compiler_diagnostics(raw, *, cargo_test_context=None, compiler_source_context=None):
     # Raw capture is already bounded. Export fixed Rust error codes and only
     # reviewed source positions, never diagnostic text or unreviewed paths.
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
@@ -87,6 +105,15 @@ def compiler_diagnostics(raw, *, cargo_test_context=None):
     # their original nextest-only behavior. This is not a generic error filter.
     if cargo_test_context is not None and cargo_test_context not in {('marmot-app', '--lib'), ('transport-nostr-adapter', '--lib')}:
         raise ValueError('unsupported-cargo-test-context')
+    # Inventory compilation may expose SDK coordinates without pretending that
+    # cargo nextest list is Cargo test or exempting any Cargo-test error wrapper.
+    if compiler_source_context not in (None, 'transport-nostr-adapter'):
+        raise ValueError('unsupported-compiler-source-context')
+    if compiler_source_context is not None and cargo_test_context not in (None, ('transport-nostr-adapter', '--lib')):
+        raise ValueError('mismatched-compiler-source-context')
+    sdk_source = (compiler_source_context == 'transport-nostr-adapter'
+                  or cargo_test_context == ('transport-nostr-adapter', '--lib'))
+    source_paths = SDK_COMPILER_SOURCES if sdk_source else COMPILER_SOURCES
     lines = text.splitlines()
     cargo_wrappers = {
         'error: test failed, to rerun pass `--lib`',
@@ -103,8 +130,7 @@ def compiler_diagnostics(raw, *, cargo_test_context=None):
     sites = set()
     unknown = 0
     for path, line, column in re.findall(r'^\s*--> ([^\s]+\.rs):(\d+):(\d+)\s*$', text, re.M):
-        if path not in (COMPILER_SOURCES | ({'crates/transport-nostr-adapter/src/sdk_client.rs', 'crates/transport-nostr-adapter/src/lib.rs'}
-                    if cargo_test_context == ('transport-nostr-adapter', '--lib') else set())) or not (1 <= int(line) <= 1_000_000
+        if path not in source_paths or not (1 <= int(line) <= 1_000_000
                                                 and 1 <= int(column) <= 1_000_000):
             unknown += 1
         else:

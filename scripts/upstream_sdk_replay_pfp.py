@@ -1,7 +1,7 @@
 """Closed adapter descriptors/oracles for the existing scoped PFP driver."""
 import json
 import re
-from upstream_avatar_ready_turn_chain import compiler_diagnostics
+from upstream_avatar_ready_turn_chain import compiler_diagnostics, SDK_COMPILER_SOURCES
 
 FIXTURE = 'crates/transport-nostr-adapter/src/sdk_client.rs'
 SOURCES = {'sdk-epoch': FIXTURE, 'sdk-alias': 'crates/transport-nostr-adapter/src/lib.rs'}
@@ -128,7 +128,61 @@ def oracle(raw, case, fixture, mutant):
                     and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count']==0))
 
 
+def compiler_source_controls():
+    positive = negative = 0
+    for path in sorted(SDK_COMPILER_SOURCES):
+        raw = ('error[E0063]: PRIVATE_SOURCE_TEXT\n  --> ' + path + ':12:4\n').encode()
+        result = compiler_diagnostics(raw, compiler_source_context='transport-nostr-adapter')
+        if not (result['compiler_codes'] == ['E0063'] and result['compiler_header_count'] == 1
+                and result['runtime_wrapper_count'] == 0
+                and result['trusted_source_positions'] == [dict(source=path, line=12, column=4)]
+                and result['unreviewed_position_count'] == 0 and 'PRIVATE_SOURCE_TEXT' not in json.dumps(result)):
+            raise ValueError('sdk-compiler-source-control')
+        positive += 1
+    # The old no-context call must continue discarding SDK paths.
+    raw = b'error[E0050]: PRIVATE\n  --> crates/transport-nostr-adapter/src/sdk_client.rs:12:4\n'
+    old = compiler_diagnostics(raw)
+    if not (old['compiler_header_count'] == 1 and old['trusted_source_positions'] == []
+            and old['unreviewed_position_count'] == 1):
+        raise ValueError('sdk-compiler-source-control')
+    positive += 1
+    wrapper = b'error: test failed, to rerun pass `-p transport-nostr-adapter --lib`\n'
+    inventory = compiler_diagnostics(wrapper, compiler_source_context='transport-nostr-adapter')
+    body = compiler_diagnostics(wrapper, cargo_test_context=('transport-nostr-adapter', '--lib'))
+    if not (inventory['compiler_header_count'] == 1 and inventory['runtime_wrapper_count'] == 0
+            and body['compiler_header_count'] == 0 and body['runtime_wrapper_count'] == 1):
+        raise ValueError('sdk-compiler-source-control')
+    positive += 1
+    for path in ('PRIVATE/path.rs', 'crates/transport-nostr-adapter/tests/inbound_routing.rs',
+                 'crates/transport-nostr-adapter/src/../src/sdk_client.rs'):
+        raw = ('error[E0277]: PRIVATE\n  --> ' + path + ':12:4\n').encode()
+        result = compiler_diagnostics(raw, compiler_source_context='transport-nostr-adapter')
+        if not (result['compiler_codes'] == ['E0277'] and result['compiler_header_count'] == 1
+                and result['trusted_source_positions'] == [] and result['unreviewed_position_count'] == 1
+                and 'PRIVATE' not in json.dumps(result)):
+            raise ValueError('sdk-compiler-source-control')
+        negative += 1
+    for arguments in ({'compiler_source_context': 'PRIVATE'},
+                      {'compiler_source_context': 'transport-nostr-adapter',
+                       'cargo_test_context': ('marmot-app', '--lib')}):
+        try:
+            compiler_diagnostics(b'', **arguments)
+        except ValueError:
+            negative += 1
+        else:
+            raise ValueError('sdk-compiler-source-control')
+    # Coordinate limits and actual error headers are not softened by the source context.
+    raw = b'error[E0061]: PRIVATE\n  --> crates/transport-nostr-adapter/src/sdk_client.rs:1000001:4\n'
+    result = compiler_diagnostics(raw, compiler_source_context='transport-nostr-adapter')
+    if not (result['compiler_codes'] == ['E0061'] and result['compiler_header_count'] == 1
+            and result['trusted_source_positions'] == [] and result['unreviewed_position_count'] == 1):
+        raise ValueError('sdk-compiler-source-control')
+    negative += 1
+    return dict(positive=positive, negative=negative, metadata_only=True, product_bodies=0)
+
+
 def parser_controls(fixture):
+    compiler_controls = compiler_source_controls()
     positives = negatives = 0
     for case, name in CASES.items():
         def sample(mutant):
@@ -165,4 +219,5 @@ def parser_controls(fixture):
         for item in bad:
             if oracle(item,case,fixture,True)['evidence_passed']: raise ValueError('sdk-parser-negative')
             negatives += 1
-    return dict(positive=positives, negative=negatives, metadata_only=True, product_bodies=0)
+    return dict(positive=positives, negative=negatives, metadata_only=True, product_bodies=0,
+                compiler_source_controls=compiler_controls)

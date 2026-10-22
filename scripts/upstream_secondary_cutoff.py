@@ -46,6 +46,8 @@ FAILURES.update({
     'sdk-one-original-anchor', 'sdk-exact-inverse', 'sdk-one-own-label',
     'sdk-one-own-assert', 'sdk-own-condition', 'sdk-parser-positive',
     'sdk-parser-thread-form', 'sdk-parser-negative',
+    'unsupported-compiler-source-context', 'mismatched-compiler-source-context',
+    'sdk-compiler-source-control', 'sdk-explicit-case-selection',
 })
 
 
@@ -222,6 +224,10 @@ def main():
                 or os.environ.get('GITHUB_WORKFLOW_SHA') != os.environ.get('GITHUB_SHA')
                 or args.source != os.environ.get('GITHUB_SHA')):
             raise ValueError('sdk-exact-manual-workflow-source')
+        event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+        selector = event.get('inputs', {}).get('sdk_replay_case', 'all')
+        if selector not in ('all', 'sdk-epoch', 'sdk-alias') or (selector != 'all' and selector != args.case):
+            raise ValueError('sdk-explicit-case-selection')
     root, output = Path.cwd().resolve(), args.output.resolve()
     if output.exists() or output == root or root in output.parents:
         raise ValueError('fresh-external-output')
@@ -296,7 +302,8 @@ def main():
             code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list', *flags,
                 '--message-format', 'json', '-E', selection], 1800, separate=True)
             row['inventory'] = dict(exit_code=code, elapsed_seconds=elapsed, stdout_sha256=sha(raw),
-                stderr_sha256=sha(stderr), compiler_diagnostics=compiler_diagnostics(stderr))
+                stderr_sha256=sha(stderr), compiler_diagnostics=compiler_diagnostics(
+                    stderr, compiler_source_context='transport-nostr-adapter' if sdk_case else None))
             save()
             if (code != 0 or row['inventory']['compiler_diagnostics']['compiler_codes']
                     or row['inventory']['compiler_diagnostics']['compiler_header_count'] != 0):

@@ -4,6 +4,11 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      sdk_replay_case:
+        description: Optional SDK diagnostic selection; final qualification still requires both chains
+        type: choice
+        options: [all, sdk-epoch, sdk-alias]
+        default: all
       extraction_cohort_baseline:
         description: Exact reviewed extraction cohort (no historical evidence reuse)
         type: string
@@ -926,7 +931,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        cutoff_case: [sdk-epoch, sdk-alias]
+        cutoff_case: ${{ fromJSON(inputs.sdk_replay_case == 'sdk-epoch' && '["sdk-epoch"]' || inputs.sdk_replay_case == 'sdk-alias' && '["sdk-alias"]' || '["sdk-epoch","sdk-alias"]') }}
         cohort: [experimental]
     runs-on: ubuntu-latest
     # Three inventory + three body captures, each bounded to30 minutes, plus setup.
