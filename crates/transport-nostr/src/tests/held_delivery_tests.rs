@@ -87,7 +87,10 @@ async fn held_delivery_retains_cursor_pins_for_every_duplicate_until_real_receip
         Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
     );
     adapter.release_account_delivery(&packet.message.id);
-    assert_eq!(adapter.seal_transport_cursor(candidate, |_| true), candidate);
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate, |_| true),
+        candidate
+    );
     drop(held);
     plane.shutdown().await;
 }
@@ -131,7 +134,10 @@ async fn held_delivery_cannot_enter_or_unpin_a_replacement_queue() {
     assert_eq!(received.message.id, MessageId::new(vec![2; 32]));
     replacement.release_account_delivery(&received.message.id);
     assert!(replacement.try_receive_account_delivery().is_none());
-    assert_eq!(replacement.seal_transport_cursor(candidate, |_| true), candidate);
+    assert_eq!(
+        replacement.seal_transport_cursor(candidate, |_| true),
+        candidate
+    );
     drop(held);
     plane.shutdown().await;
 }
@@ -203,7 +209,10 @@ async fn held_delivery_defers_recovery_without_unpinning_or_consuming_original()
         Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
     );
     adapter.release_account_delivery(&packet.message.id);
-    assert_eq!(adapter.seal_transport_cursor(candidate, |_| true), candidate);
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate, |_| true),
+        candidate
+    );
     drop(held);
     assert!(!adapter.defer_held_recovery_for_test(&packet));
     plane.shutdown().await;
