@@ -255,9 +255,9 @@ async fn run(scenario: Scenario) {
                 ordinary_facts[5] = published.group != after.protected_group;
                 let group_hex = hex::encode(published.group.as_slice());
                 // A missing source binding is unknown, never an artificial timed wait.
-                let projected = if let (true, Some(app_id), Some(packet_id)) =
+                let projected = if let (true, Some(app_id), Some(canonical_id)) =
                     (published.source_row_bound && published.published_once,
-                     published.app_id.as_ref(), published.packet_id.as_ref()) {
+                     published.app_id.as_ref(), published.canonical_id.as_ref()) {
                     ordinary_facts[6] = true;
                     Some(tokio::time::timeout(Duration::from_secs(30), async {
                         loop {
@@ -269,7 +269,7 @@ async fn run(scenario: Scenario) {
                                 && row.plaintext == ORDINARY_PROGRESS_TEXT
                                 && row.direction == "received" && !row.invalidated)
                                 && timeline.as_ref().is_some_and(|row| row.message_id_hex == *app_id
-                                    && row.source_message_id_hex.as_ref() == Some(packet_id)
+                                    && row.source_message_id_hex.as_ref() == Some(canonical_id)
                                     && row.group_id_hex == group_hex && row.sender == published.sender
                                     && row.plaintext == ORDINARY_PROGRESS_TEXT
                                     && row.direction == "received" && !row.deleted) {
@@ -318,7 +318,7 @@ async fn run(scenario: Scenario) {
                     ]).unwrap_or([false; 6]);
                     let timeline_matches = timeline.zip(published.app_id.as_ref()).map(|(row, app_id)| [
                         row.message_id_hex == *app_id,
-                        row.source_message_id_hex.as_ref() == Some(packet_id),
+                        row.source_message_id_hex.as_ref() == published.canonical_id.as_ref(),
                         row.group_id_hex == group_hex,
                         row.sender == published.sender,
                         row.plaintext == ORDINARY_PROGRESS_TEXT,

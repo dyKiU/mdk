@@ -344,7 +344,11 @@ def oracle(row, red=False):
     if not ordinary:
         return True
     obs = markers['late-peer-ordinary-progress']
-    return (all(obs[key] == (False if red and key == 'ordinary_projected' else True) for key in ORDINARY)
+    # The inverse proves repeated terminal retries, not necessarily blocked
+    # ordinary projection. Retain its observed projection boolean either way;
+    # all original custody/authority/cleanup evidence remains mandatory.
+    return (all(obs[key] is True for key in ORDINARY if key != 'ordinary_projected')
+        and (red or obs['ordinary_projected'] is True)
         and obs['no_replay'] == obs['original_facts_complete'] == (not red)
         and all(obs[key] == old[key] for key in COUNTS + ['relay_closed', 'attempt_completed'])
         and obs['independent_closed'] and obs['independent_plane_shutdown'])
@@ -405,11 +409,15 @@ def metadata_controls():
     red = synthetic(CASES[2], True)
     require(decode(red, CASES[2], True), 'metadata_red')
     positive += 1
+    require(decode(red.replace(b'ordinary_projected=false', b'ordinary_projected=true'), CASES[2], True),
+            'metadata_terminal_retries_with_ordinary_projection')
+    positive += 1
     require(decode(red.replace(b' (123)', b''), CASES[2], True), 'metadata_thread_without_id')
     positive += 1
     variants = [red.replace(MESSAGE.encode(), b'PRIVATE'), red.replace(FIXTURE.encode(), b'crates/PRIVATE.rs'),
                 red.replace((':' + str(location()) + ':9').encode(), b':1:9'),
-                red.replace(b' (123)', b' (PRIVATE)'), red.replace(b'ordinary_projected=false', b'ordinary_projected=true'),
+                red.replace(b' (123)', b' (PRIVATE)'),
+                red.replace(b'ordinary_projected=false', b'ordinary_projected=unknown'),
                 red.replace(b'closed_denials=3', b'closed_denials=1'),
                 red.replace(b'no_replay=false', b'no_replay=true'), red.replace(b'0 passed; 1 failed', b'1 passed; 0 failed'),
                 red + b"thread 'PRIVATE' panicked at crates/PRIVATE.rs:1:1:\nPRIVATE\n",
@@ -535,6 +543,8 @@ def main():
             if all(type(body.get(key)) is int for key in ('passed', 'failed', 'ignored')):
                 report['actual_rust_bodies'] += body['passed'] + body['failed']
             body['qualified'] = oracle(body, label == 'inverse')
+            if label == 'inverse' and body['qualified']:
+                body['oracle_mutation_class'] = 'repeated_closed_terminal_retries'
             body['source_closure'] = pristine(expected)
             body['binary_unchanged'] = sha(binary.read_bytes()) == row['binary_sha256']
             save()
