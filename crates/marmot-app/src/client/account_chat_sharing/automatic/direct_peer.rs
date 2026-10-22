@@ -1,6 +1,23 @@
 //! Presentation identity derived only from an actual direct chat and canonical roster.
 use std::collections::BTreeSet;
 
+pub(super) fn catalog_name(
+    group_name: String,
+    profile: Option<&crate::UserProfileMetadata>,
+) -> String {
+    if crate::chat_presentation::safe_name(&group_name).is_some() {
+        return group_name;
+    }
+    let Some(mut name) = profile.and_then(crate::chat_presentation::public_profile_name) else {
+        return group_name;
+    };
+    // The catalog bounds titles by UTF-8 bytes; never split a character.
+    while name.len() > 1024 {
+        name.pop();
+    }
+    name
+}
+
 pub(super) fn observed_peer<'a>(
     account: [u8; 32],
     reusable_direct: bool,
@@ -29,6 +46,32 @@ pub(super) fn observed_peer<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_title_uses_the_same_public_name_fallback_as_native_chats() {
+        let profile = crate::UserProfileMetadata {
+            display_name: Some(" \u{202e}\n".into()),
+            name: Some(" Known contact ".into()),
+            ..Default::default()
+        };
+        assert_eq!(catalog_name(String::new(), Some(&profile)), "Known contact");
+        assert_eq!(
+            catalog_name("Custom title".into(), Some(&profile)),
+            "Custom title"
+        );
+        assert_eq!(catalog_name(String::new(), None), "");
+    }
+
+    #[test]
+    fn catalog_public_title_preserves_the_utf8_wire_bound() {
+        let profile = crate::UserProfileMetadata {
+            display_name: Some("🦊".repeat(400)),
+            ..Default::default()
+        };
+        let name = catalog_name(String::new(), Some(&profile));
+        assert_eq!(name, "🦊".repeat(256));
+        assert_eq!(name.len(), 1024);
+    }
 
     #[test]
     fn direct_peer_collapses_real_device_leaves_to_exactly_two_accounts() {

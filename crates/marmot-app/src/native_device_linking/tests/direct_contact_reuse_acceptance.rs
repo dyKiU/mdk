@@ -51,6 +51,25 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
             created.chat_list_row.conversation_kind,
             crate::ChatConversationKind::Direct
         );
+        let peer_name = "Named shared contact";
+        apps[0]
+            .remember_directory_profile(
+                &peer_account.account_id_hex,
+                &crate::UserProfileMetadata {
+                    display_name: Some(peer_name.to_owned()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let source_row = runtimes[0]
+            .presented_chat_list_row("test", &group_hex)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            source_row.presentation.title,
+            storage_sqlite::PresentationText::Literal(name) if name == peer_name
+        ));
         tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 if peer_app
@@ -127,6 +146,10 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
                         row.direct_peer_account.map(hex::encode),
                         Some(peer_account.account_id_hex.clone())
                     );
+                    assert_eq!(
+                        row.name, peer_name,
+                        "a linked device without the contact profile must receive the source's readable direct-chat title"
+                    );
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;
@@ -140,6 +163,83 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
                 Some(ExistingAccountDirectConversation::PairedSource(row)) if row.group_id == group)
             );
         }
+        let updated_peer_name = "Updated shared contact";
+        let previous_profile_time = apps[0]
+            .directory_entry_for_account_id(&peer_account.account_id_hex)
+            .unwrap()
+            .and_then(|entry| entry.profile)
+            .map(|profile| profile.created_at)
+            .unwrap_or(0);
+        apps[0]
+            .remember_directory_profile(
+                &peer_account.account_id_hex,
+                &crate::UserProfileMetadata {
+                    display_name: Some(updated_peer_name.to_owned()),
+                    created_at: previous_profile_time.checked_add(1).unwrap(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            apps[0]
+                .directory_entry_for_account_id(&peer_account.account_id_hex)
+                .unwrap()
+                .unwrap()
+                .profile
+                .unwrap()
+                .display_name
+                .as_deref(),
+            Some(updated_peer_name)
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let source = runtimes[0]
+                    .presented_chat_list_row("test", &group_hex)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if matches!(source.presentation.title,
+                    storage_sqlite::PresentationText::Literal(name) if name == updated_peer_name)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("the source's asynchronous native profile presentation must update first");
+        let updated_in_time = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if matches!(
+                    runtimes[1]
+                        .existing_account_direct_conversation("test", &peer_account.account_id_hex)
+                        .await
+                        .unwrap(),
+                    Some(ExistingAccountDirectConversation::PairedSource(row))
+                        if row.group_id == group && row.name == updated_peer_name
+                ) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await;
+        let Some(ExistingAccountDirectConversation::PairedSource(updated)) = runtimes[1]
+            .existing_account_direct_conversation("test", &peer_account.account_id_hex)
+            .await
+            .unwrap()
+        else {
+            panic!("the original paired chat must still exist after its source profile changes");
+        };
+        assert_eq!(updated.group_id, group);
+        assert_eq!(
+            updated.name, updated_peer_name,
+            "existing chat name must refresh without pairing again"
+        );
+        assert!(
+            updated_in_time.is_ok(),
+            "the existing chat name arrived after its update deadline"
+        );
         assert!(matches!(
             apps[1].account_storage("test").unwrap().get_group(&group),
             Err(StorageError::NotFound)

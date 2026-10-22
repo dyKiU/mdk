@@ -68,12 +68,7 @@ pub(crate) fn select_chat_presentation(
     let (title, title_source) = if let Some(name) = group_name {
         (PresentationText::Literal(name), PresentationSource::Group)
     } else if let Some(peer) = &peer {
-        match profile.and_then(|p| {
-            p.display_name
-                .as_deref()
-                .and_then(safe_name)
-                .or_else(|| p.name.as_deref().and_then(safe_name))
-        }) {
+        match profile.and_then(public_profile_name) {
             Some(name) => (
                 PresentationText::Literal(name),
                 PresentationSource::PeerProfile,
@@ -221,6 +216,14 @@ pub(crate) fn canonical_identity(raw: &str) -> Option<String> {
 fn valid_hex(raw: &str, bytes: usize) -> bool {
     raw.len() == bytes * 2 && raw.bytes().all(|b| b.is_ascii_hexdigit())
 }
+pub(crate) fn public_profile_name(profile: &UserProfileMetadata) -> Option<String> {
+    profile
+        .display_name
+        .as_deref()
+        .and_then(safe_name)
+        .or_else(|| profile.name.as_deref().and_then(safe_name))
+}
+
 pub(crate) fn safe_name(raw: &str) -> Option<String> {
     let cleaned: String = raw
         .chars()

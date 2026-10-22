@@ -1636,8 +1636,17 @@ impl AppClient {
         &self,
         entry: &mut AutomaticChannel,
     ) -> Result<(), AccountSharingError> {
+        let Ok(profile_version) = self.app.shared_storage().and_then(|storage| {
+            storage
+                .directory_presentation_version()
+                .map_err(crate::AppError::from)
+        }) else {
+            // Preserve known metadata until the directory is readable; record/send work still proceeds.
+            return Ok(());
+        };
         let current: [u8; 32] = Sha256::digest(
-            serde_json::to_vec(&self.state.groups).map_err(|_| AccountSharingError::NotReady)?,
+            serde_json::to_vec(&(&self.state.groups, profile_version))
+                .map_err(|_| AccountSharingError::NotReady)?,
         )
         .into();
         if entry.inventory_digest != Some(current) {
@@ -1766,6 +1775,21 @@ impl AppClient {
             (Some(count as u32), peer)
         } else {
             (None, None)
+        };
+        let name = if let Some(peer) = direct_peer_account
+            && crate::chat_presentation::safe_name(&name).is_none()
+        {
+            // Only the authenticated direct peer's cached public metadata is shared.
+            // A directory cache miss must not block the existing chat-sharing path.
+            let profile = self
+                .app
+                .directory_entry_for_account_id(&hex::encode(peer))
+                .ok()
+                .flatten()
+                .and_then(|entry| entry.profile);
+            direct_peer::catalog_name(name, profile.as_ref())
+        } else {
+            name
         };
         let mut record = MirroredChatEntry {
             group_id,
