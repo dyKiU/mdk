@@ -48,6 +48,7 @@ async fn run(scenario: Scenario) {
     let mut ordinary_peer = None;
     let mut ordinary_facts = [false; 14];
     let mut ordinary_counts = [0usize; 6];
+    let mut ordinary_diagnostic = None;
     let mut observations = [0usize; 6];
     // Last completed existing PublicCancel poll; false row facts are unknown if absent.
     let mut public_cancel_sample = [false; 5];
@@ -254,9 +255,9 @@ async fn run(scenario: Scenario) {
                 ordinary_facts[5] = published.group != after.protected_group;
                 let group_hex = hex::encode(published.group.as_slice());
                 // A missing source binding is unknown, never an artificial timed wait.
-                let projected = if let (true, Some(app_id), Some(packet_id)) =
+                let projected = if let (true, Some(app_id), Some(canonical_id)) =
                     (published.source_row_bound && published.published_once,
-                     published.app_id.as_ref(), published.packet_id.as_ref()) {
+                     published.app_id.as_ref(), published.canonical_id.as_ref()) {
                     ordinary_facts[6] = true;
                     Some(tokio::time::timeout(Duration::from_secs(30), async {
                         loop {
@@ -268,7 +269,7 @@ async fn run(scenario: Scenario) {
                                 && row.plaintext == ORDINARY_PROGRESS_TEXT
                                 && row.direction == "received" && !row.invalidated)
                                 && timeline.as_ref().is_some_and(|row| row.message_id_hex == *app_id
-                                    && row.source_message_id_hex.as_ref() == Some(packet_id)
+                                    && row.source_message_id_hex.as_ref() == Some(canonical_id)
                                     && row.group_id_hex == group_hex && row.sender == published.sender
                                     && row.plaintext == ORDINARY_PROGRESS_TEXT
                                     && row.direction == "received" && !row.deleted) {
@@ -296,6 +297,55 @@ async fn run(scenario: Scenario) {
                     ordinary_facts[11] = timing.as_ref().is_some_and(|row|
                         !row.4.3 && row.3[0].is_some_and(|accepted|
                             accepted >= first_denied_at && accepted <= frozen_at));
+                    // The original verdict and its absolute wait have already ended.
+                    // These extra reads do not repair, drain, retry, or change that verdict.
+                    let (raw_read, timeline_read) = match apps[1].account_storage("test") {
+                        Ok(storage) => (
+                            published.app_id.as_ref().and_then(|app_id| storage.app_storage().app_message(&group_hex, app_id).ok()),
+                            published.app_id.as_ref().and_then(|app_id| storage.app_storage().timeline_message(&group_hex, app_id).ok()),
+                        ),
+                        Err(_) => (None, None),
+                    };
+                    let raw = raw_read.as_ref().and_then(|value| value.as_ref());
+                    let timeline = timeline_read.as_ref().and_then(|value| value.as_ref());
+                    let raw_matches = raw.zip(published.app_id.as_ref()).map(|(row, app_id)| [
+                        row.message_id_hex == *app_id,
+                        row.group_id_hex == group_hex,
+                        row.sender == published.sender,
+                        row.plaintext == ORDINARY_PROGRESS_TEXT,
+                        row.direction == "received",
+                        !row.invalidated,
+                    ]).unwrap_or([false; 6]);
+                    let timeline_matches = timeline.zip(published.app_id.as_ref()).map(|(row, app_id)| [
+                        row.message_id_hex == *app_id,
+                        row.source_message_id_hex.as_ref() == published.canonical_id.as_ref(),
+                        row.group_id_hex == group_hex,
+                        row.sender == published.sender,
+                        row.plaintext == ORDINARY_PROGRESS_TEXT,
+                        row.direction == "received",
+                        !row.deleted,
+                    ]).unwrap_or([false; 7]);
+                    let depths = timing.as_ref().and_then(|row| row.4.0);
+                    let dequeue_time = timing.as_ref().and_then(|row| row.4.2);
+                    let accepted_time = timing.as_ref().and_then(|row| row.3[0]);
+                    ordinary_diagnostic = Some(serde_json::json!({
+                        "collected": true,
+                        "raw_read": raw_read.is_some(), "timeline_read": timeline_read.is_some(),
+                        "raw_present": raw.is_some(), "timeline_present": timeline.is_some(),
+                        "raw_matches": raw_matches, "timeline_matches": timeline_matches,
+                        "timing_present": timing.is_some(),
+                        "dispositions": timing.as_ref().map(|row| row.0).unwrap_or([0; 8]),
+                        "placements": timing.as_ref().map(|row| row.2).unwrap_or([0; 6]),
+                        "dequeued": timing.as_ref().map_or(0, |row| row.4.1),
+                        "depth_known": depths.is_some(),
+                        "depth_before": depths.map_or(0, |value| value.0),
+                        "depth_after": depths.map_or(0, |value| value.1),
+                        "dequeue_time_known": dequeue_time.is_some(),
+                        "dequeue_order_known": accepted_time.is_some() && dequeue_time.is_some(),
+                        "dequeue_after_accept": accepted_time.zip(dequeue_time).is_some_and(|(accepted, dequeued)| accepted <= dequeued),
+                        "dequeue_before_verdict": dequeue_time.is_some_and(|dequeued| dequeued <= frozen_at),
+                        "invalid_custody": timing.as_ref().is_some_and(|row| row.4.3),
+                    }));
                 }
                 // The verdict above is already frozen. This existing read-only
                 // actor command checks the recipient again before either hold is
@@ -478,6 +528,12 @@ async fn run(scenario: Scenario) {
         attempt.is_ok()
     );
     if ordinary_case {
+        if let Some(diagnostic) = &ordinary_diagnostic {
+            crate::test_support::emit_line(format_args!(
+                "late-peer-ordinary-frozen {}",
+                diagnostic
+            ));
+        }
         crate::test_support::emit_line(format_args!(
             "late-peer-ordinary-progress independent_ready={} first_denial_seen={} original_closed_exact={} published_once={} source_packet_app_bound={} unrelated_group={} wait_sampled={} ordinary_projected={} custody_sampled={} queue_accepted={} same_receiver={} ordered_valid_custody={} negative_preserved={} final_receiver_matches={} no_replay={} accepted={} validation_rejections={} own_publications={} open_attempts={} routed_after_cancel={} closed_denials={} original_facts_complete={} runtime_closes={} planes_shutdown={} independent_closed={} independent_plane_shutdown={} relay_closed={} attempt_completed={}",
             ordinary_facts[0],

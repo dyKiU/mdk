@@ -388,6 +388,7 @@ pub(in crate::native_device_linking) struct OrdinaryProgressPublication {
     pub(in crate::native_device_linking) group: crate::GroupId,
     pub(in crate::native_device_linking) app_id: Option<String>,
     pub(in crate::native_device_linking) packet_id: Option<String>,
+    pub(in crate::native_device_linking) canonical_id: Option<String>,
     pub(in crate::native_device_linking) sender: String,
     pub(in crate::native_device_linking) published_once: bool,
     pub(in crate::native_device_linking) source_row_bound: bool,
@@ -397,6 +398,80 @@ impl IncomingPeer {
     pub(in crate::native_device_linking) async fn publish_ordinary_progress(
         &self,
     ) -> OrdinaryProgressPublication {
+        use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
+        use sha2::{Digest, Sha256};
+        // Observe this actual sender plane only. The callback captures no live
+        // client/session, supplies no ACK, and retires after one bound application.
+        let storage = self.app.account_storage("test").unwrap();
+        let account = cgka_traits::MemberId::new(
+            hex::decode(
+                self.app
+                    .account_home()
+                    .account("test")
+                    .unwrap()
+                    .account_id_hex,
+            )
+            .unwrap(),
+        );
+        let group = self.group.clone();
+        let binding = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback_binding = binding.clone();
+        let observation = self
+            .app
+            .relay_plane
+            .observe_publications_for_test(std::sync::Arc::new(move |request| {
+                let bound = (|| -> Option<(String, String, String)> {
+                    if request.account_id != account
+                        || !matches!(&request.target,
+                            cgka_traits::TransportPublishTarget::Group { group_id, .. }
+                                if group_id == &group)
+                        || request.validate_envelope_matches_target().is_err()
+                    {
+                        return None;
+                    }
+                    let fanout = storage.outbound_fanout(&request.message.id).ok()??;
+                    let application = fanout.application_message()?;
+                    if fanout.request() != request
+                        || fanout.group_id() != Some(&group)
+                        || application.group_id != group
+                    {
+                        return None;
+                    }
+                    // Applications have no pending_origin_message_id. Their
+                    // own Sent record retains BOTH the exact outer and MLS wire.
+                    let row = storage.get_message(&request.message.id).ok()?;
+                    if row.id != request.message.id
+                        || row.group_id != group
+                        || row.epoch != application.source_epoch
+                        || row.state != cgka_traits::message::MessageState::Sent
+                    {
+                        return None;
+                    }
+                    let payload =
+                        cgka_traits::message::StoredMessagePayload::decode(&row.payload).ok()?;
+                    if payload.as_exact_transport() != Some(&request.message)
+                        || payload.own_application_stamp()?.sender != account
+                    {
+                        return None;
+                    }
+                    let wire = payload.as_openmls_wire()?;
+                    let mut expected_wire = request.message.clone();
+                    expected_wire.payload = wire.payload.clone();
+                    if wire != &expected_wire {
+                        return None;
+                    }
+                    Some((
+                        application.app_event_id.clone(),
+                        hex::encode(request.message.id.as_slice()),
+                        hex::encode(Sha256::digest(&wire.payload)),
+                    ))
+                })();
+                let Some(bound) = bound else {
+                    return false;
+                };
+                *callback_binding.lock().unwrap() = Some(bound);
+                true
+            }));
         let sent = self
             .runtime
             .send_message(
@@ -406,6 +481,8 @@ impl IncomingPeer {
             )
             .await
             .unwrap();
+        drop(observation);
+        let observed = binding.lock().unwrap().take();
         let published_once = sent.published == 1 && sent.message_ids.len() == 1;
         let app_id = published_once.then(|| sent.message_ids[0].clone());
         let sender = self
@@ -467,11 +544,19 @@ impl IncomingPeer {
         } else {
             None
         };
-        let source_row_bound = packet_id.is_some();
+        // The actual app result, exact frozen publication, sender's outer row
+        // and carried MLS bytes must all name the same submission. Missing
+        // evidence fails the existing prerequisite; no receive wait is invented.
+        let canonical_id = observed.and_then(|(observed_app, outer, canonical)| {
+            (app_id.as_ref() == Some(&observed_app) && packet_id.as_ref() == Some(&outer))
+                .then_some(canonical)
+        });
+        let source_row_bound = packet_id.is_some() && canonical_id.is_some();
         OrdinaryProgressPublication {
             group: self.group.clone(),
             app_id,
             packet_id,
+            canonical_id,
             sender,
             published_once,
             source_row_bound,

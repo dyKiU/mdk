@@ -37,6 +37,36 @@ OLD_KEYS = ['mode'] + FIELDS + COUNTS + ['relay_closed', 'attempt_completed']
 ORD_KEYS = ORDINARY + ['no_replay'] + COUNTS[:6] + ['original_facts_complete'] + COUNTS[6:] + ['independent_closed', 'independent_plane_shutdown', 'relay_closed', 'attempt_completed']
 BOOLS = set(FIELDS + ORDINARY + SAMPLE + ['no_replay', 'original_facts_complete', 'independent_closed', 'independent_plane_shutdown', 'relay_closed', 'attempt_completed'])
 NS = {'late-peer-negative': OLD_KEYS, 'late-peer-public-cancel-sample': SAMPLE, 'late-peer-ordinary-progress': ORD_KEYS}
+DIAGNOSTIC_NS = 'late-peer-ordinary-frozen'
+DIAGNOSTIC_BOOLS = {'collected', 'raw_read', 'timeline_read', 'raw_present', 'timeline_present',
+                    'timing_present', 'depth_known', 'dequeue_time_known', 'dequeue_order_known',
+                    'dequeue_after_accept', 'dequeue_before_verdict', 'invalid_custody'}
+DIAGNOSTIC_COUNTS = {'dequeued', 'depth_before', 'depth_after'}
+DIAGNOSTIC_ARRAYS = {'raw_matches': (6, bool), 'timeline_matches': (7, bool),
+                     'dispositions': (8, int), 'placements': (6, int)}
+
+
+def decode_diagnostic(line):
+    require(line.startswith(DIAGNOSTIC_NS + ' '), 'diagnostic_envelope')
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'diagnostic_duplicate_key')
+            result[key] = value
+        return result
+    value = json.loads(line[len(DIAGNOSTIC_NS) + 1:], object_pairs_hook=unique)
+    require(type(value) is dict and set(value) == DIAGNOSTIC_BOOLS | DIAGNOSTIC_COUNTS | set(DIAGNOSTIC_ARRAYS), 'diagnostic_keys')
+    for key in DIAGNOSTIC_BOOLS:
+        require(type(value[key]) is bool, 'diagnostic_bool')
+    for key in DIAGNOSTIC_COUNTS:
+        require(type(value[key]) is int and 0 <= value[key] <= 18446744073709551615, 'diagnostic_count')
+    for key, (size, kind) in DIAGNOSTIC_ARRAYS.items():
+        require(type(value[key]) is list and len(value[key]) == size
+                and all(type(item) is kind and (kind is bool or 0 <= item <= 18446744073709551615)
+                        for item in value[key]), 'diagnostic_array')
+    return value
+
+
 CAP = 16 * 1024 * 1024
 ANCHOR = '''                if !entry.recipient
                     && entry.ready
@@ -257,6 +287,18 @@ def parse(raw, name, exit_code):
         row['markers_before_own_assertion'] = row['own_assertion'] and marker_end < panics[0].start()
     except Rejected:
         row['marker_schema_complete'] = False
+    try:
+        diagnostic_lines = [line for line in text.splitlines() if DIAGNOSTIC_NS in line]
+        require(len(diagnostic_lines) <= 1, 'diagnostic_duplicate_line')
+        if diagnostic_lines:
+            line = diagnostic_lines[0]
+            prefix = 'test ' + name + ' ... '
+            if line.startswith(prefix):
+                line = line[len(prefix):]
+            row['frozen_diagnostic'] = decode_diagnostic(line)
+        row['diagnostic_schema_complete'] = True
+    except (Rejected, ValueError, TypeError):
+        row['diagnostic_schema_complete'] = False
     return row
 
 
@@ -302,7 +344,11 @@ def oracle(row, red=False):
     if not ordinary:
         return True
     obs = markers['late-peer-ordinary-progress']
-    return (all(obs[key] == (False if red and key == 'ordinary_projected' else True) for key in ORDINARY)
+    # The inverse proves repeated terminal retries, not necessarily blocked
+    # ordinary projection. Retain its observed projection boolean either way;
+    # all original custody/authority/cleanup evidence remains mandatory.
+    return (all(obs[key] is True for key in ORDINARY if key != 'ordinary_projected')
+        and (red or obs['ordinary_projected'] is True)
         and obs['no_replay'] == obs['original_facts_complete'] == (not red)
         and all(obs[key] == old[key] for key in COUNTS + ['relay_closed', 'attempt_completed'])
         and obs['independent_closed'] and obs['independent_plane_shutdown'])
@@ -363,11 +409,15 @@ def metadata_controls():
     red = synthetic(CASES[2], True)
     require(decode(red, CASES[2], True), 'metadata_red')
     positive += 1
+    require(decode(red.replace(b'ordinary_projected=false', b'ordinary_projected=true'), CASES[2], True),
+            'metadata_terminal_retries_with_ordinary_projection')
+    positive += 1
     require(decode(red.replace(b' (123)', b''), CASES[2], True), 'metadata_thread_without_id')
     positive += 1
     variants = [red.replace(MESSAGE.encode(), b'PRIVATE'), red.replace(FIXTURE.encode(), b'crates/PRIVATE.rs'),
                 red.replace((':' + str(location()) + ':9').encode(), b':1:9'),
-                red.replace(b' (123)', b' (PRIVATE)'), red.replace(b'ordinary_projected=false', b'ordinary_projected=true'),
+                red.replace(b' (123)', b' (PRIVATE)'),
+                red.replace(b'ordinary_projected=false', b'ordinary_projected=unknown'),
                 red.replace(b'closed_denials=3', b'closed_denials=1'),
                 red.replace(b'no_replay=false', b'no_replay=true'), red.replace(b'0 passed; 1 failed', b'1 passed; 0 failed'),
                 red + b"thread 'PRIVATE' panicked at crates/PRIVATE.rs:1:1:\nPRIVATE\n",
@@ -391,6 +441,29 @@ def metadata_controls():
     private = parse(red.replace(MESSAGE.encode(), b'PRIVATE_PAYLOAD_SENTINEL'), CASES[2], 101)
     require('PRIVATE_PAYLOAD_SENTINEL' not in json.dumps(private), 'metadata_privacy')
     positive += 1
+    diagnostic = {key: True for key in DIAGNOSTIC_BOOLS}
+    diagnostic.update({key: 0 for key in DIAGNOSTIC_COUNTS})
+    diagnostic.update({key: [False if kind is bool else 0] * size for key, (size, kind) in DIAGNOSTIC_ARRAYS.items()})
+    line = DIAGNOSTIC_NS + ' ' + json.dumps(diagnostic, separators=(',', ':'))
+    require(decode_diagnostic(line) == diagnostic, 'metadata_diagnostic_positive')
+    positive += 1
+    bad = [line.replace('"collected":true', '"collected":1'), line.replace('"dequeued":0', '"dequeued":true'),
+           line.replace('"dequeued":0', '"dequeued":-1'), line.replace('"raw_matches":[false,false,false,false,false,false]', '"raw_matches":[false]'),
+           line.replace('"collected":true', '"collected":true,"collected":true'),
+           line.replace('{', '{"PRIVATE":"PRIVATE",', 1), 'PRIVATE ' + line]
+    for value in bad:
+        try:
+            decode_diagnostic(value)
+        except (Rejected, ValueError, TypeError):
+            negative += 1
+        else:
+            raise Rejected('metadata_diagnostic_negative')
+    diagnostic_raw = synthetic(CASES[2]) + line.encode() + b'\n'
+    require(parse(diagnostic_raw, CASES[2], 0).get('diagnostic_schema_complete') is True, 'metadata_diagnostic_parse')
+    positive += 1
+    for value in (diagnostic_raw + line.encode() + b'\n', diagnostic_raw + b' PRIVATE late-peer-ordinary-frozen PRIVATE\n'):
+        require(parse(value, CASES[2], 0).get('diagnostic_schema_complete') is False, 'metadata_diagnostic_duplicate_or_prefixed')
+        negative += 1
     return {'passed': True, 'positive': positive, 'negative': negative, 'actual_rust_bodies': 0}
 
 
@@ -398,7 +471,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True)
     parser.add_argument('--baseline', required=True)
-    parser.add_argument('--mode', choices=['preflight', 'pfp'], required=True)
+    parser.add_argument('--mode', choices=['preflight', 'pfp', 'ordinary-diagnostic'], required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
     os.umask(0o077)
@@ -470,6 +543,8 @@ def main():
             if all(type(body.get(key)) is int for key in ('passed', 'failed', 'ignored')):
                 report['actual_rust_bodies'] += body['passed'] + body['failed']
             body['qualified'] = oracle(body, label == 'inverse')
+            if label == 'inverse' and body['qualified']:
+                body['oracle_mutation_class'] = 'repeated_closed_terminal_retries'
             body['source_closure'] = pristine(expected)
             body['binary_unchanged'] = sha(binary.read_bytes()) == row['binary_sha256']
             save()
@@ -483,7 +558,7 @@ def main():
                 and os.environ.get('GITHUB_REF_NAME', '').startswith('ci/upstream-develop-dy-')
                 and os.environ.get('GITHUB_REF') == 'refs/heads/' + os.environ['GITHUB_REF_NAME'], 'manual_owned_remote')
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
-        require(event.get('inputs', {}).get('case') == 'cancel-terminal-pfp'
+        require(event.get('inputs', {}).get('case') in (('cancel-terminal-pfp', 'cancel-terminal-ordinary-diagnostic') if args.mode == 'preflight' else (('cancel-terminal-ordinary-diagnostic',) if args.mode == 'ordinary-diagnostic' else ('cancel-terminal-pfp',)))
                 and event['inputs'].get('extraction_cohort_baseline') == args.baseline, 'explicit_case_baseline')
         require(re.fullmatch('[0-9a-f]{40}', args.source) and re.fullmatch('[0-9a-f]{40}', args.baseline)
                 and args.source == os.environ.get('GITHUB_SHA') == git('rev-parse', 'HEAD').decode().strip(), 'source_identity')
@@ -515,7 +590,7 @@ def main():
         report['metadata_controls'] = metadata_controls()
         report['metadata_passed'] = True
         save()
-        if args.mode == 'pfp':
+        if args.mode in ('pfp', 'ordinary-diagnostic'):
             version_facts, version, _ = capture(['cargo', 'nextest', '--version'], 60)
             require(version_facts['capture_complete'] and version_facts['exit_code'] == 0
                     and re.match(rb'^cargo-nextest 0\.9\.132(?:\s|$)', version), 'pinned_nextest')
@@ -526,16 +601,19 @@ def main():
                 'test_threads': 1, 'automatic_retries': 0, 'features': FEATURES,
                 'stack_bytes': 4194304, 'cargo_build_jobs': 2, 'incremental': 1,
                 'dev_debug': 0, 'test_debug': 0, 'compile_watchdog_seconds': 1800, 'body_watchdog_seconds': 300}
-            baseline_ok = compile_phase('baseline', CASES, frozen)
-            require(baseline_ok, 'baseline_not_green')
-            changed = inverse(original)
-            Path(PRODUCT).write_bytes(changed)
-            report['mutation_attempted'] = True
-            save()
-            expected = physical(current_tree)
-            require({name for name in frozen if frozen[name] != expected[name]} == {PRODUCT}
-                    and expected[PRODUCT][0] == frozen[PRODUCT][0], 'sole_mutant_source_mode')
-            compile_phase('inverse', [CASES[2]], expected)
+            if args.mode == 'ordinary-diagnostic':
+                compile_phase('ordinary-diagnostic', [CASES[2]], frozen)
+            else:
+                baseline_ok = compile_phase('baseline', CASES, frozen)
+                require(baseline_ok, 'baseline_not_green')
+                changed = inverse(original)
+                Path(PRODUCT).write_bytes(changed)
+                report['mutation_attempted'] = True
+                save()
+                expected = physical(current_tree)
+                require({name for name in frozen if frozen[name] != expected[name]} == {PRODUCT}
+                        and expected[PRODUCT][0] == frozen[PRODUCT][0], 'sole_mutant_source_mode')
+                compile_phase('inverse', [CASES[2]], expected)
     except Exception as error:
         report['exception_type'] = type(error).__name__
         report['failure_reason'] = error.args[0] if type(error) is Rejected else 'unknown'
@@ -567,9 +645,27 @@ def main():
             and report['actual_rust_bodies'] == report['runtime_invocations'] == 7
             and set(report['phases']) == {'baseline', 'inverse', 'restored'}
             and all(row.get('qualified') is True for row in report['phases'].values()))
+        diagnostic = report['phases'].get('ordinary-diagnostic', {})
+        bodies = diagnostic.get('bodies', [])
+        report['diagnostic_complete'] = (args.mode == 'ordinary-diagnostic' and complete
+            and report['metadata_passed'] and not report['mutation_attempted']
+            and 'exception_type' not in report and report['actual_rust_bodies'] == report['runtime_invocations'] == 1
+            and len(bodies) == 1 and bodies[0].get('source_closure') is True
+            and bodies[0].get('binary_unchanged') is True and bodies[0].get('capture_complete') is True
+            and bodies[0].get('marker_schema_complete') is True
+            and set(bodies[0].get('markers', {})) == set(NS)
+            and bodies[0].get('diagnostic_schema_complete') is True
+            and bodies[0].get('frozen_diagnostic', {}).get('collected') is True
+            and bodies[0].get('compiler_error_count') == 0 and bodies[0].get('ignored') == 0
+            and bodies[0].get('running_one') is True and bodies[0].get('selected_names_exact') is True
+            and ((bodies[0].get('passed') == 1 and bodies[0].get('failed') == 0 and bodies[0].get('exit_code') == 0
+                  and bodies[0].get('panic_count') == 0)
+                 or (bodies[0].get('passed') == 0 and bodies[0].get('failed') == 1 and bodies[0].get('exit_code') == 101
+                     and bodies[0].get('own_assertion') is True)))
+        report['diagnostic_body_passed'] = bool(report['diagnostic_complete'] and bodies[0].get('qualified') is True)
         report['preflight_passed'] = args.mode == 'preflight' and report['metadata_passed'] and complete and 'exception_type' not in report
         save()
-    return 0 if report['qualification_passed'] or report['preflight_passed'] else 1
+    return 0 if report['qualification_passed'] or report['preflight_passed'] or report['diagnostic_body_passed'] else 1
 
 
 if __name__ == '__main__':
