@@ -6,18 +6,22 @@
 #include <stdlib.h>
 #include <marmot.h>
 
-_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED == 112, "history unsupported ABI");
-_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_NOT_READY == 113, "history not-ready ABI");
-_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_CLOSED == 114, "history closed ABI");
-_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_STALE_REVISION == 115, "history revision ABI");
-_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_RUNTIME_UNAVAILABLE == 116, "history runtime ABI");
+_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED == 137, "history unsupported ABI");
+_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_NOT_READY == 138, "history not-ready ABI");
+_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_CLOSED == 139, "history closed ABI");
+_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_STALE_REVISION == 140, "history revision ABI");
+_Static_assert(MARMOT_STATUS_HISTORY_TRANSFER_RUNTIME_UNAVAILABLE == 141, "history runtime ABI");
 
 int main(int argc, char **argv) {
     assert(argc == 3);
     bool experimental = atoi(argv[2]) == 1;
     const char *relays[] = {"wss://relay.example"};
     MarmotClient *client = NULL;
-    assert(marmot_client_new(argv[1], relays, 1, &client) == MARMOT_STATUS_OK);
+    MarmotDeployment *deployment = NULL;
+    assert(marmot_deployment_white_noise(&deployment) == MARMOT_STATUS_OK);
+    MarmotStatus client_status = marmot_client_new(argv[1], relays, 1, deployment, &client);
+    marmot_deployment_free(deployment);
+    assert(client_status == MARMOT_STATUS_OK);
     MarmotHistoryTransfer *transfer = (MarmotHistoryTransfer *)(uintptr_t)1;
     MarmotStatus status = marmot_begin_history_transfer(NULL, NULL, NULL, NULL, SIZE_MAX, &transfer);
     assert(transfer == NULL);
@@ -48,9 +52,9 @@ int main(int argc, char **argv) {
     marmot_history_transfer_recipient_list_free(NULL);
     MarmotHistoryTransferRecipient choice = {.leaf_index = UINT32_MAX, .device = recipient, .device_len = 32};
     assert(choice.leaf_index == UINT32_MAX && choice.device == recipient && choice.device_len == 32);
-    _Static_assert(MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED == 121, "account sharing unsupported ABI");
-    _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED == 126, "revocation unsupported ABI");
-    _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE == 132, "revocation runtime ABI");
+    _Static_assert(MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED == 146, "account sharing unsupported ABI");
+    _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED == 151, "revocation unsupported ABI");
+    _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE == 157, "revocation runtime ABI");
     MarmotDeviceRevocation *revocation = (MarmotDeviceRevocation *)(uintptr_t)1;
     assert(marmot_begin_device_revocation(NULL, NULL, NULL, SIZE_MAX, NULL) == MARMOT_STATUS_NULL_POINTER);
     status = marmot_begin_device_revocation(NULL, NULL, NULL, SIZE_MAX, &revocation);
