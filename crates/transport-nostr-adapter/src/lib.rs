@@ -93,6 +93,13 @@ mod sdk_client;
 #[cfg(all(feature = "sdk", feature = "experimental-device-sync"))]
 pub use sdk_client::SdkLiveNotificationReceiver;
 mod telemetry;
+#[cfg(all(
+    test,
+    feature = "sdk",
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod test_support;
 
 pub use acquisition::{
     NostrAcquisitionCancellation, NostrAcquisitionEnd, NostrAcquisitionEndpoint,

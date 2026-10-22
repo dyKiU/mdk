@@ -10394,7 +10394,7 @@ mod tests {
                 && reader_epoch[0] > connection_epoch[0];
             drop(reader);
             let closed = f.close().await;
-            eprintln!(
+            crate::test_support::emit_line(format_args!(
                 "private-sdk-epoch {{\"prerequisites\":{},\"delayed_negative\":{},\"endpoint_negative\":{},\"connection_negative\":{},\"reader_negative\":{},\"closed\":{}}}",
                 prerequisites,
                 delayed_negative,
@@ -10402,7 +10402,7 @@ mod tests {
                 connection_negative,
                 reader_negative,
                 closed
-            );
+            ));
             assert!(
                 prerequisites && delayed_negative && endpoint_negative && closed,
                 "actual SDK epoch fixture prerequisites and positive closes must hold"
@@ -10495,10 +10495,10 @@ mod tests {
                 .is_ok_and(|r| r.is_ok());
             let prerequisites =
                 selected_once && live_bound && ordinary_native && closed && forwarder_closed;
-            eprintln!(
+            crate::test_support::emit_line(format_args!(
                 "private-sdk-alias {{\"prerequisites\":{},\"private_alias_absent\":{}}}",
                 prerequisites, private_alias_absent
-            );
+            ));
             assert!(
                 prerequisites,
                 "real SDK private and ordinary native replay prerequisites must hold"
