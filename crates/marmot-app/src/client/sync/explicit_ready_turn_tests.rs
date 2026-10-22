@@ -57,7 +57,7 @@ async fn retain_real_probe(
             wire: None,
         },
     };
-    let ingested = client.runtime.ingest_delivery(delivery).await.unwrap();
+    let ingested = client.runtime.ingest_delivery(&delivery).await.unwrap();
     assert!(
         matches!(&ingested.outcome, IngestOutcome::TransportDeferred { group_id, .. } if group_id == group),
         "real signed malformed envelope must reach transport deferral"

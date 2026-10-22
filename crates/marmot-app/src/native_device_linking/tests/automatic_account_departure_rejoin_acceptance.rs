@@ -433,6 +433,7 @@ async fn invite_exact_source(
     );
     let account = source_app.account_home().account("test").unwrap();
     let records = administrator_app
+        .directory()
         .fetch_key_package_events_for_account_id(
             &account.account_id_hex,
             &[cgka_traits::TransportEndpoint(url.to_owned())],

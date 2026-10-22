@@ -305,7 +305,7 @@ async fn admit_second_source(
     // Fetch the exact actual signed publication through the normal relay
     // directory reader; only that parser may attach its Welcome SourceRef.
     let published_id = hex::encode(published.authored_event_id.unwrap().as_slice());
-    let records = Box::pin(app.fetch_key_package_events_for_account_id(
+    let records = Box::pin(app.directory().fetch_key_package_events_for_account_id(
         account_id,
         &[cgka_traits::TransportEndpoint(url.to_owned())],
     ))

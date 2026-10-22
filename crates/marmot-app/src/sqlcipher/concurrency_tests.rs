@@ -251,7 +251,9 @@ fn delayed_directory_cleanup_preserves_published_encrypted_cache() {
     let (entered_tx, entered_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let path = app.directory_cache_path(&account.label);
-    let mut record = app.empty_directory_record(&account.account_id_hex);
+    let mut record = app
+        .directory()
+        .empty_directory_record_for_test(&account.account_id_hex);
     record.follows = vec![format!("{:064x}", 43)];
 
     std::thread::scope(|scope| {
