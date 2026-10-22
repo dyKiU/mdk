@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [local-hide-restoration-pfp, proposal-receipt-safety-controls, proposal-receipt-foreign-once, proposal-receipt-newer-terminal, proposal-receipt-sql-read-error, proposal-failed-handoff-control, proposal-only-cancel-green, proposal-only-cancel-pfp, proposal-only-cancel-red, private-reference-parent-pfp, private-reference-controls, explicit-sync-lifecycle-controls, explicit-sync-lifecycle-default, explicit-sync-lifecycle-experimental, explicit-sync-progress-controls, explicit-sync-progress-default, explicit-sync-progress-experimental, automatic-body-publication-pfp, peer-leave-timer-controls, peer-leave-timer-default, peer-leave-timer-experimental, canonical-leaf-cleanup-controls, canonical-leaf-cleanup-default, canonical-leaf-cleanup-experimental, storage-ownership-final-omissions, storage-ownership-current-omissions, publication-preflight, publication-controls, storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-stack-regression, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind, secondary-deferred, secondary-buffered, secondary-cutoff-pfp, secondary-cutoff-deferred-pfp, secondary-cutoff-buffered-pfp, cancel-maintenance-red, cancel-maintenance-controls, cancel-maintenance-pfp, cancel-maintenance-newer-owner, cancel-maintenance-slot-controls, cancel-maintenance-guard-control, cancel-maintenance-real-guard-pfp, avatar-ready-turn-pfp, explicit-ready-selection-pfp, explicit-ready-tail-controls, cancel-late-first-red, cancel-late-first-controls, cancel-late-first-pfp, cancel-late-first-slot-controls, cancel-invite-cas-controls, cancel-invite-cleanup-control]
+        options: [cancel-terminal-pfp, local-hide-restoration-pfp, proposal-receipt-safety-controls, proposal-receipt-foreign-once, proposal-receipt-newer-terminal, proposal-receipt-sql-read-error, proposal-failed-handoff-control, proposal-only-cancel-green, proposal-only-cancel-pfp, proposal-only-cancel-red, private-reference-parent-pfp, private-reference-controls, explicit-sync-lifecycle-controls, explicit-sync-lifecycle-default, explicit-sync-lifecycle-experimental, explicit-sync-progress-controls, explicit-sync-progress-default, explicit-sync-progress-experimental, automatic-body-publication-pfp, peer-leave-timer-controls, peer-leave-timer-default, peer-leave-timer-experimental, canonical-leaf-cleanup-controls, canonical-leaf-cleanup-default, canonical-leaf-cleanup-experimental, storage-ownership-final-omissions, storage-ownership-current-omissions, publication-preflight, publication-controls, storage-ownership-current, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-stack-regression, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind, secondary-deferred, secondary-buffered, secondary-cutoff-pfp, secondary-cutoff-deferred-pfp, secondary-cutoff-buffered-pfp, cancel-maintenance-red, cancel-maintenance-controls, cancel-maintenance-pfp, cancel-maintenance-newer-owner, cancel-maintenance-slot-controls, cancel-maintenance-guard-control, cancel-maintenance-real-guard-pfp, avatar-ready-turn-pfp, explicit-ready-selection-pfp, explicit-ready-tail-controls, cancel-late-first-red, cancel-late-first-controls, cancel-late-first-pfp, cancel-late-first-slot-controls, cancel-invite-cas-controls, cancel-invite-cleanup-control]
         default: all
       secondary_scheduler_stage:
         description: Explicit expected baseline RED or fixed-source omission/restoration
@@ -47,6 +47,102 @@ env:
   UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && 'e7826fbc13de5af33661a1b768256b247d753f17' || inputs.extraction_cohort_baseline }}
 
 jobs:
+  cancel-terminal-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'cancel-terminal-pfp' && startsWith(github.ref_name, 'ci/upstream-develop-dy-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+      RUST_MIN_STACK: '4194304'
+      SOURCE_SHA: ${{ github.sha }}
+      PRODUCT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Closed source admission and decoder controls; zero Rust bodies
+        run: >-
+          python3 scripts/qualify_cancelled_proof_terminal.py --mode preflight
+          --source "$SOURCE_SHA" --baseline "$PRODUCT_BASELINE"
+          --output "$RUNNER_TEMP/cancel-terminal-preflight.json"
+      - name: Exact source toolchain and formatter precheck
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all -- --check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: cancel-terminal-preflight-${{ github.sha }}
+          path: ${{ runner.temp }}/cancel-terminal-preflight.json
+          if-no-files-found: error
+          retention-days: 7
+
+  cancel-terminal-pfp:
+    needs: cancel-terminal-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'cancel-terminal-pfp' && startsWith(github.ref_name, 'ci/upstream-develop-dy-')
+    runs-on: ubuntu-latest
+    # Three bounded 30-minute compiles plus seven bounded five-minute captures.
+    # These watchdogs never change the fixtures' original protocol deadlines.
+    timeout-minutes: 150
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+      RUST_MIN_STACK: '4194304'
+      SOURCE_SHA: ${{ github.sha }}
+      PRODUCT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: cancel-terminal-pfp
+          cache-on-failure: true
+          cache-workspace-crates: true
+      - name: Existing physical capacity guard
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label cancel-terminal-pfp
+          --output "$RUNNER_TEMP/cancel-terminal-capacity.json"
+      - name: Exact three controls, sole terminal-guard inverse, exact three restored controls
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: >-
+          python3 scripts/qualify_cancelled_proof_terminal.py --mode pfp
+          --source "$SOURCE_SHA" --baseline "$PRODUCT_BASELINE"
+          --output "$RUNNER_TEMP/cancel-terminal-result.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: cancel-terminal-pfp-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/cancel-terminal-result.json
+            ${{ runner.temp }}/cancel-terminal-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+
   private-reference-controls:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["private-reference-controls","private-reference-parent-pfp"]'), inputs.case)
     runs-on: ubuntu-latest
@@ -519,7 +615,7 @@ jobs:
           retention-days: 7
   # STORAGE_HANDLE_JOBS_END
   cohort-preflight:
-    if: (startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["avatar-ready-turn-pfp","explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case) && startsWith(github.ref_name, 'ci/upstream-avatar-ready-turn-'))) && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
+    if: (startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["avatar-ready-turn-pfp","explicit-ready-selection-pfp","explicit-ready-tail-controls"]'), inputs.case) && startsWith(github.ref_name, 'ci/upstream-avatar-ready-turn-'))) && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations' && inputs.case != 'cancel-terminal-pfp'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -824,7 +920,7 @@ jobs:
 
   mutation:
     needs: cohort-preflight
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'publication-preflight' && inputs.case != 'private-reference-controls' && inputs.case != 'private-reference-parent-pfp' && inputs.case != 'avatar-ready-turn-pfp' && inputs.case != 'explicit-ready-selection-pfp' && inputs.case != 'explicit-ready-tail-controls' && !contains(fromJSON('["secondary-cutoff-pfp","secondary-cutoff-deferred-pfp","secondary-cutoff-buffered-pfp"]'), inputs.case) && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'publication-preflight' && inputs.case != 'private-reference-controls' && inputs.case != 'private-reference-parent-pfp' && inputs.case != 'avatar-ready-turn-pfp' && inputs.case != 'explicit-ready-selection-pfp' && inputs.case != 'explicit-ready-tail-controls' && !contains(fromJSON('["secondary-cutoff-pfp","secondary-cutoff-deferred-pfp","secondary-cutoff-buffered-pfp"]'), inputs.case) && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations' && inputs.case != 'cancel-terminal-pfp'
     runs-on: ubuntu-latest
     # Lifecycle cases have four bounded 30-minute captures; other cases retain three.
     timeout-minutes: ${{ contains(fromJSON('["explicit-sync-lifecycle-default","explicit-sync-lifecycle-experimental","proposal-only-cancel-pfp"]'), matrix.case) && 135 || 105 }}
