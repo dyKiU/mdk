@@ -2365,6 +2365,25 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 peer_proof_probe::negative::closed(&entry, received, wire);
                 // PEER_NEGATIVE_TEST_END
+                let scope = entry.channel.scope();
+                if !entry.recipient
+                    && entry.ready
+                    && !entry.state.live()
+                    && entry.original.matches(scope)
+                    && matches!(entry.original.as_ref(), SiblingOriginal::Existing { original, .. }
+                        if Arc::ptr_eq(&entry.state, &original.state))
+                    && received.control == AccountSharingControl::Body(0)
+                    && received.nonce == scope.nonce
+                    && received.source == scope.source
+                    && received.recipient == scope.recipient
+                    && received.approval_id == scope.approval_id
+                    && received.signer == scope.recipient
+                {
+                    // This authenticated envelope belongs only to this terminal
+                    // original. Consume it negatively without opening its body,
+                    // approving policy, or routing it to an automatic owner.
+                    return Ok(true);
+                }
                 return Err(Error::Closed);
             }
             match received.control {
