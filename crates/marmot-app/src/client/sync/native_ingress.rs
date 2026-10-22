@@ -210,6 +210,8 @@ impl AppClient {
         let Some(delivery) = batch.delivery() else {
             return Ok((false, None));
         };
+        #[cfg(feature = "test-policy-overrides")]
+        batch.observe_frame_for_test(false);
         let timestamp = delivery.message.timestamp.0;
         let result = async {
             let started = std::time::Instant::now();
@@ -266,6 +268,8 @@ impl AppClient {
                 return Err(error);
             }
         };
+        #[cfg(feature = "test-policy-overrides")]
+        if ingested { batch.observe_frame_for_test(true); }
         batch.acknowledge().await;
         if durable {
             if !ingested {

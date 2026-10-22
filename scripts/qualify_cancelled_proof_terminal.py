@@ -33,14 +33,20 @@ FIELDS = 'held own_harvested periodic_observed fresh_before negative_preserved r
 ORDINARY = 'independent_ready first_denial_seen original_closed_exact published_once source_packet_app_bound unrelated_group wait_sampled ordinary_projected custody_sampled queue_accepted same_receiver ordered_valid_custody negative_preserved final_receiver_matches'.split()
 COUNTS = 'accepted validation_rejections own_publications open_attempts routed_after_cancel closed_denials runtime_closes planes_shutdown'.split()
 SAMPLE = 'collected row_present original_closed exact_nonce exact_deadline'.split()
+NATIVE_BOOLS = 'before_current armed_current consumer_current bounded complete ordered_before_verdict route_before_verdict final_consumer_matches frame_custody_before_verdict'.split()
+NATIVE_COUNTS = 'borrowed ingested acknowledged'.split()
+LIVE = 'custody_sampled queue_accepted same_receiver ordered_valid_custody final_receiver_matches'.split()
 OLD_KEYS = ['mode'] + FIELDS + COUNTS + ['relay_closed', 'attempt_completed']
 ORD_KEYS = ORDINARY + ['no_replay'] + COUNTS[:6] + ['original_facts_complete'] + COUNTS[6:] + ['independent_closed', 'independent_plane_shutdown', 'relay_closed', 'attempt_completed']
 BOOLS = set(FIELDS + ORDINARY + SAMPLE + ['no_replay', 'original_facts_complete', 'independent_closed', 'independent_plane_shutdown', 'relay_closed', 'attempt_completed'])
-NS = {'late-peer-negative': OLD_KEYS, 'late-peer-public-cancel-sample': SAMPLE, 'late-peer-ordinary-progress': ORD_KEYS}
+BOOLS.update(NATIVE_BOOLS)
+NS = {'late-peer-negative': OLD_KEYS, 'late-peer-public-cancel-sample': SAMPLE, 'late-peer-ordinary-progress': ORD_KEYS,
+      'late-peer-native-route': NATIVE_BOOLS + NATIVE_COUNTS}
 DIAGNOSTIC_NS = 'late-peer-ordinary-frozen'
 DIAGNOSTIC_BOOLS = {'collected', 'raw_read', 'timeline_read', 'raw_present', 'timeline_present',
                     'timing_present', 'depth_known', 'dequeue_time_known', 'dequeue_order_known',
-                    'dequeue_after_accept', 'dequeue_before_verdict', 'invalid_custody'}
+                    'dequeue_after_accept', 'dequeue_before_verdict', 'invalid_custody',
+                    'accepted_after_first_denial_before_verdict'}
 DIAGNOSTIC_COUNTS = {'dequeued', 'depth_before', 'depth_after'}
 DIAGNOSTIC_ARRAYS = {'raw_matches': (6, bool), 'timeline_matches': (7, bool),
                      'dispositions': (8, int), 'placements': (6, int)}
@@ -219,7 +225,12 @@ def location():
     require(text.count(MESSAGE) == 1, 'unique_own_assert')
     label = text.index(MESSAGE)
     start = text.rfind('assert!(', max(0, label - 1200), label)
-    require(start >= 0 and 'ordinary_facts.into_iter().all(|value| value)' in text[start:label], 'own_assert_condition')
+    condition = re.sub(r'\s+', '', text[start:label]) if start >= 0 else ''
+    custody = re.sub(r'\s+', '', text[:start]) if start >= 0 else ''
+    require(start >= 0 and 'ordinary_facts[..8].iter().all(|value|*value)' in condition
+            and 'ordinary_facts[12]&&custody_complete' in condition, 'own_assert_condition')
+    require('||native_route.into_iter().all(|value|value)' in custody
+            and 'ordinary_facts[13]&&route_before_verdict' in custody, 'independent_route_oracle')
     return text.count('\n', 0, start) + 1
 
 
@@ -269,6 +280,15 @@ def parse(raw, name, exit_code):
     markers = {}
     marker_end = 0
     try:
+        for line in text.splitlines():
+            if 'late-peer-' not in line:
+                continue
+            prefix = 'test ' + name + ' ... '
+            if line.startswith(prefix):
+                line = line[len(prefix):]
+            namespace = line.split(' ', 1)[0]
+            require(namespace in set(NS) | {DIAGNOSTIC_NS}
+                    and line.startswith(namespace + ' '), 'unknown_marker_namespace')
         for namespace in NS:
             rows = []
             for match in re.finditer(r'(?m)^.*' + re.escape(namespace) + r'.*$', text):
@@ -320,7 +340,7 @@ def oracle(row, red=False):
     if red and (not ordinary or not row.get('own_assertion') or not row.get('markers_before_own_assertion')):
         return False
     markers = row['markers']
-    expected = {'late-peer-negative'} | (set() if injected else {'late-peer-public-cancel-sample'}) | ({'late-peer-ordinary-progress'} if ordinary else set())
+    expected = {'late-peer-negative'} | (set() if injected else {'late-peer-public-cancel-sample'}) | ({'late-peer-ordinary-progress', 'late-peer-native-route'} if ordinary else set())
     if set(markers) != expected:
         return False
     old = markers['late-peer-negative']
@@ -347,7 +367,28 @@ def oracle(row, red=False):
     # The inverse proves repeated terminal retries, not necessarily blocked
     # ordinary projection. Retain its observed projection boolean either way;
     # all original custody/authority/cleanup evidence remains mandatory.
-    return (all(obs[key] is True for key in ORDINARY if key != 'ordinary_projected')
+    native = markers['late-peer-native-route']
+    counts = [native[key] for key in NATIVE_COUNTS]
+    if any(count > 64 for count in counts) or sum(counts) > 64:
+        return False
+    # Never use native completion as a substitute for actual canonical projection.
+    # The inverse needs current exact queued-frame custody, not a successful ingest.
+    native_owned = all(native[key] is True for key in (
+        'before_current', 'armed_current', 'consumer_current', 'bounded',
+        'final_consumer_matches', 'frame_custody_before_verdict'))
+    native_complete = (native_owned and all(native[key] is True for key in NATIVE_BOOLS)
+                       and all(count >= 1 for count in counts))
+    diagnostic = row.get('frozen_diagnostic', {})
+    if row.get('diagnostic_schema_complete') is not True:
+        return False
+    live_complete = all(obs[key] is True for key in LIVE) and native['route_before_verdict'] is True
+    live_owned = (all(obs[key] is True for key in LIVE if key != 'ordered_valid_custody')
+                  and all(diagnostic.get(key) is True for key in (
+                      'collected', 'timing_present', 'depth_known',
+                      'accepted_after_first_denial_before_verdict'))
+                  and diagnostic.get('invalid_custody') is False)
+    route = (native_owned or live_owned) if red else (native_complete or live_complete)
+    return (route and all(obs[key] is True for key in ORDINARY if key not in LIVE + ['ordinary_projected'])
         and (red or obs['ordinary_projected'] is True)
         and obs['no_replay'] == obs['original_facts_complete'] == (not red)
         and all(obs[key] == old[key] for key in COUNTS + ['relay_closed', 'attempt_completed'])
@@ -375,10 +416,22 @@ def metadata_controls():
             obs.update(no_replay=not red, original_facts_complete=not red, independent_closed=True, independent_plane_shutdown=True)
             obs['ordinary_projected'] = not red
             values['late-peer-ordinary-progress'] = obs
+            native = dict.fromkeys(NATIVE_BOOLS, False)
+            native.update({key: 0 for key in NATIVE_COUNTS})
+            native['route_before_verdict'] = not red
+            values['late-peer-native-route'] = native
         def value(item):
             return str(item).lower() if type(item) is bool else str(item)
         lines = [namespace + ' ' + ' '.join(key + '=' + value(row[key]) for key in NS[namespace]) for namespace, row in values.items()]
-        out = 'running 1 test\ntest ' + name + ' ... \n' + '\n'.join(lines) + '\n'
+        if name == CASES[2]:
+            diagnostic = dict.fromkeys(DIAGNOSTIC_BOOLS, False)
+            diagnostic.update({key: 0 for key in DIAGNOSTIC_COUNTS})
+            diagnostic.update({key: [False if kind is bool else 0] * size
+                               for key, (size, kind) in DIAGNOSTIC_ARRAYS.items()})
+            diagnostic.update(collected=True, timing_present=True, depth_known=True,
+                              accepted_after_first_denial_before_verdict=True)
+            lines.append(DIAGNOSTIC_NS + ' ' + json.dumps(diagnostic, separators=(',', ':')))
+        out = 'running 1 test\ntest ' + name + ' ... \n' + '\n'.join(lines) + '\n' 
         if red:
             out += "thread '" + name + "' (123) panicked at " + FIXTURE + ':' + str(location()) + ':9:\n' + MESSAGE + '\n'
         return (out + ('test result: FAILED. 0 passed; 1 failed; 0 ignored;\n' if red else 'test result: ok. 1 passed; 0 failed; 0 ignored;\n')).encode()
@@ -422,9 +475,62 @@ def metadata_controls():
                 red.replace(b'no_replay=false', b'no_replay=true'), red.replace(b'0 passed; 1 failed', b'1 passed; 0 failed'),
                 red + b"thread 'PRIVATE' panicked at crates/PRIVATE.rs:1:1:\nPRIVATE\n",
                 red + b'late-peer-ordinary-progressPRIVATE\n', red + b'error: PRIVATE\n']
-    variants += [red.replace((key + '=true').encode(), (key + '=false').encode()) for key in ORDINARY if key != 'ordinary_projected']
+    variants += [red.replace((key + '=true').encode(), (key + '=false').encode()) for key in ORDINARY if key not in ('ordinary_projected', 'ordered_valid_custody')]
     for value in variants:
         require(not decode(value, CASES[2], True), 'metadata_reject_red')
+        negative += 1
+    # New metadata-only route alternatives. These are not SDK/runtime evidence.
+    def native_case(raw, red=False):
+        lines = raw.decode().splitlines()
+        for index, line in enumerate(lines):
+            if line.startswith('late-peer-ordinary-progress '):
+                lines[index] = ' '.join(token if token.split('=')[0] not in LIVE
+                                        else token.split('=')[0] + '=false' for token in line.split(' '))
+            if line.startswith('late-peer-native-route '):
+                native = dict.fromkeys(NATIVE_BOOLS, True)
+                native.update({key: 1 for key in NATIVE_COUNTS})
+                if red:
+                    for key in ('complete', 'ordered_before_verdict', 'route_before_verdict'):
+                        native[key] = False
+                    native.update(borrowed=0, ingested=0, acknowledged=0)
+                lines[index] = 'late-peer-native-route ' + ' '.join(
+                    key + '=' + (str(native[key]).lower()) for key in NS['late-peer-native-route'])
+        return ('\n'.join(lines) + '\n').encode()
+    for is_red in (False, True):
+        raw = native_case(synthetic(CASES[2], is_red), is_red)
+        require(decode(raw, CASES[2], is_red), 'metadata_native_route')
+        positive += 1
+        required = NATIVE_BOOLS if not is_red else [
+            'before_current', 'armed_current', 'consumer_current', 'bounded',
+            'final_consumer_matches', 'frame_custody_before_verdict']
+        bad = [raw.replace((' ' + key + '=true').encode(), (' ' + key + '=false').encode()) for key in required]
+        bad += [raw + b'late-peer-native-routePRIVATE\n',
+                raw + next(line for line in raw.splitlines() if line.startswith(b'late-peer-native-route ')) + b'\n',
+                raw.replace(b'late-peer-native-route ', b'PRIVATE late-peer-native-route '),
+                raw.replace(b'borrowed=' + (b'0' if is_red else b'1'), b'borrowed=65'),
+                raw.replace(b'consumer_current=true', b'consumer_current=unknown'),
+                raw + b'late-peer-unknown PRIVATE\n',
+                raw + b' PRIVATE late-peer-unknown PRIVATE\n']
+        if not is_red:
+            bad += [raw.replace((key + '=1').encode(), (key + '=0').encode()) for key in NATIVE_COUNTS]
+            bad += [raw.replace(b'borrowed=1', b'borrowed=63'),
+                    raw.replace(b'queue_accepted=false', b'queue_accepted=true')
+                       .replace(b' bounded=true complete=true', b' bounded=true complete=false')]
+
+        for value in bad:
+            require(not decode(value, CASES[2], is_red), 'metadata_native_reject')
+            negative += 1
+    # A sampled accepted-only legacy inverse remains valid without claiming dequeue.
+    accepted_only = red.replace(b'ordered_valid_custody=true', b'ordered_valid_custody=false')
+    require(decode(accepted_only, CASES[2], True), 'metadata_live_owned_without_dequeue')
+    positive += 1
+    for value in (
+        accepted_only.replace(b'"accepted_after_first_denial_before_verdict":true', b'"accepted_after_first_denial_before_verdict":false'),
+        accepted_only.replace(b'"invalid_custody":false', b'"invalid_custody":true'),
+        accepted_only.replace(b'"depth_known":true', b'"depth_known":false'),
+        synthetic(CASES[2]).replace(b'ordered_valid_custody=true', b'ordered_valid_custody=false'),
+    ):
+        require(not decode(value, CASES[2], b'0 passed; 1 failed' in value), 'metadata_route_missing_custody')
         negative += 1
     original = Path(PRODUCT).read_bytes()
     changed = inverse(original)
@@ -458,7 +564,7 @@ def metadata_controls():
             negative += 1
         else:
             raise Rejected('metadata_diagnostic_negative')
-    diagnostic_raw = synthetic(CASES[2]) + line.encode() + b'\n'
+    diagnostic_raw = b'\n'.join(part for part in synthetic(CASES[2]).splitlines() if not part.startswith((DIAGNOSTIC_NS + ' ').encode())) + b'\n' + line.encode() + b'\n'
     require(parse(diagnostic_raw, CASES[2], 0).get('diagnostic_schema_complete') is True, 'metadata_diagnostic_parse')
     positive += 1
     for value in (diagnostic_raw + line.encode() + b'\n', diagnostic_raw + b' PRIVATE late-peer-ordinary-frozen PRIVATE\n'):
@@ -515,9 +621,12 @@ def main():
         require(len(binaries) == 1, 'single_app_binary')
         binary = Path(binaries.pop())
         require(binary.is_file() and not binary.is_symlink(), 'compiled_binary')
-        fingerprints = feature_metadata(binary)
+        fingerprints = feature_metadata(binary, include_native_adapter=True)
         row['compiled_fingerprints'] = fingerprints
         require(fingerprints.get('verified') is True, 'compiled_feature_graph')
+        require(set(fingerprints.get('coverage_required', [])) == {
+            'marmot_app', 'cgka_engine', 'storage_sqlite', 'cgka_session',
+            'marmot_account', 'transport_nostr', 'transport_nostr_adapter'}, 'seven_native_feature_nodes')
         require({'otlp-export', 'product-analytics-export', 'test-policy-overrides', 'experimental-device-sync'}
                 <= set(fingerprints['nodes']['marmot_app']['features']), 'actual_app_features')
         require({'test-crash-hooks', 'test-policy-overrides', 'experimental-device-sync'}

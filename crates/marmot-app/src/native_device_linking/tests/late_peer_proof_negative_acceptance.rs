@@ -49,6 +49,9 @@ async fn run(scenario: Scenario) {
     let mut ordinary_facts = [false; 14];
     let mut ordinary_counts = [0usize; 6];
     let mut ordinary_diagnostic = None;
+    let mut native_route = [false; 9];
+    let mut native_counts = [0u64; 3];
+    let mut route_before_verdict = false;
     let mut observations = [0usize; 6];
     // Last completed existing PublicCancel poll; false row facts are unknown if absent.
     let mut public_cancel_sample = [false; 5];
@@ -249,7 +252,12 @@ async fn run(scenario: Scenario) {
                 ordinary_facts[1] = observations[4] >= 1 && observations[5] >= 1;
                 ordinary_facts[2] = facts[4] && facts[5] && facts[7]
                     && !after.flags[1] && observations[..4].iter().all(|count| *count == 0);
-                let published = ordinary_peer.as_ref().unwrap().publish_ordinary_progress().await;
+                let published = ordinary_peer.as_ref().unwrap()
+                    .publish_ordinary_progress(after.native_identity.as_ref()).await;
+                native_route[0] = before.native_identity.as_ref().zip(after.native_identity.as_ref())
+                    .is_some_and(|(before, after)| before.matches(after));
+                native_route[1] = published.native_watch.as_ref().zip(after.native_identity.as_ref())
+                    .is_some_and(|(watch, identity)| watch.matches(identity));
                 ordinary_facts[3] = published.published_once;
                 ordinary_facts[4] = published.source_row_bound;
                 ordinary_facts[5] = published.group != after.protected_group;
@@ -264,7 +272,26 @@ async fn run(scenario: Scenario) {
                             let storage = apps[1].account_storage("test").unwrap();
                             let row = storage.app_storage().app_message(&group_hex, app_id).unwrap();
                             let timeline = storage.app_storage().timeline_message(&group_hex, app_id).unwrap();
-                            if row.as_ref().is_some_and(|row| row.message_id_hex == *app_id
+                            if let Some(watch) = published.native_watch.as_ref() { watch.sample_custody(); }
+                            let now = std::time::Instant::now();
+                            let native_complete = published.native_watch.as_ref().is_some_and(|watch| {
+                                let (_, observed) = watch.facts(first_denied_at, now);
+                                native_route[0] && native_route[1] && observed.into_iter().all(|value| value)
+                            });
+                            let live_complete = published.packet_id.as_ref().is_some_and(|packet| {
+                                let account = cgka_traits::MemberId::new(hex::decode(
+                                    apps[1].account_home().account("test").unwrap().account_id_hex,
+                                ).unwrap());
+                                let timing = apps[1].relay_plane.account_notification_timing_for_test(&account, packet);
+                                timing.as_ref().is_some_and(|row| !row.4.3
+                                    && row.4.0.is_some() && row.4.1 > 0
+                                    && row.3[0].zip(row.4.2).is_some_and(|(accepted, dequeued)|
+                                        first_denied_at <= accepted && accepted <= dequeued && dequeued <= now))
+                                    && apps[1].relay_plane.account_notification_same_receiver_for_test(
+                                        &account, packet, &after.receiver_identity,
+                                    ) == Some(true)
+                            });
+                            let exact_projection = row.as_ref().is_some_and(|row| row.message_id_hex == *app_id
                                 && row.group_id_hex == group_hex && row.sender == published.sender
                                 && row.plaintext == ORDINARY_PROGRESS_TEXT
                                 && row.direction == "received" && !row.invalidated)
@@ -272,7 +299,10 @@ async fn run(scenario: Scenario) {
                                     && row.source_message_id_hex.as_ref() == Some(canonical_id)
                                     && row.group_id_hex == group_hex && row.sender == published.sender
                                     && row.plaintext == ORDINARY_PROGRESS_TEXT
-                                    && row.direction == "received" && !row.deleted) {
+                                    && row.direction == "received" && !row.deleted);
+                            ordinary_facts[7] = exact_projection;
+                            if exact_projection && (native_complete || live_complete) {
+                                route_before_verdict = true;
                                 break;
                             }
                             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -281,7 +311,16 @@ async fn run(scenario: Scenario) {
                 } else { None };
                 // Freeze the actual ordinary receive verdict before releasing either hold.
                 let frozen_at = std::time::Instant::now();
-                ordinary_facts[7] = projected == Some(true);
+                // Preserve the actual last projection observation even if route
+                // provenance stayed unavailable and the unchanged wait expired.
+                let _ = projected;
+                if let Some(watch) = published.native_watch.as_ref() {
+                    let (counts, observed) = watch.facts(first_denied_at, frozen_at);
+                    native_counts = counts;
+                    native_route[2..6].copy_from_slice(&observed[..4]);
+                    native_route[8] = observed[4];
+                }
+                native_route[6] = route_before_verdict;
                 if let Some(packet_id) = published.packet_id.as_ref().filter(|_| published.source_row_bound) {
                     let account = cgka_traits::MemberId::new(hex::decode(
                         apps[1].account_home().account("test").unwrap().account_id_hex,
@@ -295,8 +334,9 @@ async fn run(scenario: Scenario) {
                         row.3[0].is_some() && row.4.0.is_some());
                     ordinary_facts[10] = same == Some(true);
                     ordinary_facts[11] = timing.as_ref().is_some_and(|row|
-                        !row.4.3 && row.3[0].is_some_and(|accepted|
-                            accepted >= first_denied_at && accepted <= frozen_at));
+                        !row.4.3 && row.4.1 > 0
+                            && row.3[0].zip(row.4.2).is_some_and(|(accepted, dequeued)|
+                                first_denied_at <= accepted && accepted <= dequeued && dequeued <= frozen_at));
                     // The original verdict and its absolute wait have already ended.
                     // These extra reads do not repair, drain, retry, or change that verdict.
                     let (raw_read, timeline_read) = match apps[1].account_storage("test") {
@@ -334,6 +374,8 @@ async fn run(scenario: Scenario) {
                         "raw_present": raw.is_some(), "timeline_present": timeline.is_some(),
                         "raw_matches": raw_matches, "timeline_matches": timeline_matches,
                         "timing_present": timing.is_some(),
+                        "accepted_after_first_denial_before_verdict": accepted_time.is_some_and(|accepted|
+                            first_denied_at <= accepted && accepted <= frozen_at),
                         "dispositions": timing.as_ref().map(|row| row.0).unwrap_or([0; 8]),
                         "placements": timing.as_ref().map(|row| row.2).unwrap_or([0; 6]),
                         "dequeued": timing.as_ref().map_or(0, |row| row.4.1),
@@ -358,6 +400,15 @@ async fn run(scenario: Scenario) {
                     let account = cgka_traits::MemberId::new(hex::decode(
                         apps[1].account_home().account("test").unwrap().account_id_hex,
                     ).unwrap());
+                    native_route[7] = final_receiver.nonce == nonce
+                        && final_receiver.deadline == deadline
+                        && final_receiver.protected_group == after.protected_group
+                        && before.native_identity.as_ref().zip(after.native_identity.as_ref())
+                            .is_some_and(|(before, after)| before.matches(after))
+                        && final_receiver.native_identity.as_ref().zip(after.native_identity.as_ref())
+                            .is_some_and(|(final_identity, after)| final_identity.matches(after))
+                        && published.native_watch.as_ref().zip(final_receiver.native_identity.as_ref())
+                            .is_some_and(|(watch, identity)| watch.matches(identity));
                     ordinary_facts[13] = final_receiver.nonce == nonce
                         && final_receiver.deadline == deadline
                         && final_receiver.protected_group == after.protected_group
@@ -565,8 +616,18 @@ async fn run(scenario: Scenario) {
             relay_closed,
             attempt.is_ok()
         ));
+        crate::test_support::emit_line(format_args!(
+            "late-peer-native-route before_current={} armed_current={} consumer_current={} bounded={} complete={} ordered_before_verdict={} route_before_verdict={} final_consumer_matches={} frame_custody_before_verdict={} borrowed={} ingested={} acknowledged={}",
+            native_route[0], native_route[1], native_route[2], native_route[3],
+            native_route[4], native_route[5], native_route[6], native_route[7], native_route[8],
+            native_counts[0], native_counts[1], native_counts[2],
+        ));
+        let custody_complete = (ordinary_facts[8..12].iter().all(|value| *value)
+                && ordinary_facts[13] && route_before_verdict)
+            || native_route.into_iter().all(|value| value);
         assert!(
-            ordinary_facts.into_iter().all(|value| value)
+            ordinary_facts[..8].iter().all(|value| *value)
+                && ordinary_facts[12] && custody_complete
                 && facts.into_iter().all(|value| value)
                 && runtime_closes == 3
                 && planes_shutdown == 3

@@ -84,6 +84,10 @@ mod publish_accounting;
 mod relay_list;
 mod replay_admission;
 mod replay_ingress;
+#[cfg(feature = "test-policy-overrides")]
+mod native_frame_probe;
+#[cfg(feature = "test-policy-overrides")]
+pub use native_frame_probe::{NativeConsumerIdentityForTest, NativeFrameWatchForTest};
 #[cfg(feature = "sdk")]
 mod sdk_client;
 #[cfg(all(feature = "sdk", feature = "experimental-device-sync"))]

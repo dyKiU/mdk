@@ -96,7 +96,7 @@ def intended_red(row):
     row['expected_panic']={'file':FILE,'line':line}
     return row.get('body_exit_code')==101 and row.get('passed')==0 and row.get('failed')==1 and row.get('ignored')==0 and row.get('executed_nonignored')==1 and row.get('all_panic_header_count')==1 and len(row.get('panic_locations',[]))==1 and all(row['panic_locations'][0][key]==value for key,value in row['expected_panic'].items()) and row.get('named_assertion_observed') and phase_prerequisites(row) and row.get('observations',{}).get('held_consent_task_success') is True and row.get('observations',{}).get('public_snapshot_responsiveness') is True and row.get('observations',{}).get('durable_policy_and_proof_with_gate') is False and row.get('original_phase_markers')==['fourth-device-completion','fourth-device-completed'] and not row.get('watchdog_triggered')
 
-def feature_metadata(binary):
+def feature_metadata(binary, include_native_adapter=False):
     # Cargo's emitted fingerprint companion records must match the dependency
     # hash in the selected binary's own fingerprint. Unknown formats stay unknown.
     directory=binary.parent.parent/'.fingerprint'
@@ -108,6 +108,9 @@ def feature_metadata(binary):
     # The extracted relay plane is an actual dependency of this App binary.
     # Preserve the original five-node checks and resolve its exact unit too.
     if Path('crates/transport-nostr/Cargo.toml').is_file():wanted.add('transport_nostr')
+    if include_native_adapter:
+        wanted.add('transport_nostr_adapter')
+        result['dependency_edges']=[]
     selected_expected={}
     result['coverage_required']=sorted(wanted)
     def read(path,name):
@@ -119,6 +122,8 @@ def feature_metadata(binary):
         for dep in data.get('deps',[]):
             if len(dep)!=4 or dep[1] not in wanted: continue
             depname=dep[1]; expected=dep[3]
+            if include_native_adapter:
+                result['dependency_edges'].append({'from':name,'to':depname})
             if depname in result['nodes']:
                 if selected_expected.get(depname)!=expected: result['unresolved'].append(depname+'-multiple-units')
                 continue
@@ -143,6 +148,11 @@ def feature_metadata(binary):
     result['verified']=(required<=set(result['nodes']) and not result['unresolved'] and all(node['rustflags']==[] for node in result['nodes'].values()) and {'experimental-device-sync','test-policy-overrides'}<=set(result['nodes']['marmot_app']['features']) and {'experimental-device-sync','test-policy-overrides'}<=set(result['nodes']['cgka_engine']['features']) and 'experimental-device-sync' in result['nodes']['storage_sqlite']['features'])
     if 'transport_nostr' in wanted:
         result['verified'] &= 'experimental-device-sync' in result['nodes'].get('transport_nostr',{}).get('features',[])
+    if include_native_adapter:
+        edges={(edge['from'],edge['to']) for edge in result['dependency_edges']}
+        result['verified'] &= ({'sdk','experimental-device-sync','test-policy-overrides'}
+            <= set(result['nodes'].get('transport_nostr_adapter',{}).get('features',[]))
+            and {('marmot_app','transport_nostr'),('transport_nostr','transport_nostr_adapter')} <= edges)
     return result
 
 def parser_preflight():

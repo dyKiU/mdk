@@ -392,11 +392,13 @@ pub(in crate::native_device_linking) struct OrdinaryProgressPublication {
     pub(in crate::native_device_linking) sender: String,
     pub(in crate::native_device_linking) published_once: bool,
     pub(in crate::native_device_linking) source_row_bound: bool,
+    pub(in crate::native_device_linking) native_watch: Option<transport_nostr_adapter::NativeFrameWatchForTest>,
 }
 
 impl IncomingPeer {
     pub(in crate::native_device_linking) async fn publish_ordinary_progress(
         &self,
+        recipient: Option<&transport_nostr_adapter::NativeConsumerIdentityForTest>,
     ) -> OrdinaryProgressPublication {
         use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
         use sha2::{Digest, Sha256};
@@ -416,6 +418,9 @@ impl IncomingPeer {
         let group = self.group.clone();
         let binding = std::sync::Arc::new(std::sync::Mutex::new(None));
         let callback_binding = binding.clone();
+        let native_watch = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback_watch = native_watch.clone();
+        let recipient = recipient.cloned();
         let observation = self
             .app
             .relay_plane
@@ -469,6 +474,10 @@ impl IncomingPeer {
                 let Some(bound) = bound else {
                     return false;
                 };
+                // Arm the exact target only after the actual sender binding and
+                // before the real publish continues. The handle owns no consumer.
+                *callback_watch.lock().unwrap() = recipient.as_ref()
+                    .and_then(|identity| identity.watch(&group, request.message.id.as_slice()));
                 *callback_binding.lock().unwrap() = Some(bound);
                 true
             }));
@@ -552,6 +561,7 @@ impl IncomingPeer {
                 .then_some(canonical)
         });
         let source_row_bound = packet_id.is_some() && canonical_id.is_some();
+        let native_watch = native_watch.lock().unwrap().take();
         OrdinaryProgressPublication {
             group: self.group.clone(),
             app_id,
@@ -560,6 +570,7 @@ impl IncomingPeer {
             sender,
             published_once,
             source_row_bound,
+            native_watch,
         }
     }
 
