@@ -240,6 +240,7 @@ impl Client {
                 &relay.as_ptr(),
                 1,
                 &options,
+                crate::deployment::OwnedDeployment::white_noise().as_ptr(),
                 &mut pointer,
             )
         };
