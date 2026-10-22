@@ -51,6 +51,7 @@ fn client(dir: &std::path::Path, relay: String) -> MarmotClient {
         vec![relay],
         marmot_uniffi::RelayPolicyFfi::AllowLoopback,
         Some(Arc::new(Secrets::default())),
+        marmot_uniffi::marmot_deployment_white_noise(),
     )
     .unwrap();
     MarmotClient { runtime, marmot }
