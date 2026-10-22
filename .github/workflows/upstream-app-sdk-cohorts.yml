@@ -224,6 +224,7 @@ jobs:
           WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-ios-derived-data
           WN_TEST_SOURCE_PACKAGES: ${{ runner.temp }}/final-ios-packages
           WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/final-ios.xcresult
+          TEST_RUNNER_WN_RUN_ATTENTION_CREATION_DIAGNOSTIC: '1'
         run: bash scripts/test-with-relay.sh
       - name: Preserve actual full-suite counts and source-only skip inventory
         if: always()
