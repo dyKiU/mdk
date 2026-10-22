@@ -77,10 +77,32 @@ def main():
         save()
         code, raw, elapsed, stderr = capture(command, limit, separate=separate)
         diagnostic = stderr if separate else raw
+        codes = {value.decode() for value in re.findall(rb'error\[(E[0-9]{4})\]', diagnostic)}
+        coordinates = set()
+        if separate:
+            for line in raw.splitlines():
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(item, dict) or item.get('reason') != 'compiler-message':
+                    continue
+                message = item.get('message', {})
+                error_code = (message.get('code') or {}).get('code')
+                if isinstance(error_code, str) and re.fullmatch('E[0-9]{4}', error_code):
+                    codes.add(error_code)
+                for span in message.get('spans', []):
+                    name = span.get('file_name')
+                    line_number, column = span.get('line_start'), span.get('column_start')
+                    if (span.get('is_primary') is True and name in before
+                            and type(line_number) is int and line_number > 0
+                            and type(column) is int and column > 0):
+                        coordinates.add((name, line_number, column))
         row.update(exit_code=code, elapsed_seconds=elapsed, stdout_sha256=sha(raw),
                    stderr_sha256=sha(stderr), stdout_bytes=len(raw), stderr_bytes=len(stderr),
-                   compiler_codes=sorted(set(re.findall(rb'error\[(E[0-9]{4})\]', diagnostic))))
-        row['compiler_codes'] = [value.decode() for value in row['compiler_codes']]
+                   compiler_codes=sorted(codes),
+                   compiler_primary_coordinates=[dict(file=name, line=line_number, column=column)
+                       for name, line_number, column in sorted(coordinates)[:64]])
         save()
         return row, raw
     def artifacts(raw, names):
