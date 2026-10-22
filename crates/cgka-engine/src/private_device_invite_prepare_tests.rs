@@ -1498,6 +1498,42 @@ async fn private_ledger_real_crypto_old_writer_fixture() {
         file.sync_all().unwrap();
         return;
     }
+    // Read the actual old writer's receipts before current Store::open bridges them.
+    // Upstream now legitimately owns Core versions above 102; names, times and
+    // all eight private mappings, not a numeric cutoff, identify this lineage.
+    let legacy_names = [
+        "0103_synchronized_history",
+        "0104_device_linking_attempt",
+        "0105_accepted_welcome_receipts",
+        "0106_device_linking_key_package",
+        "0107_roster_ack_capture",
+        "0108_device_group_genesis",
+        "0109_accepted_device_group_anchor",
+        "0110_private_device_invite",
+    ];
+    let legacy: Vec<(i64, String, i64)> = {
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        storage_sqlite::open_hardened_sqlcipher(
+            &connection,
+            &key,
+            storage_sqlite::SqlCipherHardening::default(),
+        )
+        .unwrap();
+        let mut statement = connection
+            .prepare("SELECT version,name,applied_at_unix_seconds FROM cgka_schema_migrations WHERE version>102 ORDER BY version")
+            .unwrap();
+        let receipts = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        receipts
+    };
+    assert_eq!(legacy.len(), legacy_names.len());
+    for (index, (version, name, _)) in legacy.iter().enumerate() {
+        assert_eq!(*version, 103 + index as i64);
+        assert_eq!(name, legacy_names[index]);
+    }
     let (group, echo): (cgka_traits::GroupId, cgka_traits::TransportMessage) =
         serde_json::from_slice(&std::fs::read(artifact).unwrap()).unwrap();
     let mut reopened =
@@ -1538,22 +1574,41 @@ async fn private_ledger_real_crypto_old_writer_fixture() {
         storage_sqlite::SqlCipherHardening::default(),
     )
     .unwrap();
-    let old: i64 = connection
-        .query_row(
-            "SELECT count(*) FROM cgka_schema_migrations WHERE version>102",
-            [],
-            |row| row.get(0),
-        )
+    for (version, name, _) in &legacy {
+        let old_private: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM cgka_schema_migrations WHERE version=?1 AND name=?2",
+                rusqlite::params![version, name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_private, 0);
+    }
+    let mut statement = connection
+        .prepare("SELECT original_version,original_name,original_applied_at_unix_seconds,private_version FROM cgka_experimental_device_sync_migration_bridge_audit ORDER BY original_version")
         .unwrap();
-    let audited: i64 = connection
-        .query_row(
-            "SELECT count(*) FROM cgka_experimental_device_sync_migration_bridge_audit",
-            [],
-            |row| row.get(0),
-        )
+    let audited: Vec<(i64, String, i64, i64)> = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
         .unwrap();
-    assert_eq!(old, 0);
-    assert_eq!(audited, 8);
+    for (index, (_, name, applied_at)) in legacy.iter().enumerate() {
+        let receipt: (String, i64, i64) = connection
+            .query_row(
+                "SELECT name,applied_at_unix_seconds,legacy_origin FROM cgka_experimental_device_sync_schema_migrations WHERE version=?1",
+                [index as i64 + 1],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        let suffix = name.split_once('_').unwrap().1;
+        assert_eq!(receipt, (format!("{:04}_{suffix}", index + 1), *applied_at, 1));
+    }
+    let expected: Vec<_> = legacy
+        .into_iter()
+        .enumerate()
+        .map(|(index, (version, name, applied_at))| (version, name, applied_at, index as i64 + 1))
+        .collect();
+    assert_eq!(audited, expected);
 }
 
 #[tokio::test]
