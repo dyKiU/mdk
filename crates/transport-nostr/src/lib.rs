@@ -2970,12 +2970,20 @@ impl MarmotRelayPlane {
         let adapter = transport.adapter.clone();
         let handle = handle.spawn(async move {
             // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             let mut ingress = account_ingress_schedule_for_test::Router::default();
             // COMMAND_INGRESS_SCHEDULE_TEST_END
             loop {
                 // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
                 {
                     let mut routed = Vec::new();
                     ingress.control(&transport.test_account_ingress_schedule, |delivery| {
@@ -2988,7 +2996,11 @@ impl MarmotRelayPlane {
                 }
                 // COMMAND_INGRESS_SCHEDULE_TEST_END
                 // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
                 let received = tokio::select! {
                     biased;
                     _ = transport.test_account_ingress_schedule.changed.notified() => continue,
@@ -3006,7 +3018,11 @@ impl MarmotRelayPlane {
                         continue;
                     }
                 };
-                #[cfg(not(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+                #[cfg(not(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                )))]
                 // COMMAND_INGRESS_SCHEDULE_TEST_END
                 let received = tokio::select! {
                     received = adapter.receive_observed() => received,
@@ -3023,16 +3039,26 @@ impl MarmotRelayPlane {
                         continue;
                     }
                 };
-                let Ok(Some(delivery)) = received else { break; };
+                let Ok(Some(delivery)) = received else {
+                    break;
+                };
                 // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
                 let delivery = {
                     let mut routed = Vec::new();
                     let delivery = {
-                        let mut route = |delivery: transport_nostr_adapter::ObservedTransportDelivery| {
-                            routed.push((delivery.account_id.clone(), delivery.message.id.clone()));
-                            route_account_delivery(&transport, delivery);
-                        };
+                        let mut route =
+                            |delivery: transport_nostr_adapter::ObservedTransportDelivery| {
+                                routed.push((
+                                    delivery.account_id.clone(),
+                                    delivery.message.id.clone(),
+                                ));
+                                route_account_delivery(&transport, delivery);
+                            };
                         ingress.control(&transport.test_account_ingress_schedule, &mut route);
                         ingress.delivery(delivery, &mut route)
                     };
@@ -3041,8 +3067,14 @@ impl MarmotRelayPlane {
                     }
                     delivery
                 };
-                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-                let Some(delivery) = delivery else { continue; };
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                let Some(delivery) = delivery else {
+                    continue;
+                };
                 // COMMAND_INGRESS_SCHEDULE_TEST_END
                 let account = delivery.account_id.clone();
                 let message = delivery.message.id.clone();
@@ -3052,7 +3084,11 @@ impl MarmotRelayPlane {
                 adapter.ack_replay_delivery(&account, &message).await;
             }
             // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
-            #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             {
                 let mut routed = Vec::new();
                 ingress.finish(&transport.test_account_ingress_schedule, |delivery| {
@@ -3772,7 +3808,10 @@ async fn run_relay_notification_consumer_scoped(
 ) -> RelayNotificationConsumerOutcome {
     let (sender, mut event_rx) = mpsc::channel(RELAY_NOTIFICATION_EVENT_QUEUE_CAPACITY);
     #[cfg(feature = "experimental-device-sync")]
-    let mut acquisition = transport_nostr_adapter::SdkLiveNotificationReceiver::new(adapter.clone(), account_id.clone());
+    let mut acquisition = transport_nostr_adapter::SdkLiveNotificationReceiver::new(
+        adapter.clone(),
+        account_id.clone(),
+    );
     // Channel capacity returns to its maximum when a panicked worker drops
     // the receiver, even though queued work was discarded. Count admitted
     // items independently until each worker operation actually finishes.

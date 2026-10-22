@@ -2146,7 +2146,8 @@ async fn run_app_runtime_account_worker(
                         account_label: &account_label,
                         shared: &shared,
                     },
-                ).await;
+                )
+                .await;
                 // A settled pass is where recovery parks or completes.
                 publish_history_notice_changes(
                     &mut client,

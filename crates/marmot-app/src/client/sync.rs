@@ -3310,7 +3310,12 @@ impl AppClient {
     ) -> Result<SyncSummary, (SyncSummary, bool, bool, AppError, SyncFailureStage)> {
         let deadline = self.observed_acquisition_deadline(delivery).await;
         let result = self
-            .ingest_received_delivery_once_observed(&delivery.delivery, true, deadline, InventoryWrite::Immediate)
+            .ingest_received_delivery_once_observed(
+                &delivery.delivery,
+                true,
+                deadline,
+                InventoryWrite::Immediate,
+            )
             .await;
         self.settle_spilled_delivery();
         result.map(|(summary, _, _)| summary)

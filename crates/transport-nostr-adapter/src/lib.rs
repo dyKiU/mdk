@@ -2377,7 +2377,8 @@ impl NostrTransportAdapter {
         event: NostrRelayEvent,
         capture: Option<CapturedLiveRelayEvent>,
     ) -> Result<usize, TransportAdapterError> {
-        self.handle_captured_live_relay_event_scoped(account, event, capture, None).await
+        self.handle_captured_live_relay_event_scoped(account, event, capture, None)
+            .await
     }
 
     #[cfg(feature = "experimental-device-sync")]
@@ -2567,21 +2568,34 @@ impl NostrTransportAdapter {
     ) -> Result<usize, TransportAdapterError> {
         let private_account = {
             let state = self.state.read().await;
-            state.private_observation_wires.iter().find_map(|(account, wire)| {
-                if !wire.ready || wire.actual != subscription_id
-                    || account_id.is_some_and(|wanted| wanted != account)
-                { return None; }
-                match &wire.subscription {
-                    NostrSubscription::Group { transport_group_id, .. } =>
-                        Some((account.clone(), wire.group.clone(), transport_group_id.clone())),
-                    _ => None,
-                }
-            })
+            state
+                .private_observation_wires
+                .iter()
+                .find_map(|(account, wire)| {
+                    if !wire.ready
+                        || wire.actual != subscription_id
+                        || account_id.is_some_and(|wanted| wanted != account)
+                    {
+                        return None;
+                    }
+                    match &wire.subscription {
+                        NostrSubscription::Group {
+                            transport_group_id, ..
+                        } => Some((
+                            account.clone(),
+                            wire.group.clone(),
+                            transport_group_id.clone(),
+                        )),
+                        _ => None,
+                    }
+                })
         };
         if let Some((account, selected_group, expected_route)) = private_account {
-            let dto = NostrTransportEvent::from_nostr_event(event)
+            let dto =
+                NostrTransportEvent::from_nostr_event(event).map_err(map_inbound_event_error)?;
+            let message = dto
+                .to_transport_message()
                 .map_err(map_inbound_event_error)?;
-            let message = dto.to_transport_message().map_err(map_inbound_event_error)?;
             if !matches!(&message.envelope,
                 TransportEnvelope::GroupMessage { transport_group_id }
                     if transport_group_id == &expected_route)
@@ -2592,14 +2606,30 @@ impl NostrTransportAdapter {
             }
             // The pinned SDK authenticated the signature. Bind this raw body's
             // bytes to its id before admitting the private acquisition receipt.
-            dto.to_verified_nostr_event().map_err(map_inbound_event_error)?;
-            self.observe_relay_event(event.id.as_bytes(), &endpoint,
-                Some(&subscription_id), event.created_at.as_secs()).await;
-            return self.handle_captured_live_relay_event_scoped(Some(&account), NostrRelayEvent {
-                endpoint, subscription_id: Some(subscription_id), event: dto,
-            }, capture, Some(&selected_group)).await;
+            dto.to_verified_nostr_event()
+                .map_err(map_inbound_event_error)?;
+            self.observe_relay_event(
+                event.id.as_bytes(),
+                &endpoint,
+                Some(&subscription_id),
+                event.created_at.as_secs(),
+            )
+            .await;
+            return self
+                .handle_captured_live_relay_event_scoped(
+                    Some(&account),
+                    NostrRelayEvent {
+                        endpoint,
+                        subscription_id: Some(subscription_id),
+                        event: dto,
+                    },
+                    capture,
+                    Some(&selected_group),
+                )
+                .await;
         }
-        self.handle_sdk_group_copy(event, endpoint, subscription_id, account_id).await
+        self.handle_sdk_group_copy(event, endpoint, subscription_id, account_id)
+            .await
     }
 
     /// Existing buffered bodies own their authenticated routing metadata;
@@ -7072,7 +7102,9 @@ impl AdapterState {
             return;
         };
         #[cfg(feature = "experimental-device-sync")]
-        let logical = self.private_observation_wires.values()
+        let logical = self
+            .private_observation_wires
+            .values()
             .find(|wire| wire.ready && wire.actual == subscription_id)
             .map(|wire| wire.logical.clone());
         #[cfg(feature = "experimental-device-sync")]

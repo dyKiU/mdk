@@ -783,34 +783,61 @@ pub struct SdkLiveNotificationReceiver {
 #[cfg(feature = "experimental-device-sync")]
 impl SdkLiveNotificationReceiver {
     pub fn new(adapter: NostrTransportAdapter, account: Option<MemberId>) -> Self {
-        Self { adapter, account, endpoints: HashMap::new() }
+        Self {
+            adapter,
+            account,
+            endpoints: HashMap::new(),
+        }
     }
-    pub async fn capture(&mut self, input: &NostrSdkNotification)
-        -> Option<crate::CapturedLiveRelayEvent>
-    {
+    pub async fn capture(
+        &mut self,
+        input: &NostrSdkNotification,
+    ) -> Option<crate::CapturedLiveRelayEvent> {
         let (endpoint, epoch, payload) = match input {
-            NostrSdkNotification::Replay { endpoint, epoch, .. } =>
-                (endpoint.clone(), *epoch, None),
-            NostrSdkNotification::Payload { notification, epoch, .. } => {
+            NostrSdkNotification::Replay {
+                endpoint, epoch, ..
+            } => (endpoint.clone(), *epoch, None),
+            NostrSdkNotification::Payload {
+                notification,
+                epoch,
+                ..
+            } => {
                 let endpoint = match notification {
                     ClientNotification::Event { relay_url, .. }
-                    | ClientNotification::Message { relay_url, .. } =>
-                        TransportEndpoint(relay_url.to_string()),
+                    | ClientNotification::Message { relay_url, .. } => {
+                        TransportEndpoint(relay_url.to_string())
+                    }
                     ClientNotification::Shutdown => return None,
                 };
                 (endpoint, *epoch, Some(notification))
             }
             NostrSdkNotification::Shutdown => return None,
         };
-        if self.endpoints.get(&endpoint).is_some_and(|(old, _)| epoch < *old) {
+        if self
+            .endpoints
+            .get(&endpoint)
+            .is_some_and(|(old, _)| epoch < *old)
+        {
             return None;
         }
-        if self.endpoints.get(&endpoint).is_none_or(|(old, _)| epoch != *old) {
+        if self
+            .endpoints
+            .get(&endpoint)
+            .is_none_or(|(old, _)| epoch != *old)
+        {
             if !self.endpoints.contains_key(&endpoint)
                 && self.endpoints.len() >= SDK_NOTIFICATION_CAPACITY
-            { return None; }
-            self.endpoints.insert(endpoint.clone(), (epoch,
-                self.adapter.live_notification_receiver(self.account.clone())));
+            {
+                return None;
+            }
+            self.endpoints.insert(
+                endpoint.clone(),
+                (
+                    epoch,
+                    self.adapter
+                        .live_notification_receiver(self.account.clone()),
+                ),
+            );
         }
         let (_, receiver) = self.endpoints.get_mut(&endpoint)?;
         match payload? {
@@ -819,12 +846,18 @@ impl SdkLiveNotificationReceiver {
                     receiver.observe_eose(endpoint, subscription.as_str()).await;
                     None
                 }
-                RelayMessage::Event { subscription_id, event }
-                    if event.kind == Kind::MlsGroupMessage => {
+                RelayMessage::Event {
+                    subscription_id,
+                    event,
+                } if event.kind == Kind::MlsGroupMessage => {
                     let event = NostrTransportEvent::from_nostr_event(event).ok()?;
-                    receiver.capture(&NostrRelayEvent {
-                        endpoint, subscription_id: Some(subscription_id.to_string()), event,
-                    }).ok()
+                    receiver
+                        .capture(&NostrRelayEvent {
+                            endpoint,
+                            subscription_id: Some(subscription_id.to_string()),
+                            event,
+                        })
+                        .ok()
                 }
                 _ => None,
             },
@@ -1609,20 +1642,42 @@ async fn dispatch_sdk_notification_inner(
                     let endpoint = TransportEndpoint(relay_url.to_string());
                     if event.kind == Kind::MlsGroupMessage {
                         #[cfg(feature = "experimental-device-sync")]
-                        let result = adapter.handle_captured_sdk_group_copy(
-                            &event, endpoint, subscription_id.to_string(), account_id, capture,
-                        ).await;
+                        let result = adapter
+                            .handle_captured_sdk_group_copy(
+                                &event,
+                                endpoint,
+                                subscription_id.to_string(),
+                                account_id,
+                                capture,
+                            )
+                            .await;
                         #[cfg(not(feature = "experimental-device-sync"))]
-                        let result = adapter.handle_sdk_group_copy(
-                            &event, endpoint, subscription_id.to_string(), account_id,
-                        ).await;
-                        #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        let result = adapter
+                            .handle_sdk_group_copy(
+                                &event,
+                                endpoint,
+                                subscription_id.to_string(),
+                                account_id,
+                            )
+                            .await;
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
                         if let Some(observe) = observe {
-                            observe(&event.id.to_string(), match result {
-                                Ok(0) => 2, Ok(_) => 3, Err(_) => 4,
-                            });
+                            observe(
+                                &event.id.to_string(),
+                                match result {
+                                    Ok(0) => 2,
+                                    Ok(_) => 3,
+                                    Err(_) => 4,
+                                },
+                            );
                         }
-                        #[cfg(not(all(feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+                        #[cfg(not(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        )))]
                         let _ = result;
                     } else if event.verify_id() {
                         adapter
@@ -1676,13 +1731,20 @@ pub async fn dispatch_sdk_replay(
     account_id: Option<&MemberId>,
     classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
 ) -> bool {
-    dispatch_sdk_replay_inner(notification, adapter, account_id,
+    dispatch_sdk_replay_inner(
+        notification,
+        adapter,
+        account_id,
         #[cfg(feature = "experimental-device-sync")]
         None,
         classify_closed,
-        #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         None,
-    ).await
+    )
+    .await
 }
 
 async fn dispatch_sdk_replay_inner(
@@ -1691,7 +1753,10 @@ async fn dispatch_sdk_replay_inner(
     account_id: Option<&MemberId>,
     #[cfg(feature = "experimental-device-sync")] capture: Option<crate::CapturedLiveRelayEvent>,
     classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
-    #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     observe: Option<&SdkNotificationObserver<'_>>,
 ) -> bool {
     match notification {
@@ -1725,12 +1790,18 @@ async fn dispatch_sdk_replay_inner(
             }
             #[cfg(feature = "experimental-device-sync")]
             let shutdown = dispatch_sdk_notification_inner(
-                notification, adapter, account_id, capture, classify_closed,
+                notification,
+                adapter,
+                account_id,
+                capture,
+                classify_closed,
                 #[cfg(feature = "test-policy-overrides")]
                 observe,
-            ).await;
+            )
+            .await;
             #[cfg(not(feature = "experimental-device-sync"))]
-            let shutdown = dispatch_sdk_notification(notification, adapter, account_id, classify_closed).await;
+            let shutdown =
+                dispatch_sdk_notification(notification, adapter, account_id, classify_closed).await;
             shutdown
         }
         NostrSdkNotification::Shutdown => true,
@@ -3537,7 +3608,8 @@ impl NostrSdkRelayClient {
             const EVENT_QUEUE_CAPACITY: usize = 256;
             let (sender, mut event_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
             #[cfg(feature = "experimental-device-sync")]
-            let mut acquisition = SdkLiveNotificationReceiver::new(adapter.clone(), loss.account_id.clone());
+            let mut acquisition =
+                SdkLiveNotificationReceiver::new(adapter.clone(), loss.account_id.clone());
             let pending = Arc::new(AtomicU64::new(0));
             let worker_pending = pending.clone();
             let classifier = loss.clone();
@@ -3550,7 +3622,10 @@ impl NostrSdkRelayClient {
                         #[cfg(feature = "experimental-device-sync")]
                         _capture,
                         &|reason: &str| classifier.subscription_refusal(reason),
-                        #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
                         None,
                     )
                     .await;

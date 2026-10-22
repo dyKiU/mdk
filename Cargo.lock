@@ -4530,7 +4530,7 @@ dependencies = [
 name = "nostr-directory"
 version = "0.14.0-dev"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "cgka-engine",
  "cgka-traits",
  "fs-private",
@@ -4545,7 +4545,7 @@ dependencies = [
  "sha2 0.10.9",
  "storage-sqlite",
  "tempfile",
- "thiserror 2.0.18",
+ "thiserror 2.0.20",
  "tokio",
  "tracing",
  "transport-nostr",
@@ -8242,15 +8242,6 @@ dependencies = [
  "phf_codegen 0.13.1",
  "string_cache",
  "string_cache_codegen",
-]
-
-[[package]]
-name = "webpki-root-certs"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

@@ -105,6 +105,9 @@ class ArchiveGapTests(unittest.TestCase):
                 + "    steps:\n      - run: cargo nextest run --partition count:${{ matrix.partition }}/" + str(count) + "\n")
         for count in (5, 7, 12):
             self.assertEqual(workflow_partition_count(workflow(count), "default"), count)
+        for count in (6, 8):
+            with self.assertRaises(ValueError):
+                workflow_partition_count(workflow(count), "default")
         good = workflow(12)
         variants = [good.replace("[1, 2,", "[1, 1,"),
                     good.replace(", 12]", "]"), good.replace(", 12]", ", 12, 13]"),

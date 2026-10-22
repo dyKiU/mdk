@@ -54,10 +54,10 @@ def workflow_partition_count(text, cohort):
     if len(matrices) != 1:
         raise ValueError("Literal source partition matrix required")
     parts = json.loads(matrices[0])
-    if (type(parts) is not list or len(parts) not in {5, 12}
+    if (type(parts) is not list or len(parts) not in {5, 7, 12}
             or any(type(value) is not int for value in parts)
             or parts != list(range(1, len(parts) + 1))):
-        raise ValueError("Reviewed contiguous five or twelve partitions required")
+        raise ValueError("Reviewed contiguous five, seven or twelve partitions required")
     count = len(parts)
     names = re.findall(r"(?m)^    name: (.+)$", runtime)
     if names != [COHORTS[cohort][3] + " (${{ matrix.partition }}/" + str(count) + ")"]:
@@ -109,7 +109,7 @@ def validate_origin(run, jobs, artifact, cohort, run_id, source, *, expected_par
         expected = {f"{label} (smoke-{i})" for i in (1, 2)}
         selected = [job for job in jobs if job["name"].startswith(label + " (smoke-")]
     else:
-        if type(expected_partitions) is not int or expected_partitions not in {5, 12}:
+        if type(expected_partitions) is not int or expected_partitions not in {5, 7, 12}:
             raise ValueError("Reviewed partition count required")
         expected = {f"{label} ({i}/{expected_partitions})" for i in range(1, expected_partitions + 1)}
         # Capture every related role so mixed/extra names cannot disappear.
