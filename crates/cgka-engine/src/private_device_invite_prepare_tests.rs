@@ -1527,6 +1527,7 @@ async fn private_ledger_real_crypto_old_writer_fixture() {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
+        drop(statement);
         receipts
     };
     assert_eq!(legacy.len(), legacy_names.len());
