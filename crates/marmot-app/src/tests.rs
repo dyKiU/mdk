@@ -1252,6 +1252,7 @@ impl NostrRelayClient for ScriptedPushRelayClient {
     async fn unsubscribe_account(
         &self,
         _account_id: &cgka_traits::MemberId,
+        _replacements: &[NostrSubscription],
     ) -> Result<(), cgka_traits::TransportAdapterError> {
         Ok(())
     }

@@ -50,12 +50,41 @@ TransportPublishRequest -> NostrTransportAdapter -> NostrRelayClient
 `NostrRelayClient` is intentionally small so tests can use an in-memory client and production can use
 `NostrSdkRelayClient` behind the `sdk` feature.
 
+Public DTO ingress verifies the event signature and id/content binding before delivery, including reconciliation
+and acquired replay pages. SDK notifications carry event ids authenticated by the pinned SDK. Its verification
+cache is keyed by id, so later copies may contain altered bytes: a buffered copy reuses only the held body's
+trusted routing and timestamp, while an uncached copy must match the authenticated event hash before replay
+accounting. Admission also enforces the exact Marmot tag shape. Group peeling checks payload identity and
+routing without repeating Schnorr verification.
+
+`observe_relay_event` accepts an authenticated event id, endpoint, subscription id and timestamp. It records
+every relay's timing and stored-page slot without building or serializing an ingest DTO. While a replay body
+is buffered, additional relay copies reuse its trusted routing and timestamp metadata and add independent
+source claims. Released live duplicates also skip conversion. A historical refetch whose body is no longer
+held is admitted again through the original REQ gates rather than suppressed by SDK seen-state.
+
 The SDK client retains idle WRITE-only publication connections for up to 60 seconds.
 History acquisition on the same client adds READ capability to a retained connection
 before issuing its request. The promoted connection keeps WRITE capability and is no
 longer eligible for idle publication eviction; request subscriptions still close when
 the acquisition finishes or is cancelled. Both publication paths preserve typed SDK
 acknowledgements, including the distinction between affirmative and duplicate ACKs.
+
+Subscription-created connections close when their last subscription ends. An active
+publication keeps a shared connection open until its lease ends. Externally supplied
+connections and connections promoted for history acquisition keep their existing
+pool lifetime. Subscription-owned connections do not consume the idle WRITE-only
+publication allowance, either while subscribed or while awaiting removal. Missing
+subscription connections do not prevent other idle sockets from expiring.
+
+Replacement activation passes its planned subscriptions to
+`unsubscribe_account(account_id, replacements)` before closing old REQs. Their
+ownership keeps unchanged sockets and connection epochs alive; final teardown
+passes an empty slice. Pending replacements remain reachable by account cleanup
+if setup is cancelled. Removed sockets also lose their notification monitors and
+frontier entries; re-adding a relay receives a fresh process-monotonic connection
+epoch. Notification-reader startup shares the relay lifecycle lock with eviction,
+so a stale pool snapshot cannot reattach a removed monitor.
 
 The app-runtime layer projects group subscriptions and group-message publish targets from
 `marmot.transport.nostr.routing.v1` and applies relay endpoint parsing/deduplication before subscription or publish.
