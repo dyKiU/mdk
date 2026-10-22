@@ -14,8 +14,8 @@ use crate::{
     AccountRelayListBootstrap, AccountRelayListStatus, AppError, KIND_NOSTR_CONTACT_LIST,
     KIND_NOSTR_METADATA, MarmotApp, blocking_app_task,
 };
-use nostr_directory::ids::parse_account_id_hex;
-use nostr_directory::records::{
+use nostr_directory::parse_account_id_hex;
+use nostr_directory::{
     FetchedFollowList, UserProfileMetadata, followed_account_id, follows_from_tags,
     profile_content_json,
 };
@@ -292,7 +292,9 @@ impl MarmotApp {
                     .collect(),
             };
             if let Err(error) = blocking_app_task(move || {
-                Ok(app.remember_directory_follow_edges_for_search(&account_id, &follow_list)?)
+                Ok(app
+                    .directory()
+                    .remember_directory_follow_edges_for_search(&account_id, &follow_list)?)
             })
             .await
             {

@@ -7,13 +7,24 @@ use std::time::Duration;
 use marmot_account::AccountHome;
 use tokio::time::timeout;
 
-use crate::{AccountRelayListStatus, AppError, MarmotApp};
+use crate::{AccountRelayListStatus, MarmotApp};
 use crate::{MatchQuality, MatchedField, UserProfileMetadata};
 use crate::{UserDirectoryRecord, UserDirectorySearchResult};
 use nostr_directory::error::DirectoryError;
-use nostr_directory::ids::npub_for_account_id_lossy;
-use nostr_directory::search::*;
+use nostr_directory::npub_for_account_id_lossy;
 use nostr_directory::{DirectorySearchGraphRecord, SEARCH_GRAPH_PROFILE_TTL_SECONDS};
+use nostr_directory::{
+    MAX_SUPPORTED_SEARCH_RADIUS, OFF_GRAPH_SEARCH_RADIUS, SearchUpdateTrigger, UserSearchParams,
+    UserSearchSubscription, UserSearchUpdate,
+};
+
+/// Wall-clock seconds for fixture timestamps.
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
 
 /// A cached directory record for `account_id_hex` whose profile name is
 /// `name`, so it resolves entirely on-device.
@@ -165,6 +176,7 @@ async fn rejects_a_radius_deeper_than_the_producer_answers() {
     let searcher = format!("{:064x}", 1);
 
     let error = app
+        .directory()
         .search_users(params(
             &searcher,
             "needle",
@@ -173,7 +185,7 @@ async fn rejects_a_radius_deeper_than_the_producer_answers() {
         .await
         .expect_err("a radius past the supported depth must not be answered shallowly");
 
-    assert!(matches!(error, AppError::InvalidDirectorySearch(_)));
+    assert!(matches!(error, DirectoryError::InvalidDirectorySearch(_)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -183,11 +195,12 @@ async fn rejects_an_inverted_radius_window() {
     let searcher = format!("{:064x}", 1);
 
     let error = app
+        .directory()
         .search_users(params(&searcher, "needle", (1, 0)))
         .await
         .expect_err("radius_start past radius_end is not a searchable window");
 
-    assert!(matches!(error, AppError::InvalidDirectorySearch(_)));
+    assert!(matches!(error, DirectoryError::InvalidDirectorySearch(_)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -202,6 +215,7 @@ async fn an_empty_query_completes_without_matching_everybody() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "   ", (0, 0)))
         .await
         .unwrap();
@@ -263,6 +277,7 @@ async fn streams_a_cached_radius_zero_match_through_the_full_update_sequence() {
     // Radius 0..0 resolves the searcher from cache and expands no frontier,
     // so the whole search completes without contacting a relay.
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (0, 0)))
         .await
         .unwrap();
@@ -308,7 +323,7 @@ async fn a_search_matches_a_stranger_cached_in_the_un_promoted_tier() {
     let stranger = format!("{:064x}", 77);
     let app = MarmotApp::with_relay(dir.path(), "wss://relay.invalid");
     let cache = app.directory_cache_for_account(&account).unwrap();
-    let now = nostr_directory::unix_now_seconds() as i64;
+    let now = unix_now();
 
     // The searcher's own follow list is promoted (it is the local account's
     // own contact list, not a stranger's), so radius 1 expands offline.
@@ -320,7 +335,7 @@ async fn a_search_matches_a_stranger_cached_in_the_un_promoted_tier() {
         })
         .unwrap();
     cache
-        .put_search_graph_record(
+        .put_search_graph_record_for_test(
             &DirectorySearchGraphRecord {
                 account_id_hex: stranger.clone(),
                 npub: npub_for_account_id_lossy(&stranger),
@@ -337,6 +352,7 @@ async fn a_search_matches_a_stranger_cached_in_the_un_promoted_tier() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (1, 1)))
         .await
         .unwrap();
@@ -410,6 +426,7 @@ async fn a_profile_resolved_from_a_relay_is_cached_without_promoting_the_strange
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (1, 1)))
         .await
         .unwrap();
@@ -432,9 +449,9 @@ async fn a_profile_resolved_from_a_relay_is_cached_without_promoting_the_strange
     assert!(!result_profile.extra.contains_key("custom_blob"));
     assert_eq!(result_profile.extra.len(), 2);
 
-    let now = nostr_directory::unix_now_seconds() as i64;
+    let now = unix_now();
     let cached = cache
-        .search_record(&stranger.account_id_hex, now)
+        .search_record_for_test(&stranger.account_id_hex, now)
         .unwrap()
         .expect("the resolved profile must be cached for the next search");
     let cached_profile = cached.profile.expect("un-promoted cached profile");
@@ -459,7 +476,7 @@ async fn radius_two_expands_through_cached_follow_edges_without_a_relay() {
     let stranger = format!("{:064x}", 62);
     let app = MarmotApp::with_relay(dir.path(), "wss://relay.invalid");
     let cache = app.directory_cache_for_account(&account).unwrap();
-    let now = nostr_directory::unix_now_seconds() as i64;
+    let now = unix_now();
 
     // alice -> friend (promoted, her own contact list)
     cache
@@ -470,14 +487,14 @@ async fn radius_two_expands_through_cached_follow_edges_without_a_relay() {
         .unwrap();
     // friend -> stranger, cached un-promoted by an earlier traversal.
     cache
-        .remember_search_graph_follows(
+        .remember_search_graph_follows_for_test(
             &friend,
             &npub_for_account_id_lossy(&friend),
             std::slice::from_ref(&stranger),
         )
         .unwrap();
     cache
-        .put_search_graph_record(
+        .put_search_graph_record_for_test(
             &DirectorySearchGraphRecord {
                 account_id_hex: stranger.clone(),
                 npub: npub_for_account_id_lossy(&stranger),
@@ -494,6 +511,7 @@ async fn radius_two_expands_through_cached_follow_edges_without_a_relay() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (2, 2)))
         .await
         .unwrap();
@@ -531,13 +549,14 @@ async fn an_unanswered_contact_list_is_not_cached_as_following_nobody() {
     // Radius 2 makes the traversal ask for the friend's contact list. The
     // relay is unreachable, so nothing comes back for them.
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (2, 2)))
         .await
         .unwrap();
     drain(subscription).await;
 
     assert_eq!(
-        cache.search_graph_follows(&friend).unwrap(),
+        cache.search_graph_follows_for_test(&friend).unwrap(),
         None,
         "an unanswered contact list must stay re-fetchable"
     );
@@ -555,10 +574,10 @@ async fn a_seeded_account_is_searchable_at_radius_one_without_being_followed() {
     let co_member = format!("{:064x}", 81);
     let app = MarmotApp::with_relay(dir.path(), "wss://relay.invalid");
     let cache = app.directory_cache_for_account(&account).unwrap();
-    let now = nostr_directory::unix_now_seconds() as i64;
+    let now = unix_now();
 
     cache
-        .put_search_graph_record(
+        .put_search_graph_record_for_test(
             &DirectorySearchGraphRecord {
                 account_id_hex: co_member.clone(),
                 npub: npub_for_account_id_lossy(&co_member),
@@ -575,6 +594,7 @@ async fn a_seeded_account_is_searchable_at_radius_one_without_being_followed() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(UserSearchParams {
             radius_one_seeds: vec![co_member.clone()],
             ..params(&account.account_id_hex, "needle", (1, 1))
@@ -605,6 +625,7 @@ async fn seeding_the_searcher_does_not_duplicate_them_at_radius_one() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(UserSearchParams {
             radius_one_seeds: vec![account.account_id_hex.clone()],
             ..params(&account.account_id_hex, "needle", (0, 1))
@@ -688,6 +709,7 @@ async fn a_profile_only_on_its_authors_write_relay_is_still_found() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (1, 1)))
         .await
         .unwrap();
@@ -722,18 +744,18 @@ async fn an_empty_graph_falls_back_to_the_configured_seed_and_says_so() {
             .with_open_ranking_provider(None, Vec::new()),
     );
     let cache = app.directory_cache_for_account(&account).unwrap();
-    let now = nostr_directory::unix_now_seconds() as i64;
+    let now = unix_now();
 
     // Alice follows nobody. The seed follows someone worth finding.
     cache
-        .remember_search_graph_follows(
+        .remember_search_graph_follows_for_test(
             &seed,
             &npub_for_account_id_lossy(&seed),
             std::slice::from_ref(&stranger),
         )
         .unwrap();
     cache
-        .put_search_graph_record(
+        .put_search_graph_record_for_test(
             &DirectorySearchGraphRecord {
                 account_id_hex: stranger.clone(),
                 npub: npub_for_account_id_lossy(&stranger),
@@ -750,6 +772,7 @@ async fn an_empty_graph_falls_back_to_the_configured_seed_and_says_so() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (0, 2)))
         .await
         .unwrap();
@@ -784,7 +807,7 @@ async fn a_searcher_with_follows_never_reaches_the_fallback_seed() {
             .with_open_ranking_provider(None, Vec::new()),
     );
     let cache = app.directory_cache_for_account(&account).unwrap();
-    let now = nostr_directory::unix_now_seconds() as i64;
+    let now = unix_now();
 
     cache
         .put(&UserDirectoryRecord {
@@ -793,14 +816,14 @@ async fn a_searcher_with_follows_never_reaches_the_fallback_seed() {
         })
         .unwrap();
     cache
-        .remember_search_graph_follows(
+        .remember_search_graph_follows_for_test(
             &seed,
             &npub_for_account_id_lossy(&seed),
             std::slice::from_ref(&seeded_stranger),
         )
         .unwrap();
     cache
-        .put_search_graph_record(
+        .put_search_graph_record_for_test(
             &DirectorySearchGraphRecord {
                 account_id_hex: seeded_stranger.clone(),
                 npub: npub_for_account_id_lossy(&seeded_stranger),
@@ -817,6 +840,7 @@ async fn a_searcher_with_follows_never_reaches_the_fallback_seed() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (0, 2)))
         .await
         .unwrap();
@@ -863,7 +887,7 @@ async fn a_promoted_row_without_a_profile_does_not_mask_the_cached_one() {
     let stranger = format!("{:064x}", 101);
     let app = MarmotApp::with_relay(dir.path(), "wss://relay.invalid");
     let cache = app.directory_cache_for_account(&account).unwrap();
-    let now = nostr_directory::unix_now_seconds() as i64;
+    let now = unix_now();
 
     cache
         .put(&UserDirectoryRecord {
@@ -881,7 +905,7 @@ async fn a_promoted_row_without_a_profile_does_not_mask_the_cached_one() {
         .unwrap();
     // The profile an earlier search resolved, cached un-promoted.
     cache
-        .put_search_graph_record(
+        .put_search_graph_record_for_test(
             &DirectorySearchGraphRecord {
                 account_id_hex: stranger.clone(),
                 npub: npub_for_account_id_lossy(&stranger),
@@ -898,6 +922,7 @@ async fn a_promoted_row_without_a_profile_does_not_mask_the_cached_one() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (1, 1)))
         .await
         .unwrap();
@@ -977,6 +1002,7 @@ async fn an_npub_match_resolved_by_the_outbox_tier_is_reported_once() {
     // Query the stranger's own pubkey hex: it matches before any profile is
     // known, and still matches after the outbox tier resolves one.
     let subscription = app
+        .directory()
         .search_users(params(
             &account.account_id_hex,
             &stranger.account_id_hex,
@@ -1010,6 +1036,7 @@ async fn a_malformed_seed_is_rejected_rather_than_failing_the_traversal() {
     let app = MarmotApp::with_relay(dir.path(), "wss://relay.invalid");
 
     let error = app
+        .directory()
         .search_users(UserSearchParams {
             radius_one_seeds: vec!["not-a-pubkey".to_owned()],
             ..params(&account.account_id_hex, "needle", (0, 1))
@@ -1017,7 +1044,10 @@ async fn a_malformed_seed_is_rejected_rather_than_failing_the_traversal() {
         .await
         .expect_err("a malformed seed is a bad request, not a silent skip");
 
-    assert!(matches!(error, AppError::InvalidPublicKey), "{error:?}");
+    assert!(
+        matches!(error, DirectoryError::InvalidPublicKey),
+        "{error:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1034,6 +1064,7 @@ async fn a_cached_searcher_outside_the_radius_window_reports_no_matches() {
         .unwrap();
 
     let subscription = app
+        .directory()
         .search_users(params(&account.account_id_hex, "needle", (1, 1)))
         .await
         .unwrap();

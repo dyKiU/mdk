@@ -3,20 +3,21 @@
 
 use std::time::{Duration, Instant};
 
+use nostr_directory::MEMBER_PREWARM_CACHE_TTL;
 use nostr_directory::MemberResolutionPurpose;
-use nostr_directory::member_key_packages::MEMBER_PREWARM_CACHE_TTL;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn discovery_recovery_refreshes_routes_for_fresh_commit_resolution() {
     let (_directory, app, accounts, fetcher) =
         crate::tests::invite_recovery::discovery_fixture(1).await;
-    app.prewarm_group_member_key_packages(&[&accounts[0].account_id_hex])
+    app.directory()
+        .prewarm_group_member_key_packages(&[&accounts[0].account_id_hex])
         .await
         .unwrap();
     fetcher.requests.lock().unwrap().clear();
     let result = app
         .directory()
-        .resolve_member_key_packages_for_purpose(
+        .resolve_member_key_packages_for_purpose_for_test(
             vec![accounts[0].account_id_hex.clone()],
             MemberResolutionPurpose::CommitFresh,
             None,
@@ -36,26 +37,29 @@ async fn composition_prewarm_route_reuse_preserves_original_freshness_deadline()
     let (_directory, app, accounts, _fetcher) =
         crate::tests::member_resolution_fixture(1, false).await;
     let id = &accounts[0].account_id_hex;
-    app.prewarm_group_member_key_packages(&[id.as_str()])
+    app.directory()
+        .prewarm_group_member_key_packages(&[id.as_str()])
         .await
         .unwrap();
     let original = Instant::now() - Duration::from_secs(240);
     app.directory_state
-        .member_key_package_prewarm_cache
+        .member_key_package_prewarm_cache_for_test()
         .lock()
         .unwrap()
         .set_inserted_at(id, original);
     for _ in 0..3 {
-        app.prewarm_group_member_key_packages(&[id.as_str()])
+        app.directory()
+            .prewarm_group_member_key_packages(&[id.as_str()])
             .await
             .unwrap();
-        app.resolve_member_key_packages(&[id.as_str()])
+        app.directory()
+            .resolve_member_key_packages(&[id.as_str()])
             .await
             .unwrap();
     }
     let mut cache = app
         .directory_state
-        .member_key_package_prewarm_cache
+        .member_key_package_prewarm_cache_for_test()
         .lock()
         .unwrap();
     assert_eq!(cache.inserted_at(id), Some(original));
