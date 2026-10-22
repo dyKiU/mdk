@@ -2811,6 +2811,7 @@ impl NostrTransportAdapter {
         Ok(deliveries)
     }
 
+    #[cfg(feature = "experimental-device-sync")]
     async fn deliveries_for_message(
         &self,
         relay_event: NostrRelayEvent,

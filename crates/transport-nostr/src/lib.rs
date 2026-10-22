@@ -1,5 +1,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::Pin;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+use std::sync::Weak;
 use std::sync::{
     Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
     atomic::{AtomicBool, AtomicU64, Ordering},
