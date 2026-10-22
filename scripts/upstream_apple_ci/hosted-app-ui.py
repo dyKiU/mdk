@@ -4,6 +4,7 @@ import argparse
 import paired_direct_mutation
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -52,6 +53,17 @@ CASES = {
                  "HostedHistoryApprovalUITests/testExternalOriginalHistoryApprovalTap",
                  {"WN_HISTORY_APPROVAL_UI_DRIVER": "1"}, "ui-ready.json"),
 }
+
+
+def verified_experimental_settings(source, sdk_source):
+    # Reuse the profile cohort's authenticated app guard, including explicit
+    # source/run inputs. The child shell's validated array must reach Xcode.
+    path = Path(__file__).resolve().with_name("app-sdk-cohort.py")
+    spec = importlib.util.spec_from_file_location("hosted_sdk_cohort", path)
+    cohort = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cohort)
+    environment = cohort.environment_for("experimental", sdk_source, os.environ["SDK_RUN_ID"])
+    return cohort.guard_settings(source, "experimental", environment)
 
 
 def digest(path):
@@ -363,9 +375,7 @@ def main():
     sdk = freeze_sdk(args.sdk_package, args.sdk_source)
     if args.platform == "ios":
         require_owned_simulator(args.simulator, dict(os.environ, DEVELOPER_DIR=args.developer_dir))
-    subprocess.run(["bash", "-c", 'repo_root=$1; source "$repo_root/scripts/local-device-sync-settings.sh"',
-                    "verify-overlay", str(source)], check=True,
-                   env=dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC="1"))
+    verified_settings = verified_experimental_settings(source, args.sdk_source)
     if args.stage == "build":
         if products.name != "Products" or products.parent.name != "Build":
             raise ValueError("supported-derived-data-products-path-required")
@@ -379,7 +389,7 @@ def main():
                    "-skipPackagePluginValidation", "-skipMacroValidation", "ONLY_ACTIVE_ARCH=YES",
                    "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=", "PROVISIONING_PROFILE_SPECIFIER=",
                    "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES",
-                   "OTHER_SWIFT_FLAGS=$(inherited) -D WN_EXPERIMENTAL_DEVICE_SYNC"]
+                   *verified_settings]
         build_error = None
         if args.platform == "macos":
             command = ["xcodebuild", "build-for-testing", "-project", "whitenoise-mac.xcodeproj",
@@ -388,7 +398,7 @@ def main():
                        "-jobs", "2", "WN_APP_BUNDLE_IDENTIFIER=dev.ipf.whitenoise.mac.tests",
                        "WN_APP_PRODUCT_NAME=White Noise Unit Host", "WN_APP_DISPLAY_NAME=White Noise Unit Host",
                        "WN_APP_URL_SCHEME=marmot-tests", "CODE_SIGNING_ALLOWED=NO",
-                       "OTHER_SWIFT_FLAGS=$(inherited) -D WN_EXPERIMENTAL_DEVICE_SYNC"]
+                       *verified_settings]
         with Path(str(prefix) + "-build.log").open("x") as log:
             process = subprocess.Popen(command, cwd=source, env=environment, stdout=log,
                                        stderr=subprocess.STDOUT, start_new_session=True)

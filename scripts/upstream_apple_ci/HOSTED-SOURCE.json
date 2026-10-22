@@ -39,7 +39,7 @@
     },
     "hosted-app-ui.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "eb1945a447f858d80c19db47b794c0896f0a59f4de98b172592c8564c2ad03c1",
+      "sha256": "1f7d67107d5af128a2c773cc5dace7bed7dae02878521f84e3a66ff48b47d59c",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     },
     "run-hosted-app-acceptance.py": {
@@ -86,6 +86,11 @@
       "original_file_sha256": "a2849a1f0ca4b94f3a48cde23e2314a204d394b96da3c7834b7aa29b3c703c5b",
       "sha256": "faeb8f68bd0cf310b3df2781c5bd1eae9518c0b56536bcf8854f1e036c59f680",
       "adaptation": "Build current default/experimental public workers through real installer-created isolated app overlays and validated current-API compiler mode; historical0.13 four-argument worker build and original transport/runtime oracles unchanged."
+    },
+    "app-sdk-cohort.py": {
+      "source": "existing authenticated SDK profile cohort helper",
+      "sha256": "6ac2febf4c09058792e2c98972ff515c3b666a6421f071b63825cd2020be30fb",
+      "scope": "Shared authenticated experimental app guard and exact compiler array; no SDK or historical cohort behavior change"
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

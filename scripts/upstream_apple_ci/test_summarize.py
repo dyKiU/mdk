@@ -81,5 +81,48 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(test_inventory({'testNodes': [tree]}, self.counts())['status'], 'schema_limit_exceeded')
 
 
+class HostedVerifiedSettingsTests(unittest.TestCase):
+    """Synthetic shell metadata only; no SDK/artifact/install qualification."""
+
+    def invoke(self, response, failure=False):
+        import importlib.util
+        import os
+        import subprocess
+        from pathlib import Path
+        from unittest.mock import patch
+        path = Path(__file__).resolve().with_name('hosted-app-ui.py')
+        spec = importlib.util.spec_from_file_location('hosted_settings_test', path)
+        hosted = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hosted)
+        with patch.dict(os.environ, {'SDK_RUN_ID': '123', 'WN_CURRENT_SDK_API': '1',
+                                    'WN_SDK_PROFILE': 'historical'}), \
+                patch('subprocess.check_output', return_value=response,
+                      side_effect=subprocess.CalledProcessError(1, ['bash']) if failure else None) as shell:
+            result = hosted.verified_experimental_settings(Path('/SYNTHETIC-NOT-ACCESSED'), 'a' * 40)
+            environment = shell.call_args.kwargs['env']
+            self.assertEqual(environment['WN_SDK_SOURCE_SHA'], 'a' * 40)
+            self.assertEqual(environment['WN_SDK_RUN_ID'], '123')
+            self.assertEqual(environment['WN_SDK_PROFILE'], 'experimental')
+            self.assertEqual(environment['WN_CURRENT_SDK_API'], '0')
+            return result
+
+    def test_authenticated_experimental_array_reaches_build_settings(self):
+        flags = 'OTHER_SWIFT_FLAGS=$(inherited) -D WN_CURRENT_SDK_API -D WN_EXPERIMENTAL_DEVICE_SYNC'
+        self.assertEqual(self.invoke('1\nexperimental\n' + flags + '\n'), [flags])
+
+    def test_default_legacy_missing_and_extra_settings_are_rejected(self):
+        valid = '1\nexperimental\nOTHER_SWIFT_FLAGS=$(inherited) -D WN_CURRENT_SDK_API -D WN_EXPERIMENTAL_DEVICE_SYNC\n'
+        for response in ['0\n\n\n', '1\ndefault\nOTHER_SWIFT_FLAGS=$(inherited) -D WN_CURRENT_SDK_API\n',
+                         '1\nexperimental\nOTHER_SWIFT_FLAGS=$(inherited) -D WN_EXPERIMENTAL_DEVICE_SYNC\n',
+                         valid + 'UNEXPECTED\n', valid.replace(' -D WN_EXPERIMENTAL_DEVICE_SYNC', ' -D UNEXPECTED')]:
+            with self.subTest(response_shape=len(response)), self.assertRaises(ValueError):
+                self.invoke(response)
+
+    def test_guard_failure_is_not_replaced_by_environment_flags(self):
+        import subprocess
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.invoke('', failure=True)
+
+
 if __name__ == '__main__':
     unittest.main()
