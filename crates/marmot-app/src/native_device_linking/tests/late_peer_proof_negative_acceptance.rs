@@ -52,10 +52,10 @@ async fn run(scenario: Scenario) {
     // Last completed existing PublicCancel poll; false row facts are unknown if absent.
     let mut public_cancel_sample = [false; 5];
     let attempt = std::panic::AssertUnwindSafe(async {
-        for runtime in &runtimes {
-            runtime.reconcile_accounts().await.unwrap();
-        }
         if ordinary_case {
+            // The existing incoming-chat fixture requires one active installation:
+            // account-level Welcomes may otherwise be selected by a sibling.
+            runtimes[1].reconcile_accounts().await.unwrap();
             let account = apps[1].account_home().account("test").unwrap().account_id_hex;
             ordinary_peer = Some(crate::native_device_linking::tests::automatic_forwarding_non_admin_acceptance::IncomingPeer::create(
                 &url, &apps[1], &runtimes[1], &account,
@@ -63,6 +63,13 @@ async fn run(scenario: Scenario) {
             // create() proves the real independent Welcome, acceptance, two-member
             // roster and one ordinary message before the original linking flow.
             ordinary_facts[0] = true;
+            for runtime in [&runtimes[0], &runtimes[2]] {
+                runtime.reconcile_accounts().await.unwrap();
+            }
+        } else {
+            for runtime in &runtimes {
+                runtime.reconcile_accounts().await.unwrap();
+            }
         }
         let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         let first_b = managers[1]
