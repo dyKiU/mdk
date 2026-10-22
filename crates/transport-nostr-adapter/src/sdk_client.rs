@@ -10014,7 +10014,10 @@ mod tests {
     }
 
     // Actual SDK routing/acquisition metadata; opaque carriers grant no Core policy.
-    #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     mod private_sdk_replay_regressions {
         use super::*;
 
@@ -10030,40 +10033,87 @@ mod tests {
             private: String,
             ordinary: Option<String>,
             ingress: Option<crate::ReplayIngress>,
-            updates: Option<Pin<Box<dyn Stream<Item = NotificationUpdate<NostrSdkNotification>> + Send>>>,
+            updates: Option<
+                Pin<Box<dyn Stream<Item = NotificationUpdate<NostrSdkNotification>> + Send>>,
+            >,
             forwarder: Option<JoinHandle<()>>,
         }
 
         impl Fixture {
             async fn new(endpoints: usize, alias: bool) -> Self {
                 let mut wires = Vec::new();
-                for _ in 0..endpoints { wires.push(ReplayWire::new().await); }
+                for _ in 0..endpoints {
+                    wires.push(ReplayWire::new().await);
+                }
                 let root = NostrSdkRelayClient::multi_account();
                 let keys = Keys::generate();
                 let account = MemberId::new(keys.public_key().to_bytes().to_vec());
-                let sdk = root.register_account(account.clone(), Arc::new(keys)).await.unwrap();
-                assert!(sdk.account_id.as_ref() == Some(&account), "actual account reader must be bound");
+                let sdk = root
+                    .register_account(account.clone(), Arc::new(keys))
+                    .await
+                    .unwrap();
+                assert!(
+                    sdk.account_id.as_ref() == Some(&account),
+                    "actual account reader must be bound"
+                );
                 let adapter = NostrTransportAdapter::new(Arc::new(root.clone()));
-                let updates = if alias { None } else { Some(sdk.notifications()) };
-                let forwarder = if alias { Some(sdk.spawn_notification_forwarder(adapter.clone())) } else { None };
+                let updates = if alias {
+                    None
+                } else {
+                    Some(sdk.notifications())
+                };
+                let forwarder = if alias {
+                    Some(sdk.spawn_notification_forwarder(adapter.clone()))
+                } else {
+                    None
+                };
                 let selected = cgka_traits::GroupId::new(vec![0x91; 16]);
                 let alias_id = cgka_traits::GroupId::new(vec![0x92; 16]);
                 let route = vec![0x93; 32];
-                adapter.configure_private_observation_group(&account, Some(selected.clone())).await;
+                adapter
+                    .configure_private_observation_group(&account, Some(selected.clone()))
+                    .await;
                 let group = crate::TransportGroupSubscription {
-                    group_id: selected.clone(), transport_group_id: route.clone(),
+                    group_id: selected.clone(),
+                    transport_group_id: route.clone(),
                     endpoints: wires.iter().map(|wire| wire.endpoint.clone()).collect(),
                     retained_since: None,
                 };
                 let mut groups = vec![group.clone()];
-                if alias { groups.push(crate::TransportGroupSubscription { group_id: alias_id.clone(), ..group }); }
-                let ingress = if alias { Some(adapter.open_replay_ingress(&account, Vec::new()).await.unwrap()) } else { None };
-                adapter.activate_account(crate::TransportAccountActivation {
-                    account_id: account.clone(), inbox_endpoints: vec![wires[0].endpoint.clone()],
-                    group_subscriptions: groups, since: None,
-                }).await.unwrap();
-                let private = adapter.state.read().await.private_observation_wires.get(&account)
-                    .expect("normal activation issued the private wire").actual.clone();
+                if alias {
+                    groups.push(crate::TransportGroupSubscription {
+                        group_id: alias_id.clone(),
+                        ..group
+                    });
+                }
+                let ingress = if alias {
+                    Some(
+                        adapter
+                            .open_replay_ingress(&account, Vec::new())
+                            .await
+                            .unwrap(),
+                    )
+                } else {
+                    None
+                };
+                adapter
+                    .activate_account(crate::TransportAccountActivation {
+                        account_id: account.clone(),
+                        inbox_endpoints: vec![wires[0].endpoint.clone()],
+                        group_subscriptions: groups,
+                        since: None,
+                    })
+                    .await
+                    .unwrap();
+                let private = adapter
+                    .state
+                    .read()
+                    .await
+                    .private_observation_wires
+                    .get(&account)
+                    .expect("normal activation issued the private wire")
+                    .actual
+                    .clone();
                 let mut ordinary = None;
                 for (index, wire) in wires.iter_mut().enumerate() {
                     let count = 1 + usize::from(index == 0) + usize::from(alias);
@@ -10071,17 +10121,40 @@ mod tests {
                     for _ in 0..count {
                         let req = wire.recv_kind("REQ").await;
                         let id = req[1].as_str().unwrap().to_owned();
-                        if id == private { saw_private = true; }
-                        else if req[2]["#h"].is_array() { ordinary = Some(id); }
-                        else { wire.send(serde_json::json!(["EOSE", id])).await; }
+                        if id == private {
+                            saw_private = true;
+                        } else if req[2]["#h"].is_array() {
+                            ordinary = Some(id);
+                        } else {
+                            wire.send(serde_json::json!(["EOSE", id])).await;
+                        }
                     }
                     assert!(saw_private, "actual private REQ must reach each endpoint");
                 }
-                assert!(ordinary.is_some() == alias, "ordinary alias must have its own actual REQ");
-                Self { wires, root, sdk, adapter, account, selected, alias: alias_id, route, private, ordinary, ingress, updates, forwarder }
+                assert!(
+                    ordinary.is_some() == alias,
+                    "ordinary alias must have its own actual REQ"
+                );
+                Self {
+                    wires,
+                    root,
+                    sdk,
+                    adapter,
+                    account,
+                    selected,
+                    alias: alias_id,
+                    route,
+                    private,
+                    ordinary,
+                    ingress,
+                    updates,
+                    forwarder,
+                }
             }
 
-            fn event(&self) -> Event { stored_group_event(&self.route, crate::unix_now_seconds()) }
+            fn event(&self) -> Event {
+                stored_group_event(&self.route, crate::unix_now_seconds())
+            }
 
             async fn close(self) -> bool {
                 self.root.shutdown_accounts().await;
@@ -10096,7 +10169,8 @@ mod tests {
                 let mut wires = self.wires;
                 let mut closed = true;
                 for wire in &mut wires {
-                    closed &= matches!((&mut wire.server).await, Err(error) if error.is_cancelled());
+                    closed &=
+                        matches!((&mut wire.server).await, Err(error) if error.is_cancelled());
                 }
                 closed
             }
@@ -10108,53 +10182,103 @@ mod tests {
         }
         impl Reader {
             fn new(f: &mut Fixture) -> Self {
-                Self { updates: f.updates.take().unwrap(),
-                    capture: SdkLiveNotificationReceiver::new(f.adapter.clone(), Some(f.account.clone())) }
+                Self {
+                    updates: f.updates.take().unwrap(),
+                    capture: SdkLiveNotificationReceiver::new(
+                        f.adapter.clone(),
+                        Some(f.account.clone()),
+                    ),
+                }
             }
             async fn next(&mut self) -> NostrSdkNotification {
                 timeout(Duration::from_secs(20), async {
                     loop {
-                        match self.updates.next().await.expect("actual SDK reader remains open") {
+                        match self
+                            .updates
+                            .next()
+                            .await
+                            .expect("actual SDK reader remains open")
+                        {
                             NotificationUpdate::Notification(input) => return input,
-                            NotificationUpdate::Lagged { .. } => panic!("bounded real SDK fixture must not lag"),
+                            NotificationUpdate::Lagged { .. } => {
+                                panic!("bounded real SDK fixture must not lag")
+                            }
                         }
                     }
-                }).await.expect("actual SDK notification must arrive")
+                })
+                .await
+                .expect("actual SDK notification must arrive")
             }
             async fn dispatch(&mut self, f: &Fixture, input: NostrSdkNotification) {
                 // Match the production source forwarder: dedup twins grant no capture.
                 if matches!(&input, NostrSdkNotification::Payload {
                     notification: ClientNotification::Event { event, .. }, ..
-                } if event.kind == Kind::MlsGroupMessage) { return; }
+                } if event.kind == Kind::MlsGroupMessage)
+                {
+                    return;
+                }
                 let capture = self.capture.capture(&input).await;
-                NostrSdkRelayClient::dispatch_sdk_replay_captured(input, &f.adapter,
-                    Some(&f.account), capture, &|reason| f.sdk.subscription_refusal(reason), None).await;
+                NostrSdkRelayClient::dispatch_sdk_replay_captured(
+                    input,
+                    &f.adapter,
+                    Some(&f.account),
+                    capture,
+                    &|reason| f.sdk.subscription_refusal(reason),
+                    None,
+                )
+                .await;
             }
             async fn eose(&mut self, f: &Fixture, endpoint: usize) -> [u64; 2] {
-                f.wires[endpoint].send(serde_json::json!(["EOSE", f.private])).await;
+                f.wires[endpoint]
+                    .send(serde_json::json!(["EOSE", f.private]))
+                    .await;
                 loop {
                     let input = self.next().await;
                     let matched = match &input {
-                        NostrSdkNotification::Payload { notification: ClientNotification::Message { relay_url, message }, epoch, .. }
-                            if relay_url.to_string() == f.wires[endpoint].endpoint.as_str()
-                            && matches!(message.as_ref(), RelayMessage::EndOfStoredEvents(id) if id.as_str() == f.private) => Some(*epoch),
+                        NostrSdkNotification::Payload {
+                            notification: ClientNotification::Message { relay_url, message },
+                            epoch,
+                            ..
+                        } if relay_url.to_string() == f.wires[endpoint].endpoint.as_str()
+                            && matches!(message.as_ref(), RelayMessage::EndOfStoredEvents(id) if id.as_str() == f.private) =>
+                        {
+                            Some(*epoch)
+                        }
                         _ => None,
                     };
                     self.dispatch(f, input).await;
-                    if let Some(epoch) = matched { return epoch; }
+                    if let Some(epoch) = matched {
+                        return epoch;
+                    }
                 }
             }
-            async fn raw(&mut self, f: &Fixture, endpoint: usize, event: &Event)
-                -> (NostrSdkNotification, Option<crate::CapturedLiveRelayEvent>, [u64; 2]) {
+            async fn raw(
+                &mut self,
+                f: &Fixture,
+                endpoint: usize,
+                event: &Event,
+            ) -> (
+                NostrSdkNotification,
+                Option<crate::CapturedLiveRelayEvent>,
+                [u64; 2],
+            ) {
                 event.verify().unwrap();
-                f.wires[endpoint].send(serde_json::json!(["EVENT", f.private, event])).await;
+                f.wires[endpoint]
+                    .send(serde_json::json!(["EVENT", f.private, event]))
+                    .await;
                 loop {
                     let input = self.next().await;
                     let matched = match &input {
-                        NostrSdkNotification::Payload { notification: ClientNotification::Message { relay_url, message }, epoch, .. }
-                            if relay_url.to_string() == f.wires[endpoint].endpoint.as_str()
+                        NostrSdkNotification::Payload {
+                            notification: ClientNotification::Message { relay_url, message },
+                            epoch,
+                            ..
+                        } if relay_url.to_string() == f.wires[endpoint].endpoint.as_str()
                             && matches!(message.as_ref(), RelayMessage::Event { subscription_id, event: actual }
-                                if subscription_id.as_str() == f.private && actual.id == event.id) => Some(*epoch),
+                                if subscription_id.as_str() == f.private && actual.id == event.id) =>
+                        {
+                            Some(*epoch)
+                        }
                         _ => None,
                     };
                     if let Some(epoch) = matched {
@@ -10164,17 +10288,39 @@ mod tests {
                     self.dispatch(f, input).await;
                 }
             }
-            async fn release(&mut self, f: &Fixture,
-                pair: (NostrSdkNotification, Option<crate::CapturedLiveRelayEvent>, [u64; 2]), event: &Event) -> bool {
-                NostrSdkRelayClient::dispatch_sdk_replay_captured(pair.0, &f.adapter,
-                    Some(&f.account), pair.1, &|reason| f.sdk.subscription_refusal(reason), None).await;
-                let observed = timeout(Duration::from_secs(20), f.adapter.receive_observed()).await
-                    .expect("actual private raw copy must be delivered").unwrap().unwrap();
-                assert!(observed.account_id == f.account
-                    && observed.group_id_hint.as_ref() == Some(&f.selected)
-                    && observed.message.id.as_slice() == event.id.as_bytes(), "actual source account/group/carrier must match");
-                observed.observation.as_ref().is_some_and(|observation|
-                    observation.deadline_for(&observed.delivery).is_some())
+            async fn release(
+                &mut self,
+                f: &Fixture,
+                pair: (
+                    NostrSdkNotification,
+                    Option<crate::CapturedLiveRelayEvent>,
+                    [u64; 2],
+                ),
+                event: &Event,
+            ) -> bool {
+                NostrSdkRelayClient::dispatch_sdk_replay_captured(
+                    pair.0,
+                    &f.adapter,
+                    Some(&f.account),
+                    pair.1,
+                    &|reason| f.sdk.subscription_refusal(reason),
+                    None,
+                )
+                .await;
+                let observed = timeout(Duration::from_secs(20), f.adapter.receive_observed())
+                    .await
+                    .expect("actual private raw copy must be delivered")
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    observed.account_id == f.account
+                        && observed.group_id_hint.as_ref() == Some(&f.selected)
+                        && observed.message.id.as_slice() == event.id.as_bytes(),
+                    "actual source account/group/carrier must match"
+                );
+                observed.observation.as_ref().is_some_and(|observation| {
+                    observation.deadline_for(&observed.delivery).is_some()
+                })
             }
         }
 
@@ -10196,18 +10342,26 @@ mod tests {
             let event = f.event();
             let pair = reader.raw(&f, 1, &event).await;
             let endpoint_live = reader.release(&f, pair, &event).await;
-            f.wires[0].sender.send(ReplayWireCmd::Disconnect).await.unwrap();
+            f.wires[0]
+                .sender
+                .send(ReplayWireCmd::Disconnect)
+                .await
+                .unwrap();
             // The SDK actually reconnects/resubscribes; no synthetic generation.
             loop {
                 let input = reader.next().await;
                 let changed = matches!(&input, NostrSdkNotification::Replay { endpoint, epoch, reason: ReplayRestart::Connection }
                     if *endpoint == f.wires[0].endpoint && epoch[1] > initial_epoch[1]);
                 reader.dispatch(&f, input).await;
-                if changed { break; }
+                if changed {
+                    break;
+                }
             }
             loop {
                 let req = f.wires[0].recv_kind("REQ").await;
-                if req[1].as_str() == Some(f.private.as_str()) { break; }
+                if req[1].as_str() == Some(f.private.as_str()) {
+                    break;
+                }
             }
             let event = f.event();
             let pair = reader.raw(&f, 0, &event).await;
@@ -10219,7 +10373,8 @@ mod tests {
             let connection_live = reader.release(&f, pair, &event).await;
             // Replace the actual account stream, retaining its source-owned
             // endpoint wrapper; replacement itself supplies the next boundary.
-            let previous = std::mem::replace(&mut reader.updates, Box::pin(futures::stream::empty()));
+            let previous =
+                std::mem::replace(&mut reader.updates, Box::pin(futures::stream::empty()));
             drop(previous);
             reader.updates = f.sdk.notifications();
             let event = f.event();
@@ -10230,16 +10385,31 @@ mod tests {
             let event = f.event();
             let pair = reader.raw(&f, 0, &event).await;
             let reader_live = reader.release(&f, pair, &event).await;
-            let prerequisites = initial_live && endpoint_live && connection_live && reader_live
-                && connection_epoch[1] > initial_epoch[1] && reader_epoch[0] > connection_epoch[0];
+            let prerequisites = initial_live
+                && endpoint_live
+                && connection_live
+                && reader_live
+                && connection_epoch[1] > initial_epoch[1]
+                && reader_epoch[0] > connection_epoch[0];
             drop(reader);
             let closed = f.close().await;
-            eprintln!("private-sdk-epoch {{\"prerequisites\":{},\"delayed_negative\":{},\"endpoint_negative\":{},\"connection_negative\":{},\"reader_negative\":{},\"closed\":{}}}",
-                prerequisites, delayed_negative, endpoint_negative, connection_negative, reader_negative, closed);
-            assert!(prerequisites && delayed_negative && endpoint_negative && closed,
-                "actual SDK epoch fixture prerequisites and positive closes must hold");
-            assert!(connection_negative && reader_negative,
-                "actual SDK epoch change must require new endpoint EOSE");
+            eprintln!(
+                "private-sdk-epoch {{\"prerequisites\":{},\"delayed_negative\":{},\"endpoint_negative\":{},\"connection_negative\":{},\"reader_negative\":{},\"closed\":{}}}",
+                prerequisites,
+                delayed_negative,
+                endpoint_negative,
+                connection_negative,
+                reader_negative,
+                closed
+            );
+            assert!(
+                prerequisites && delayed_negative && endpoint_negative && closed,
+                "actual SDK epoch fixture prerequisites and positive closes must hold"
+            );
+            assert!(
+                connection_negative && reader_negative,
+                "actual SDK epoch change must require new endpoint EOSE"
+            );
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -10247,51 +10417,95 @@ mod tests {
             let mut f = Fixture::new(1, true).await;
             let mut ingress = f.ingress.take().unwrap();
             let forwarder = f.forwarder.take().unwrap();
-            let packet = f.event(); packet.verify().unwrap();
-            let barrier = f.event(); barrier.verify().unwrap();
-            f.wires[0].send(serde_json::json!(["EOSE", f.private])).await;
-            f.wires[0].send(serde_json::json!(["EVENT", f.private, packet])).await;
-            f.wires[0].send(serde_json::json!(["EVENT", f.private, barrier])).await;
-            let (selected_once, private_alias_absent, live_bound) = timeout(Duration::from_secs(20), async {
-                let mut selected = 0; let mut alias = 0; let mut live = false;
-                loop {
-                    let row = f.adapter.receive_observed().await.unwrap().unwrap();
-                    assert!(row.account_id == f.account, "private account context must not change");
-                    if row.message.id.as_slice() == packet.id.as_bytes() {
-                        selected += usize::from(row.group_id_hint.as_ref() == Some(&f.selected));
-                        alias += usize::from(row.group_id_hint.as_ref() == Some(&f.alias));
-                        live |= row.observation.as_ref().is_some_and(|o| o.deadline_for(&row.delivery).is_some());
+            let packet = f.event();
+            packet.verify().unwrap();
+            let barrier = f.event();
+            barrier.verify().unwrap();
+            f.wires[0]
+                .send(serde_json::json!(["EOSE", f.private]))
+                .await;
+            f.wires[0]
+                .send(serde_json::json!(["EVENT", f.private, packet]))
+                .await;
+            f.wires[0]
+                .send(serde_json::json!(["EVENT", f.private, barrier]))
+                .await;
+            let (selected_once, private_alias_absent, live_bound) =
+                timeout(Duration::from_secs(20), async {
+                    let mut selected = 0;
+                    let mut alias = 0;
+                    let mut live = false;
+                    loop {
+                        let row = f.adapter.receive_observed().await.unwrap().unwrap();
+                        assert!(
+                            row.account_id == f.account,
+                            "private account context must not change"
+                        );
+                        if row.message.id.as_slice() == packet.id.as_bytes() {
+                            selected +=
+                                usize::from(row.group_id_hint.as_ref() == Some(&f.selected));
+                            alias += usize::from(row.group_id_hint.as_ref() == Some(&f.alias));
+                            live |= row
+                                .observation
+                                .as_ref()
+                                .is_some_and(|o| o.deadline_for(&row.delivery).is_some());
+                        }
+                        if row.message.id.as_slice() == barrier.id.as_bytes()
+                            && row.group_id_hint.as_ref() == Some(&f.selected)
+                        {
+                            break;
+                        }
                     }
-                    if row.message.id.as_slice() == barrier.id.as_bytes()
-                        && row.group_id_hint.as_ref() == Some(&f.selected) { break; }
-                }
-                (selected == 1, alias == 0, live)
-            }).await.expect("actual later private carrier fences earlier queue placements");
+                    (selected == 1, alias == 0, live)
+                })
+                .await
+                .expect("actual later private carrier fences earlier queue placements");
             // Same signed body on the ACTUAL ordinary REQ is separate source
             // evidence. Its SDK dedup twin must never replace raw native ingress.
             let ordinary = f.ordinary.as_ref().unwrap();
-            f.wires[0].send(serde_json::json!(["EVENT", ordinary, packet])).await;
+            f.wires[0]
+                .send(serde_json::json!(["EVENT", ordinary, packet]))
+                .await;
             f.wires[0].send(serde_json::json!(["EOSE", ordinary])).await;
             let ordinary_native = timeout(Duration::from_secs(20), async {
                 loop {
-                    if let crate::ReplayBatchTake::Ready(mut batch) = ingress.take_batch(Some(&f.alias)).await {
+                    if let crate::ReplayBatchTake::Ready(mut batch) =
+                        ingress.take_batch(Some(&f.alias)).await
+                    {
                         while let Some(row) = batch.delivery() {
-                            let matched = row.account_id == f.account && row.group_id_hint.as_ref() == Some(&f.alias)
+                            let matched = row.account_id == f.account
+                                && row.group_id_hint.as_ref() == Some(&f.alias)
                                 && row.message.id.as_slice() == packet.id.as_bytes();
                             batch.acknowledge().await;
-                            if matched { return true; }
+                            if matched {
+                                return true;
+                            }
                         }
                     }
                     tokio::task::yield_now().await;
                 }
-            }).await.expect("ordinary alias must retain actual ordered native replay");
+            })
+            .await
+            .expect("ordinary alias must retain actual ordered native replay");
             drop(ingress);
             let closed = f.close().await;
-            let forwarder_closed = timeout(Duration::from_secs(5), forwarder).await.is_ok_and(|r| r.is_ok());
-            let prerequisites = selected_once && live_bound && ordinary_native && closed && forwarder_closed;
-            eprintln!("private-sdk-alias {{\"prerequisites\":{},\"private_alias_absent\":{}}}", prerequisites, private_alias_absent);
-            assert!(prerequisites, "real SDK private and ordinary native replay prerequisites must hold");
-            assert!(private_alias_absent, "private SDK wire must not bypass native replay for another MLS group");
+            let forwarder_closed = timeout(Duration::from_secs(5), forwarder)
+                .await
+                .is_ok_and(|r| r.is_ok());
+            let prerequisites =
+                selected_once && live_bound && ordinary_native && closed && forwarder_closed;
+            eprintln!(
+                "private-sdk-alias {{\"prerequisites\":{},\"private_alias_absent\":{}}}",
+                prerequisites, private_alias_absent
+            );
+            assert!(
+                prerequisites,
+                "real SDK private and ordinary native replay prerequisites must hold"
+            );
+            assert!(
+                private_alias_absent,
+                "private SDK wire must not bypass native replay for another MLS group"
+            );
         }
     }
 
