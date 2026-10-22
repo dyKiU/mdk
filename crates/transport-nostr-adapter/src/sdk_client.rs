@@ -10193,17 +10193,15 @@ mod tests {
             }
             async fn next(&mut self) -> NostrSdkNotification {
                 timeout(Duration::from_secs(20), async {
-                    loop {
-                        match self
-                            .updates
-                            .next()
-                            .await
-                            .expect("actual SDK reader remains open")
-                        {
-                            NotificationUpdate::Notification(input) => return input,
-                            NotificationUpdate::Lagged { .. } => {
-                                panic!("bounded real SDK fixture must not lag")
-                            }
+                    match self
+                        .updates
+                        .next()
+                        .await
+                        .expect("actual SDK reader remains open")
+                    {
+                        NotificationUpdate::Notification(input) => input,
+                        NotificationUpdate::Lagged { .. } => {
+                            panic!("bounded real SDK fixture must not lag")
                         }
                     }
                 })
