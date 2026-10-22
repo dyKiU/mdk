@@ -8070,6 +8070,8 @@ mod batch_tests {
             inbox_endpoints: Vec::new(),
             groups: vec![group.clone()],
             group_since: HashMap::from([(key, Some(Timestamp(900)))]),
+            #[cfg(feature = "experimental-device-sync")]
+            group_wire_ids: HashMap::new(),
             attempt: SubscriptionAttempt::INITIAL,
             batches: Vec::new(),
             next_batch: 0,

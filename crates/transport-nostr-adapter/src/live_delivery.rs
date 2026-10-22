@@ -296,7 +296,11 @@ mod tests {
         async fn unsubscribe(&self, _: NostrSubscription) -> Result<(), TransportAdapterError> {
             Ok(())
         }
-        async fn unsubscribe_account(&self, _: &MemberId) -> Result<(), TransportAdapterError> {
+        async fn unsubscribe_account(
+            &self,
+            _: &MemberId,
+            _: &[NostrSubscription],
+        ) -> Result<(), TransportAdapterError> {
             Ok(())
         }
         async fn publish_event(

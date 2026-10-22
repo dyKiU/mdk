@@ -9617,8 +9617,9 @@ mod tests {
         async fn unsubscribe_account(
             &self,
             account: &MemberId,
+            replacements: &[NostrSubscription],
         ) -> Result<(), TransportAdapterError> {
-            self.sdk.unsubscribe_account(account).await
+            self.sdk.unsubscribe_account(account, replacements).await
         }
         async fn publish_event(
             &self,
@@ -10218,12 +10219,13 @@ mod tests {
                     return;
                 }
                 let capture = self.capture.capture(&input).await;
+                let sdk = &f.sdk;
                 NostrSdkRelayClient::dispatch_sdk_replay_captured(
                     input,
                     &f.adapter,
                     Some(&f.account),
                     capture,
-                    &|reason| f.sdk.subscription_refusal(reason),
+                    &|reason| sdk.subscription_refusal(reason),
                     None,
                 )
                 .await;
@@ -10298,12 +10300,13 @@ mod tests {
                 ),
                 event: &Event,
             ) -> bool {
+                let sdk = &f.sdk;
                 NostrSdkRelayClient::dispatch_sdk_replay_captured(
                     pair.0,
                     &f.adapter,
                     Some(&f.account),
                     pair.1,
-                    &|reason| f.sdk.subscription_refusal(reason),
+                    &|reason| sdk.subscription_refusal(reason),
                     None,
                 )
                 .await;
