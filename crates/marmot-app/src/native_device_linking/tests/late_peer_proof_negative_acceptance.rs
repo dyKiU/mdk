@@ -529,7 +529,10 @@ async fn run(scenario: Scenario) {
     );
     if ordinary_case {
         if let Some(diagnostic) = &ordinary_diagnostic {
-            crate::test_support::emit_line(format_args!("late-peer-ordinary-frozen {}", diagnostic));
+            crate::test_support::emit_line(format_args!(
+                "late-peer-ordinary-frozen {}",
+                diagnostic
+            ));
         }
         crate::test_support::emit_line(format_args!(
             "late-peer-ordinary-progress independent_ready={} first_denial_seen={} original_closed_exact={} published_once={} source_packet_app_bound={} unrelated_group={} wait_sampled={} ordinary_projected={} custody_sampled={} queue_accepted={} same_receiver={} ordered_valid_custody={} negative_preserved={} final_receiver_matches={} no_replay={} accepted={} validation_rejections={} own_publications={} open_attempts={} routed_after_cancel={} closed_denials={} original_facts_complete={} runtime_closes={} planes_shutdown={} independent_closed={} independent_plane_shutdown={} relay_closed={} attempt_completed={}",
