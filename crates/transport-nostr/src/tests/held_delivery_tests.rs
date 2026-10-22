@@ -1,4 +1,5 @@
 //! The arrival fixture must preserve scope, retained packets and cursor safety.
+//! Router-only fixtures grant cached owner policy; placement pins remain under test.
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -67,7 +68,7 @@ async fn held_delivery_retains_cursor_pins_for_every_duplicate_until_real_receip
     assert_eq!(held.observed(), (2, 0, 0));
     let candidate = Some(OPENED_CURSOR + 1_000);
     assert_eq!(
-        adapter.seal_transport_cursor(candidate),
+        adapter.seal_transport_cursor(candidate, |_| true),
         Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
     );
     held.release();
@@ -82,11 +83,11 @@ async fn held_delivery_retains_cursor_pins_for_every_duplicate_until_real_receip
     assert_eq!(take_queued(&adapter).message, packet.message);
     assert_eq!(take_queued(&adapter).message, packet.message);
     assert_eq!(
-        adapter.seal_transport_cursor(candidate),
+        adapter.seal_transport_cursor(candidate, |_| true),
         Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
     );
     adapter.release_account_delivery(&packet.message.id);
-    assert_eq!(adapter.seal_transport_cursor(candidate), candidate);
+    assert_eq!(adapter.seal_transport_cursor(candidate, |_| true), candidate);
     drop(held);
     plane.shutdown().await;
 }
@@ -123,14 +124,14 @@ async fn held_delivery_cannot_enter_or_unpin_a_replacement_queue() {
     assert_eq!(held.observed(), (1, 1, 0));
     let candidate = Some(OPENED_CURSOR + 1_000);
     assert_eq!(
-        replacement.seal_transport_cursor(candidate),
+        replacement.seal_transport_cursor(candidate, |_| true),
         Some(OPENED_CURSOR + 200 + CURSOR_LOOKBACK)
     );
     let received = take_queued(&replacement);
     assert_eq!(received.message.id, MessageId::new(vec![2; 32]));
     replacement.release_account_delivery(&received.message.id);
     assert!(replacement.try_receive_account_delivery().is_none());
-    assert_eq!(replacement.seal_transport_cursor(candidate), candidate);
+    assert_eq!(replacement.seal_transport_cursor(candidate, |_| true), candidate);
     drop(held);
     plane.shutdown().await;
 }
@@ -182,7 +183,7 @@ async fn held_delivery_defers_recovery_without_unpinning_or_consuming_original()
     assert!(adapter.defer_held_recovery_for_test(&packet));
     assert_eq!(held.recovered_deferrals(), 2);
     assert_eq!(
-        adapter.seal_transport_cursor(candidate),
+        adapter.seal_transport_cursor(candidate, |_| true),
         Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
     );
     assert!(adapter.try_receive_account_delivery().is_none());
@@ -198,11 +199,11 @@ async fn held_delivery_defers_recovery_without_unpinning_or_consuming_original()
     };
     assert_eq!(received.message, packet.message);
     assert_eq!(
-        adapter.seal_transport_cursor(candidate),
+        adapter.seal_transport_cursor(candidate, |_| true),
         Some(OPENED_CURSOR + 100 + CURSOR_LOOKBACK)
     );
     adapter.release_account_delivery(&packet.message.id);
-    assert_eq!(adapter.seal_transport_cursor(candidate), candidate);
+    assert_eq!(adapter.seal_transport_cursor(candidate, |_| true), candidate);
     drop(held);
     assert!(!adapter.defer_held_recovery_for_test(&packet));
     plane.shutdown().await;
