@@ -4263,7 +4263,7 @@ impl AppClient {
             if let Some(admission) = private {
                 let joined = matches!(admission, PrivateWelcomeIngress::Joined);
                 if joined {
-                    client.record_durable_transport_reconciliation_delivery(&delivery);
+                    client.record_durable_transport_reconciliation_delivery(delivery);
                 }
                 return Ok(DeliveryIngest {
                     routes_dirty: joined,
