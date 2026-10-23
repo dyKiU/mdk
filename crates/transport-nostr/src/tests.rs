@@ -4460,7 +4460,7 @@ async fn a_new_queue_generation_drops_the_pins_of_the_last() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deliveries_placed_after_a_live_seal_spill_what_only_that_promotion_stopped_covering() {
-    let (store, kept) = recording_spill_store();
+    let (store, kept, spill_gate) = gated_recording_spill_store();
     let (relay_plane, adapter, alice) = cursor_floor_adapter(Some(store), None);
     let promoted = Some(OPENED_CURSOR + 2_000);
     assert_eq!(adapter.seal_transport_cursor(promoted, |_| true), promoted);
@@ -4496,6 +4496,8 @@ async fn deliveries_placed_after_a_live_seal_spill_what_only_that_promotion_stop
         None,
         "no commit passes a delivery still in the spill hand-off"
     );
+    // Keep the real spill writer unsettled through both hand-off assertions.
+    spill_gate.open();
     timeout(Duration::from_secs(5), async {
         while adapter.delivery_loss_blocks_cursor() {
             tokio::time::sleep(Duration::from_millis(5)).await;
