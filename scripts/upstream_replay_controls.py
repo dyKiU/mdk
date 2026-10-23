@@ -559,7 +559,7 @@ def sqlite_cache_controls(site):
     header = ("thread '" + SQLITE_CACHE_TEST + "' (7) panicked at " + SQLITE_CACHE_PATH
         + ':' + str(site['line']) + ':' + str(site['column']) + ':\n'
         + 'assertion `left == right` failed\n  left: 42\n right: 0\n').encode()
-    for indent in (b'', b' ', b' ' * 8):
+    for indent in (b'', b' ', b' ' * 6):
         assert sqlite_cache_failure(b'\n'.join(indent + line for line in header.split(b'\n')), site)
     invalid = [b'', header + header, header.replace(SQLITE_CACHE_TEST.encode(), b'PRIVATE'),
         header.replace(SQLITE_CACHE_PATH.encode(), b'PRIVATE.rs'),
@@ -568,7 +568,8 @@ def sqlite_cache_controls(site):
         header.replace(b'left: 42', b'left: 0'), header.replace(b'left: 42', b'left: -1'),
         header.replace(b'left: 42', b'left: 0.1'), header.replace(b'right: 0', b'right: 1'),
         header.replace(b'failed\n', b'failed: PRIVATE\n'),
-        header.replace(b'42', b'1' * 11), b' ' * 9 + header]
+        header.replace(b'42', b'1' * 11), b' ' * 9 + header,
+        b'\n'.join(b' ' * 8 + line for line in header.split(b'\n'))]
     for raw in invalid:
         assert not sqlite_cache_failure(raw, site)
     tests = {SQLITE_CACHE_TEST: SQLITE_CACHE_PATH}
