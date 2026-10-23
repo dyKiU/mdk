@@ -21854,6 +21854,111 @@ async fn a_send_that_reaches_the_transport_reports_published() {
     runtime.shutdown().await;
 }
 
+/// Legacy mutation admission oracle, extracted without changing its behavior.
+/// The focused runtime regression calls this only after recovery and cleanup.
+/// GREEN adopts the incoming typed-disposition match in this shared helper.
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) fn assert_mutation_admitted(summary: &crate::SendSummary) {
+    assert_eq!(summary.message_ids.len(), 1);
+    assert_eq!(
+        summary.published, 1,
+        "mutation admission must agree with its actual typed send outcome"
+    );
+}
+
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn actual_runtime_edit_completion_unknown_preserves_exact_canonical_identity() {
+    use cgka_traits::storage::OutboundFanoutStorage;
+
+    let dir = tempfile::tempdir().unwrap();
+    AccountHome::open(dir.path()).create_account("sender").unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relay(dir.path(), "wss://scripted-edit-admission.example")
+        .with_test_relay_client(relay.clone());
+    let mut setup = app.client("sender").await.unwrap();
+    let group = setup.create_group("Synthetic edit admission", &[]).await.unwrap();
+    drop(setup);
+    let runtime = MarmotAppRuntime::new(app.clone());
+    runtime.reconcile_accounts().await.unwrap();
+    let original = runtime.send_message("sender", &group, b"Synthetic prior original".to_vec())
+        .await.unwrap();
+    let healthy_original_published = original.published == 1
+        && original.message_ids.len() == 1
+        && original.accept_disposition == cgka_traits::SendAcceptDisposition::Published;
+    assert!(healthy_original_published);
+    let original_id = original.message_ids[0].clone();
+    let group_hex = hex::encode(group.as_slice());
+
+    relay.fail_publishes_as_unavailable();
+    // The real worker, Engine, SQL and signed publication path make the summary.
+    // Only the existing relay seam returns a retryable transport failure.
+    let edited = runtime.edit_message("sender", &group, &original_id,
+        "Synthetic corrected original").await.unwrap();
+    let actual_unknown = edited.accept_disposition
+        == cgka_traits::SendAcceptDisposition::CompletionUnknown;
+    let actual_zero_published = edited.published == 0;
+    assert!(actual_unknown && actual_zero_published);
+    assert_eq!(edited.message_ids.len(), 1);
+    let edit_id = edited.message_ids[0].clone();
+    let exact_one_distinct_edit_id = edit_id != original_id;
+    assert!(exact_one_distinct_edit_id);
+
+    let storage = app.account_storage("sender").unwrap();
+    let retained = storage.list_outbound_fanouts_for_group(&group).unwrap()
+        .into_iter().filter(|row| row.application_message().is_some_and(|message|
+            message.group_id == group && message.app_event_id == edit_id))
+        .collect::<Vec<_>>();
+    let durable_edit_bound = retained.len() == 1;
+    assert!(durable_edit_bound);
+    let frozen = retained[0].clone();
+    let frozen_event = NostrTransportEvent::from_transport_message(&frozen.request().message).unwrap();
+    let frozen_transport_verified = frozen_event.to_verified_nostr_event().is_ok();
+    assert!(frozen_transport_verified);
+    let attempted_exact_frozen = relay.attempted_events().iter().any(|event| event == &frozen_event);
+    assert!(attempted_exact_frozen);
+
+    relay.allow_publishes();
+    // Same bounded canonical budget as the four-device fixture; no resubmission.
+    let recovery = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let timeline = app.timeline_messages_with_query("sender", TimelineMessageQuery {
+                group_id_hex: Some(group_hex.clone()), ..TimelineMessageQuery::default()
+            }).unwrap();
+            let canonical = timeline.messages.as_slice();
+            let canonical_edit_exact_once = matches!(canonical, [row]
+                if row.message_id_hex == original_id && row.plaintext == "Synthetic corrected original"
+                    && !row.deleted && row.edit.as_ref().is_some_and(|edit|
+                        edit.latest_edit_message_id_hex == edit_id && edit.edit_count == 1));
+            let no_standalone_edit_row = canonical.iter()
+                .all(|row| row.message_id_hex != edit_id && row.kind != 1009);
+            let recovered_exact_transport_once = relay.published_events_snapshot().iter()
+                .filter(|event| *event == &frozen_event).count() == 1;
+            let fanout_retired = storage.outbound_fanout(frozen.message_id()).unwrap().is_none();
+            if canonical_edit_exact_once && no_standalone_edit_row
+                && recovered_exact_transport_once && fanout_retired {
+                break (canonical_edit_exact_once, no_standalone_edit_row,
+                    recovered_exact_transport_once, fanout_retired);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }).await;
+    assert!(recovery.is_ok(), "actual retained edit must recover its exact canonical identity");
+    let (canonical_edit_exact_once, no_standalone_edit_row,
+        recovered_exact_transport_once, fanout_retired) = recovery.unwrap();
+    drop(retained);
+    drop(frozen);
+    drop(storage);
+    runtime.shutdown_and_close().await.unwrap();
+    let cleanup_complete = runtime.storage_is_closed();
+    assert!(cleanup_complete);
+    crate::test_support::emit_line(format_args!(
+        "MUTATION_ADMISSION_PROBE {{\"healthy_original_published\":{healthy_original_published},\"actual_unknown\":{actual_unknown},\"actual_zero_published\":{actual_zero_published},\"exact_one_distinct_edit_id\":{exact_one_distinct_edit_id},\"durable_edit_bound\":{durable_edit_bound},\"frozen_transport_verified\":{frozen_transport_verified},\"attempted_exact_frozen\":{attempted_exact_frozen},\"recovered_exact_transport_once\":{recovered_exact_transport_once},\"canonical_edit_exact_once\":{canonical_edit_exact_once},\"no_standalone_edit_row\":{no_standalone_edit_row},\"fanout_retired\":{fanout_retired},\"cleanup_complete\":{cleanup_complete}}}"
+    ));
+    // The only expected RED is the source-owned legacy helper after all real facts.
+    assert_mutation_admitted(&edited);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unavailable_send_retries_the_exact_event_after_transport_recovers() {
     let dir = tempfile::tempdir().unwrap();
