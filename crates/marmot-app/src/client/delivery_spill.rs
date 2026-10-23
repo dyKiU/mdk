@@ -788,14 +788,31 @@ mod yield_handoff_tests {
             .send(&group, b"cooperative spill handoff")
             .await
             .unwrap();
-        let received = tokio::time::timeout(Duration::from_secs(5), bob.receive_next_delivery())
-            .await
-            .expect("actual ordinary relay delivery reaches its joined receiver")
-            .unwrap();
-        let AccountDeliveryReceive::Delivery(received) = received else {
-            panic!("one actual ordinary delivery is required");
-        };
-        let delivery = received.delivery.clone();
+        // A joined group's real local-publication echo now belongs to ordered
+        // native ingress, not the ordinary account queue. Keep that actual loan
+        // unacknowledged while exercising the durable spill receive below.
+        let mut native = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let ingress = bob
+                    .recovery_owner
+                    .native_ingress
+                    .as_mut()
+                    .expect("the joined receiver registered its native ingress");
+                match ingress.take_batch(Some(&group)).await {
+                    transport_nostr_adapter::ReplayBatchTake::Ready(batch) => break batch,
+                    transport_nostr_adapter::ReplayBatchTake::Pending
+                    | transport_nostr_adapter::ReplayBatchTake::Empty => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("actual ordinary relay delivery reaches its joined receiver");
+        let delivery = native
+            .delivery()
+            .expect("one actual ordinary delivery is required")
+            .clone();
         let event_id = hex::encode(delivery.message.id.as_slice());
         assert!(!bob.transport_receipts().unwrap().contains(&event_id));
         let storage = app.account_storage("bob").unwrap();
@@ -807,8 +824,9 @@ mod yield_handoff_tests {
                 unix_now_seconds(),
             )
             .unwrap();
-        bob.adapter.release_account_delivery(&delivery.message.id);
-        drop(received);
+        // No ordinary account-queue take occurred, so there is no ordinary
+        // queue receipt to release. The real native loan remains owned.
+        assert!(native.delivery().is_some_and(|held| held == &delivery));
         bob.delivery_spill.maybe_rows = true;
         let cursor = bob.state.last_transport_timestamp;
         let persisted_cursor = app.load_state("bob").unwrap().last_transport_timestamp;
@@ -875,5 +893,9 @@ mod yield_handoff_tests {
                 .iter()
                 .any(|message| message.plaintext == "cooperative spill handoff")
         );
+        // Only successful real ingest, receipt persistence and spill settlement
+        // above permit the source loan to release this same frame.
+        assert!(native.delivery().is_some_and(|held| held == &delivery));
+        native.acknowledge().await;
     }
 }

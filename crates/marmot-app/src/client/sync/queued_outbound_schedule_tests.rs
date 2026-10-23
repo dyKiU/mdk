@@ -339,25 +339,34 @@ async fn assert_stale_own_leave_wake(require_inline_ingest_wake: bool) {
     // Consume startup/send edges as the account worker does. They cannot
     // substitute for a new edge from the actual inline epoch transition.
     bob.take_pending_convergence_groups();
+    bob.take_pending_applied_sync_summary();
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
-            if let Ok(delivery) =
+            // sync registered the actual native ingress. Its ordinary commit
+            // frames bypass the old queue; service the same bounded input turn
+            // as the worker, without running ordinary convergence/leave drain.
+            bob.take_pending_convergence_groups();
+            let summary = if bob.admit_native_turn().await.unwrap() {
+                bob.take_pending_applied_sync_summary()
+            } else if let Ok(delivery) =
                 tokio::time::timeout(Duration::from_millis(25), bob.receive_next_delivery()).await
             {
                 let AccountDeliveryReceive::Delivery(delivery) = delivery.unwrap() else {
                     panic!("synthetic test must not overflow its delivery queue");
                 };
                 bob.take_pending_convergence_groups();
-                let summary = bob.ingest_received_delivery(*delivery).await.unwrap();
-                if summary.events.iter().any(|event| {
-                    matches!(event,
-                    cgka_traits::engine::GroupEvent::EpochChanged { group_id, .. }
-                        if group_id == &group)
-                }) {
-                    inline_epoch_change_observed = true;
-                    inline_epoch_change_wake_retained &=
-                        bob.take_pending_convergence_groups().contains(&group);
-                }
+                bob.ingest_received_delivery(*delivery).await.unwrap()
+            } else {
+                SyncSummary::default()
+            };
+            if summary.events.iter().any(|event| {
+                matches!(event,
+                cgka_traits::engine::GroupEvent::EpochChanged { group_id, .. }
+                    if group_id == &group)
+            }) {
+                inline_epoch_change_observed = true;
+                inline_epoch_change_wake_retained &=
+                    bob.take_pending_convergence_groups().contains(&group);
             }
             // This is the actual narrow session entry point used behind a
             // required publication barrier: no ordinary send/leave drain.
