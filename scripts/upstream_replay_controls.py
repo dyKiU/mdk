@@ -15,7 +15,7 @@ from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
 from upstream_offline_fingerprints import controls as fingerprint_controls, snapshot as fingerprint_snapshot
 
 from upstream_sibling_send_observation import parse as sibling_send_observation, controls as sibling_send_controls
-from upstream_sibling_worker_observation import parse as sibling_worker_observation, controls as sibling_worker_controls
+from upstream_sibling_worker_observation import parse as sibling_worker_observation, controls as sibling_worker_controls, parse_transitions as sibling_worker_transitions, transition_controls as sibling_transition_controls
 from upstream_adapter_exit_observation import parse as adapter_exit_observation, controls as adapter_exit_controls
 from upstream_fresh_rejoin_observation import fresh_rejoin_observation, controls as fresh_rejoin_controls
 
@@ -2851,6 +2851,7 @@ def positive(args):
         if args.case in {'sibling-send-default', 'sibling-send-experimental'}:
             report['sibling_send_parser_controls'] = sibling_send_controls()
             report['sibling_worker_parser_controls'] = sibling_worker_controls()
+            report['sibling_transition_parser_controls'] = sibling_transition_controls()
         if args.case in ENGINE_CLASSIFIER_CASES:
             report['engine_bundle_controls'] = engine_bundle_controls()
         if args.case in UNIFFI_CASES:
@@ -2962,6 +2963,13 @@ def positive(args):
                 except (ValueError, UnicodeError):
                     report['body']['sibling_worker_observation'] = None
                     report['body']['sibling_worker_export_complete'] = False
+                save()
+                try:
+                    report['body']['sibling_worker_transitions'] = sibling_worker_transitions(ANSI.sub('', raw.decode('utf-8', errors='strict')).encode())
+                    report['body']['sibling_transition_export_complete'] = True
+                except (ValueError, UnicodeError):
+                    report['body']['sibling_worker_transitions'] = None
+                    report['body']['sibling_transition_export_complete'] = False
                 save()
             if args.case in FIXTURE_OBSERVATION_BASES:
                 # Supplemental facts never replace the actual runtime verdict.
@@ -3250,7 +3258,8 @@ def sample(args):
                              body_command_attempted=trial.get('body_command_attempted', False),
                              counts=body.get('counts'), body_exit_code=body.get('exit_code'),
                              send=body.get('sibling_send_observation'),
-                             worker=body.get('sibling_worker_observation'))
+                             worker=body.get('sibling_worker_observation'),
+                             transitions=body.get('sibling_worker_transitions'))
             except Exception:
                 status = 'guard-error'  # Keep the partial trial file and bounded entry, never raw errors.
             report['stop_reason'] = status

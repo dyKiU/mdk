@@ -43,6 +43,8 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         drain_attempts: u64,
         last_turn: Option<Turn>,
         phase: Option<u8>,
+        transitions: [u64; 4],
+        transition_overflow: bool,
         overflow: bool,
     }
     static ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -128,7 +130,36 @@ pub(in crate::runtime::account_worker) mod passive_bob {
     }
     // Last reached location only; not an exact blocker or task-poll observation.
     pub(in crate::runtime::account_worker) fn record_phase(account: &str, phase: u8) {
-        update(account, |counts| counts.phase = Some(phase));
+        update(account, |counts| {
+            counts.phase = Some(phase);
+            let index = match phase {
+                1 => Some(0), // Actual worker entry, before startup.
+                7 => Some(1), // Before the existing cooperative yield.
+                11 => Some(3), // Actual early comparison-settlement continue.
+                _ => None,
+            };
+            if let Some(index) = index {
+                bump_transition(counts, index);
+            }
+        });
+    }
+    fn bump_transition(counts: &mut Counts, index: usize) {
+        if let Some(next) = counts.transitions[index].checked_add(1) {
+            counts.transitions[index] = next;
+        } else {
+            counts.transition_overflow = true;
+        }
+    }
+    pub(in crate::runtime::account_worker) fn record_loop_boundary_passed(account: &str) {
+        update(account, |counts| bump_transition(counts, 2));
+    }
+    #[derive(serde::Serialize)]
+    pub(super) struct Transitions {
+        registered: bool,
+        cooperative_yield_enabled: bool,
+        before: Option<[u64; 4]>,
+        after: Option<[u64; 4]>,
+        overflow: bool,
     }
     pub(in crate::runtime::account_worker) fn record_drain(account: &str) {
         update(account, |counts| {
@@ -149,6 +180,8 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         last_turn: Option<Turn>,
         overflow: bool,
         elapsed_ms: Option<u64>,
+        #[serde(skip)]
+        pub(super) transitions: Transitions,
     }
     pub(super) fn freeze(
         guard: Option<&Guard>,
@@ -165,6 +198,13 @@ pub(in crate::runtime::account_worker) mod passive_bob {
                 last_turn: None,
                 overflow: false,
                 elapsed_ms,
+                transitions: Transitions {
+                    registered: false,
+                    cooperative_yield_enabled: cfg!(feature = "experimental-device-sync"),
+                    before: None,
+                    after: None,
+                    overflow: false,
+                },
             };
         };
         let after = guard.snapshot();
@@ -185,6 +225,21 @@ pub(in crate::runtime::account_worker) mod passive_bob {
             },
             overflow,
             elapsed_ms,
+            transitions: Transitions {
+                registered: true,
+                cooperative_yield_enabled: cfg!(feature = "experimental-device-sync"),
+                before: if before.transition_overflow || after.transition_overflow {
+                    None
+                } else {
+                    Some(before.transitions)
+                },
+                after: if before.transition_overflow || after.transition_overflow {
+                    None
+                } else {
+                    Some(after.transitions)
+                },
+                overflow: before.transition_overflow || after.transition_overflow,
+            },
         }
     }
 }
@@ -338,6 +393,11 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
     eprintln!(
         "sibling-worker-observation {}",
         serde_json::json!(worker_observation)
+    );
+    #[cfg(feature = "test-policy-overrides")]
+    eprintln!(
+        "sibling-worker-transition-observation {}",
+        serde_json::json!(worker_observation.transitions)
     );
     let (accepted, published) = healthy
         .expect("one account's database contention cannot postpone another account's durable send")

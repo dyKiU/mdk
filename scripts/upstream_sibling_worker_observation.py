@@ -95,3 +95,76 @@ def controls():
         else:
             raise AssertionError('worker-observation-negative-accepted')
     return {'positive': len(variants), 'negative': len(invalid), 'product_bodies': 0}
+
+
+TRANSITION_PREFIX = 'sibling-worker-transition-observation '
+
+
+def parse_transitions(raw):
+    """Actual source checkpoints, not task polls or continuous blocking proof."""
+    text = raw.decode('utf-8', errors='strict')
+    namespace = TRANSITION_PREFIX.rstrip()
+    lines = [line for line in text.splitlines() if namespace in line]
+    if len(lines) != 1 or text.count(namespace) != 1:
+        raise ValueError('one-worker-transition-observation')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(TRANSITION_PREFIX) + r'(\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None or len(lines[0]) > 1024:
+        raise ValueError('worker-transition-envelope')
+    row = json.loads(match[1], object_pairs_hook=unique)
+    if type(row) is not dict or set(row) != {'registered', 'cooperative_yield_enabled', 'before', 'after', 'overflow'}:
+        raise ValueError('worker-transition-fields')
+    if any(type(row[key]) is not bool for key in ('registered', 'cooperative_yield_enabled', 'overflow')):
+        raise ValueError('worker-transition-booleans')
+    if not row['registered'] or row['overflow']:
+        if row['before'] is not None or row['after'] is not None:
+            raise ValueError('unknown-transition-is-not-zero')
+        delta = None
+    else:
+        for values in (row['before'], row['after']):
+            if (type(values) is not list or len(values) != 4
+                    or any(type(value) is not int or not 0 <= value < 2**64 for value in values)
+                    or values[2] > values[1] or values[3] > values[2]):
+                raise ValueError('worker-transition-counters')
+        if any(end < start for start, end in zip(row['before'], row['after'])):
+            raise ValueError('worker-transition-regression')
+        delta = [end - start for start, end in zip(row['before'], row['after'])]
+    bound = delta is not None and row['before'][0] == row['after'][0] == 1
+    return {'observation': row, 'delta': delta, 'single_worker_entry_bound': bound,
+            'collection_complete': bound, 'product_pass_claim': False,
+            'fields': ['worker_starts', 'loop_entries', 'loop_boundary_passed', 'comparison_early_continues'],
+            'association': 'private-account-map-and-observed-start-count-not-worker-token',
+            'straddling_delta_allowed': True, 'boundary_is_yield_only_when_enabled': True, 'continuous_blocker_proven': False}
+
+
+def transition_controls():
+    # Pure metadata only; never target execution or synthetic behavioral RED.
+    encode = lambda row: (TRANSITION_PREFIX + json.dumps(row) + '\n').encode()
+    good = dict(registered=True, cooperative_yield_enabled=True, before=[1, 5, 4, 1], after=[1, 5, 4, 1], overflow=False)
+    unknown = dict(registered=False, cooperative_yield_enabled=True, before=None, after=None, overflow=False)
+    rows = [good, dict(good, after=[1, 8, 7, 4]),
+            dict(good, after=[1, 5, 5, 1]),  # Yield entered before window.
+            dict(good, before=[2, 5, 4, 1], after=[2, 5, 4, 1]),
+            unknown, dict(unknown, registered=True, overflow=True), dict(good, cooperative_yield_enabled=False)]
+    for row in rows:
+        result = parse_transitions(encode(row))
+        assert result['observation'] == row
+        assert result['collection_complete'] == (row in rows[:3] or row == rows[-1])
+    bad = [dict(good, cooperative_yield_enabled=1), dict(good, registered=1), dict(good, overflow=0), dict(good, extra=True),
+           dict(good, before=[True, 5, 4, 1]), dict(good, after=[1, -1, 0, 0]),
+           dict(good, after=[1, 2**64, 4, 1]), dict(good, before=[1, 5, 4]),
+           dict(good, after=[1, 3, 4, 1]), dict(good, after=[1, 5, 4, 5]),
+           dict(good, after=[1, 4, 4, 1]), dict(good, registered=False),
+           dict(good, overflow=True), dict(unknown, registered=True)]
+    raw = encode(good)
+    invalid = [encode(row) for row in bad] + [b'', raw + raw, b'PRIVATE ' + raw,
+        b' ' * 9 + raw, b'\xff' + raw, raw + b'sibling-worker-transition-observation-unknown\n',
+        raw.replace(b'"overflow": false', b'"overflow": false, "overflow": false'),
+        (TRANSITION_PREFIX + '{' + ' ' * 1024 + '}\n').encode()]
+    for raw in invalid:
+        try:
+            parse_transitions(raw)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('worker-transition-negative-accepted')
+    return {'positive': len(rows), 'negative': len(invalid), 'product_bodies': 0}
