@@ -18,6 +18,7 @@ pub(super) struct HeldProposal {
     prior: EpochId,
     own_leave_before_arrival: bool,
     actual_proposal_received: bool,
+    native_completion: Option<([u64; 3], [bool; 4])>,
     authentication: std::sync::Arc<cgka_engine::canonical_probe_observer::Probe>,
 }
 
@@ -144,6 +145,7 @@ impl HeldProposal {
             prior,
             own_leave_before_arrival: false,
             actual_proposal_received: false,
+            native_completion: None,
             authentication,
         };
         fixture.assert_not_received(recipient);
@@ -181,8 +183,13 @@ impl HeldProposal {
                 .leave_request(&peer.group)
                 .unwrap()
                 .and_then(|request| request.last_proposed_epoch);
-            if self.hold.observed().0 == 0 || current != self.prior || proposed != Some(self.prior)
-            {
+            let (native_held, native, native_unknown) = self.hold.native_observed();
+            let actual_native_held_input = native_held > 0 && !native_unknown
+                && native.as_ref().is_some_and(|(counts, facts)|
+                    counts[0] > 0 && counts[1] == 0 && counts[2] == 0
+                        && facts[0] && facts[1] && !facts[2] && !facts[3]);
+            let actual_held_input = self.hold.observed().0 > 0 || actual_native_held_input;
+            if !actual_held_input || current != self.prior || proposed != Some(self.prior) {
                 return;
             }
             let leave = super::observe_public_leave_failure(app, peer, relay)
@@ -209,6 +216,18 @@ impl HeldProposal {
             eprintln!(
                 "account_departure_arrival_b_old_epoch_self_remove_relay_retained_before_a=true"
             );
+            // The relay read above awaited: revalidate the actual held loan
+            // at this final ordering boundary, without requiring future ingest
+            // or ACK completion flags before the hold has been released.
+            let (native_held, native, native_unknown) = self.hold.native_observed();
+            let actual_native_held_input = native_held > 0 && !native_unknown
+                && native.as_ref().is_some_and(|(counts, facts)|
+                    counts[0] > 0 && counts[1] == 0 && counts[2] == 0
+                        && facts[0] && facts[1] && !facts[2] && !facts[3]);
+            assert!(
+                self.hold.observed().0 > 0 || actual_native_held_input,
+                "arrival fixture requires a current unconsumed held input before release"
+            );
             self.hold.release();
         }
         match store.get_message(&self.canonical) {
@@ -220,15 +239,21 @@ impl HeldProposal {
                     return;
                 }
                 let (held, finished, enqueued) = self.hold.observed();
-                // Another runtime worker may finish ingest immediately after
-                // send, before the routing task publishes its final counters.
-                if finished == 0 || enqueued == 0 {
+                // Each route must independently prove actual custody through
+                // its own completion, followed by the same real canonical Core
+                // authentication above. Never combine partial queue/native facts.
+                let queue_complete = held > 0 && finished > 0 && enqueued > 0;
+                let (native_held, native, native_unknown) = self.hold.native_observed();
+                let native_complete = native_held > 0 && !native_unknown
+                    && native.as_ref().is_some_and(|(counts, facts)|
+                        counts.iter().all(|count| *count > 0)
+                            && facts.iter().all(|fact| *fact));
+                if !queue_complete && !native_complete {
                     return;
                 }
-                assert!(
-                    held > 0,
-                    "arrival fixture requires the original queue delivery"
-                );
+                if native_complete {
+                    self.native_completion = native;
+                }
                 assert_eq!(store.get_group(&peer.group).unwrap().epoch, self.prior);
                 assert_eq!(
                     store
@@ -256,6 +281,11 @@ impl HeldProposal {
         eprintln!(
             "account_departure_arrival_recovered_deferrals={}",
             self.hold.recovered_deferrals()
+        );
+        let (native_held, _, native_unknown) = self.hold.native_observed();
+        eprintln!(
+            "account_departure_arrival_native held={} completed_snapshot={:?} unknown={}",
+            native_held, self.native_completion, native_unknown
         );
         let authenticated = self.authentication.snapshot();
         eprintln!(

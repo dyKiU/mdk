@@ -466,6 +466,34 @@ impl ReplayIngress {
 }
 
 impl ReplayBatch {
+    /// Weak observation of this exact current remote loan; no registration,
+    /// acknowledgement, source scope, or admission permission is created.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn held_remote_identity_for_test(
+        &self,
+        account: &MemberId,
+        packet: &MessageId,
+    ) -> Option<super::NativeConsumerIdentityForTest> {
+        let data = self.data.as_ref()?;
+        let frame = data.deliveries.front()?;
+        if frame.origin != ReplayFrameOrigin::Remote
+            || !data.scope.load(Ordering::Acquire)
+            || !data.gate.load(Ordering::Acquire)
+            || &self.account != account
+            || &frame.delivery.account_id != account
+            || &frame.delivery.message.id != packet
+            || frame.delivery.group_id_hint.as_ref() != Some(&data.group)
+            || frame.delivery.source.plane != TransportDeliveryPlane::Group
+            || self.shared.queue.lock().unwrap_or_else(|p| p.into_inner()).consumer
+                != Some(self._consumer.serial)
+        {
+            return None;
+        }
+        Some(super::native_frame_probe::identity(
+            &self._consumer, &self.shared, &self.state, &self.account,
+        ))
+    }
+
     /// Read-only test observation; never opens or acknowledges a delivery.
     #[cfg(feature = "test-policy-overrides")]
     pub fn observe_frame_for_test(&self, ingested: bool) {

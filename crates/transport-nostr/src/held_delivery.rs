@@ -1,7 +1,7 @@
 //! Test-only arrival ordering for one exact ordinary event on one receive plane.
 //! Retain each real delivery, its reserved queue slot and its normal cursor pin.
 use super::*;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use transport_nostr_adapter::ObservedTransportDelivery;
 
 pub(super) struct State {
@@ -12,6 +12,10 @@ pub(super) struct State {
     finished: AtomicUsize,
     enqueued: AtomicUsize,
     recovered_deferrals: AtomicUsize,
+    native_held: AtomicUsize,
+    native_unknown: AtomicBool,
+    native: std::sync::Mutex<Option<transport_nostr_adapter::NativeFrameWatchForTest>>,
+    started: Instant,
 }
 
 #[doc(hidden)]
@@ -29,6 +33,10 @@ impl MarmotRelayPlane {
             finished: AtomicUsize::new(0),
             enqueued: AtomicUsize::new(0),
             recovered_deferrals: AtomicUsize::new(0),
+            native_held: AtomicUsize::new(0),
+            native_unknown: AtomicBool::new(false),
+            native: std::sync::Mutex::new(None),
+            started: Instant::now(),
         });
         let mut slot = self.inner.transport.held_delivery.lock().unwrap();
         assert!(slot.as_ref().and_then(Weak::upgrade).is_none());
@@ -50,6 +58,20 @@ impl Hold {
     #[doc(hidden)]
     pub fn recovered_deferrals(&self) -> usize {
         self.0.recovered_deferrals.load(Ordering::SeqCst)
+    }
+
+    /// Actual exact native borrow, then typed ingest and checked ACK facts.
+    /// A missing observation stays unknown; zero recovery deferrals do not
+    /// substitute for custody. The watch owns only weak native identities.
+    #[doc(hidden)]
+    pub fn native_observed(&self) -> (usize, Option<([u64; 3], [bool; 4])>, bool) {
+        let native = self.0.native.lock().unwrap();
+        let facts = native.as_ref().map(|watch| {
+            let (counts, facts) = watch.facts(self.0.started, Instant::now());
+            (counts, [facts[0], facts[1], facts[2], facts[3]])
+        });
+        (self.0.native_held.load(Ordering::SeqCst), facts,
+         self.0.native_unknown.load(Ordering::SeqCst))
     }
 
     #[doc(hidden)]
@@ -117,6 +139,42 @@ pub(super) fn hold(
 }
 
 impl MarmotRelayPlaneAccountAdapter {
+    /// Keep one matching real native loan with the existing app owner, before
+    /// recovered intake. The caller returns to its worker command select; it
+    /// must not await release here and thereby block that worker's own Leave.
+    #[doc(hidden)]
+    pub fn defer_held_native_for_test(&self, batch: &transport_nostr_adapter::ReplayBatch) -> bool {
+        let state = self.relay_plane.inner.transport.held_delivery.lock().unwrap()
+            .as_ref().and_then(Weak::upgrade);
+        let Some(state) = state else { return false; };
+        if *state.release.borrow() || state.account != self.account_id {
+            return false;
+        }
+        let Some(identity) = batch.held_remote_identity_for_test(&self.account_id, &state.message) else {
+            return false;
+        };
+        let Some(group) = batch.delivery().and_then(|delivery| delivery.group_id_hint.as_ref()) else {
+            return false;
+        };
+        let mut slot = state.native.lock().unwrap();
+        if slot.as_ref().is_some_and(|watch| !watch.matches(&identity)) {
+            state.native_unknown.store(true, Ordering::SeqCst);
+            return true;
+        }
+        if slot.is_none() && !state.native_unknown.load(Ordering::SeqCst) {
+            if let Some(watch) = identity.watch(group, state.message.as_slice()) {
+                *slot = Some(watch);
+                // This is a genuine checked current remote borrow, not the
+                // comparison-copy deferral counter or a constructed delivery.
+                batch.observe_frame_for_test(false);
+                state.native_held.fetch_add(1, Ordering::SeqCst);
+            } else {
+                state.native_unknown.store(true, Ordering::SeqCst);
+            }
+        }
+        true
+    }
+
     /// The live queue hold alone cannot control a comparison's duplicate copy.
     /// Defer that exact copy without receipts, cursor release or certification.
     /// The genuine queued packet remains the fixture's original delivery.
