@@ -20,6 +20,8 @@ def main() -> None:
                         help="Add a read-only history cursor command with a fixed page limit of 37")
     parser.add_argument("--automatic-history", action="store_true",
                         help="Add read-only paired chronological pagination and complete bounded live observations")
+    parser.add_argument("--current-factories", action="store_true",
+                        help="Separate actual beginAutomatic/scanAutomatic public fixture identity")
     args = parser.parse_args()
     source = Path(__file__).resolve().parent / "native"
     manifest = json.loads((source / "SOURCE.json").read_text())
@@ -29,6 +31,7 @@ def main() -> None:
     provenance = {"frozen_workspace_commit": manifest["workspace_commit"],
                   "adapter_sha256": digest(Path(__file__).read_bytes()), "files": {},
                   "history_pagination": args.history_pagination, "automatic_history": args.automatic_history,
+                  "current_factories": args.current_factories,
                   "adaptation": "Optionally add read-only bounded cursor and exact-ID observation commands; classify non-SDK failures by fixed cases and the closed no-Tokio-runtime panic category; never emit descriptions or payloads."}
     for name in ("build.sh", "Acceptance.swift", "Agent.swift", "StoreControls.swift"):
         original = (source / name).read_bytes()
@@ -133,6 +136,18 @@ def main() -> None:
                     '            guard actual.count <= 256 else { throw AcceptanceFailure.unexpectedAccount }\n            return ["seen":')
                 text = text[:end] + observed + text[end:]
                 provenance["automatic_commands_sha256"] = digest(fragment_bytes)
+            if args.current_factories:
+                fragment = Path(__file__).with_name("current-factory-commands.swift.txt")
+                content = fragment.read_bytes()
+                additions = json.loads(Path(__file__).with_name("HOSTED-SOURCE.json").read_text())
+                if digest(content) != additions["files"][fragment.name]["sha256"]:
+                    raise ValueError("Current-factory command source hash mismatch")
+                anchor = '            case "one-scan-begin":'
+                if text.count(anchor) != 1:
+                    raise ValueError("Exactly one frozen automatic command anchor required")
+                text = text.replace(anchor, content.decode() + anchor, 1)
+                provenance["current_factory_commands_sha256"] = digest(content)
+                provenance["current_factory_identity"] = "current-automatic-factories-public-existing-roster-v1"
             derived = text.encode()
         (args.output / name).write_bytes(derived)
         provenance["files"][name] = {"original_sha256": digest(original), "derived_sha256": digest(derived)}

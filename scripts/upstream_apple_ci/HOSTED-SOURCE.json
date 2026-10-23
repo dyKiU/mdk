@@ -91,6 +91,22 @@
       "source": "existing authenticated SDK profile cohort helper",
       "sha256": "80d7918b1b2268cac023d6dea6f1dff6ee89aed9f8e99f15a6b0b8e78ba03301",
       "scope": "Shared authenticated experimental app guard and exact compiler array; no SDK or historical cohort behavior change"
+    },
+    "current-factory-commands.swift.txt": {
+      "sha256": "239cc291b36c7c3941f0dd2eb0dcf262098eae814789abfc91cf2ab443777430",
+      "purpose": "Separate current automatic factory public-mode source; no frozen native source replacement."
+    },
+    "current_factory_one_scan.py": {
+      "sha256": "598e811ba82195c09b23f16aa9a316d398956bc76ee4783e405a5be16c19efa2",
+      "purpose": "Separate current automatic factory public-mode source; no frozen native source replacement."
+    },
+    "public-current-factories.py": {
+      "sha256": "90c554c891e4bcea900a0dbddd38b02c8fd6a8a3318690e65edd1ffe945c6a08",
+      "purpose": "Separate current automatic factory public-mode source; no frozen native source replacement."
+    },
+    "test_current_factory_metadata.py": {
+      "source": "new source-only hosted current-factory metadata guard",
+      "sha256": "0005d96e7d60eecefd3976b9f08f2f9cb79a97463cbf1a61ae6a4d66d831a77c"
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

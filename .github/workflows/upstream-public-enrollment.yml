@@ -13,6 +13,11 @@ on:
         description: Existing immutable Apple producer run
         type: string
         required: true
+      factory_mode:
+        description: Preserve frozen routes or select the distinct current automatic factory fixture
+        type: choice
+        options: [frozen, current-factories]
+        default: frozen
       route:
         description: Additional deployment acceptance; both routes required before promotion
         type: choice
@@ -22,7 +27,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: public-enrollment-${{ github.sha }}-${{ inputs.sdk_sha }}-${{ inputs.route }}
+  group: public-enrollment-${{ github.sha }}-${{ inputs.sdk_sha }}-${{ inputs.route }}-${{ inputs.factory_mode }}
   cancel-in-progress: false
 jobs:
   registration:
@@ -83,11 +88,14 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Current factory source metadata controls; no native workloads
+        run: python3 scripts/upstream_apple_ci/test_current_factory_metadata.py
       - id: identity
         env:
           SDK_SOURCE: ${{ inputs.sdk_sha }}
           SDK_RUN: ${{ inputs.sdk_run_id }}
           ROUTE: ${{ inputs.route }}
+          FACTORY_MODE: ${{ inputs.factory_mode }}
         run: |
           python3 - <<'PY'
           import hashlib,json,os,re,subprocess
@@ -105,6 +113,8 @@ jobs:
             '.github/workflows/upstream-public-enrollment-preflight.yml'}
           permitted.update('scripts/upstream_apple_ci/'+name for name in [
             'public-enrollment.py','hosted_one_scan.py','prepare-hosted-agent.py',
+            'public-current-factories.py','current_factory_one_scan.py','current-factory-commands.swift.txt',
+            'test_current_factory_metadata.py',
             'hosted-one-scan.sh','native.sh','HOSTED-SOURCE.json'])
           permitted.update('scripts/upstream_apple_ci/native/'+name for name in [
             'SOURCE.json','Acceptance.swift','Agent.swift','one_scan.py','README.md',
@@ -115,17 +125,19 @@ jobs:
           manifest=json.loads((root/'SOURCE.json').read_text())
           assert manifest['workspace_commit']=='be04fc60b6a4c40bd85423fbf9e35e8982ae4b84'
           assert all(hashlib.sha256((root/name).read_bytes()).hexdigest()==digest for name,digest in manifest['files'].items())
+          mode=os.environ['FACTORY_MODE'];assert mode in {'frozen','current-factories'}
           route=os.environ['ROUTE'];assert route in {'both','eu','us'}
           Path(os.environ['GITHUB_OUTPUT']).write_text('routes='+json.dumps(['eu','us'] if route=='both' else [route])+'\n')
           Path('public-identity').mkdir()
           Path('public-identity/result.json').write_text(json.dumps({'sdk_source':sdk,'sdk_run_id':os.environ['SDK_RUN'],
             'tools_sha':head,'sdk_ancestor_of_tools':True,'all_non_harness_inputs_identical':True,
+            'factory_mode':mode,
             'changed_harness_paths':[name for name in changed if name],
             'frozen_native_workspace_commit':manifest['workspace_commit']},indent=2)+'\n')
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: upstream-public-enrollment-identity-${{ github.sha }}-${{ inputs.sdk_sha }}
+          name: ${{ inputs.factory_mode == 'current-factories' && 'upstream-current-public-enrollment' || 'upstream-public-enrollment' }}-identity-${{ github.sha }}-${{ inputs.sdk_sha }}
           path: public-identity/
   sdk:
     if: github.event_name == 'workflow_dispatch'
@@ -155,6 +167,7 @@ jobs:
       SOURCE_SHA: ${{ inputs.sdk_sha }}
       SDK_RUN_ID: ${{ inputs.sdk_run_id }}
       PUBLIC_ROUTE: ${{ matrix.route }}
+      FACTORY_MODE: ${{ inputs.factory_mode }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -178,19 +191,29 @@ jobs:
           NATIVE_ACCOUNT_DEPARTURE_ACCEPTANCE: '1'
           NATIVE_DEVICE_REVOCATION_ACCEPTANCE: '1'
         run: |
-          python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --output "$RUNNER_TEMP/public-agent-source"
+          if [ "$FACTORY_MODE" = current-factories ]; then
+            python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --current-factories --output "$RUNNER_TEMP/public-agent-source"
+          else
+            python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --output "$RUNNER_TEMP/public-agent-source"
+          fi
           bash "$RUNNER_TEMP/public-agent-source/build.sh" "$RUNNER_TEMP/public-sdk" "$RUNNER_TEMP/public-agent"
       - name: Execute original ninety-second public enrollment and full history/contact journey
         env:
           PUBLIC_AGENT: ${{ runner.temp }}/public-agent
           PUBLIC_AGENT_PROVENANCE: ${{ runner.temp }}/public-agent-source/DERIVED-SOURCE.json
-        run: python3 scripts/upstream_apple_ci/public-enrollment.py
+        run: |
+          if [ "$FACTORY_MODE" = current-factories ]; then
+            python3 scripts/upstream_apple_ci/public-current-factories.py
+          else
+            python3 scripts/upstream_apple_ci/public-enrollment.py
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: upstream-public-enrollment-${{ matrix.route }}-${{ github.sha }}-${{ inputs.sdk_sha }}
+          name: ${{ inputs.factory_mode == 'current-factories' && 'upstream-current-public-enrollment' || 'upstream-public-enrollment' }}-${{ matrix.route }}-${{ github.sha }}-${{ inputs.sdk_sha }}
           path: |
             public-enrollment-proof/
+            public-current-factories-proof/
             ${{ runner.temp }}/public-agent-source/DERIVED-SOURCE.json
           retention-days: 7
   public-gates:
@@ -200,20 +223,21 @@ jobs:
     timeout-minutes: 5
     env:
       STATUS: ${{ needs.public-enrollment.result }}
+      FACTORY_MODE: ${{ inputs.factory_mode }}
       SOURCE_SHA: ${{ inputs.sdk_sha }}
       SDK_RUN_ID: ${{ inputs.sdk_run_id }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: upstream-public-enrollment-eu-${{ github.sha }}-${{ inputs.sdk_sha }}
+          name: ${{ inputs.factory_mode == 'current-factories' && 'upstream-current-public-enrollment' || 'upstream-public-enrollment' }}-eu-${{ github.sha }}-${{ inputs.sdk_sha }}
           path: public-results/eu
       - uses: actions/download-artifact@v4
         with:
-          name: upstream-public-enrollment-us-${{ github.sha }}-${{ inputs.sdk_sha }}
+          name: ${{ inputs.factory_mode == 'current-factories' && 'upstream-current-public-enrollment' || 'upstream-public-enrollment' }}-us-${{ github.sha }}-${{ inputs.sdk_sha }}
           path: public-results/us
       - uses: actions/download-artifact@v4
         with:
-          name: upstream-public-enrollment-identity-${{ github.sha }}-${{ inputs.sdk_sha }}
+          name: ${{ inputs.factory_mode == 'current-factories' && 'upstream-current-public-enrollment' || 'upstream-public-enrollment' }}-identity-${{ github.sha }}-${{ inputs.sdk_sha }}
           path: identity-result
       - name: Require both complete deployment journeys from this exact SDK cohort
         run: |
@@ -224,12 +248,15 @@ jobs:
           identity=json.loads(Path('identity-result/result.json').read_text())
           assert identity['sdk_source']==os.environ['SOURCE_SHA'] and identity['sdk_run_id']==os.environ['SDK_RUN_ID']
           assert identity['tools_sha']==os.environ['GITHUB_SHA']
+          assert identity['factory_mode']==os.environ['FACTORY_MODE']
           assert identity['sdk_ancestor_of_tools'] and identity['all_non_harness_inputs_identical']
           rows=[json.loads(p.read_text()) for p in Path('public-results').rglob('result.json')]
           assert len(rows)==2
           assert {r['route'] for r in rows}=={'wss://relay.eu.whitenoise.chat','wss://relay.us.whitenoise.chat'}
           for r in rows:
               assert r['qualified'] and r['source_and_agent_unchanged']
+              if os.environ['FACTORY_MODE']=='current-factories':
+                  assert r['current_factory_identity']=='current-automatic-factories-public-existing-roster-v1'
               assert r['sdk_source']==os.environ['SOURCE_SHA'] and r['sdk_run_id']==os.environ['SDK_RUN_ID']
               assert r['tools_sha']==os.environ['GITHUB_SHA']
               assert r['frozen_workspace_commit']=='be04fc60b6a4c40bd85423fbf9e35e8982ae4b84'
@@ -237,12 +264,13 @@ jobs:
               assert r['positive_original_process_closes']==10 and r['direct_reuse_observations']==6
               assert r['automatic_retries']==r['sdk_rebuilds']==0
           result={'qualified':True,'sdk_source':os.environ['SOURCE_SHA'],'sdk_run_id':os.environ['SDK_RUN_ID'],
-              'tools_sha':os.environ['GITHUB_SHA'],'routes':2,'completed_scan_directions':4,
+              'tools_sha':os.environ['GITHUB_SHA'],'factory_mode':os.environ['FACTORY_MODE'],
+              'routes':2,'completed_scan_directions':4,
               'third_device_enrollments':4,'positive_original_process_closes':20,
               'scope':'Additional public enrollment/history/contact gate; existing local22+setup1 and7supplement lanes remain required; no physical app UI acceptance claim'}
           Path('public-gates.json').write_text(json.dumps(result,indent=2)+'\n')
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: upstream-public-enrollment-gates-${{ github.sha }}-${{ inputs.sdk_sha }}
+          name: ${{ inputs.factory_mode == 'current-factories' && 'upstream-current-public-enrollment' || 'upstream-public-enrollment' }}-gates-${{ github.sha }}-${{ inputs.sdk_sha }}
           path: public-gates.json

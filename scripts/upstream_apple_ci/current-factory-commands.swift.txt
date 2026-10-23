@@ -1,0 +1,17 @@
+            case "current-auto-begin":
+                stage = "current-auto-begin"
+                guard session == nil else { throw AcceptanceFailure.unexpectedAccount }
+                session = try await runtime.beginAutomaticDeviceLinkingSession(accountRef: requireAccount())
+                let code = try await requireSession().automaticPairingCode()
+                guard code.utf8.count <= 1024, code.hasPrefix("WNPAIR1:") || code.hasPrefix("WNPAIR2:") else {
+                    throw AcceptanceFailure.invalidArguments
+                }
+                return ["packet": Data(code.utf8).base64EncodedString()]
+            case "current-auto-scan":
+                stage = "current-auto-scan"
+                guard session == nil, request.target == nil,
+                    let code = String(data: try bytes(request.packet), encoding: .utf8),
+                    code.utf8.count <= 1024, code.hasPrefix("WNPAIR1:") || code.hasPrefix("WNPAIR2:")
+                else { throw AcceptanceFailure.invalidArguments }
+                session = try await runtime.scanAutomaticDeviceLinkingSession(accountRef: requireAccount(), code: code)
+                _ = try await requireSession().automaticPairingCode()
