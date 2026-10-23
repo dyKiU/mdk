@@ -1,4 +1,4 @@
-"""Remote-only exact default replay diagnostics; no mutation or full-suite credit."""
+"""Remote-only replay controls and scoped omission chains; no full-suite credit."""
 import argparse
 import hashlib
 import json
@@ -21,6 +21,25 @@ CASES = {
     'spill': ('marmot_app', 'client::delivery_spill::yield_handoff_tests::cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message',
               'crates/marmot-app/src/client/delivery_spill.rs'),
 }
+CASES.update({
+    'revoked-anchor': ('storage_sqlite', 'revoked_device_group_anchor::tests::revoked_anchor_encrypted_reopen_and_group_deletion_preserve_terminal_bytes',
+                       'crates/storage-sqlite/src/revoked_device_group_anchor/tests.rs'),
+    'sharing-policy': ('storage_sqlite', 'approved_account_sharing_policy::tests::sharing_policy_encrypted_restart_retains_sequences_revocation_and_closed_owner',
+                       'crates/storage-sqlite/src/approved_account_sharing_policy/tests.rs'),
+    'late-consent': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::late_sibling_consent_acceptance::authenticated_late_consent_starts_initial_proof_without_periodic_tick',
+                     'crates/marmot-app/src/native_device_linking/tests/late_sibling_consent_acceptance.rs'),
+    'spill-experimental': CASES['spill'],
+    'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
+                       'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
+})
+EXPERIMENTAL_CASES = {'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure'}
+STORAGE_CASES = {'revoked-anchor', 'sharing-policy'}
+
+
+def package_for(case):
+    return 'storage-sqlite' if case in STORAGE_CASES else 'marmot-app'
+
+
 OPERATIONS = {'ingest', 'ingest_engine', 'ingest_effect_publish', 'worker_catch_up',
               'worker_convergence', 'worker_receive', 'storage_connection_wait',
               'storage_transaction', 'storage_write_begin', 'projection_checkpoint'}
@@ -144,7 +163,7 @@ def counts(raw, case):
     binary, test, _ = CASES[case]
     # Native nextest library display is the package, not Cargo's underscore
     # binary spelling. Integration display has either known qualified form.
-    display = r'marmot-app' if case != 'offline' else r'(?:marmot-app::)?relay_runtime'
+    display = re.escape(package_for(case)) if case != 'offline' else r'(?:marmot-app::)?relay_runtime'
     names = re.findall(r'^\s*(PASS|FAIL)\s+\[[^\]]+\]\s+(?:\([ \t]{0,8}1/1\)[ \t]+)?' + display + r'\s+' + re.escape(test) + r'\s*$', text, re.M)
     if (result is None or result['executed'] != 1 or result['passed'] + result['failed'] != 1
             or len(names) != 1 or (names[0] == 'PASS') != (result['passed'] == 1)):
@@ -196,7 +215,7 @@ def controls():
         else:
             raise AssertionError('negative-envelope-accepted')
     for case, (binary, test, source) in CASES.items():
-        display = 'marmot-app' if case != 'offline' else 'marmot-app::relay_runtime'
+        display = package_for(case) if case != 'offline' else 'marmot-app::relay_runtime'
         runtime = ('PASS [ 1.0s] ' + display + ' ' + test + '\nSummary [ 1s] 1 test run: 1 passed, 0 skipped\n').encode()
         assert counts(runtime, case)['passed'] == 1
         failed = runtime.replace(b'PASS [', b'FAIL [').replace(b'1 passed, 0 skipped', b'0 passed, 1 failed, 9 skipped')
@@ -243,20 +262,256 @@ def snapshot():
             'inputs': inputs, 'tracked_clean': not git('diff', 'HEAD', '--name-only')}
 
 
+PFP = {
+    'inline': ('crates/marmot-app/src/client/sync.rs',
+               '        self.observe_recovery_evidence(effects);\n        self.remember_pending_convergence_groups(effects);\n        self.remember_published_reports(effects);',
+               '        self.observe_recovery_evidence(effects);\n        self.remember_published_reports(effects);',
+               'inline epoch-change effects must notify the worker about the stale original leave',
+               r'assert!\(\s*inline_epoch_change_wake_retained,\s*"{message}"\s*\);'),
+    'spill': ('crates/marmot-app/src/client/delivery_spill.rs',
+              '    pub(super) fn offer_cooperative_turn(&mut self) -> bool {\n        !std::mem::replace(&mut self.yield_offered, true)\n    }',
+              '    pub(super) fn offer_cooperative_turn(&mut self) -> bool {\n        !std::mem::replace(&mut self.yield_offered, false)\n    }',
+              'a cancelled cooperative offer must not be repeated before the same durable receive',
+              r'panic!\(\s*"{message}"\s*\)'),
+}
+
+
+def inverse(case):
+    path, old, new, message, pattern = PFP[case]
+    original = Path(path).read_bytes()
+    text = original.decode('utf-8')
+    if text.count(old) != 1:
+        raise ValueError('inverse-anchor')
+    if case == 'inline':
+        start = text.index('    fn retain_effect_projection(')
+        end = text.index('    fn enqueue_effect_projection(', start)
+        if old not in text[start:end]:
+            raise ValueError('inverse-owner')
+    fixture = Path(CASES[case][2]).read_text()
+    found = list(re.finditer(pattern.replace('{message}', re.escape(message)), fixture))
+    if len(found) != 1:
+        raise ValueError('inverse-oracle-source')
+    site = {'line': fixture[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - fixture.rfind('\n', 0, found[0].start())}
+    return path, original, text.replace(old, new, 1).encode(), site
+
+
+def own_failure(raw, case, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    if text.count('panicked at ') != 1:
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[case][1])
+               + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[case][2])
+               + ':' + str(site['line']) + r':([0-9]+):[ \t]*\n(?:[ \t]*\n){0,2}'
+               + re.escape(PFP[case][3]) + r'[ \t]*(?:\n|$)')
+    match = re.search(pattern, text)
+    return match is not None and 0 < int(match[1]) <= 1000000
+
+
+def pfp_controls(case, site):
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at "
+              + CASES[case][2] + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    valid = (header + PFP[case][3] + '\n').encode()
+    assert own_failure(valid, case, site)
+    assert own_failure(valid.replace(b"' (7)", b"'"), case, site)
+    invalid = [valid + valid, b'PRIVATE ' + valid, valid.replace(PFP[case][3].encode(), b'PRIVATE'),
+               valid.replace(CASES[case][1].encode(), b'PRIVATE'),
+               valid.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
+               valid.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
+               valid + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:2:\n"]
+    assert all(not own_failure(raw, case, site) for raw in invalid)
+    return {'positive': 2, 'negative': len(invalid), 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+def pfp(args):
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = {'case': args.case, 'stage': 'pfp', 'source': git('rev-parse', 'HEAD'),
+              'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
+              'phases': [], 'automatic_retries': 0, 'profile': 'ci', 'features': LIB_FEATURES,
+              'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    before, fd, original, identity, parents = None, None, None, None, None
+    stage, result = 'admission', 1
+    def save():
+        temp = output.with_suffix('.pending')
+        temp.write_text(json.dumps(report, sort_keys=True, indent=2) + '\n')
+        temp.replace(output)
+    def parent_chain(path):
+        return [(str(parent), parent.lstat().st_dev, parent.lstat().st_ino)
+                for parent in Path(path).parents if parent != Path('.')]
+    def verify_target(path):
+        current = Path(path).lstat()
+        if (Path(path).is_symlink() or parent_chain(path) != parents
+                or (current.st_dev, current.st_ino) != identity):
+            raise ValueError('inverse-physical-source')
+    def write_source(path, data, mode):
+        verify_target(path)
+        os.lseek(fd, 0, os.SEEK_SET)
+        view = memoryview(data)
+        while view:
+            count = os.write(fd, view)
+            if count <= 0:
+                raise ValueError('inverse-write')
+            view = view[count:]
+        os.ftruncate(fd, len(data))
+        os.fchmod(fd, mode)
+        os.fsync(fd)
+    def phase(label, expected):
+        if snapshot() != expected:
+            raise ValueError('phase-source')
+        row = {'phase': label, 'inventory_attempted': True,
+               'source_manifest_sha256': hashlib.sha256(json.dumps(expected['inputs'], sort_keys=True).encode()).hexdigest()}
+        report['phases'].append(row)
+        save()
+        flags = ['-p', 'marmot-app', '--lib', '--features', ','.join(LIB_FEATURES), '--locked', '--profile', 'ci']
+        selection = 'package(marmot-app) & test(=' + CASES[args.case][1] + ')'
+        code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
+        row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
+                            'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
+                            'stderr_sha256': hashlib.sha256(stderr).hexdigest(), 'stderr_bytes': len(stderr),
+                            'compiler': compiler(stderr, expected['inputs'])}
+        save()
+        if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
+            raise ValueError('phase-inventory-command')
+        selected_case(json.loads(raw, object_pairs_hook=unique), CASES[args.case][1])
+        row['inventory'].update(selected_nonignored=1, selected_ignored=0)
+        save()
+        if snapshot() != expected:
+            raise ValueError('phase-inventory-source')
+        row['body_attempted'] = True
+        save()
+        code, raw, elapsed, _ = capture(['cargo', 'nextest', 'run'] + flags + ['--retries', '0', '--test-threads', '1',
+                                      '--status-level', 'pass', '--final-status-level', 'none', '--no-fail-fast',
+                                      '--success-output', 'immediate', '-E', selection], 1800)
+        row['body'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'raw_bytes': len(raw),
+                       'raw_sha256': hashlib.sha256(raw).hexdigest(), 'runtime_summary': summary_counts(raw),
+                       'compiler': compiler(raw, expected['inputs']), 'panic': panic_facts(raw, args.case)}
+        save()
+        row['body']['counts'] = counts(raw, args.case)
+        save()
+        row['source_exact_after_body'] = snapshot() == expected
+        clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
+        if label == 'mutant':
+            row['own_runtime_failure'] = own_failure(raw, args.case, site)
+            row['accepted'] = (code == 100 and row['body']['counts']['failed'] == 1
+                               and clean_compile and row['own_runtime_failure']
+                               and row['source_exact_after_body'])
+        else:
+            row['accepted'] = (code == 0 and row['body']['counts']['passed'] == 1 and clean_compile
+                               and row['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0}
+                               and row['source_exact_after_body'])
+        save()
+        if not row['accepted']:
+            raise ValueError('phase-runtime-oracle')
+    try:
+        if args.case not in PFP:
+            raise ValueError('unsupported-pfp-case')
+        report['cohort'] = reviewed_cohort(args.baseline)
+        ref = os.environ.get('GITHUB_REF', '')
+        if (args.baseline != report['source'] or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'
+                or not ref.startswith('refs/heads/ci/upstream-develop-dy-')
+                or os.environ.get('GITHUB_WORKFLOW_SHA') != report['source']
+                or os.environ.get('GITHUB_WORKFLOW_REF') != 'dyKiU/mdk/.github/workflows/upstream-backend-probes.yml@' + ref):
+            raise ValueError('pfp-identity')
+        event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(), object_pairs_hook=unique)
+        if any(event['inputs'].get(key) != value for key, value in
+               [('scope', 'replay-controls'), ('replay_case', args.case), ('replay_stage', 'pfp'), ('reviewed_baseline', args.baseline)]):
+            raise ValueError('pfp-inputs')
+        before = snapshot()
+        path, original, mutant, site = inverse(args.case)
+        admitted_parents = parent_chain(path)
+        report['mutated_source'] = {'path': path, 'original_sha256': hashlib.sha256(original).hexdigest(),
+                                    'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
+        report['parser_controls'] = controls()
+        report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.mode == 'preflight':
+            result = 0
+        else:
+            stage = 'environment'
+            denied = ['RUST_MIN_STACK', 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',
+                      'RUSTC', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'RUSTC_BOOTSTRAP']
+            if (any(os.environ.get(key) for key in denied)
+                    or any(value for key, value in os.environ.items() if key.startswith('CARGO_TARGET_') and key.endswith('_RUSTFLAGS'))
+                    or os.environ.get('CARGO_BUILD_JOBS') != '2' or os.environ.get('CARGO_INCREMENTAL') != '1'):
+                raise ValueError('pfp-environment')
+            stage = 'baseline'
+            phase('baseline', before)
+            fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+            info = os.fstat(fd)
+            identity, parents = (info.st_dev, info.st_ino), admitted_parents
+            verify_target(path)
+            if os.read(fd, len(original) + 1) != original:
+                raise ValueError('inverse-original-fd')
+            mode = info.st_mode & 0o777
+            primary_failure = None
+            try:
+                stage = 'mutant'
+                write_source(path, mutant, mode)
+                expected = json.loads(json.dumps(before))
+                expected['inputs'][path]['sha256'] = hashlib.sha256(mutant).hexdigest()
+                expected['tracked_clean'] = False
+                phase('mutant', expected)
+            except Exception:
+                primary_failure = stage
+                report['primary_failure_category'] = primary_failure
+                save()
+            finally:
+                stage_before_restore = stage
+                stage = 'restore'
+                verify_target(path)
+                if Path(path).read_bytes() != original or (Path(path).stat().st_mode & 0o777) != mode:
+                    write_source(path, original, mode)
+                report['source_restored'] = snapshot() == before
+                save()
+                stage = stage_before_restore
+            if report.get('source_restored') is not True:
+                raise ValueError('restore-source-closure')
+            stage = 'restored'
+            phase('restored', before)
+            report['pfp_passed'] = (primary_failure is None and len(report['phases']) == 3
+                                    and all(row.get('accepted') is True for row in report['phases']))
+            result = 0 if report['pfp_passed'] else 1
+            if primary_failure is not None:
+                report['failure_category'] = primary_failure
+    except Exception:
+        report['failure_category'] = stage
+    finally:
+        if fd is not None:
+            os.close(fd)
+        try:
+            report['source_closure_exact'] = before is not None and snapshot() == before
+        except Exception:
+            report['source_closure_exact'] = False
+        if not report['source_closure_exact']:
+            report['pfp_passed'] = False
+            result = 1
+        report['preflight_passed'] = args.mode == 'preflight' and result == 0
+        save()
+    return result
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['preflight', 'run'], required=True)
+    parser.add_argument('--stage', choices=['positive', 'pfp'], default='positive')
     parser.add_argument('--case', choices=CASES, required=True)
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
+    if args.stage == 'pfp':
+        return pfp(args)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    features = ['test-policy-overrides'] if args.case == 'offline' else LIB_FEATURES
+    features = (['experimental-device-sync'] if args.case in STORAGE_CASES else
+                LIB_FEATURES + ['marmot-app/experimental-device-sync'] if args.case in EXPERIMENTAL_CASES else
+                ['test-policy-overrides'] if args.case == 'offline' else LIB_FEATURES)
+    profile = 'm5-bounded' if args.case in EXPERIMENTAL_CASES else 'ci'
+    expected_stack = '4194304' if args.case in EXPERIMENTAL_CASES else None
+    package = package_for(args.case)
     report = {'case': args.case, 'diagnostic_only': True, 'qualification_passed': False,
               'body_passed': False, 'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
-              'features': features, 'profile': 'ci', 'automatic_retries': 0, 'test_threads': 1,
+              'features': features, 'profile': profile, 'package': package, 'automatic_retries': 0, 'test_threads': 1,
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'expected_test': CASES[args.case][1]}
     before = None
     stage = 'admission'
@@ -276,6 +531,7 @@ def main():
             raise ValueError('replay-manual-source-identity')
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(), object_pairs_hook=unique)
         if (event['inputs'].get('scope') != 'replay-controls'
+                or event['inputs'].get('replay_stage', 'positive') != 'positive'
                 or event['inputs'].get('replay_case') != args.case
                 or event['inputs'].get('reviewed_baseline') != args.baseline):
             raise ValueError('replay-event-inputs')
@@ -286,16 +542,17 @@ def main():
             result = 0
         else:
             stage = 'environment'
-            denied = ['RUST_MIN_STACK', 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS',
+            denied = ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS',
                       'CARGO_ENCODED_RUSTDOCFLAGS', 'RUSTC', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'RUSTC_BOOTSTRAP']
-            if (any(os.environ.get(key) for key in denied)
+            if ((os.environ.get('RUST_MIN_STACK') or None) != expected_stack
+                    or any(os.environ.get(key) for key in denied)
                     or any(value for key, value in os.environ.items() if key.startswith('CARGO_TARGET_') and key.endswith('_RUSTFLAGS'))
                     or os.environ.get('CARGO_BUILD_JOBS') != '2' or os.environ.get('CARGO_INCREMENTAL') != '1'):
                 raise ValueError('replay-environment')
             binary, test, _ = CASES[args.case]
-            flags = ['-p', 'marmot-app', '--test', binary] if args.case == 'offline' else ['-p', 'marmot-app', '--lib']
-            flags += ['--features', ','.join(features), '--locked', '--profile', 'ci']
-            selection = 'package(marmot-app) & test(=' + test + ')'
+            flags = ['-p', package, '--test', binary] if args.case == 'offline' else ['-p', package, '--lib']
+            flags += ['--features', ','.join(features), '--locked', '--profile', profile]
+            selection = 'package(' + package + ') & test(=' + test + ')'
             if args.case == 'offline':
                 selection += ' & binary(=relay_runtime)'
             stage = 'inventory-command'

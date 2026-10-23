@@ -16,10 +16,15 @@ on:
         type: choice
         options: [key-package, avatar]
         default: key-package
-      replay_case:
-        description: One exact default-natural replay diagnostic (no mutation credit)
+      replay_stage:
+        description: Positive control, or inline/spill original-runtime omission PFP
         type: choice
-        options: [offline, inline, input-only, spill]
+        options: [positive, pfp]
+        default: positive
+      replay_case:
+        description: One exact replay or terminal-storage control
+        type: choice
+        options: [offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure]
         default: offline
       reviewed_baseline:
         description: Explicit reviewed full source SHA including passive test observations
@@ -332,14 +337,15 @@ jobs:
         env:
           REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
           REPLAY_CASE: ${{ inputs.replay_case }}
+          REPLAY_STAGE: ${{ inputs.replay_stage }}
         run: >-
           python3 scripts/upstream_replay_controls.py --mode preflight
-          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE"
+          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE"
           --output replay-probe/preflight.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: replay-preflight-${{ inputs.replay_case }}-${{ github.sha }}
+          name: replay-preflight-${{ inputs.replay_stage }}-${{ inputs.replay_case }}-${{ github.sha }}
           path: replay-probe/*.json
           if-no-files-found: error
           retention-days: 7
@@ -347,7 +353,7 @@ jobs:
   replay-controls-body:
     needs: replay-controls-preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.replay_stage == 'pfp' && 105 || 45 }}
     env:
       CARGO_INCREMENTAL: "1"
       CARGO_BUILD_JOBS: "2"
@@ -379,19 +385,23 @@ jobs:
         run: >-
           python3 scripts/qualification_build_preflight.py --label default-replay-controls
           --output "$RUNNER_TEMP/replay-capacity.json"
-      - name: Run one exact default replay body with original assertions
+      - name: Match the original experimental stack for explicit experimental cases
+        if: contains(fromJSON('["revoked-anchor","sharing-policy","late-consent","spill-experimental","watch-pressure"]'), inputs.replay_case)
+        run: echo 'RUST_MIN_STACK=4194304' >> "$GITHUB_ENV"
+      - name: Run exact scoped replay controls with original assertions
         env:
           CARGO_INCREMENTAL: "1"
           REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
           REPLAY_CASE: ${{ inputs.replay_case }}
+          REPLAY_STAGE: ${{ inputs.replay_stage }}
         run: >-
           python3 scripts/upstream_replay_controls.py --mode run
-          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE"
+          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE"
           --output replay-probe/result.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: replay-body-${{ inputs.replay_case }}-${{ github.sha }}
+          name: replay-body-${{ inputs.replay_stage }}-${{ inputs.replay_case }}-${{ github.sha }}
           path: |
             replay-probe/*.json
             ${{ runner.temp }}/replay-capacity.json
