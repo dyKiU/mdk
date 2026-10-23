@@ -8975,7 +8975,7 @@ mod tests {
     #[cfg(feature = "test-policy-overrides")]
     mod integrated_recovery_acceptance_tests;
     #[cfg(feature = "test-policy-overrides")]
-    mod local_submission_queue_tests;
+    pub(super) mod local_submission_queue_tests;
     mod publication_progress_tests;
     #[cfg(feature = "test-policy-overrides")]
     mod receive_comparison_resume_tests;
