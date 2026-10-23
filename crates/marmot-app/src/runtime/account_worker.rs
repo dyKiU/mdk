@@ -2312,12 +2312,13 @@ async fn run_app_runtime_account_worker(
             feature = "test-policy-overrides"
         ))]
         let watch_select = client.watch_select_recorder_for_test();
-        #[cfg(all(
-            test,
-            feature = "experimental-device-sync",
-            feature = "test-policy-overrides"
-        ))]
+        // Freeze the offer's ordering before the watch future clears its debt.
+        // The copy also keeps the two futures' borrows independent.
+        #[cfg(feature = "experimental-device-sync")]
         let watch_debt_before_select = sibling_completion_input_service_owed;
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let watch_debt_before_select = false;
+        let input_receive_enabled = !client.has_pending_effect_projections();
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::command_backlog::watch_pressure::SelectStage as WatchSelectStage;
         tokio::select! {
@@ -2900,31 +2901,11 @@ async fn run_app_runtime_account_worker(
                         #[cfg(not(feature = "experimental-device-sync"))]
                         let _ = result;
                     }
-            changed = wait_for_replay_change(&mut replay_changes) => {
-                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-                if let Some(recorder) = &watch_select {
-                    recorder.record(if watch_debt_before_select {
-                        if sibling_completion_input_service_owed { WatchSelectStage::ReplayWithDebt }
-                        else { WatchSelectStage::ReplayAfterClearedDebt }
-                    } else { WatchSelectStage::ReplayWithoutDebt });
-                }
-                if !changed {
-                    replay_changes = None;
-                    continue 'worker;
-                }
-                if let Err(error) = client.synchronize_native_replay().await {
-                    publish_app_runtime_account_error(
-                        &events,
-                        &account_id_hex,
-                        &account_label,
-                        account_error_message("native replay synchronization failed", &error),
-                    );
-                }
-                publish_history_notice_changes(
-                    &mut client, &events, &account_id_hex, &account_label,
-                );
-            }
-                    received = async {
+                    input = async {
+                        // Watch service owes a poll of the actual receive future,
+                        // not merely a turn consumed by a native replay notice.
+                        // Keep replay first on every ordinary, non-debt turn.
+                        let receive = async {
                         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                         if let Some(recorder) = &watch_select { recorder.record(WatchSelectStage::ReceiveArm); }
                         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
@@ -2987,7 +2968,55 @@ async fn run_app_runtime_account_worker(
                             #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
                             client.receive_next_delivery().await
                         }
-                    }, if !client.has_pending_effect_projections() => {
+                        };
+                        tokio::pin!(receive);
+                        if watch_debt_before_select {
+                            tokio::select! {
+                                biased;
+                                received = &mut receive, if input_receive_enabled =>
+                                    futures::future::Either::Right(received),
+                                changed = wait_for_replay_change(&mut replay_changes) =>
+                                    futures::future::Either::Left(changed),
+                            }
+                        } else {
+                            tokio::select! {
+                                biased;
+                                changed = wait_for_replay_change(&mut replay_changes) =>
+                                    futures::future::Either::Left(changed),
+                                received = &mut receive, if input_receive_enabled =>
+                                    futures::future::Either::Right(received),
+                            }
+                        }
+                    } => {
+                        let received = match input {
+                            futures::future::Either::Left(changed) => {
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                if let Some(recorder) = &watch_select {
+                    recorder.record(if watch_debt_before_select {
+                        if sibling_completion_input_service_owed { WatchSelectStage::ReplayWithDebt }
+                        else { WatchSelectStage::ReplayAfterClearedDebt }
+                    } else { WatchSelectStage::ReplayWithoutDebt });
+                }
+                if !changed {
+                    replay_changes = None;
+                    continue 'worker;
+                }
+                if let Err(error) = client.synchronize_native_replay().await {
+                    publish_app_runtime_account_error(
+                        &events,
+                        &account_id_hex,
+                        &account_label,
+                        account_error_message("native replay synchronization failed", &error),
+                    );
+                }
+                publish_history_notice_changes(
+                    &mut client, &events, &account_id_hex, &account_label,
+                );
+                                // This is the original replay-only select turn.
+                                continue 'worker;
+                            }
+                            futures::future::Either::Right(received) => received,
+                        };
                         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                         if let Some(recorder) = &watch_select { recorder.record(WatchSelectStage::ReceiveSelected); }
                         #[cfg(test)]
