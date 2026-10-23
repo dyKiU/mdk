@@ -125,7 +125,7 @@
     },
     "factory-semantic-sources.json": {
       "source": "new hosted current automatic factory causal mutation qualification",
-      "sha256": "e2da7a2f6b6388d33fd1c6672551b03584ec47ed3b26e0a24b6e4952b7baa267",
+      "sha256": "2f99743ead081e015341fa7f41c5a8860522e8df0b13f5cfd63a6d970f2f515b",
       "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
     },
     "test_factory_semantics.py": {

@@ -2,9 +2,9 @@
   "mdk_pin_snapshot": "c1ae548f2e60c41ade8ca98140fbb05f6c8e6937",
   "apps": {
     "macos": {
-      "commit": "047e465f84f1bb36d3edca849cf12855ffe12f90",
+      "commit": "5775745eccd0d5fd7692d21367c1e722d583e5b6",
       "test_path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
-      "test_sha256": "30ac71a6451d0777a3fc3632e4db7742089a8c39ae61e354bec2270f6408b2e2",
+      "test_sha256": "acdec8b142873c24d7ad2a4ceedec3472bb28811c49decabce9564f1e6177bf3",
       "adapter_path": "whitenoise-mac/Core/MarmotClient.swift",
       "adapter_sha256": "651a939ef24ed246d8c1fb1c6ef68ebf0d6c2d2eee529705828622e2369e77e4",
       "assertion_sites": {
@@ -24,7 +24,7 @@
         },
         "scan-invalid-packet": {
           "path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
-          "line": 533,
+          "line": 534,
           "column": 21,
           "message_token": "factory-semantic-existing-roster-scan-invalid-packet",
           "assertion": "XCTFail"

@@ -74,7 +74,7 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native!='ios-control':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='047e465f84f1bb36d3edca849cf12855ffe12f90'
+              assert cohort['mac_sha']=='5775745eccd0d5fd7692d21367c1e722d583e5b6'
               assert cohort['ios_sha']=='1cff30dab6cf96802085fabc08468ade55e6ac0c'
           else:
               assert not sdk and not sdk_run
@@ -133,11 +133,12 @@ jobs:
           output=Path(os.environ['RUNNER_TEMP'])/'app-format'
           output.mkdir(mode=0o700)
           tree=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
-          lint_exit=0
+          lint_exit=None
           if Path('.swift-format').is_file():
               for path in paths:
                   subprocess.run(['xcrun','swift-format','format','--in-place','--configuration','.swift-format',path],check=True)
               formatter=subprocess.check_output(['xcrun','swift-format','--version'],text=True).strip()
+              lint_exit=subprocess.run(['xcrun','swift-format','lint','--configuration','.swift-format','--strict',*paths]).returncode
           else:
               assert Path('.swiftlint.yml').is_file()
               environment=dict(os.environ,SCRIPT_INPUT_FILE_COUNT=str(len(paths)))
