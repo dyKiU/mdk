@@ -4,6 +4,8 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use transport_nostr_adapter::ObservedTransportDelivery;
 
+type NativeDeliveryFacts = ([u64; 3], [bool; 4]);
+
 pub(super) struct State {
     account: MemberId,
     message: MessageId,
@@ -64,7 +66,7 @@ impl Hold {
     /// A missing observation stays unknown; zero recovery deferrals do not
     /// substitute for custody. The watch owns only weak native identities.
     #[doc(hidden)]
-    pub fn native_observed(&self) -> (usize, Option<([u64; 3], [bool; 4])>, bool) {
+    pub fn native_observed(&self) -> (usize, Option<NativeDeliveryFacts>, bool) {
         let native = self.0.native.lock().unwrap();
         let facts = native.as_ref().map(|watch| {
             let (counts, facts) = watch.facts(self.0.started, Instant::now());
