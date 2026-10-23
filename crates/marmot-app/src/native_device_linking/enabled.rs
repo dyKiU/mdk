@@ -11,6 +11,7 @@ use std::sync::{
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
+mod diagnostics;
 
 pub(super) struct SessionState {
     manager: AccountManager,
@@ -984,9 +985,13 @@ impl AccountManager {
         &self,
         account_ref: &str,
     ) -> Result<Vec<DeviceLinkingTarget>, DeviceLinkingError> {
-        self.native_device_linking_targets(account_ref)
-            .await
-            .map_err(map_error)
+        diagnostics::targets_read(diagnostics::TargetRead::Begin);
+        let result = self.native_device_linking_targets(account_ref).await;
+        diagnostics::targets_read(match &result {
+            Ok(_) => diagnostics::TargetRead::Ready,
+            Err(error) => diagnostics::TargetRead::Failed(error),
+        });
+        result.map_err(map_error)
     }
     pub async fn pending_device_linking_approvals(
         &self,
