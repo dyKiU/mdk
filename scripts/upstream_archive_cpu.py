@@ -2,6 +2,7 @@
 import argparse
 from collections import Counter
 import hashlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -129,6 +130,34 @@ def parser_controls():
     return {'positive': 4, 'negative': 3, 'product_bodies': 0}
 
 
+
+def perf_exec_metadata(path):
+    """Read-only executable admission facts; never alter permission/capability."""
+    result = {'executable_mode': None, 'access_executable': os.access(path, os.X_OK),
+              'mount_noexec': None, 'stat_errno': None, 'statvfs_errno': None,
+              'capability_present': None, 'capability_length': None,
+              'capability_sha256': None, 'capability_errno': None}
+    try:
+        result['executable_mode'] = path.stat().st_mode & 0o7777
+    except OSError as error:
+        result['stat_errno'] = error.errno if type(error.errno) is int else None
+    try:
+        flag = getattr(os, 'ST_NOEXEC', None)
+        if flag is not None:
+            result['mount_noexec'] = bool(os.statvfs(path).f_flag & flag)
+    except OSError as error:
+        result['statvfs_errno'] = error.errno if type(error.errno) is int else None
+    try:
+        capability = os.getxattr(path, 'security.capability')
+        result.update(capability_present=True, capability_length=len(capability),
+                      capability_sha256=hashlib.sha256(capability).hexdigest())
+    except OSError as error:
+        result['capability_errno'] = error.errno if type(error.errno) is int else None
+        if error.errno == errno.ENODATA:
+            result['capability_present'] = False
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--source-root', required=True)
@@ -163,6 +192,17 @@ def main():
                       source_lock_sha256=sha(source / 'Cargo.lock'),
                       source_nextest_sha256=sha(source / '.config/nextest.toml'),
                       controller_sha256=sha(Path(__file__)))
+        report['stage'] = 'perf-version'
+        perf = Path(os.environ['ARCHIVE_PERF_BINARY']).resolve()
+        need(re.fullmatch(r'/usr/lib/linux-tools(?:/|-)[0-9A-Za-z.+_-]+/perf', str(perf)) is not None,
+             'expected-installed-perf-path')
+        report['perf_executable'] = perf_exec_metadata(perf)
+        save()
+        perf = str(perf)
+        code, version, _, _ = capture([perf, '--version'], 15)
+        need(code == 0 and re.fullmatch(rb'perf version [0-9A-Za-z.+_-]+\s*', version), 'perf-version')
+        report['perf_version'] = version.decode().strip()
+        report['stage'] = 'archive-identity'
         run, artifact = api('actions/runs/' + str(PRODUCER)), api('actions/artifacts/' + str(ARTIFACT))
         need(run['head_sha'] == SOURCE and run['path'] == '.github/workflows/ci.yml', 'producer-identity')
         need(artifact['name'] == 'relay-runtime' and not artifact['expired'] and artifact['size_in_bytes'] == ZIP_SIZE
@@ -202,10 +242,6 @@ def main():
             need(source in binary.parents and binary.is_file(), 'archive-binary-location')
             report['binary_sha256_before'] = sha(binary)
             report['elf_symbols'] = symbol_preflight(binary)
-            perf = os.environ['ARCHIVE_PERF_BINARY']
-            code, version, _, _ = capture([perf, '--version'], 15)
-            need(code == 0 and re.fullmatch(rb'perf version [0-9A-Za-z.+_-]+\s*', version), 'perf-version')
-            report['perf_version'] = version.decode().strip()
             code, _, _, _ = capture([perf, 'stat', '-e', 'cpu-clock:u', '--', 'true'], 15)
             if code != 0:
                 old_paranoid = int(Path('/proc/sys/kernel/perf_event_paranoid').read_text().strip())
@@ -241,6 +277,8 @@ def main():
             report['stage'] = 'complete'
     except Exception as error:
         report['collection_error_class'] = type(error).__name__
+        if isinstance(error, OSError):
+            report['collection_error_errno'] = error.errno if type(error.errno) is int else None
         if isinstance(error, GuardError):
             report['guard_failure'] = str(error)
         # Exception text and child stdout are deliberately never exported.
