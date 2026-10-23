@@ -9631,6 +9631,82 @@ mod tests {
         }
     }
 
+    /// Independent SDK broadcast observation never replaces the production
+    /// ordered frontier or dispatches another copy into the adapter.
+    #[cfg(feature = "experimental-device-sync")]
+    async fn observe_private_sdk_eose<S>(
+        notifications: &mut S,
+        capture: &mut crate::LiveNotificationReceiver,
+        endpoint: &TransportEndpoint,
+        actual: &str,
+    ) where
+        S: Stream<Item = ClientNotification> + Unpin,
+    {
+        timeout(Duration::from_secs(20), async {
+            loop {
+                let notification = notifications.next().await.expect("SDK observer remains open");
+                if let ClientNotification::Message { relay_url, message } = notification
+                    && relay_url.to_string() == endpoint.as_str()
+                    && matches!(message.as_ref(), RelayMessage::EndOfStoredEvents(id) if id.as_str() == actual)
+                {
+                    capture.observe_eose(endpoint.clone(), actual).await;
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("independent SDK observer saw the actual private wire EOSE");
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn assert_retired_private_sdk_carrier<S>(
+        notifications: &mut S,
+        capture: &crate::LiveNotificationReceiver,
+        adapter: &NostrTransportAdapter,
+        account: &MemberId,
+        endpoint: &TransportEndpoint,
+        wire: (&str, SubscriptionAttempt),
+        signed: &Event,
+    ) where
+        S: Stream<Item = ClientNotification> + Unpin,
+    {
+        let (actual, attempt) = wire;
+        let event = timeout(Duration::from_secs(20), async {
+            loop {
+                let notification = notifications.next().await.expect("SDK observer remains open");
+                if let ClientNotification::Message { relay_url, message } = notification
+                    && relay_url.to_string() == endpoint.as_str()
+                    && let RelayMessage::Event { subscription_id, event } = *message
+                    && subscription_id.as_str() == actual
+                    && event.id == signed.id
+                {
+                    assert!(event.as_json() == signed.as_json(), "actual old wire carries exact signed bytes");
+                    assert!(event.verify().is_ok(), "actual old wire signature remains valid");
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("actual signed old-wire carrier must reach the SDK observer");
+        let dto = NostrTransportEvent::from_nostr_event(&event).unwrap();
+        let message = dto.to_transport_message().unwrap();
+        let captured = capture.capture(&NostrRelayEvent {
+            endpoint: endpoint.clone(),
+            subscription_id: Some(actual.to_owned()),
+            event: dto,
+        }).unwrap();
+        {
+            let state = adapter.state.read().await;
+            let wire = state.private_observation_wires.get(account).expect("retired private wire remains identified");
+            assert!(wire.actual == actual && wire.attempt == attempt && !wire.ready,
+                "failed owner operation leaves this exact private wire ineligible");
+            assert!(captured.observations(adapter, &state, &message, Some(account)).is_empty(),
+                "actual old wire cannot supply an eligible acquisition capture");
+        }
+        assert!(timeout(Duration::from_millis(30), adapter.receive_observed()).await.is_err(),
+            "retired private request cannot bypass native replay as ordinary delivery");
+    }
+
     #[cfg(feature = "experimental-device-sync")]
     #[tokio::test]
     async fn enrollment_acquisition_cancelled_issued_request_revokes_freshness_and_can_reactivate()
@@ -9645,7 +9721,9 @@ mod tests {
         });
         let adapter = NostrTransportAdapter::new(paused.clone());
         let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let mut old_wire_notifications = sdk.client.notifications();
         let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let mut old_wire_capture = adapter.live_notification_receiver(Some(account.clone()));
         let group = crate::TransportGroupSubscription {
             group_id: cgka_traits::GroupId::new(vec![0x71; 16]),
             transport_group_id: vec![0x82; 32],
@@ -9685,6 +9763,11 @@ mod tests {
         })
         .await
         .expect("actual issued request reached EOSE before cancellation");
+        let old_actual = adapter.state.read().await.private_observation_wires
+            .get(&account).expect("actual private wire was issued").actual.clone();
+        observe_private_sdk_eose(
+            &mut old_wire_notifications, &mut old_wire_capture, &endpoint, &old_actual,
+        ).await;
         activation_task.abort();
         assert!(activation_task.await.unwrap_err().is_cancelled());
         // A cancellation cleanup holding the lifecycle lock must finish before
@@ -9697,21 +9780,11 @@ mod tests {
             .unwrap();
         publisher.connect().await;
         let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
-        let id = signed.id.to_bytes();
         publisher.send_event(&signed).await.unwrap();
-        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert!(
-            observed.message.id.as_slice() == id.as_slice(),
-            "actual signed carrier reached the abandoned request"
-        );
-        assert!(
-            observed.observation.is_none(),
-            "cancelled issued activation cannot retain positive freshness"
-        );
+        assert_retired_private_sdk_carrier(
+            &mut old_wire_notifications, &old_wire_capture, &adapter, &account,
+            &endpoint, (&old_actual, attempt), &signed,
+        ).await;
         paused.paused.store(false, Ordering::SeqCst);
         adapter.activate_account(activation).await.unwrap();
         let next = adapter
@@ -9767,7 +9840,9 @@ mod tests {
         let sdk = NostrSdkRelayClient::new(Client::default());
         let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
         let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let mut old_wire_notifications = sdk.client.notifications();
         let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let mut old_wire_capture = adapter.live_notification_receiver(Some(account.clone()));
         let group = crate::TransportGroupSubscription {
             group_id: cgka_traits::GroupId::new(vec![0x41; 16]),
             transport_group_id: vec![0x52; 32],
@@ -9802,6 +9877,11 @@ mod tests {
         })
         .await
         .expect("actual initial private request EOSE");
+        let old_actual = adapter.state.read().await.private_observation_wires
+            .get(&account).expect("actual private wire was issued").actual.clone();
+        observe_private_sdk_eose(
+            &mut old_wire_notifications, &mut old_wire_capture, &endpoint, &old_actual,
+        ).await;
         let failed = adapter
             .sync_account_groups(cgka_traits::TransportGroupSync {
                 account_id: account.clone(),
@@ -9820,21 +9900,11 @@ mod tests {
             .unwrap();
         publisher.connect().await;
         let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
-        let id = signed.id.to_bytes();
         publisher.send_event(&signed).await.unwrap();
-        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert!(
-            observed.message.id.as_slice() == id.as_slice(),
-            "old actual request remains observable for this negative control"
-        );
-        assert!(
-            observed.observation.is_none(),
-            "failed private route synchronization must not retain old positive freshness"
-        );
+        assert_retired_private_sdk_carrier(
+            &mut old_wire_notifications, &old_wire_capture, &adapter, &account,
+            &endpoint, (&old_actual, attempt), &signed,
+        ).await;
         adapter
             .sync_account_groups(cgka_traits::TransportGroupSync {
                 account_id: account.clone(),
