@@ -13785,7 +13785,9 @@ fn live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue()
                 );
                 let placed = !status.pending
                     && !status.spill_pending
-                    && status.sources().all(|source| source.admitted() && source.placed());
+                    && status
+                        .sources()
+                        .all(|source| source.admitted() && source.placed());
                 drop(status);
                 if placed {
                     break;
