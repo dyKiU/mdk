@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tomllib
+from package_metadata import uniffi_version
 from sdk_profiles import environment_profile, features, release_id, validate_provenance
 
 
@@ -22,7 +23,7 @@ evidence = {
     'source_sha': sha, 'builder_sha': os.environ['WORKFLOW_HEAD_SHA'],
     'source_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
     'workflow_run_id': os.environ['GITHUB_RUN_ID'],
-    'uniffi_version': tomllib.loads(Path('crates/marmot-uniffi/Cargo.toml').read_text())['dependencies']['uniffi']['version'],
+    'uniffi_version': uniffi_version(tomllib.loads(Path('crates/marmot-uniffi/Cargo.toml').read_text())),
     'sdk_profile': profile,
     'features': features(profile),
     'cargo_lock_sha256': hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),

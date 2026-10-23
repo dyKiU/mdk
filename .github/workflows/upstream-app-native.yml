@@ -196,6 +196,7 @@ jobs:
           python3 scripts/upstream_apple_ci/test_summarize.py
           python3 scripts/upstream_apple_ci/test_current_factory_metadata.py
           python3 scripts/upstream_apple_ci/test_factory_semantics.py
+          python3 scripts/upstream_apple_ci/test_package_metadata.py --result "$RUNNER_TEMP/tools-preflight/package-metadata-result.json"
           bash -n scripts/upstream_apple_ci/build-hosted-simulator-agent.sh
           mkdir -p "$RUNNER_TEMP/tools-preflight"
           python3 - <<'PY'
@@ -209,7 +210,7 @@ jobs:
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py',
                  'summarize.py','test_summarize.py','factory_semantic_oracle.py','factory_semantic_mutation.py',
-                 'factory_xcresult.py','factory_semantic_runner.py','factory-semantic-sources.json','test_factory_semantics.py']
+                 'factory_xcresult.py','factory_semantic_runner.py','factory-semantic-sources.json','test_factory_semantics.py','package_metadata.py','test_package_metadata.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]
           manifest_path=Path('scripts/upstream_apple_ci/HOSTED-SOURCE.json')
           manifest=json.loads(manifest_path.read_text())
@@ -230,7 +231,9 @@ jobs:
         if: always()
         with:
           name: upstream-app-tools-preflight-${{ github.sha }}
-          path: ${{ runner.temp }}/tools-preflight/result.json
+          path: |
+            ${{ runner.temp }}/tools-preflight/result.json
+            ${{ runner.temp }}/tools-preflight/package-metadata-result.json
           if-no-files-found: error
           retention-days: 7
 
