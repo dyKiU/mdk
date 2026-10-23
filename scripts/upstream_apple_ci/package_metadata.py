@@ -10,5 +10,9 @@ def _checked_version(value):
 
 
 def uniffi_version(manifest):
-    # Deliberate RED baseline: retain the producer's original table-only lookup.
-    return _checked_version(manifest['dependencies']['uniffi']['version'])
+    if type(manifest) is not dict or type(manifest.get('dependencies')) is not dict:
+        raise ValueError('UniFFI dependency manifest requires a dependency table')
+    dependency = manifest['dependencies'].get('uniffi')
+    if type(dependency) is dict:
+        dependency = dependency.get('version')
+    return _checked_version(dependency)
