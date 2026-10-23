@@ -1832,6 +1832,136 @@ def family_pfp_controls(case, site):
         'probe_controls': probe_controls, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+PRIVATE_ROLE_PFP_LITERALS = {
+    'sdk-private-family-partial': {
+        'owner': '    fn commit_group_sync(',
+        'boundary': "    /// Add a repack's batches",
+        'green': '        #[cfg(feature = "experimental-device-sync")]\n        {\n            account.group_wire_ids = issued_group_wire_ids(&account.batches);\n        }\n',
+        'inverse': '        #[cfg(feature = "experimental-device-sync")]\n        {\n            account.group_wire_ids = issued_group_wire_ids(&account.batches[account.batches.len().saturating_sub(1)..]);\n        }\n',
+        'message': 'a failed ordinary family must preserve private and independently committed healthy carriers through retry',
+        'pattern': 'assert!\\(\\s*healthy_committed\\s*&&\\s*healthy_registered\\s*&&\\s*healthy_native_eose\\s*&&\\s*failed_family_retained\\s*&&\\s*private_partial_unchanged\\s*&&\\s*retry_keeps_successful_carriers\\s*&&\\s*retried_family_committed\\s*&&\\s*old_b_absent_from_retry_instance,\\s*"{message}"\\s*,?\\s*\\);',
+        'false_verdicts': {'retry_keeps_successful_carriers', 'failed_family_retained'},
+    },
+    'sdk-private-role-transition': {
+        'owner': 'fn issued_group_wire_ids(',
+        'boundary': '/// Pack per-route group REQs into batches',
+        'green': 'fn issued_group_wire_ids(\n    batches: &[NostrSubscription],\n) -> HashMap<NostrSubscriptionRouteKey, String> {\n    let mut ids = HashMap::new();\n    for batch in batches {\n        let id = batch.subscription_id();\n        // Standalone carriers are private even when a failed selection\n        // leaves their predecessor authoritative. Never expose their\n        // logical id through ordinary capture fallback. The selected\n        // private route resolves only its exact scoped actual above.\n        if let NostrSubscription::GroupBatch {\n            account_id,\n            routes,\n            endpoints,\n            ..\n        } = batch\n        {\n            let endpoints = normalized_endpoints(endpoints);\n            for route in routes {\n                ids.insert(\n                    NostrSubscriptionRouteKey::Group {\n                        account_id: account_id.clone(),\n                        group_id: route.group_id.clone(),\n                        transport_group_id: route.transport_group_id.clone(),\n                        endpoints: endpoints.clone(),\n                    },\n                    id.clone(),\n                );\n            }\n        }\n    }\n    ids\n}\n',
+        'inverse': 'fn issued_group_wire_ids(\n    batches: &[NostrSubscription],\n) -> HashMap<NostrSubscriptionRouteKey, String> {\n    let mut ids = HashMap::new();\n    for batch in batches {\n        let id = batch.subscription_id();\n        // Standalone carriers are private even when a failed selection\n        // leaves their predecessor authoritative. Never expose their\n        // logical id through ordinary capture fallback. The selected\n        // private route resolves only its exact scoped actual above.\n        if let NostrSubscription::GroupBatch {\n            account_id,\n            routes,\n            endpoints,\n            ..\n        } = batch\n        {\n            let endpoints = normalized_endpoints(endpoints);\n            for route in routes {\n                ids.insert(\n                    NostrSubscriptionRouteKey::Group {\n                        account_id: account_id.clone(),\n                        group_id: route.group_id.clone(),\n                        transport_group_id: route.transport_group_id.clone(),\n                        endpoints: endpoints.clone(),\n                    },\n                    id.clone(),\n                );\n            }\n        } else if matches!(batch, NostrSubscription::Group { .. }) { ids.insert(batch.route_key(), id); }\n    }\n    ids\n}\n',
+        'message': 'failed private roles stay negative and become ordinary only through their own committed batch',
+        'pattern': 'assert!\\(\\s*prior_negative\\s*&&\\s*successor_negative\\s*&&\\s*prior_ordinary_is_new_batch\\s*&&\\s*healthy_unchanged\\s*&&\\s*healthy_after_demotion\\s*&&\\s*demotion_has_no_standalone\\s*&&\\s*demotion_uses_new_batch\\s*&&\\s*replacement_actual_closed,\\s*"{message}"\\s*,?\\s*\\);',
+        'false_verdicts': {'prior_negative'},
+    },
+    'sdk-private-configuration-aba': {
+        'owner': '    async fn prepare_private_observation_wire(',
+        'boundary': '    async fn finish_private_observation_wire(',
+        'green': '        if current.actual != replacement.actual || current.selection_revoked {\n',
+        'inverse': '        if current.actual != replacement.actual {\n',
+        'message': 'configuration ABA must not reauthorise the private replacement prepared before revocation',
+        'pattern': 'assert!\\(\\s*sync_rejected\\s*&&\\s*preparation_not_reauthorised\\s*&&\\s*successor_not_registered,\\s*"{message}"\\s*,?\\s*\\);',
+        'false_verdicts': {'sync_rejected', 'preparation_not_reauthorised', 'successor_not_registered'},
+    },
+}
+PRIVATE_ROLE_PFP_CASES = set(PRIVATE_ROLE_PFP_LITERALS)
+for _role_pfp_case, _role_pfp_spec in PRIVATE_ROLE_PFP_LITERALS.items():
+    PFP[_role_pfp_case] = ('crates/transport-nostr-adapter/src/lib.rs',
+        _role_pfp_spec['green'], _role_pfp_spec['inverse'],
+        _role_pfp_spec['message'], _role_pfp_spec['pattern'])
+
+
+def validate_private_role_pfp_inverse(text, case, old, new):
+    spec = PRIVATE_ROLE_PFP_LITERALS[case]
+    if text.count(spec['owner']) != 1 or text.count(spec['boundary']) != 1:
+        raise ValueError('role-pfp-owner-cardinality')
+    start = text.index(spec['owner'])
+    end = text.index(spec['boundary'], start)
+    if (old != spec['green'] or new != spec['inverse'] or text.count(old) != 1
+            or old not in text[start:end] or old.count('\n') != new.count('\n')):
+        raise ValueError('role-pfp-inverse-owner')
+
+
+def private_role_pfp_ready(value, case, mutant=False):
+    spec = PRIVATE_ROLE_CASES[case]
+    false_verdicts = PRIVATE_ROLE_PFP_LITERALS[case]['false_verdicts'] if mutant else set()
+    return (type(value) is dict and set(value) == spec['prerequisites'] | spec['verdicts']
+        and all(type(item) is bool for item in value.values())
+        and all(value[key] is True for key in spec['prerequisites'])
+        and all(value[key] is (key not in false_verdicts) for key in spec['verdicts']))
+
+
+def private_role_pfp_failure(raw, case, site):
+    try:
+        value = private_role_probe(raw, case)
+        text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    except (ValueError, UnicodeError):
+        return False
+    if not private_role_pfp_ready(value, case, mutant=True) or text.count('panicked at ') != 1:
+        return False
+    if case == PRIVATE_ABA_CASE:
+        return private_aba_failure(raw, site)
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[case][1])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[case][2])
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}' + re.escape(PFP[case][3])
+        + r'[ \t]*(?:\n|$)')
+    found = re.search(pattern, text)
+    return found is not None and text.index(PRIVATE_ROLE_CASES[case]['prefix']) < found.start()
+
+
+def private_role_pfp_controls(case, site):
+    spec = PRIVATE_ROLE_CASES[case]
+    literal = PRIVATE_ROLE_PFP_LITERALS[case]
+    probe_controls = private_role_controls(case)
+    green = dict.fromkeys(spec['prerequisites'] | spec['verdicts'], True)
+    mutant = dict(green, **dict.fromkeys(literal['false_verdicts'], False))
+    def row(item):
+        return (spec['prefix'] + ' ' + json.dumps(item) + '\n').encode()
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at " + CASES[case][2]
+        + ':' + str(site['line']) + ':' + str(site['column']) + ':\n' + PFP[case][3] + '\n').encode()
+    valid = row(mutant) + header
+    positives = [valid, valid.replace(b"' (7)", b"'"), valid.replace(b'\n', b'\r\n'), b' '*8 + valid]
+    assert all(private_role_pfp_failure(raw, case, site) for raw in positives)
+    invalid = [row(green) + header, valid + header, header + row(mutant), row(mutant),
+        row(mutant) + header.replace(PFP[case][3].encode(), b'PRIVATE'),
+        row(mutant) + header.replace(CASES[case][1].encode(), b'PRIVATE'),
+        row(mutant) + header.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
+        row(mutant) + header.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
+        row(mutant) + header.replace((':' + str(site['column']) + ':\n').encode(), b':999999:\n'),
+        valid + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:2:\n"]
+    vectors = []
+    for key in sorted(green):
+        vectors.append(dict(mutant, **{key: not mutant[key]}))
+    assert all(not private_role_pfp_failure(row(value) + header, case, site) for value in vectors)
+    assert private_role_pfp_ready(green, case) and not private_role_pfp_ready(green, case, mutant=True)
+    assert private_role_pfp_ready(mutant, case, mutant=True) and not private_role_pfp_ready(mutant, case)
+    assert all(not private_role_pfp_failure(raw, case, site) for raw in invalid)
+    product = Path(PFP[case][0]).read_text()
+    validate_private_role_pfp_inverse(product, case, literal['green'], literal['inverse'])
+    bad_owners = [product.replace(literal['owner'], 'PRIVATE'),
+        product.replace(literal['boundary'], 'PRIVATE'), product + literal['green'],
+        product.replace(literal['green'], '') + literal['green']]
+    for changed in bad_owners:
+        try:
+            validate_private_role_pfp_inverse(changed, case, literal['green'], literal['inverse'])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('role-pfp-owner-negative')
+    bad_inverses = [literal['green'], literal['inverse'] + '\n',
+        literal['inverse'].replace('\n', '\n\n', 1)]
+    bad_inverses += [other['inverse'] for key, other in PRIVATE_ROLE_PFP_LITERALS.items() if key != case]
+    for changed in bad_inverses:
+        try:
+            validate_private_role_pfp_inverse(product, case, literal['green'], changed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('role-pfp-inverse-negative')
+    assert pfp_configuration(case) == positive_configuration(case)
+    return {'positive': len(positives), 'negative': len(invalid) + len(bad_owners) + len(bad_inverses),
+        'verdict_vector_controls': len(vectors), 'configuration_controls': 1,
+        'probe_controls': probe_controls, 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 MISSING_ROUTE_CASE = 'sdk-private-missing-route'
 MISSING_ROUTE_MESSAGE = 'failed owner operation leaves this exact private wire ineligible'
 MISSING_ROUTE_GREEN = '                            // Failure must revoke the predecessor even when\n                            // planning rejects the route before preparation.\n                            if let Some(wire) =\n                                state.private_observation_wires.get_mut(&sync.account_id)\n                            {\n                                wire.ready = false;\n                                wire.completed = false;\n                            }\n                            return Err(TransportAdapterError::Subscription(\n                                "selected private observation route unavailable".into(),\n                            ));\n'
@@ -2345,6 +2475,8 @@ def inverse(case):
     text = original.decode('utf-8')
     if text.count(old) != 1:
         raise ValueError('inverse-anchor')
+    if case in PRIVATE_ROLE_PFP_CASES:
+        validate_private_role_pfp_inverse(text, case, old, new)
     if case in FAMILY_PFP_CASES:
         validate_family_pfp_inverse(text, case, old, new)
     if case == MISSING_ROUTE_CASE:
@@ -2403,6 +2535,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case in PRIVATE_ROLE_PFP_CASES:
+        return private_role_pfp_failure(raw, case, site)
     if case == MISSING_ROUTE_CASE:
         return missing_route_failure(raw, site)
     if case in FAMILY_PFP_CASES:
@@ -2425,6 +2559,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case in PRIVATE_ROLE_PFP_CASES:
+        return private_role_pfp_controls(case, site)
     if case == MISSING_ROUTE_CASE:
         return missing_route_controls(site)
     if case in FAMILY_PFP_CASES:
@@ -2453,6 +2589,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case in PRIVATE_ROLE_PFP_CASES:
+        return positive_configuration(case)
     if case == MISSING_ROUTE_CASE:
         return positive_configuration(case)
     if case in FAMILY_PFP_CASES:
@@ -2869,6 +3007,9 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case in PRIVATE_ROLE_PFP_CASES:
+        report.update(evidence_scope='real-SDK-private-family-role-single-mutation-only',
+            native_protocol_qualification=False, full_suite_qualification=False)
     if args.case == MISSING_ROUTE_CASE:
         report.update(evidence_scope='existing-real-SDK-missing-route-freshness-revocation-only',
             native_protocol_qualification=False, teardown_on_mutant_proven=False,
@@ -2954,7 +3095,7 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         selected_case(json.loads(raw, object_pairs_hook=unique), CASES[phase_case][1])
         row['inventory'].update(selected_nonignored=1, selected_ignored=0)
@@ -2977,6 +3118,11 @@ def pfp(args):
         if phase_case == MISSING_ROUTE_CASE:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
+        if phase_case in PRIVATE_ROLE_PFP_CASES:
+            row['body']['private_role_probe'] = private_role_probe(raw, phase_case)
+            watch_accepted = private_role_pfp_ready(row['body']['private_role_probe'], phase_case, mutant=label == 'mutant')
+            clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+            save()
         if phase_case in FAMILY_PFP_CASES:
             row['body']['family_stability_probe'] = family_stability_probe(raw)
             watch_accepted = family_pfp_ready(row['body']['family_stability_probe'], phase_case, mutant=label == 'mutant')
