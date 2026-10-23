@@ -1621,20 +1621,43 @@ impl NostrTransportAdapter {
     /// Internal read-only aggregate at an integration-test verdict.
     #[cfg(feature = "test-policy-overrides")]
     #[doc(hidden)]
-    pub async fn replay_progress_snapshot_for_test(&self, account_id: &MemberId) -> Option<[u64; 12]> {
+    pub async fn replay_progress_snapshot_for_test(
+        &self,
+        account_id: &MemberId,
+    ) -> Option<[u64; 12]> {
         let state = self.state.read().await;
         let coverage = state.account_replay_coverage.get(account_id)?;
-        let endpoints = || coverage.endpoint_deadlines.values().flat_map(HashMap::values);
-        let held = coverage.ingress.as_ref().map(|ingress| ingress.held()).unwrap_or_default();
+        let endpoints = || {
+            coverage
+                .endpoint_deadlines
+                .values()
+                .flat_map(HashMap::values)
+        };
+        let held = coverage
+            .ingress
+            .as_ref()
+            .map(|ingress| ingress.held())
+            .unwrap_or_default();
         Some([
-            u64::from(coverage.admission_pending()), coverage.buffered_items as u64,
-            coverage.releasing_items as u64, coverage.outbox.len() as u64,
-            coverage.inbox_placements as u64, coverage.groups.len() as u64,
+            u64::from(coverage.admission_pending()),
+            coverage.buffered_items as u64,
+            coverage.releasing_items as u64,
+            coverage.outbox.len() as u64,
+            coverage.inbox_placements as u64,
+            coverage.groups.len() as u64,
             endpoints().filter(|endpoint| endpoint.capturing).count() as u64,
-            endpoints().filter(|endpoint| endpoint.queued.is_some()).count() as u64,
-            coverage.subscriptions.values().flat_map(HashMap::values)
-                .filter(|replay| **replay == RelayReplay::Paging).count() as u64,
-            held.0 as u64, held.1 as u64, u64::from(coverage.ingress.is_some()),
+            endpoints()
+                .filter(|endpoint| endpoint.queued.is_some())
+                .count() as u64,
+            coverage
+                .subscriptions
+                .values()
+                .flat_map(HashMap::values)
+                .filter(|replay| **replay == RelayReplay::Paging)
+                .count() as u64,
+            held.0 as u64,
+            held.1 as u64,
+            u64::from(coverage.ingress.is_some()),
         ])
     }
 

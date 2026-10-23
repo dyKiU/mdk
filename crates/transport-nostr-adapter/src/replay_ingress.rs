@@ -484,13 +484,21 @@ impl ReplayBatch {
             || &frame.delivery.message.id != packet
             || frame.delivery.group_id_hint.as_ref() != Some(&data.group)
             || frame.delivery.source.plane != TransportDeliveryPlane::Group
-            || self.shared.queue.lock().unwrap_or_else(|p| p.into_inner()).consumer
+            || self
+                .shared
+                .queue
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .consumer
                 != Some(self._consumer.serial)
         {
             return None;
         }
         Some(super::native_frame_probe::identity(
-            &self._consumer, &self.shared, &self.state, &self.account,
+            &self._consumer,
+            &self.shared,
+            &self.state,
+            &self.account,
         ))
     }
 

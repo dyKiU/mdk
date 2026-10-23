@@ -2319,7 +2319,11 @@ async fn run_app_runtime_account_worker(
             command_input_service_owed || sibling_completion_input_service_owed;
         #[cfg(not(feature = "experimental-device-sync"))]
         let input_offer_owed_before_select = false;
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         let watch_debt_before_select = sibling_completion_input_service_owed;
         let input_receive_enabled = !client.has_pending_effect_projections();
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]

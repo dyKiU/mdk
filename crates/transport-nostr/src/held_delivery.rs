@@ -70,8 +70,11 @@ impl Hold {
             let (counts, facts) = watch.facts(self.0.started, Instant::now());
             (counts, [facts[0], facts[1], facts[2], facts[3]])
         });
-        (self.0.native_held.load(Ordering::SeqCst), facts,
-         self.0.native_unknown.load(Ordering::SeqCst))
+        (
+            self.0.native_held.load(Ordering::SeqCst),
+            facts,
+            self.0.native_unknown.load(Ordering::SeqCst),
+        )
     }
 
     #[doc(hidden)]
@@ -144,16 +147,29 @@ impl MarmotRelayPlaneAccountAdapter {
     /// must not await release here and thereby block that worker's own Leave.
     #[doc(hidden)]
     pub fn defer_held_native_for_test(&self, batch: &transport_nostr_adapter::ReplayBatch) -> bool {
-        let state = self.relay_plane.inner.transport.held_delivery.lock().unwrap()
-            .as_ref().and_then(Weak::upgrade);
-        let Some(state) = state else { return false; };
+        let state = self
+            .relay_plane
+            .inner
+            .transport
+            .held_delivery
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(Weak::upgrade);
+        let Some(state) = state else {
+            return false;
+        };
         if *state.release.borrow() || state.account != self.account_id {
             return false;
         }
-        let Some(identity) = batch.held_remote_identity_for_test(&self.account_id, &state.message) else {
+        let Some(identity) = batch.held_remote_identity_for_test(&self.account_id, &state.message)
+        else {
             return false;
         };
-        let Some(group) = batch.delivery().and_then(|delivery| delivery.group_id_hint.as_ref()) else {
+        let Some(group) = batch
+            .delivery()
+            .and_then(|delivery| delivery.group_id_hint.as_ref())
+        else {
             return false;
         };
         let mut slot = state.native.lock().unwrap();

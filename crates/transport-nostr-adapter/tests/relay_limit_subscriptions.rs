@@ -116,9 +116,13 @@ impl Fixture {
         let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
         #[cfg(feature = "test-policy-overrides")]
         let (forwarder, forwarder_snapshot) = match notifications {
-            FixtureNotifications::Forwarded => (Some(sdk.spawn_notification_forwarder(adapter.clone())), None),
+            FixtureNotifications::Forwarded => (
+                Some(sdk.spawn_notification_forwarder(adapter.clone())),
+                None,
+            ),
             FixtureNotifications::Observed => {
-                let (task, snapshot) = sdk.spawn_notification_forwarder_observed_for_test(adapter.clone());
+                let (task, snapshot) =
+                    sdk.spawn_notification_forwarder_observed_for_test(adapter.clone());
                 (Some(task), Some(snapshot))
             }
             FixtureNotifications::Manual => (None, None),
@@ -174,31 +178,48 @@ impl Fixture {
 
     async fn with_replay_diagnostics(config: LimitConfig) -> Self {
         #[cfg(feature = "test-policy-overrides")]
-        { Self::with_forwarder(config, FixtureNotifications::Observed).await }
+        {
+            Self::with_forwarder(config, FixtureNotifications::Observed).await
+        }
         #[cfg(not(feature = "test-policy-overrides"))]
-        { Self::new(config, false).await }
+        {
+            Self::new(config, false).await
+        }
     }
 
     #[cfg(feature = "test-policy-overrides")]
     async fn emit_replay_diagnostic(
-        &self, case: u8, clamp: Option<u64>, expected: usize, delivered: usize,
-        eose: transport_nostr_adapter::AccountSubscriptionEose, stats: &LimitStats,
+        &self,
+        case: u8,
+        clamp: Option<u64>,
+        expected: usize,
+        delivered: usize,
+        eose: transport_nostr_adapter::AccountSubscriptionEose,
+        stats: &LimitStats,
     ) {
         let forwarder = self.forwarder_snapshot.as_ref().map(|snapshot| snapshot());
         let loss = self.sdk.notification_loss().ok().and_then(|receiver| {
             let observed = receiver.borrow();
-            observed.as_ref().map(|loss| [loss.receiver_generation, loss.cumulative_skipped])
+            observed
+                .as_ref()
+                .map(|loss| [loss.receiver_generation, loss.cumulative_skipped])
         });
-        let replay = self.adapter.replay_progress_snapshot_for_test(&self.account).await;
-        eprintln!("sdk-replay-forwarder-diagnostic {}", serde_json::json!({
-            "case": case, "clamp": clamp, "expected": expected, "delivered": delivered,
-            "forwarder_finished": self.forwarder.as_ref().is_some_and(|task| task.is_finished()),
-            "forwarder": forwarder, "loss": loss, "replay": replay,
-            "coverage": [eose.subscriptions, eose.with_eose, eose.relay_subscription_attempts,
-                eose.relay_subscription_attempts_with_eose, eose.relay_subscription_attempts_refused,
-                eose.subscriptions_refused],
-            "relay_requests": [stats.total_reqs, stats.clamped_filters],
-        }));
+        let replay = self
+            .adapter
+            .replay_progress_snapshot_for_test(&self.account)
+            .await;
+        eprintln!(
+            "sdk-replay-forwarder-diagnostic {}",
+            serde_json::json!({
+                "case": case, "clamp": clamp, "expected": expected, "delivered": delivered,
+                "forwarder_finished": self.forwarder.as_ref().is_some_and(|task| task.is_finished()),
+                "forwarder": forwarder, "loss": loss, "replay": replay,
+                "coverage": [eose.subscriptions, eose.with_eose, eose.relay_subscription_attempts,
+                    eose.relay_subscription_attempts_with_eose, eose.relay_subscription_attempts_refused,
+                    eose.subscriptions_refused],
+                "relay_requests": [stats.total_reqs, stats.clamped_filters],
+            })
+        );
     }
 
     async fn shutdown(self) {
@@ -374,7 +395,8 @@ async fn a_thousand_groups_fit_in_a_few_reqs_and_every_group_delivers() {
         stats.summary()
     );
     #[cfg(feature = "test-policy-overrides")]
-    fx.emit_replay_diagnostic(1, None, G, delivered.len(), eose, &stats).await;
+    fx.emit_replay_diagnostic(1, None, G, delivered.len(), eose, &stats)
+        .await;
     assert_filter_shapes(&stats);
     assert_eq!(stats.total_reqs, live_reqs(G));
     assert_eq!(stats.rejections_total(), 0);
@@ -3513,12 +3535,10 @@ async fn replay_one_group_at(
     timestamps: impl IntoIterator<Item = u64>,
     clamp: Option<u64>,
 ) -> (usize, bool, LimitStats) {
-    let fx = Fixture::with_replay_diagnostics(
-        LimitConfig {
-            req_limit_clamp: clamp,
-            ..LimitConfig::default()
-        },
-    )
+    let fx = Fixture::with_replay_diagnostics(LimitConfig {
+        req_limit_clamp: clamp,
+        ..LimitConfig::default()
+    })
     .await;
     let timestamps = timestamps.into_iter().collect::<Vec<_>>();
     let stored = timestamps.len();
@@ -3537,7 +3557,8 @@ async fn replay_one_group_at(
         stats.summary()
     );
     #[cfg(feature = "test-policy-overrides")]
-    fx.emit_replay_diagnostic(2, clamp, stored, delivered, eose, &stats).await;
+    fx.emit_replay_diagnostic(2, clamp, stored, delivered, eose, &stats)
+        .await;
     fx.shutdown().await;
     (delivered, complete, stats)
 }

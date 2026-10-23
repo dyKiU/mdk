@@ -1324,9 +1324,17 @@ impl AppClient {
             // native frames. A large same-group prefix cannot monopolize both.
             admission.prefer_native = !admission.prefer_native;
             let OrderedInput::Comparison(position) = input else {
-                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-                if self.recovery_owner.native_batch.as_ref().is_some_and(|batch|
-                    self.adapter.defer_held_native_for_test(batch)) {
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                if self
+                    .recovery_owner
+                    .native_batch
+                    .as_ref()
+                    .is_some_and(|batch| self.adapter.defer_held_native_for_test(batch))
+                {
                     // Keep the actual native loan and comparison pending, but
                     // return this bounded turn so own-Leave can run first.
                     inventory.flush(self);

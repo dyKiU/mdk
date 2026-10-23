@@ -184,10 +184,17 @@ impl HeldProposal {
                 .unwrap()
                 .and_then(|request| request.last_proposed_epoch);
             let (native_held, native, native_unknown) = self.hold.native_observed();
-            let actual_native_held_input = native_held > 0 && !native_unknown
-                && native.as_ref().is_some_and(|(counts, facts)|
-                    counts[0] > 0 && counts[1] == 0 && counts[2] == 0
-                        && facts[0] && facts[1] && !facts[2] && !facts[3]);
+            let actual_native_held_input = native_held > 0
+                && !native_unknown
+                && native.as_ref().is_some_and(|(counts, facts)| {
+                    counts[0] > 0
+                        && counts[1] == 0
+                        && counts[2] == 0
+                        && facts[0]
+                        && facts[1]
+                        && !facts[2]
+                        && !facts[3]
+                });
             let actual_held_input = self.hold.observed().0 > 0 || actual_native_held_input;
             if !actual_held_input || current != self.prior || proposed != Some(self.prior) {
                 return;
@@ -220,10 +227,17 @@ impl HeldProposal {
             // at this final ordering boundary, without requiring future ingest
             // or ACK completion flags before the hold has been released.
             let (native_held, native, native_unknown) = self.hold.native_observed();
-            let actual_native_held_input = native_held > 0 && !native_unknown
-                && native.as_ref().is_some_and(|(counts, facts)|
-                    counts[0] > 0 && counts[1] == 0 && counts[2] == 0
-                        && facts[0] && facts[1] && !facts[2] && !facts[3]);
+            let actual_native_held_input = native_held > 0
+                && !native_unknown
+                && native.as_ref().is_some_and(|(counts, facts)| {
+                    counts[0] > 0
+                        && counts[1] == 0
+                        && counts[2] == 0
+                        && facts[0]
+                        && facts[1]
+                        && !facts[2]
+                        && !facts[3]
+                });
             assert!(
                 self.hold.observed().0 > 0 || actual_native_held_input,
                 "arrival fixture requires a current unconsumed held input before release"
@@ -244,10 +258,11 @@ impl HeldProposal {
                 // authentication above. Never combine partial queue/native facts.
                 let queue_complete = held > 0 && finished > 0 && enqueued > 0;
                 let (native_held, native, native_unknown) = self.hold.native_observed();
-                let native_complete = native_held > 0 && !native_unknown
-                    && native.as_ref().is_some_and(|(counts, facts)|
-                        counts.iter().all(|count| *count > 0)
-                            && facts.iter().all(|fact| *fact));
+                let native_complete = native_held > 0
+                    && !native_unknown
+                    && native.as_ref().is_some_and(|(counts, facts)| {
+                        counts.iter().all(|count| *count > 0) && facts.iter().all(|fact| *fact)
+                    });
                 if !queue_complete && !native_complete {
                     return;
                 }

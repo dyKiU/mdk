@@ -105,9 +105,17 @@ impl AppClient {
                     ));
                 }
             }
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-            if self.recovery_owner.native_batch.as_ref().is_some_and(|batch|
-                self.adapter.defer_held_native_for_test(batch)) {
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if self
+                .recovery_owner
+                .native_batch
+                .as_ref()
+                .is_some_and(|batch| self.adapter.defer_held_native_for_test(batch))
+            {
                 // Retain this actual unacknowledged loan while allowing the
                 // worker to service its original own-Leave command. No ingest,
                 // receipt, cursor promotion, or inferred ACK happens here.

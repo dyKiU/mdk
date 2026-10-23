@@ -1305,7 +1305,10 @@ impl ForwarderProbeState {
         });
     }
     fn end(&self, reason: u64, abandoned: u64, skipped: u64) {
-        if self.fields[0].compare_exchange(0, reason, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+        if self.fields[0]
+            .compare_exchange(0, reason, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
             self.fields[7].store(abandoned, Ordering::Relaxed);
             self.fields[12].store(skipped, Ordering::Relaxed);
         }
@@ -1330,7 +1333,11 @@ impl Drop for ForwarderProbeGuard {
     fn drop(&mut self) {
         if let Some(probe) = &self.probe {
             // First terminal decision wins, including cancellation before first poll.
-            probe.end(if std::thread::panicking() { 8 } else { 7 }, self.pending.load(Ordering::SeqCst), 0);
+            probe.end(
+                if std::thread::panicking() { 8 } else { 7 },
+                self.pending.load(Ordering::SeqCst),
+                0,
+            );
         }
     }
 }
@@ -1338,7 +1345,8 @@ impl Drop for ForwarderProbeGuard {
 fn forwarder_probe_kind(notification: &NostrSdkNotification) -> usize {
     match notification {
         NostrSdkNotification::Payload {
-            notification: ClientNotification::Message { message, .. }, ..
+            notification: ClientNotification::Message { message, .. },
+            ..
         } => match message.as_ref() {
             RelayMessage::Event { event, .. } if event.kind == Kind::MlsGroupMessage => 0,
             RelayMessage::EndOfStoredEvents(_) => 1,
@@ -3667,7 +3675,11 @@ impl NostrSdkRelayClient {
     /// queue. It exits on pool shutdown or receiver loss; a supervisor must
     /// retain the loss watch and start a replacement after a gap.
     pub fn spawn_notification_forwarder(&self, adapter: NostrTransportAdapter) -> JoinHandle<()> {
-        self.spawn_notification_forwarder_inner(adapter, #[cfg(feature = "test-policy-overrides")] None)
+        self.spawn_notification_forwarder_inner(
+            adapter,
+            #[cfg(feature = "test-policy-overrides")]
+            None,
+        )
     }
 
     /// Internal integration-test observation of this exact forwarder's owned work.
@@ -3692,8 +3704,10 @@ impl NostrSdkRelayClient {
         #[cfg(feature = "test-policy-overrides")] probe: Option<Arc<ForwarderProbeState>>,
     ) -> JoinHandle<()> {
         self.spawn_notification_forwarder_with_pending(
-            adapter, Arc::new(AtomicU64::new(0)),
-            #[cfg(feature = "test-policy-overrides")] probe,
+            adapter,
+            Arc::new(AtomicU64::new(0)),
+            #[cfg(feature = "test-policy-overrides")]
+            probe,
         )
     }
 
@@ -3706,12 +3720,17 @@ impl NostrSdkRelayClient {
         let mut notifications = self.notifications();
         let loss = self.clone();
         #[cfg(feature = "test-policy-overrides")]
-        let probe_guard = ForwarderProbeGuard { probe: probe.clone(), pending: pending.clone() };
+        let probe_guard = ForwarderProbeGuard {
+            probe: probe.clone(),
+            pending: pending.clone(),
+        };
         tokio::spawn(async move {
             #[cfg(feature = "test-policy-overrides")]
             let _probe_guard = probe_guard;
             #[cfg(feature = "test-policy-overrides")]
-            if let Some(probe) = &probe { probe.fields[13].store(1, Ordering::Relaxed); }
+            if let Some(probe) = &probe {
+                probe.fields[13].store(1, Ordering::Relaxed);
+            }
             const EVENT_QUEUE_CAPACITY: usize = 256;
             let (sender, mut event_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
             #[cfg(feature = "experimental-device-sync")]
@@ -3741,7 +3760,9 @@ impl NostrSdkRelayClient {
                     .await;
                     worker_pending.fetch_sub(1, Ordering::SeqCst);
                     #[cfg(feature = "test-policy-overrides")]
-                    if let Some(probe) = &worker_probe { probe.add(4 + kind, 1); }
+                    if let Some(probe) = &worker_probe {
+                        probe.add(4 + kind, 1);
+                    }
                     if shutdown {
                         break;
                     }
@@ -3769,13 +3790,17 @@ impl NostrSdkRelayClient {
                 };
                 let Some(update) = update else {
                     #[cfg(feature = "test-policy-overrides")]
-                    if let Some(probe) = &probe { probe.end(6, pending.load(Ordering::SeqCst), 0); }
+                    if let Some(probe) = &probe {
+                        probe.end(6, pending.load(Ordering::SeqCst), 0);
+                    }
                     break;
                 };
                 match update {
                     NotificationUpdate::Notification(NostrSdkNotification::Shutdown) => {
                         #[cfg(feature = "test-policy-overrides")]
-                        if let Some(probe) = &probe { probe.end(5, pending.load(Ordering::SeqCst), 0); }
+                        if let Some(probe) = &probe {
+                            probe.end(5, pending.load(Ordering::SeqCst), 0);
+                        }
                         break;
                     }
                     NotificationUpdate::Notification(notification) => {
@@ -3787,16 +3812,23 @@ impl NostrSdkRelayClient {
                         {
                             continue;
                         }
-                        #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
                         let capture_started = probe.as_ref().map(|_| std::time::Instant::now());
                         #[cfg(feature = "experimental-device-sync")]
                         let capture = acquisition.capture(&notification).await;
-                        #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
                         if let (Some(probe), Some(capture_started)) = (&probe, capture_started) {
-                            let elapsed = u64::try_from(capture_started.elapsed().as_micros()).unwrap_or_else(|_| {
-                                probe.fields[11].store(1, Ordering::Relaxed);
-                                u64::MAX
-                            });
+                            let elapsed = u64::try_from(capture_started.elapsed().as_micros())
+                                .unwrap_or_else(|_| {
+                                    probe.fields[11].store(1, Ordering::Relaxed);
+                                    u64::MAX
+                                });
                             probe.add(8, 1);
                             probe.add(9, elapsed);
                             probe.fields[10].fetch_max(elapsed, Ordering::Relaxed);
@@ -3824,7 +3856,9 @@ impl NostrSdkRelayClient {
                             return;
                         }
                         #[cfg(feature = "test-policy-overrides")]
-                        if let Some(probe) = &probe { probe.add(1 + kind, 1); }
+                        if let Some(probe) = &probe {
+                            probe.add(1 + kind, 1);
+                        }
                     }
                     NotificationUpdate::Lagged { skipped } => {
                         #[cfg(not(feature = "test-policy-overrides"))]
@@ -3832,7 +3866,9 @@ impl NostrSdkRelayClient {
                         // The native frontier already recorded its own gap.
                         let abandoned = pending.load(Ordering::SeqCst);
                         #[cfg(feature = "test-policy-overrides")]
-                        if let Some(probe) = &probe { probe.end(3, abandoned, skipped); }
+                        if let Some(probe) = &probe {
+                            probe.end(3, abandoned, skipped);
+                        }
                         worker_guard.loss_accounted = true;
                         loss.record_notification_gap(abandoned);
                         worker.abort();
