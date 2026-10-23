@@ -548,8 +548,9 @@ def mutation_admission_probe(raw):
     return value
 
 
-def mutation_admission_site():
-    text = Path(MUTATION_ADMISSION_PATH).read_text()
+def mutation_admission_site(text=None):
+    if text is None:
+        text = Path(MUTATION_ADMISSION_PATH).read_text()
     start = text.index('pub(crate) fn assert_mutation_admitted(')
     end = text.index('\n}', start) + 2
     helper = text[start:end]
@@ -2952,6 +2953,56 @@ PFP[AUTOMATIC_SCAN_EXPIRY_CASE] = (
     r'assert!\(\s*expired_scan_rejected,\s*"{message}"\s*,?\s*\);')
 
 
+MUTATION_ADMISSION_GREEN = '            assert_eq!(\n                summary.published, 0,\n                "mutation admission must agree with its actual typed send outcome"\n            );\n'
+MUTATION_ADMISSION_INVERSE = '            assert_eq!(\n                summary.published, 1,\n                "mutation admission must agree with its actual typed send outcome"\n            );\n'
+PFP[MUTATION_ADMISSION_CASE] = (
+    MUTATION_ADMISSION_PATH, MUTATION_ADMISSION_GREEN, MUTATION_ADMISSION_INVERSE,
+    MUTATION_ADMISSION_MESSAGE,
+    r'assert_eq!\(\s*summary\.published,\s*0,\s*"{message}"\s*,?\s*\);')
+
+
+def validate_mutation_admission_inverse(text, old, new):
+    if (old != MUTATION_ADMISSION_GREEN or new != MUTATION_ADMISSION_INVERSE
+            or old == new or old.count('\n') != new.count('\n')
+            or text.count(old) != 1):
+        raise ValueError('mutation-admission-exact-inverse')
+    # Verify Published=1, Pending|Unknown=0 and the single-ID assertion together.
+    mutation_admission_site(text)
+    start = text.index('pub(crate) fn assert_mutation_admitted(')
+    end = text.index('\n}', start) + 2
+    if old not in text[start:end]:
+        raise ValueError('mutation-admission-inverse-owner')
+
+
+def mutation_admission_pfp_controls(site):
+    result = mutation_admission_controls(site)
+    text = Path(MUTATION_ADMISSION_PATH).read_text()
+    old, new = MUTATION_ADMISSION_GREEN, MUTATION_ADMISSION_INVERSE
+    validate_mutation_admission_inverse(text, old, new)
+    start = text.index('pub(crate) fn assert_mutation_admitted(')
+    end = text.index('\n}', start) + 2
+    helper = text[start:end]
+    changed_helper = lambda value: text[:start] + value + text[end:]
+    invalid = [(text, old, old), (text, new, old), (text, old, '\n' * old.count('\n')),
+        (text, old, new + '\n'),
+        (text.replace('pub(crate) fn assert_mutation_admitted(', 'pub(crate) fn PRIVATE('), old, new),
+        (changed_helper(helper.replace('Published => assert_eq!(summary.published, 1)',
+                      'Published => assert_eq!(summary.published, 0)')), old, new),
+        (changed_helper(helper.replace('assert_eq!(summary.message_ids.len(), 1);',
+                      'assert_eq!(summary.message_ids.len(), 2);')), old, new),
+        (text.replace(old, '') + old, old, new)]
+    for source, before, after in invalid:
+        try:
+            validate_mutation_admission_inverse(source, before, after)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('mutation-admission-invalid-inverse-accepted')
+    assert pfp_configuration(MUTATION_ADMISSION_CASE) == positive_configuration(MUTATION_ADMISSION_CASE)
+    result.update(inverse_positive=1, inverse_negative=len(invalid), configuration_positive=1)
+    return result
+
+
 def validate_automatic_scan_expiry_inverse(text, old, new):
     owner = '    pub async fn scan_automatic_device_linking_session('
     if text.count(owner) != 1:
@@ -3515,6 +3566,8 @@ def inverse(case):
         validate_private_maintenance_inverse(text, old, new)
     if case == PRIVATE_SEND_CASE:
         validate_private_send_inverse(text, old, new)
+    if case == MUTATION_ADMISSION_CASE:
+        validate_mutation_admission_inverse(text, old, new)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
         validate_automatic_scan_expiry_inverse(text, old, new)
     if case == MISSING_ROUTE_CASE:
@@ -3581,6 +3634,8 @@ def own_failure(raw, case, site):
         return private_maintenance_failure(raw, site)
     if case == PRIVATE_SEND_CASE:
         return private_send_failure(raw, site)
+    if case == MUTATION_ADMISSION_CASE:
+        return mutation_admission_failure(raw, site)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
         return automatic_scan_expiry_failure(raw, site)
     if case in PRIVATE_ROLE_PFP_CASES:
@@ -3615,6 +3670,8 @@ def pfp_controls(case, site):
         return private_maintenance_pfp_controls(site)
     if case == PRIVATE_SEND_CASE:
         return private_send_pfp_controls(site)
+    if case == MUTATION_ADMISSION_CASE:
+        return mutation_admission_pfp_controls(site)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
         return automatic_scan_expiry_pfp_controls(site)
     if case in PRIVATE_ROLE_PFP_CASES:
@@ -3647,6 +3704,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == MUTATION_ADMISSION_CASE:
+        return positive_configuration(case)
     if case == PRIVATE_HYDRATION_CASE:
         return positive_configuration(case)
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
@@ -4093,6 +4152,15 @@ def pfp(args):
         report.update(evidence_scope='real-private-MLS-generic-send-admission-single-mutation-only',
             native_protocol_qualification=False, full_suite_qualification=False,
             successful_rollback_on_mutant_proven=False, existing_queued_work_recovery_qualified=False)
+    if args.case == MUTATION_ADMISSION_CASE:
+        report.update(evidence_scope='actual-runtime-edit-admission-scripted-transport-single-mutation-only',
+            scripted_transport_only=True, actual_sdk_relay_qualification=False,
+            native_protocol_qualification=False, apple_native_acceptance=False,
+            native_host_ui_acceptance=False, full_suite_qualification=False,
+            expected_runtime_count=1,
+            expected_phase_counts={'baseline': {'executed': 1, 'passed': 1, 'failed': 0},
+                'mutant': {'executed': 1, 'passed': 0, 'failed': 1},
+                'restored': {'executed': 1, 'passed': 1, 'failed': 0}})
     if args.case == AUTOMATIC_SCAN_EXPIRY_CASE:
         report.update(evidence_scope='real-App-held-roster-scan-expiry-single-mutation-only',
             native_protocol_qualification=False, apple_native_acceptance=False,
@@ -4169,7 +4237,7 @@ def pfp(args):
         flags = (['-p', package, '--test', CASES[phase_case][0]] if phase_case in QUIET_CONTRACT_CASES
                  else ['-p', package, '--lib']) + ['--features', ','.join(features), '--locked', '--profile', profile]
         selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
-        if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
+        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE}:
             selection += ' & binary(=marmot_app)'
         if phase_case in QUIET_CONTRACT_CASES:
             selection += ' & binary(=relay_limit_subscriptions)'
@@ -4189,14 +4257,14 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         inventory = json.loads(raw, object_pairs_hook=unique)
         if phase_case in PRIVATE_MAINTENANCE_COHORTS:
             row['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(phase_case), 'cgka-engine', 'cgka_engine')
         else:
             selected_case(inventory, CASES[phase_case][1])
-        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
+        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             matched_suites = [suite for suite in inventory['rust-suites'].values()
                 if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
             if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != CASES[phase_case][0] or matched_suites[0].get('kind') != 'lib':
@@ -4223,7 +4291,7 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
+        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
         if phase_case in PRIVATE_MAINTENANCE_COHORTS:
@@ -4235,6 +4303,18 @@ def pfp(args):
         if phase_case == PRIVATE_HYDRATION_CASE:
             row['body']['private_hydration_oracle'] = private_hydration_runtime(raw, label == 'mutant')
             watch_accepted = row['body']['private_hydration_oracle']['accepted']
+            save()
+        if phase_case == MUTATION_ADMISSION_CASE:
+            row['body']['mutation_admission_probe'] = mutation_admission_probe(raw)
+            save()  # Counts/compiler/actual command facts preceded strict decoding.
+            runtime = automatic_negotiation_runtime(raw,
+                {MUTATION_ADMISSION_TEST: MUTATION_ADMISSION_PATH})
+            row['body']['mutation_admission_runtime'] = runtime
+            expected_counts = dict(executed=1, passed=int(label != 'mutant'),
+                failed=int(label == 'mutant'), skipped=row['body']['counts']['skipped'])
+            watch_accepted = (all(row['body']['mutation_admission_probe'].values())
+                and runtime['complete'] and runtime['counts'] == expected_counts
+                and row['body']['counts'] == expected_counts)
             save()
         if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
             row['body']['automatic_scan_expiry_probe'] = automatic_scan_expiry_probe(raw)
@@ -5529,7 +5609,7 @@ def main():
     if args.case in QUIET_CONTRACT_CASES:
         quiet_contract_stage(args.stage)
     if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
-            and not (args.case == AUTOMATIC_SCAN_EXPIRY_CASE and args.stage == 'pfp')):
+            and not (args.case in {AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE} and args.stage == 'pfp')):
         raise ValueError('automatic-native-positive-or-expiry-pfp-only')
     if args.case in PRIVATE_MAINTENANCE_COHORTS and args.stage not in {'positive', 'pfp'}:
         raise ValueError('private-maintenance-positive-or-pfp-only')
