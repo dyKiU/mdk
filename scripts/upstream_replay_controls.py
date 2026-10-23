@@ -530,9 +530,14 @@ def snapshot():
 
 
 PFP = {
+    'watch-pressure': ('crates/marmot-app/src/runtime/account_worker.rs',
+              '                        if watch_debt_before_select {\n                            tokio::select! {\n                                biased;\n                                received = &mut receive, if input_receive_enabled =>\n                                    futures::future::Either::Right(received),\n                                changed = wait_for_replay_change(&mut replay_changes) =>\n                                    futures::future::Either::Left(changed),\n                            }\n',
+              '                        if watch_debt_before_select {\n                            tokio::select! {\n                                biased;\n                                changed = wait_for_replay_change(&mut replay_changes) =>\n                                    futures::future::Either::Left(changed),\n                                received = &mut receive, if input_receive_enabled =>\n                                    futures::future::Either::Right(received),\n                            }\n',
+              'authenticated_body_must_precede_second_ready_watch_service',
+              r'assert!\(\s*facts\.into_iter\(\)\.all\(\|value\| value\)\s*&& runtime_closes == 3\s*&& planes_shutdown == 3\s*&& relay_closed\s*&& attempt_completed,\s*"{message}"\s*\);'),
     'inline': ('crates/marmot-app/src/client/sync.rs',
-               '        self.observe_recovery_evidence(effects);\n        self.remember_pending_convergence_groups(effects);\n        self.remember_published_reports(effects);',
-               '        self.observe_recovery_evidence(effects);\n        self.remember_published_reports(effects);',
+               '        self.observe_recovery_evidence(effects);\n        // Upstream report bookkeeping also retains convergence and superseded edges.\n        self.remember_published_reports(effects);',
+               '        self.observe_recovery_evidence(effects);\n        let prior_pending_convergence_groups = self.pending_convergence_groups.clone();\n        self.remember_published_reports(effects);\n        self.pending_convergence_groups = prior_pending_convergence_groups;',
                'inline epoch-change effects must notify the worker about the stale original leave',
                r'assert!\(\s*inline_epoch_change_wake_retained,\s*"{message}"\s*\);'),
     'spill': ('crates/marmot-app/src/client/delivery_spill.rs',
@@ -570,7 +575,7 @@ def own_failure(raw, case, site):
     pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[case][1])
                + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[case][2])
                + ':' + str(site['line']) + r':([0-9]+):[ \t]*\n(?:[ \t]*\n){0,2}'
-               + re.escape(PFP[case][3]) + r'[ \t]*(?:\n|$)')
+               + r'[ \t]{0,8}' + re.escape(PFP[case][3]) + r'[ \t]*(?:\n|$)')
     match = re.search(pattern, text)
     return match is not None and 0 < int(match[1]) <= 1000000
 
@@ -581,21 +586,79 @@ def pfp_controls(case, site):
     valid = (header + PFP[case][3] + '\n').encode()
     assert own_failure(valid, case, site)
     assert own_failure(valid.replace(b"' (7)", b"'"), case, site)
-    invalid = [valid + valid, b'PRIVATE ' + valid, valid.replace(PFP[case][3].encode(), b'PRIVATE'),
+    assert own_failure(header.encode() + b' '*4 + PFP[case][3].encode() + b'\n', case, site)
+    assert own_failure(header.encode() + b' '*8 + PFP[case][3].encode() + b'\n', case, site)
+    invalid = [header.encode() + b' '*9 + PFP[case][3].encode() + b'\n',
+               valid + valid, b'PRIVATE ' + valid, valid.replace(PFP[case][3].encode(), b'PRIVATE'),
                valid.replace(CASES[case][1].encode(), b'PRIVATE'),
                valid.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
                valid.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
                valid + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:2:\n"]
     assert all(not own_failure(raw, case, site) for raw in invalid)
-    return {'positive': 2, 'negative': len(invalid), 'synthetic_metadata_only': True, 'product_bodies': 0}
+    return {'positive': 4, 'negative': len(invalid), 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+def pfp_configuration(case):
+    return ((LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+            if case == 'watch-pressure' else (LIB_FEATURES, 'ci', None))
+
+
+def watch_pfp_oracle(value, mutant):
+    # The fairness fact alone may differ; every real setup/security/cleanup
+    # prerequisite stays positive. Unknown bounded selection data earns no credit.
+    if (not value['queued_body'] or value['facts'] != [True]*11 + [not mutant, True]
+            or value['runtime_closes'] != 3 or value['plane_shutdown_returns'] != 3
+            or not value['relay_closed'] or not value['attempt_completed']
+            or value['pressure'] != [True, 8, 8, 0]
+            or type(value['completed_before']) is not int
+            or not (2 <= value['completed_before'] <= 8 if mutant else 0 <= value['completed_before'] <= 1)):
+        return False
+    for key in ['final_snapshot', 'at_acceptance']:
+        row = value['selection'][key]
+        if (row is None or row[4] or row[3] == 0
+                or row[0][1] < value['completed_before']
+                or row[0][5] == 0 or row[0][8] == 0):
+            return False
+    return True
+
+
+def watch_pfp_controls():
+    empty = [[0]*9, [0]*9, [0]*9, 0, False]
+    green_selection = [[0,1,0,0,0,1,0,1,1], [0,1,0,0,0,2,0,2,2], [0,0,0,0,0,1,0,1,1], 2, False]
+    red_selection = [[1,2,1,0,0,1,0,1,1], [2,1,2,0,0,4,0,4,4], [1,0,1,0,0,2,0,2,2], 4, False]
+    green = {'queued_body': True, 'facts': [True]*13, 'completed_before': 1,
+             'runtime_closes': 3, 'plane_shutdown_returns': 3, 'relay_closed': True,
+             'attempt_completed': True, 'pressure': [True, 8, 8, 0],
+             'selection': {'final_snapshot': green_selection, 'at_acceptance': green_selection}}
+    red = dict(green, facts=[True]*11+[False, True], completed_before=2,
+               selection={'final_snapshot': red_selection, 'at_acceptance': red_selection})
+    assert watch_pfp_oracle(green, False)
+    assert watch_pfp_oracle(red, True)
+    bad = [dict(red, completed_before=None), dict(red, completed_before=1),
+           dict(red, runtime_closes=2), dict(red, plane_shutdown_returns=2),
+           dict(red, relay_closed=False), dict(red, attempt_completed=False),
+           dict(red, queued_body=False), dict(red, pressure=[True,8,7,0]),
+           dict(red, selection={'final_snapshot': None, 'at_acceptance': empty}),
+           dict(red, selection={'final_snapshot': empty, 'at_acceptance': [[0]*9,[0]*9,[0]*9,0,True]})]
+    for index in list(range(11)) + [12]:
+        facts = list(red['facts']); facts[index] = False
+        bad.append(dict(red, facts=facts))
+    assert all(not watch_pfp_oracle(value, True) for value in bad)
+    assert not watch_pfp_oracle(red, False) and not watch_pfp_oracle(green, True)
+    assert pfp_configuration('inline') == (LIB_FEATURES, 'ci', None)
+    assert pfp_configuration('spill') == (LIB_FEATURES, 'ci', None)
+    assert pfp_configuration('watch-pressure') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+    return {'positive': 2, 'negative': len(bad)+2, 'configuration_controls': 3,
+            'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 def pfp(args):
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    features, profile, expected_stack = pfp_configuration(args.case)
     report = {'case': args.case, 'stage': 'pfp', 'source': git('rev-parse', 'HEAD'),
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
-              'phases': [], 'automatic_retries': 0, 'profile': 'ci', 'features': LIB_FEATURES,
+              'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
     before, fd, original, identity, parents = None, None, None, None, None
     stage, result = 'admission', 1
@@ -630,7 +693,7 @@ def pfp(args):
                'source_manifest_sha256': hashlib.sha256(json.dumps(expected['inputs'], sort_keys=True).encode()).hexdigest()}
         report['phases'].append(row)
         save()
-        flags = ['-p', 'marmot-app', '--lib', '--features', ','.join(LIB_FEATURES), '--locked', '--profile', 'ci']
+        flags = ['-p', 'marmot-app', '--lib', '--features', ','.join(features), '--locked', '--profile', profile]
         selection = 'package(marmot-app) & test(=' + CASES[args.case][1] + ')'
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
@@ -658,13 +721,19 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
+        watch_accepted = True
+        if args.case == 'watch-pressure':
+            row['body']['watch_observation'] = watch_marker(raw)
+            watch_accepted = watch_pfp_oracle(row['body']['watch_observation'], label == 'mutant')
+            row['watch_prerequisites_accepted'] = watch_accepted
+            save()
         if label == 'mutant':
             row['own_runtime_failure'] = own_failure(raw, args.case, site)
             row['accepted'] = (code == 100 and row['body']['counts']['failed'] == 1
-                               and clean_compile and row['own_runtime_failure']
+                               and clean_compile and watch_accepted and row['own_runtime_failure']
                                and row['source_exact_after_body'])
         else:
-            row['accepted'] = (code == 0 and row['body']['counts']['passed'] == 1 and clean_compile
+            row['accepted'] = (code == 0 and row['body']['counts']['passed'] == 1 and clean_compile and watch_accepted
                                and row['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0}
                                and row['source_exact_after_body'])
         save()
@@ -691,13 +760,17 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case == 'watch-pressure':
+            report['watch_parser_controls'] = watch_controls()
+            report['watch_pfp_controls'] = watch_pfp_controls()
         if args.mode == 'preflight':
             result = 0
         else:
             stage = 'environment'
-            denied = ['RUST_MIN_STACK', 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',
+            denied = ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',
                       'RUSTC', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'RUSTC_BOOTSTRAP']
-            if (any(os.environ.get(key) for key in denied)
+            if ((os.environ.get('RUST_MIN_STACK') or None) != expected_stack
+                    or any(os.environ.get(key) for key in denied)
                     or any(value for key, value in os.environ.items() if key.startswith('CARGO_TARGET_') and key.endswith('_RUSTFLAGS'))
                     or os.environ.get('CARGO_BUILD_JOBS') != '2' or os.environ.get('CARGO_INCREMENTAL') != '1'):
                 raise ValueError('pfp-environment')
