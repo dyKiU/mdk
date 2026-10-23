@@ -2312,12 +2312,15 @@ async fn run_app_runtime_account_worker(
             feature = "test-policy-overrides"
         ))]
         let watch_select = client.watch_select_recorder_for_test();
-        // Freeze the offer's ordering before the watch future clears its debt.
-        // The copy also keeps the two futures' borrows independent.
+        // Freeze input-offer ordering before either service future clears its debt.
+        // The copy also keeps the futures' borrows independent.
         #[cfg(feature = "experimental-device-sync")]
-        let watch_debt_before_select = sibling_completion_input_service_owed;
+        let input_offer_owed_before_select =
+            command_input_service_owed || sibling_completion_input_service_owed;
         #[cfg(not(feature = "experimental-device-sync"))]
-        let watch_debt_before_select = false;
+        let input_offer_owed_before_select = false;
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        let watch_debt_before_select = sibling_completion_input_service_owed;
         let input_receive_enabled = !client.has_pending_effect_projections();
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::command_backlog::watch_pressure::SelectStage as WatchSelectStage;
@@ -2902,7 +2905,7 @@ async fn run_app_runtime_account_worker(
                         let _ = result;
                     }
                     input = async {
-                        // Watch service owes a poll of the actual receive future,
+                        // Command/watch service owes a poll of the actual receive future,
                         // not merely a turn consumed by a native replay notice.
                         // Keep replay first on every ordinary, non-debt turn.
                         let receive = async {
@@ -2970,7 +2973,7 @@ async fn run_app_runtime_account_worker(
                         }
                         };
                         tokio::pin!(receive);
-                        if watch_debt_before_select {
+                        if input_offer_owed_before_select {
                             tokio::select! {
                                 biased;
                                 received = &mut receive, if input_receive_enabled =>
