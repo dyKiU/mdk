@@ -143,6 +143,70 @@ impl LiveNotificationReceiver {
             }
         }
     }
+    /// SDK captures are consumed only by the selected private wire. Ordinary
+    /// batch EOSE remains owned by native replay; do not scan or retain its groups.
+    #[cfg(feature = "sdk")]
+    pub(crate) async fn observe_private_sdk_eose(
+        &mut self,
+        endpoint: cgka_traits::TransportEndpoint,
+        subscription: &str,
+    ) {
+        let state = self.adapter.state.read().await;
+        self.eose.retain(|token| token.matches_current(&state));
+        let parsed_endpoint = nostr::prelude::RelayUrl::parse(endpoint.as_str()).ok();
+        for (account_id, wire) in &state.private_observation_wires {
+            if self.account.as_ref().is_some_and(|wanted| wanted != account_id)
+                || !wire.ready
+                || wire.actual != subscription
+                || !state.accounts.get(account_id).is_some_and(|account| account.attempt == wire.attempt)
+            {
+                continue;
+            }
+            let crate::NostrSubscription::Group {
+                group_id, transport_group_id, endpoints, ..
+            } = &wire.subscription else {
+                continue;
+            };
+            if &wire.group != group_id || !endpoints.iter().any(|candidate| {
+                crate::CanonicalEndpoint::new(candidate).matches(&endpoint, parsed_endpoint.as_ref())
+            }) {
+                continue;
+            }
+            let token = ReceiverEose {
+                account: account_id.clone(),
+                group: group_id.clone(),
+                transport_group: transport_group_id.clone(),
+                endpoint: endpoint.clone(),
+                subscription: subscription.to_owned(),
+                attempt: wire.attempt,
+            };
+            // Reuse the existing full route/attempt/current-wire validation.
+            if token.matches_current(&state) && !self.eose.iter().any(|old| {
+                old.account == token.account && old.group == token.group
+                    && old.endpoint == token.endpoint && old.subscription == token.subscription
+            }) {
+                self.eose.push(token);
+            }
+        }
+    }
+
+    /// No captured private EOSE means no acquisition observation can be minted.
+    /// Skip DTO hashing/serialization for ordinary or pre-EOSE SDK copies only;
+    /// their unchanged raw notifications still enter native admission.
+    #[cfg(feature = "sdk")]
+    pub(crate) fn capture_private_sdk_event(
+        &self,
+        event: &crate::NostrRelayEvent,
+    ) -> Result<Option<CapturedLiveRelayEvent>, cgka_traits::TransportAdapterError> {
+        if !self.eose.iter().any(|token| {
+            event.subscription_id.as_deref() == Some(token.subscription.as_str())
+                && event.endpoint == token.endpoint
+        }) {
+            return Ok(None);
+        }
+        self.capture(event).map(Some)
+    }
+
     /// Synchronous capture: later worker progress cannot promote a pre-EOSE event.
     pub fn capture(
         &self,
@@ -373,5 +437,28 @@ mod tests {
             delivered.observation.is_none(),
             "later EOSE cannot change original acquisition phase"
         );
+    }
+
+    #[cfg(feature = "sdk")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sdk_private_capture_skips_ordinary_wire_but_generic_capture_is_preserved() {
+        let (adapter, account, mut event) = fixture().await;
+        // Use the actual committed batch id, not the legacy per-group id.
+        event.subscription_id = {
+            let state = adapter.state.read().await;
+            let routes = state.accounts.get(&account).unwrap();
+            state.observation_wire_id(&account, &routes.groups[0], routes.attempt)
+        };
+        let subscription = event.subscription_id.as_deref().unwrap();
+        let mut sdk = adapter.live_notification_receiver(Some(account.clone()));
+        sdk.observe_private_sdk_eose(event.endpoint.clone(), subscription).await;
+        let sdk_skipped = sdk.eose.is_empty()
+            && sdk.capture_private_sdk_event(&event).unwrap().is_none();
+        let mut generic = adapter.live_notification_receiver(Some(account.clone()));
+        generic.observe_eose(event.endpoint.clone(), subscription).await;
+        let generic_preserved = generic.capture(&event).unwrap().eose.len() == 1;
+        adapter.deactivate_account(&account).await.unwrap();
+        assert!(sdk_skipped && generic_preserved,
+            "ordinary SDK copies must skip private capture while generic capture remains available");
     }
 }

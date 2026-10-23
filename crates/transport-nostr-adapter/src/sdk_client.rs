@@ -843,7 +843,9 @@ impl SdkLiveNotificationReceiver {
         match payload? {
             ClientNotification::Message { message, .. } => match message.as_ref() {
                 RelayMessage::EndOfStoredEvents(subscription) => {
-                    receiver.observe_eose(endpoint, subscription.as_str()).await;
+                    receiver
+                        .observe_private_sdk_eose(endpoint, subscription.as_str())
+                        .await;
                     None
                 }
                 RelayMessage::Event {
@@ -852,12 +854,13 @@ impl SdkLiveNotificationReceiver {
                 } if event.kind == Kind::MlsGroupMessage => {
                     let event = NostrTransportEvent::from_nostr_event(event).ok()?;
                     receiver
-                        .capture(&NostrRelayEvent {
+                        .capture_private_sdk_event(&NostrRelayEvent {
                             endpoint,
                             subscription_id: Some(subscription_id.to_string()),
                             event,
                         })
                         .ok()
+                        .flatten()
                 }
                 _ => None,
             },
