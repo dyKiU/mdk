@@ -145,6 +145,12 @@ ADAPTER_CASES = {'sdk-private-capture-control', 'adapter-thousand-default', 'ada
 INTEGRATION_CASES = {'adapter-thousand-default', 'offline', 'offline-experimental', 'adapter-thousand', 'adapter-clamped'}
 SDK_REPLAY_CASES = THOUSAND_CASES | {'adapter-clamped'}
 WORKER_INPUT_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled'}
+PENDING_REQUEST_CASE = 'pending-restart-request-observation'
+CASES[PENDING_REQUEST_CASE] = ('marmot_app',
+    'native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs')
+EXPERIMENTAL_CASES.add(PENDING_REQUEST_CASE)
+BOUNDED_CASES.add(PENDING_REQUEST_CASE)
 QUIET_CONTRACT_CASE = 'adapter-quiet-pending-contract'
 QUIET_DEFAULT_CASE = 'adapter-quiet-pending-contract-default'
 QUIET_CONTRACT_CASES = {QUIET_CONTRACT_CASE, QUIET_DEFAULT_CASE}
@@ -405,6 +411,141 @@ def restart_marker(raw):
     if match is None:
         raise ValueError('restart-marker-envelope')
     return restart_closed(json.loads(match[1], object_pairs_hook=unique))
+
+
+
+PENDING_APPROVAL_MESSAGE = 'actual higher Core approval of X before any Consent publication'
+PENDING_INNER_THREAD = 'pending-real-lower-request'
+
+
+def pending_request_stage(stage):
+    if stage != 'positive':
+        raise ValueError('pending-request-positive-only')
+
+
+def pending_request_marker(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict'))
+    namespace = 'pending-restart-request-dispatch'
+    if len(raw) > 16 * 1024 * 1024 or text.count(namespace) != 1:
+        raise ValueError('pending-request-namespace')
+    found = re.findall(r'(?m)^[ \t]{0,8}' + namespace + r' (\{[^\r\n]*\})[ \t]{0,8}\r?$', text)
+    lines = [line for line in text.splitlines() if namespace in line]
+    if len(found) != 1 or len(lines) != 1 or len(lines[0].encode('utf-8')) > 8192:
+        raise ValueError('pending-request-envelope')
+    value = json.loads(found[0], object_pairs_hook=unique)
+    keys = {'capture_available', 'higher_present_before_tick', 'higher_matches_x_before_tick', 'counts', 'overflow'}
+    if (type(value) is not dict or set(value) != keys
+            or any(type(value[key]) is not bool for key in ('capture_available', 'higher_present_before_tick'))
+            or value['higher_matches_x_before_tick'] is not None and type(value['higher_matches_x_before_tick']) is not bool
+            or (value['higher_matches_x_before_tick'] is not None) != value['higher_present_before_tick']):
+        raise ValueError('pending-request-types')
+    counts_value, overflow = value['counts'], value['overflow']
+    if counts_value is None:
+        if overflow is not None:
+            raise ValueError('pending-request-unavailable')
+    elif (not value['capture_available'] or type(counts_value) is not list or len(counts_value) != 10
+            or any(type(item) is not int or not 0 <= item <= 64 for item in counts_value)
+            or sum(counts_value) > 64 or type(overflow) is not bool):
+        raise ValueError('pending-request-counter-cap')
+    return value
+
+
+def pending_request_sites():
+    fixture = Path(CASES[PENDING_REQUEST_CASE][2]).read_text()
+    matches = list(re.finditer(r'approval\s*\.\s*(?P<callee>expect)\(\s*"'
+        + re.escape(PENDING_APPROVAL_MESSAGE) + r'"\s*,?\s*\)', fixture))
+    native = Path('crates/marmot-app/src/native_device_linking/tests.rs').read_text()
+    body = re.search(r'fn ' + re.escape(CASES[PENDING_REQUEST_CASE][1].split('::')[-1]) + r'\(\)\s*\{([^}]+)\}', native)
+    if (len(matches) != 1 or body is None or not re.search(r'run_composed_app_runtime_test\(\s*"'
+            + re.escape(PENDING_INNER_THREAD) + r'"\s*,', body[1])):
+        raise ValueError('pending-request-original-composed-source')
+    helper = Path('crates/marmot-app/src/tests.rs').read_text()
+    wrapper_start = helper.index('fn run_composed_app_runtime<F, Fut>(')
+    wrapper_end = helper.index('\n#[test]', wrapper_start)
+    wrapper_body = helper[wrapper_start:wrapper_end]
+    wrapper = list(re.finditer(r'test_thread\.join\(\)\.(?P<callee>unwrap)\(\);', helper))
+    if (len(wrapper) != 1 or not wrapper_start <= wrapper[0].start() < wrapper_end
+            or '.name(thread_name.to_owned())' not in wrapper_body or 'test_runtime.block_on(body());' not in wrapper_body):
+        raise ValueError('pending-request-composed-join-source')
+    site = lambda text, match: {'line': text[:match.start('callee')].count('\n') + 1,
+        'column': match.start('callee') - text.rfind('\n', 0, match.start('callee'))}
+    return {'approval': site(fixture, matches[0]), 'join': site(helper, wrapper[0])}
+
+
+def pending_request_panics(raw, sites):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict'))
+    expected = [('approval', PENDING_INNER_THREAD, CASES[PENDING_REQUEST_CASE][2],
+        PENDING_APPROVAL_MESSAGE + ': Elapsed(())'),
+        ('join', CASES[PENDING_REQUEST_CASE][1], 'crates/marmot-app/src/tests.rs', CURSOR_JOIN_MESSAGE)]
+    spans, known = [], []
+    for label, thread, path, message in expected:
+        location = sites[label]
+        pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(thread) + r"'(?: \([0-9]+\))? panicked at "
+            + re.escape(path) + ':' + str(location['line']) + ':' + str(location['column'])
+            + r':[ \t]*\r?\n(?:[ \t]*\r?\n){0,2}[ \t]{0,8}' + re.escape(message) + r'[ \t]*(?:\r?\n|$)')
+        found = list(re.finditer(pattern, text))
+        if len(found) == 1:
+            spans.append(found[0].start())
+            known.append({'source': label, 'line': location['line'], 'column': location['column']})
+    count = text.count('panicked at ')
+    return {'header_count': count, 'known_sites': known,
+        'ordered_exact_approval_timeout_and_join': count == 2 and len(spans) == 2 and spans[0] < spans[1],
+        'unknown_or_excess_headers': max(0, count - len(known))}
+
+
+def pending_request_controls(sites):
+    case = PENDING_REQUEST_CASE
+    row = dict(capture_available=True, higher_present_before_tick=True, higher_matches_x_before_tick=False,
+               counts=[1,1,0,0,1,1,1,0,1,1], overflow=False)
+    encode = lambda value: ('pending-restart-request-dispatch ' + json.dumps(value) + '\n').encode()
+    raw = encode(row)
+    good = [raw, b' '*4 + raw, b' '*8 + raw, raw.replace(b'\n', b'\r\n')]
+    for data in good:
+        assert pending_request_marker(data) == row
+    for value in [dict(row, capture_available=False, counts=None, overflow=None),
+                  dict(row, counts=None, overflow=None), dict(row, higher_present_before_tick=False, higher_matches_x_before_tick=None),
+                  dict(row, counts=[0]*10, overflow=True)]:
+        assert pending_request_marker(encode(value)) == value
+    bad = [dict(row, private='PRIVATE'), dict(row, capture_available=1), dict(row, higher_matches_x_before_tick=0),
+        dict(row, counts='PRIVATE'), dict(row, higher_matches_x_before_tick='PRIVATE'),
+        dict(row, higher_present_before_tick=False), dict(row, counts=[1]*9), dict(row, counts=[True]*10),
+        dict(row, counts=[-1]*10), dict(row, counts=[65]+[0]*9), dict(row, counts=[64]*10),
+        dict(row, counts=None), dict(row, overflow=0), dict(row, capture_available=False),
+        {key: value for key, value in row.items() if key != 'overflow'}]
+    invalid = [encode(value) for value in bad] + [raw+raw, b'PRIVATE '+raw, b' '*9+raw,
+        raw+b'pending-restart-request-dispatch-PRIVATE\n', b'\xff'+raw,
+        raw.replace(b'"capture_available": true', b'"capture_available": true, "capture_available": true')]
+    for data in invalid:
+        try:
+            pending_request_marker(data)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('pending-request-negative-accepted')
+    def header(thread, path, location):
+        return ("thread '" + thread + "' (7) panicked at " + path + ':' + str(location['line'])
+            + ':' + str(location['column']) + ':\n')
+    inner = header(PENDING_INNER_THREAD, CASES[case][2], sites['approval']) + PENDING_APPROVAL_MESSAGE + ': Elapsed(())\n'
+    outer = header(CASES[case][1], 'crates/marmot-app/src/tests.rs', sites['join']) + CURSOR_JOIN_MESSAGE + '\n'
+    both = (inner+outer).encode()
+    assert pending_request_panics(both, sites)['ordered_exact_approval_timeout_and_join']
+    assert pending_request_panics(both.replace(b"' (7)", b"'"), sites)['ordered_exact_approval_timeout_and_join']
+    denied = [(outer+inner).encode(), inner.encode(), outer.encode(), both+inner.encode(),
+        both.replace(PENDING_INNER_THREAD.encode(), b'PRIVATE'), both.replace(PENDING_APPROVAL_MESSAGE.encode(), b'PRIVATE'),
+        both.replace(b'Elapsed(())', b'PRIVATE'), b'PRIVATE '+both,
+        both.replace((':' + str(sites['approval']['line']) + ':').encode(), b':999999:', 1)]
+    assert all(not pending_request_panics(data, sites)['ordered_exact_approval_timeout_and_join'] for data in denied)
+    assert positive_configuration(case) == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+    assert case not in PFP and case not in INTEGRATION_CASES
+    for stage in ('pfp', 'sample'):
+        try:
+            pending_request_stage(stage)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('pending-request-stage-negative')
+    return {'positive': len(good) + 4, 'negative': len(invalid) + len(denied) + 2,
+        'panic_positive': 2, 'configuration_controls': 2, 'product_bodies': 0, 'synthetic_metadata_only': True}
 
 
 def restart_controls():
@@ -2556,8 +2697,10 @@ def positive(args):
             report['fresh_rejoin_parser_controls'] = fresh_rejoin_controls()
         if args.case == 'watch-pressure':
             report['watch_parser_controls'] = watch_controls()
-        if args.case == 'higher-source':
+        if args.case in {'higher-source', PENDING_REQUEST_CASE}:
             report['restart_parser_controls'] = restart_controls()
+        if args.case == PENDING_REQUEST_CASE:
+            report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
         if args.mode == 'preflight':
             result = 0
         else:
@@ -2620,6 +2763,10 @@ def positive(args):
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == PENDING_REQUEST_CASE:
+                report['body']['pending_request_panics'] = pending_request_panics(raw, pending_request_sites())
+                report['behavioral_red_qualified'] = False
+                save()  # Actual body/panic facts precede interpretation of the optional probe.
             if args.case in {'sibling-send-default', 'sibling-send-experimental'}:
                 try:
                     report['body']['sibling_send_observation'] = sibling_send_observation(ANSI.sub('', raw.decode('utf-8', errors='strict')).encode())
@@ -2674,9 +2821,25 @@ def positive(args):
                 report['body']['sdk_replay_observations'] = sdk_replay_marker(
                     raw, args.case, code == 0 and report['body']['counts']['passed'] == 1)
                 save()
-            if args.case == 'higher-source':
+            if args.case in {'higher-source', PENDING_REQUEST_CASE}:
                 stage = 'diagnostic'
                 report['body']['restart_observation'] = restart_marker(raw)
+                save()
+            if args.case == PENDING_REQUEST_CASE:
+                stage = 'diagnostic'
+                if (code not in (0, 100) or report['body']['compiler'] != {'codes': [], 'header_count': 0,
+                        'sites': [], 'unknown_or_excess_sites': 0}):
+                    raise ValueError('pending-request-runtime-not-compiler')
+                report['body']['pending_request_observation'] = pending_request_marker(raw)
+                report['body']['probe_complete'] = (report['body']['pending_request_observation']['capture_available']
+                    and report['body']['pending_request_observation']['counts'] is not None
+                    and report['body']['pending_request_observation']['overflow'] is False)
+                report['body']['original_approval_timeout_observed'] = (
+                    code == 100 and report['body']['counts']['failed'] == 1
+                    and report['body']['pending_request_panics']['ordered_exact_approval_timeout_and_join']
+                    and report['body']['restart_observation']['approval_completed'] is False)
+                report['evidence_scope'] = 'passive-exact-original-request-intake-and-replacement-only'
+                report['historical_cause_proven'] = False
                 save()
             command_accepted = True
             if args.case == 'late-commit-extra-epoch':
@@ -2933,6 +3096,8 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
+    if args.case == PENDING_REQUEST_CASE:
+        pending_request_stage(args.stage)
     if args.case in QUIET_CONTRACT_CASES:
         quiet_contract_stage(args.stage)
     if args.stage == 'pfp':

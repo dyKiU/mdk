@@ -274,12 +274,100 @@ pub(crate) struct RecordReceiptProbe {
     pub(crate) committed: std::sync::atomic::AtomicUsize,
 }
 
+// Passive, fixture-owned Request chronology. Identity data has no Debug or
+// serialization and cannot grant a channel, permission or protocol original.
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy)]
+pub(crate) enum PendingRestartStage {
+    QualifiedEvent = 0,
+    Authenticated = 1,
+    AuthenticationRefused = 2,
+    SiblingConsumed = 3,
+    AutomaticEntered = 4,
+    CoreApproved = 5,
+    Inserted = 6,
+    SameNonceRetained = 7,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Default)]
+struct PendingRestartProgress {
+    counts: [u32; 10],
+    observations: u32,
+    overflow: bool,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) struct PendingRestartProbe {
+    scope: AccountSharingScope,
+    request_digest: [u8; 32],
+    progress: Mutex<PendingRestartProgress>,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl PendingRestartProbe {
+    pub(crate) fn new(scope: AccountSharingScope, request: &[u8]) -> Self {
+        use sha2::Digest as _;
+        Self { scope, request_digest: sha2::Sha256::digest(request).into(), progress: Mutex::default() }
+    }
+    fn same_policy(&self, scope: &AccountSharingScope) -> bool {
+        scope.protected == self.scope.protected && scope.source == self.scope.source
+            && scope.recipient == self.scope.recipient && scope.approval_id == self.scope.approval_id
+            && scope.approved_policy_identity == self.scope.approved_policy_identity
+    }
+    pub(crate) fn is_x(&self, scope: &AccountSharingScope) -> bool {
+        self.same_policy(scope) && scope.nonce == self.scope.nonce
+    }
+    fn wire_is_x(&self, wire: &[u8]) -> bool {
+        use sha2::Digest as _;
+        <[u8; 32]>::from(sha2::Sha256::digest(wire)) == self.request_digest
+    }
+    fn count(&self, index: usize) {
+        let Ok(mut progress) = self.progress.lock() else { return; };
+        if progress.observations >= 64 {
+            progress.overflow = true;
+            return;
+        }
+        progress.observations += 1;
+        progress.counts[index] += 1;
+    }
+    pub(crate) fn wire(&self, group: &cgka_traits::GroupId, wire: &[u8], stage: PendingRestartStage) {
+        if group == &self.scope.protected.group_id && self.wire_is_x(wire) {
+            self.count(stage as usize);
+        }
+    }
+    pub(crate) fn received(&self, received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl,
+        wire: &[u8], stage: PendingRestartStage) {
+        if received.nonce == self.scope.nonce && received.source == self.scope.source
+            && received.recipient == self.scope.recipient && received.approval_id == self.scope.approval_id
+            && self.wire_is_x(wire) {
+            self.count(stage as usize);
+        }
+    }
+    pub(crate) fn request(&self, scope: &AccountSharingScope, wire: &[u8], stage: PendingRestartStage) {
+        if self.is_x(scope) && self.wire_is_x(wire) {
+            self.count(stage as usize);
+        }
+    }
+    pub(crate) fn inserted(&self, scope: &AccountSharingScope, wire: &[u8], previous_was_x: bool) {
+        if self.is_x(scope) && self.wire_is_x(wire) {
+            self.count(PendingRestartStage::Inserted as usize);
+        } else if self.same_policy(scope) && scope.nonce != self.scope.nonce {
+            let installed_x = self.progress.lock().ok().is_some_and(|progress| progress.counts[6] != 0);
+            if previous_was_x { self.count(8); }
+            if installed_x { self.count(9); }
+        }
+    }
+    pub(crate) fn snapshot(&self) -> Option<([u32; 10], bool)> {
+        self.progress.lock().ok().map(|progress| (progress.counts, progress.overflow))
+    }
+}
+
 pub(crate) struct AccountSharingOwner {
     pub(crate) lifetime: Arc<AtomicBool>,
     pub(crate) entries: BTreeMap<[u8; 32], Entry>,
     pub(crate) seen: BTreeSet<[u8; 32]>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) record_receipt_probe: Option<Arc<RecordReceiptProbe>>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) pending_restart_probe: Option<Weak<PendingRestartProbe>>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) next_original_lifetime_for_test: Option<Duration>,
     pub(crate) departure_cursor: Option<[u8; 32]>,
@@ -297,6 +385,8 @@ impl Default for AccountSharingOwner {
             seen: BTreeSet::new(),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             record_receipt_probe: None,
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            pending_restart_probe: None,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             next_original_lifetime_for_test: None,
             automatic_handshake_slots: Arc::new(tokio::sync::Semaphore::new(

@@ -48,6 +48,19 @@ impl AppClient {
             let ids = pair.each_ref().map(|policy| Self::automatic_policy_id(policy).unwrap());
             clients[lower].as_mut().unwrap().begin_automatic_channel(pair[lower].clone(), None).unwrap();
             let original_x = clients[lower].as_ref().unwrap().account_sharing_owner.automatic[&ids[lower]].channel.scope().nonce;
+            // Capture only the actual live original's existing packet, without
+            // constructing a request, retaining its owner or authenticating anew.
+            let request_probe = {
+                let entry = &clients[lower].as_ref().unwrap().account_sharing_owner.automatic[&ids[lower]];
+                entry.channel.request_packet().ok().map(|wire| std::sync::Arc::new(
+                    crate::account_chat_sharing::enabled::PendingRestartProbe::new(entry.channel.scope().clone(), &wire)))
+            };
+            let higher_entry_before_tick = clients[higher].as_ref().unwrap().account_sharing_owner.automatic.get(&ids[higher]);
+            let higher_present_before_tick = higher_entry_before_tick.is_some();
+            let higher_matches_x_before_tick = higher_entry_before_tick.map(|entry| entry.channel.scope().nonce == original_x);
+            if let Some(probe) = &request_probe {
+                clients[higher].as_mut().unwrap().account_sharing_owner.pending_restart_probe = Some(std::sync::Arc::downgrade(probe));
+            }
             let before_retry = std::time::Instant::now();
             tick(clients[lower].as_mut().unwrap(), ids[lower]).await;
             let approval_started = std::time::Instant::now();
@@ -110,6 +123,16 @@ impl AppClient {
                     "failure_snapshot": approval_snapshot,
                 })
             ));
+            // Passive chronology after the original verdict is frozen. Missing
+            // capture/poison/overflow is unknown, never a protocol decision.
+            let dispatch_snapshot = request_probe.as_ref().and_then(|probe| probe.snapshot());
+            crate::test_support::emit_line(format_args!("pending-restart-request-dispatch {}", serde_json::json!({
+                "capture_available": request_probe.is_some(),
+                "higher_present_before_tick": higher_present_before_tick,
+                "higher_matches_x_before_tick": higher_matches_x_before_tick,
+                "counts": dispatch_snapshot.as_ref().map(|(counts, _)| counts),
+                "overflow": dispatch_snapshot.as_ref().map(|(_, overflow)| *overflow),
+            })));
             approval.expect("actual higher Core approval of X before any Consent publication");
             let low = &clients[lower].as_ref().unwrap().account_sharing_owner.automatic[&ids[lower]];
             assert!(!low.recipient && !low.ready && low.handshake_published && low.original.live());
