@@ -1344,12 +1344,49 @@ PFP = {
 PFP['cursor-promotion-experimental'] = PFP['cursor-promotion-observation']
 
 QUIET_GREEN_CALL = '    collect_authoritative_replay(adapter, account, expected, deadline, recorded).await'
-QUIET_OLD_CALL = '    { let _ = (account, expected, recorded); distinct_deliveries(adapter, deadline.saturating_duration_since(tokio::time::Instant::now())).await }'
+QUIET_OLD_CALL = '    { let _ = collect_authoritative_replay; let _ = (account, expected, recorded); distinct_deliveries(adapter, deadline.saturating_duration_since(tokio::time::Instant::now())).await }'
 for _quiet_case in QUIET_CONTRACT_CASES:
     PFP[_quiet_case] = (CASES[_quiet_case][2], QUIET_GREEN_CALL, QUIET_OLD_CALL,
         'quiet delivery gap must not finish success-expected replay while its actual source is pending',
         r'assert!\(\s*complete_at_return,\s*"{message}"\s*,?\s*\);')
 
+
+
+def validate_quiet_inverse(text, old, new):
+    expected_new = '    { let _ = collect_authoritative_replay; let _ = (account, expected, recorded); distinct_deliveries(adapter, deadline.saturating_duration_since(tokio::time::Instant::now())).await }'
+    begin_marker = '    // SUCCESS_EXPECTED_COLLECTOR_BEGIN\n'
+    end_marker = '    // SUCCESS_EXPECTED_COLLECTOR_END'
+    owner = 'async fn success_expected_replay_deliveries('
+    if (text.count(owner) != 1 or text.count(begin_marker) != 1 or text.count(end_marker) != 1
+            or old != QUIET_GREEN_CALL or new != expected_new
+            or old.count('\n') != new.count('\n') or text.count(old) != 1):
+        raise ValueError('inverse-quiet-exact-expression')
+    start = text.index(owner)
+    begin = text.index(begin_marker)
+    end = text.index(end_marker)
+    if (not start < begin < end or text[begin + len(begin_marker):end] != old + '\n'
+            or 'async fn ' in text[start + len(owner):end]):
+        raise ValueError('inverse-quiet-owned-body')
+
+
+def quiet_inverse_controls(text, old, new):
+    validate_quiet_inverse(text, old, new)
+    bad = [
+        (text, old, new.replace('let _ = collect_authoritative_replay;', 'let _ = collect_authoritative_replay(adapter, account, expected, deadline, recorded).await;')),
+        (text, old, new.replace('distinct_deliveries(adapter,', 'distinct_deliveries(adapter.clone(),')),
+        (text, old, new + '\n'),
+        (text.replace(old, old.replace('account, expected', 'expected, account')), old, new),
+        (text.replace('    // SUCCESS_EXPECTED_COLLECTOR_BEGIN', '    // OTHER_COLLECTOR_BEGIN'), old, new),
+        (text, old.replace('account, expected', 'expected, account'), new),
+    ]
+    for source, before, after in bad:
+        try:
+            validate_quiet_inverse(source, before, after)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('quiet-inverse-owner-negative-accepted')
+    return {'positive': 1, 'negative': len(bad), 'product_bodies': 0, 'synthetic_metadata_only': True}
 
 
 def validate_sdk_capture_inverse(text, old, new):
@@ -1640,10 +1677,7 @@ def inverse(case):
     if case in CURSOR_CASES:
         validate_cursor_inverse(text, old, new)
     if case in QUIET_CONTRACT_CASES:
-        begin = text.index('    // SUCCESS_EXPECTED_COLLECTOR_BEGIN')
-        end = text.index('    // SUCCESS_EXPECTED_COLLECTOR_END', begin)
-        if old not in text[begin:end] or old.count('\n') != new.count('\n'):
-            raise ValueError('inverse-quiet-helper-owner')
+        validate_quiet_inverse(text, old, new)
     if case in ENGINE_CLASSIFIER_CASES:
         start = text.index('pub(crate) fn is_request_payload(')
         end = text.index('pub(crate) fn stage(', start)
@@ -2303,6 +2337,8 @@ def pfp(args):
         admitted_parents = parent_chain(path)
         report['mutated_source'] = {'path': path, 'original_sha256': hashlib.sha256(original).hexdigest(),
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
+        if args.case in QUIET_CONTRACT_CASES:
+            report['quiet_inverse_controls'] = quiet_inverse_controls(Path(path).read_text(), QUIET_GREEN_CALL, QUIET_OLD_CALL)
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
         if args.case in QUIET_CONTRACT_CASES:
