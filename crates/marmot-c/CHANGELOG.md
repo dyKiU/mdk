@@ -21,6 +21,12 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- `marmot_begin_automatic_device_linking_session` and
+  `marmot_scan_automatic_device_linking_session` expose role-neutral one-scan
+  transport using the existing owned session handle and status values. These
+  symbols require the matching library/header; legacy manual factories remain
+  supported. Comparison and original enrollment approvals remain explicit.
+
 - Appends owned nullable `latest_message` to `MarmotPairedChatSummary` for
   source-qualified chat-list preview/time observations. Its message retains its
   own source and expiry; page/snapshot deep-free releases it recursively.
