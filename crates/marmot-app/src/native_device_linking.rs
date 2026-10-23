@@ -55,6 +55,9 @@ pub enum DeviceLinkingError {
     RuntimeUnavailable,
 }
 
+mod automatic_session;
+pub use automatic_session::AutomaticDeviceLinkingSession;
+
 pub struct DeviceLinkingSession {
     #[cfg(not(feature = "experimental-device-sync"))]
     _private: (),

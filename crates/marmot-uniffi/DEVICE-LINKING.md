@@ -32,6 +32,28 @@ private experimental profile, with no claimed interoperability.
 
 ## One-scan automatic transport
 
+For a role-neutral host flow use `begin_automatic_device_linking_session` to
+show a QR and `scan_automatic_device_linking_session` to scan it. Adopt each
+returned handle into the live account scope, then call `automatic_pairing_code`
+to activate. A fresh displaying installation emits a request-bound `WNPAIR1`
+bootstrap. An existing protected installation emits a transport-only `WNPAIR2`
+rendezvous; the fresh scanner sends its ordinary request bootstrap through that
+signed encrypted channel. The existing installation re-reads its protected
+selector before approving the genuine request. QR direction never grants a
+NewDevice purpose, comparison confirmation or enrollment approval. Reverse
+negotiation preserves the scanned attempt's fixed deadline. Unsupported or
+ambiguous independent protected roots fail closed; this interface does not
+silently discard or combine existing roots. Other protected members still retain
+their original explicit approval checks.
+
+The role-neutral handles expose observations, comparison, automatic continuation
+and cancellation through the same binding object. Manual packet APIs remain
+available on lower-level originals and return NotReady on these automatic handles.
+Source acceptance, generated bindings and installed app qualification remain
+separate gates.
+
+The lower-level direction-specific flow remains supported:
+
 Use `automatic_pairing_code()` after adopting the initiating original into its
 current host account/runtime scope. Display the compact `WNPAIR1` bootstrap once.
 The other device scans it and calls `approve_automatic_device_linking_session`.

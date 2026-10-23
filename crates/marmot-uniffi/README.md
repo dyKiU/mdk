@@ -1100,7 +1100,9 @@ integration changes, and unresolved release questions.
 
 [Native device verification](DEVICE-LINKING.md) describes opaque original-purpose
 sessions, one-scan automatic encrypted packet exchange, standard SAS decimals, revision-bound human
-confirmation and closeable observations. Inspect actual runtime capabilities:
+confirmation and closeable observations. Use `begin_automatic_device_linking_session`
+and `scan_automatic_device_linking_session` for role-neutral QR display/scanning;
+the SDK chooses the genuine enrollment role from current protected state. Inspect actual runtime capabilities:
 default builds return typed Unsupported, and experimental builds support
 verification with revision-bound singleton continuation through the original
 actor-owned actions. Opaque target selection, existing-device approval and

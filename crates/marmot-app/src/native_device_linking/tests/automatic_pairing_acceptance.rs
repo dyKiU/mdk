@@ -559,6 +559,29 @@ async fn four_device_enrollment_with_delivery(
     reverse_initial_roles: bool,
     verify_public_chat_delivery: bool,
 ) {
+    four_device_enrollment_with_scan_direction(
+        held_publication,
+        public_relay,
+        reverse_initial_roles,
+        verify_public_chat_delivery,
+        false,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn fresh_scanner_can_join_existing_display_group() {
+    four_device_enrollment_with_scan_direction(HeldPublication::None, None, false, false, true)
+        .await;
+}
+
+async fn four_device_enrollment_with_scan_direction(
+    held_publication: HeldPublication,
+    public_relay: Option<&str>,
+    reverse_initial_roles: bool,
+    verify_public_chat_delivery: bool,
+    existing_device_displays: bool,
+) {
     assert!(!verify_public_chat_delivery || public_relay.is_some());
     use cgka_traits::StorageProvider;
     use nostr_relay_builder::prelude::NostrDatabase;
@@ -655,6 +678,20 @@ async fn four_device_enrollment_with_delivery(
         .await
         .expect("ordinary peer must receive the pre-pairing message");
         Some((group, hex::decode(&sent.message_ids[0]).unwrap()))
+    } else if existing_device_displays {
+        let group = managers[0]
+            .create_group(&account, "Synthetic existing shared chat", &[], None)
+            .await
+            .unwrap();
+        let sent = managers[0]
+            .send_message(
+                &account,
+                &group,
+                b"Synthetic existing shared history".to_vec(),
+            )
+            .await
+            .unwrap();
+        Some((group, hex::decode(&sent.message_ids[0]).unwrap()))
     } else {
         None
     };
@@ -722,27 +759,83 @@ async fn four_device_enrollment_with_delivery(
     let targets = managers[0].device_linking_targets(&account).await.unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].device_count, 2);
-    let c = managers[2]
-        .begin_device_linking_session(&account)
-        .await
-        .unwrap();
-    let a = managers[0]
-        .approve_automatic_device_linking_session(
-            &account,
-            c.automatic_pairing_code().await.unwrap(),
-            Some(targets[0].selector.clone()),
-        )
-        .await
-        .unwrap();
-    a.automatic_pairing_code().await.unwrap();
+    let _negotiated_owners;
+    let (a, c) = if existing_device_displays {
+        let a = managers[0]
+            .begin_automatic_device_linking_session(&account)
+            .await
+            .unwrap();
+        let c = managers[2]
+            .scan_automatic_device_linking_session(
+                &account,
+                a.automatic_pairing_code().await.unwrap(),
+            )
+            .await
+            .unwrap();
+        c.automatic_pairing_code().await.unwrap();
+        let originals = (a.original_for_test().await, c.original_for_test().await);
+        // Retain both genuine host handles while exercising the existing SDK
+        // comparison/settlement assertions through their exact adopted originals.
+        _negotiated_owners = Some((a, c));
+        originals
+    } else {
+        _negotiated_owners = None;
+        let c = managers[2]
+            .begin_device_linking_session(&account)
+            .await
+            .unwrap();
+        let a = managers[0]
+            .approve_automatic_device_linking_session(
+                &account,
+                c.automatic_pairing_code().await.unwrap(),
+                Some(targets[0].selector.clone()),
+            )
+            .await
+            .unwrap();
+        a.automatic_pairing_code().await.unwrap();
+        (std::sync::Arc::new(a), std::sync::Arc::new(c))
+    };
     eprintln!("automatic-enrollment-control stage=third-device-comparison");
-    compare_and_confirm_pair(&a, &c).await;
-    c.continue_automatic_linking(c.snapshot().await.unwrap().revision, true)
-        .await
-        .unwrap();
-    a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)
-        .await
-        .unwrap();
+    if let Some((host_a, host_c)) = &_negotiated_owners {
+        wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::ComparisonAvailable).await;
+        let left = host_a.snapshot().await.unwrap();
+        let right = host_c.snapshot().await.unwrap();
+        assert!(left.decimals.is_some() && left.decimals == right.decimals);
+        assert_eq!(
+            host_a.confirm_comparison(left.revision + 1).await,
+            Err(DeviceLinkingError::StaleRevision)
+        );
+        assert_eq!(
+            host_c
+                .continue_automatic_linking(right.revision, true)
+                .await,
+            Err(DeviceLinkingError::NotReady)
+        );
+        host_a.confirm_comparison(left.revision).await.unwrap();
+        host_c.confirm_comparison(right.revision).await.unwrap();
+        wait_for_automatic_phase(
+            &a,
+            &c,
+            DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
+        )
+        .await;
+        host_c
+            .continue_automatic_linking(host_c.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+        host_a
+            .continue_automatic_linking(host_a.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+    } else {
+        compare_and_confirm_pair(&a, &c).await;
+        c.continue_automatic_linking(c.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+        a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+    }
     let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if let Some(approval) = managers[1]
@@ -852,6 +945,31 @@ async fn four_device_enrollment_with_delivery(
             .len()
             == 2
     }));
+    if let Some((group, event)) = &existing_chat {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let chats = managers[2]
+                    .paired_chat_list_page(&account, None, 128)
+                    .await
+                    .unwrap();
+                if chats.chats.iter().any(|chat| &chat.group_id == group)
+                    && managers[2]
+                        .paired_chat_message_page(&account, group.clone(), None, 128)
+                        .await
+                        .is_ok_and(|page| {
+                            page.messages
+                                .iter()
+                                .any(|message| message.event_id.as_slice() == event.as_slice())
+                        })
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("third device must automatically receive existing chat and history");
+    }
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
     drop(approval);
@@ -1128,6 +1246,31 @@ async fn four_device_enrollment_with_delivery(
     d.cancel().await.unwrap();
     for approval in approvals {
         approval.cancel().await.unwrap();
+    }
+    if let Some((group, event)) = &existing_chat {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let chats = managers[3]
+                    .paired_chat_list_page(&account, None, 128)
+                    .await
+                    .unwrap();
+                if chats.chats.iter().any(|chat| &chat.group_id == group)
+                    && managers[3]
+                        .paired_chat_message_page(&account, group.clone(), None, 128)
+                        .await
+                        .is_ok_and(|page| {
+                            page.messages
+                                .iter()
+                                .any(|message| message.event_id.as_slice() == event.as_slice())
+                        })
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("fourth device must automatically receive existing chat and history");
     }
     for runtime in runtimes {
         runtime.shutdown_and_close().await.unwrap();
@@ -2186,3 +2329,134 @@ mod body_late_ack_acceptance;
 #[cfg(feature = "test-policy-overrides")]
 #[path = "automatic_body_negative_acceptance.rs"]
 mod body_negative_acceptance;
+
+#[tokio::test]
+async fn role_neutral_first_pair_merges_both_devices_chats() {
+    role_neutral_first_pair_with_existing_chats(false).await;
+}
+
+#[tokio::test]
+async fn role_neutral_first_pair_reversed_merges_both_devices_chats() {
+    role_neutral_first_pair_with_existing_chats(true).await;
+}
+
+async fn role_neutral_first_pair_with_existing_chats(reverse: bool) {
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let apps = std::array::from_fn::<_, 2, _>(|index| {
+        AccountHome::open(dirs[index].path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dirs[index].path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
+    let mut groups = Vec::new();
+    for manager in &managers {
+        let group = manager
+            .create_group("test", "Synthetic local chat", &[], None)
+            .await
+            .unwrap();
+        manager
+            .send_message("test", &group, b"Synthetic local history".to_vec())
+            .await
+            .unwrap();
+        groups.push(group);
+    }
+    let display_index = usize::from(reverse);
+    let display = managers[display_index]
+        .begin_automatic_device_linking_session("test")
+        .await
+        .unwrap();
+    let scanner = managers[1 - display_index]
+        .scan_automatic_device_linking_session(
+            "test",
+            display.automatic_pairing_code().await.unwrap(),
+        )
+        .await
+        .unwrap();
+    scanner.automatic_pairing_code().await.unwrap();
+    let wait = |phase| {
+        let display = &display;
+        let scanner = &scanner;
+        async move {
+            tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                loop {
+                    let left = display.snapshot().await.unwrap();
+                    let right = scanner.snapshot().await.unwrap();
+                    assert!(!matches!(
+                        left.phase,
+                        DeviceLinkingPhase::Failed
+                            | DeviceLinkingPhase::Cancelled
+                            | DeviceLinkingPhase::Expired
+                    ));
+                    assert!(!matches!(
+                        right.phase,
+                        DeviceLinkingPhase::Failed
+                            | DeviceLinkingPhase::Cancelled
+                            | DeviceLinkingPhase::Expired
+                    ));
+                    if left.phase == phase && right.phase == phase {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+            })
+            .await
+            .expect("role-neutral pair must reach the expected phase");
+        }
+    };
+    wait(DeviceLinkingPhase::ComparisonAvailable).await;
+    let left = display.snapshot().await.unwrap();
+    let right = scanner.snapshot().await.unwrap();
+    assert!(left.decimals.is_some() && left.decimals == right.decimals);
+    display.confirm_comparison(left.revision).await.unwrap();
+    scanner.confirm_comparison(right.revision).await.unwrap();
+    wait(DeviceLinkingPhase::VerificationCompleteEnrollmentPending).await;
+    display
+        .continue_automatic_linking(display.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    scanner
+        .continue_automatic_linking(scanner.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    wait(DeviceLinkingPhase::EnrollmentComplete).await;
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let mut complete = true;
+            for index in 0..2 {
+                let page = managers[index]
+                    .paired_chat_list_page("test", None, 128)
+                    .await
+                    .unwrap();
+                let other = &groups[1 - index];
+                if !page.chats.iter().any(|chat| &chat.group_id == other) {
+                    complete = false;
+                    continue;
+                }
+                let messages = managers[index]
+                    .paired_chat_message_page("test", other.clone(), None, 128)
+                    .await
+                    .unwrap();
+                complete &= !messages.messages.is_empty();
+            }
+            if complete {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("each device must receive the other's pre-existing chat and history");
+    display.cancel().await.unwrap();
+    scanner.cancel().await.unwrap();
+    for runtime in runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+}

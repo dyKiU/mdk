@@ -18,6 +18,9 @@ impl Rendezvous {
         Ok(format!("{RENDEZVOUS_PREFIX}{}", &code[PREFIX.len()..]))
     }
     pub(crate) fn decode(code: &str, now: u64) -> Result<Self> {
+        if code.len() > MAX_QR_BYTES {
+            return Err(Error::Invalid);
+        }
         let suffix = code.strip_prefix(RENDEZVOUS_PREFIX).ok_or(Error::Invalid)?;
         let bootstrap = Bootstrap::decode(&format!("{PREFIX}{suffix}"), now)?;
         if bootstrap.request_digest != <[u8; 32]>::from(Sha256::digest(MARKER)) {
