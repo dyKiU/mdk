@@ -158,6 +158,7 @@ def family_stability_controls(site):
 
 
 CASES = {
+    'sdk-private-missing-route': ('transport_nostr_adapter', 'sdk_client::tests::enrollment_acquisition_failed_private_route_sync_burns_freshness_until_valid_reissue', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     FAMILY_STABILITY_CASE: ('transport_nostr_adapter', 'sdk_client::tests::unrelated_family_sync_preserves_private_and_untouched_wire_ids', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'sdk-scoped-reporting': ('transport_nostr_adapter', 'sdk_client::tests::selected_private_scoped_route_preserves_owed_report_and_reconnect_id', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'fresh-rejoin-observation': ('marmot_app', 'native_device_linking::tests::automatic_fresh_rejoin_acceptance::automatic_fresh_accepted_rejoin_restores_only_the_new_source_lineage',
@@ -316,6 +317,7 @@ BOUNDED_CASES.add('live-seal-spill-experimental')
 for _scoped_reporting_set in (ADAPTER_CASES, EXPERIMENTAL_CASES, BOUNDED_CASES):
     _scoped_reporting_set.add('sdk-scoped-reporting')
     _scoped_reporting_set.add(FAMILY_STABILITY_CASE)
+    _scoped_reporting_set.add('sdk-private-missing-route')
 
 
 def package_for(case):
