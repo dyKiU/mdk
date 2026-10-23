@@ -21,6 +21,7 @@ from upstream_fresh_rejoin_observation import fresh_rejoin_observation, controls
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
+    'sdk-scoped-reporting': ('transport_nostr_adapter', 'sdk_client::tests::selected_private_scoped_route_preserves_owed_report_and_reconnect_id', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'fresh-rejoin-observation': ('marmot_app', 'native_device_linking::tests::automatic_fresh_rejoin_acceptance::automatic_fresh_accepted_rejoin_restores_only_the_new_source_lineage',
                                  'crates/marmot-app/src/native_device_linking/tests/automatic_fresh_rejoin_acceptance.rs'),
     'sibling-send-default': ('marmot_app', 'runtime::account_worker::tests::local_submission_queue_tests::blocked_account_admission_does_not_delay_sibling_send_or_resurrect_deleted_timing',
@@ -174,6 +175,8 @@ for _case in LIVE_SEAL_CASES:
         'crates/transport-nostr/src/tests.rs')
 EXPERIMENTAL_CASES.add('live-seal-spill-experimental')
 BOUNDED_CASES.add('live-seal-spill-experimental')
+for _scoped_reporting_set in (ADAPTER_CASES, EXPERIMENTAL_CASES, BOUNDED_CASES):
+    _scoped_reporting_set.add('sdk-scoped-reporting')
 
 
 def package_for(case):
@@ -1125,7 +1128,9 @@ def replay_configuration_controls():
     assert pfp_configuration('uniffi-conversation-stale') == (UNIFFI_FEATURES, 'm5-bounded', '4194304')
     assert positive_configuration('wrong-recipient-routing') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
     assert positive_configuration('late-commit-extra-epoch') == (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'], 'ci', None)
-    return {'positive': 10, 'synthetic_metadata_only': True, 'product_bodies': 0}
+    assert positive_configuration('sdk-scoped-reporting') == (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
+    assert package_for('sdk-scoped-reporting') == 'transport-nostr-adapter' and 'sdk-scoped-reporting' not in INTEGRATION_CASES
+    return {'positive': 11, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 def compiler(raw, inputs):

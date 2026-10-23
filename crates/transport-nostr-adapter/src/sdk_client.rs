@@ -14025,4 +14025,97 @@ mod tests {
             }
         }
     }
+
+    /// The private route's exact SDK id must retain the same real owed report
+    /// and reconnect lifecycle as an ordinary route. No MLS approval is made.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn selected_private_scoped_route_preserves_owed_report_and_reconnect_id() {
+        let healthy = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let healthy_url = healthy.url().await;
+        let (addr, down) = unreachable_endpoint().await;
+        let sdk = fast_retry_sdk();
+        wait_until_refusing(&sdk, &down).await;
+        let mut notifications = sdk.notifications();
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![0xb2; 16]),
+            transport_group_id: vec![0xc3; 32],
+            endpoints: vec![
+                TransportEndpoint(healthy_url.to_string()),
+                TransportEndpoint(down.to_string()),
+            ],
+            retained_since: None,
+        };
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(healthy_url.to_string())],
+                group_subscriptions: vec![group],
+                since: None,
+            })
+            .await
+            .expect("the real unreachable selected route stays active and owed");
+        let (actual, logical) = {
+            let state = adapter.state.read().await;
+            let wire = state.private_observation_wires.get(&account)
+                .expect("actual selected private issuance exists");
+            (SubscriptionId::new(wire.actual.clone()), SubscriptionId::new(wire.logical.clone()))
+        };
+        let healthy_relay = sdk.client().relay(healthy_url.clone()).await.unwrap().unwrap();
+        let real_sdk_id = actual != logical
+            && healthy_relay.subscription(&actual).await.is_some()
+            && healthy_relay.subscription(&logical).await.is_none();
+        let tracked_actual = sdk.account_subscriptions.read().await.get(&account)
+            .is_some_and(|ids| ids.contains(&actual) && !ids.contains(&logical));
+        let owed_actual = {
+            let owed = sdk.owed.relays();
+            owed.get(&down).is_some_and(|ids| ids.contains_key(&actual) && !ids.contains_key(&logical))
+        };
+        let metrics = adapter.metrics().await;
+        let stored = group_event(0xc3);
+        let server = relay_on(addr, std::slice::from_ref(&stored)).await;
+        receive_owed_replay(&mut notifications, &down, &actual, stored.id).await;
+        timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("actual private owed REQ reaches EOSE after reconnect");
+        adapter.deactivate_account(&account).await.unwrap();
+        let cleanup_complete = adapter.metrics().await.active_accounts == 0
+            && healthy_relay.subscription(&actual).await.is_none()
+            && !sdk.account_subscriptions.read().await.get(&account)
+                .is_some_and(|ids| ids.contains(&actual));
+        sdk.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder).await.unwrap().unwrap();
+        server.shutdown();
+        healthy.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-scoped-report-prerequisites {}",
+            serde_json::json!({
+                "actual_scoped_id": real_sdk_id && tracked_actual && owed_actual,
+                "actual_reconnect_replay_and_eose": true,
+                "cleanup_complete": cleanup_complete,
+            })
+        ));
+        assert!(
+            real_sdk_id && tracked_actual && owed_actual && cleanup_complete
+                && metrics.active_accounts == 1,
+            "real scoped issuance, owed replay and teardown are required prerequisites"
+        );
+        assert!(
+            metrics.activations_degraded == 1
+                && metrics.activations_full == 0
+                && metrics.activations_failed == 0,
+            "selected private scoped subscription must preserve the actual degraded activation report"
+        );
+    }
 }
