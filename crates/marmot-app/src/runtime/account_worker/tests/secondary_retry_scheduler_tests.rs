@@ -50,7 +50,13 @@ pub(in crate::runtime::account_worker) fn record_turn(
     }
     #[cfg(feature = "test-policy-overrides")]
     super::local_submission_queue_tests::passive_bob::record_turn(
-        account, pending, buffered, yielded, due, owed, retry_ready,
+        account,
+        pending,
+        buffered,
+        yielded,
+        due,
+        owed,
+        retry_ready,
     );
 }
 

@@ -54,7 +54,10 @@ pub(in crate::runtime::account_worker) mod passive_bob {
     }
     impl Guard {
         pub(super) fn snapshot(&self) -> Counts {
-            *self.counts.lock().unwrap_or_else(|error| error.into_inner())
+            *self
+                .counts
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
         }
     }
     impl Drop for Guard {
@@ -77,7 +80,10 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         let counts = Arc::new(Mutex::new(Counts::default()));
         slots.insert(account.to_owned(), counts.clone());
         ACTIVE.store(true, Ordering::Release);
-        Some(Guard { account: account.to_owned(), counts })
+        Some(Guard {
+            account: account.to_owned(),
+            counts,
+        })
     }
     fn update(account: &str, record: impl FnOnce(&mut Counts)) {
         if !ACTIVE.load(Ordering::Acquire) {
@@ -94,11 +100,20 @@ pub(in crate::runtime::account_worker) mod passive_bob {
     }
     #[allow(clippy::too_many_arguments)]
     pub(in crate::runtime::account_worker) fn record_turn(
-        account: &str, pending: usize, buffered: usize, yielded: bool,
-        due: bool, owed: bool, retry_ready: bool,
+        account: &str,
+        pending: usize,
+        buffered: usize,
+        yielded: bool,
+        due: bool,
+        owed: bool,
+        retry_ready: bool,
     ) {
         update(account, |counts| {
-            match (counts.checkpoints.checked_add(1), u64::try_from(pending), u64::try_from(buffered)) {
+            match (
+                counts.checkpoints.checked_add(1),
+                u64::try_from(pending),
+                u64::try_from(buffered),
+            ) {
                 (Some(next), Ok(pending), Ok(buffered)) => {
                     counts.checkpoints = next;
                     counts.last_turn = Some((pending, buffered, yielded, due, owed, retry_ready));
@@ -125,20 +140,38 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         overflow: bool,
         elapsed_ms: Option<u64>,
     }
-    pub(super) fn freeze(guard: Option<&Guard>, before: Option<Counts>, elapsed_ms: Option<u64>) -> Frozen {
+    pub(super) fn freeze(
+        guard: Option<&Guard>,
+        before: Option<Counts>,
+        elapsed_ms: Option<u64>,
+    ) -> Frozen {
         let (Some(guard), Some(before)) = (guard, before) else {
-            return Frozen { registered: false, checkpoints: None, drain_attempts: None,
-                last_turn: None, overflow: false, elapsed_ms };
+            return Frozen {
+                registered: false,
+                checkpoints: None,
+                drain_attempts: None,
+                last_turn: None,
+                overflow: false,
+                elapsed_ms,
+            };
         };
         let after = guard.snapshot();
         let checkpoints = after.checkpoints.checked_sub(before.checkpoints);
         let drain_attempts = after.drain_attempts.checked_sub(before.drain_attempts);
-        let overflow = before.overflow || after.overflow || checkpoints.is_none() || drain_attempts.is_none();
-        Frozen { registered: true,
+        let overflow =
+            before.overflow || after.overflow || checkpoints.is_none() || drain_attempts.is_none();
+        Frozen {
+            registered: true,
             checkpoints: if overflow { None } else { checkpoints },
             drain_attempts: if overflow { None } else { drain_attempts },
-            last_turn: if !overflow && checkpoints.is_some_and(|count| count > 0) { after.last_turn } else { None },
-            overflow, elapsed_ms }
+            last_turn: if !overflow && checkpoints.is_some_and(|count| count > 0) {
+                after.last_turn
+            } else {
+                None
+            },
+            overflow,
+            elapsed_ms,
+        }
     }
 }
 // SIBLING_WORKER_PASSIVE_END
