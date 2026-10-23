@@ -372,6 +372,247 @@ def private_role_controls(case):
 
 
 
+AUTOMATIC_NEGOTIATION_CASE = 'native-automatic-negotiation-cohort'
+AUTOMATIC_SCAN_EXPIRY_CASE = 'native-automatic-scan-expiry'
+AUTOMATIC_NEGOTIATION_TESTS = {
+    'native_device_linking::enabled::negotiated::tests::cancel_before_activation_retires_the_reserved_original':
+        'crates/marmot-app/src/native_device_linking/enabled/negotiated.rs',
+    'native_device_linking::enabled::negotiated::tests::cancellation_revokes_original_before_waiting_for_activation_lock':
+        'crates/marmot-app/src/native_device_linking/enabled/negotiated.rs',
+    'native_device_linking::enabled::negotiated::tests::cancelled_transport_rejects_and_retires_a_late_genuine_original':
+        'crates/marmot-app/src/native_device_linking/enabled/negotiated.rs',
+    'native_device_linking::automatic_pairing_acceptance::role_neutral_first_pair_merges_both_devices_chats':
+        'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs',
+    'native_device_linking::automatic_pairing_acceptance::role_neutral_first_pair_reversed_merges_both_devices_chats':
+        'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs',
+    'native_device_linking::automatic_pairing_acceptance::fresh_scanner_can_join_existing_display_group':
+        'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs',
+}
+
+
+def automatic_negotiation_selection():
+    return 'package(marmot-app) & binary(=marmot_app) & (' + ' | '.join(
+        'test(=' + name + ')' for name in AUTOMATIC_NEGOTIATION_TESTS) + ')'
+
+
+def selected_automatic_negotiation(inventory):
+    selected = []
+    for suite in inventory['rust-suites'].values():
+        for name, item in suite['testcases'].items():
+            if item['filter-match']['status'] != 'matches':
+                continue
+            if (suite.get('binary-name') != 'marmot_app' or suite.get('kind') != 'lib'
+                    or item['ignored'] is not False):
+                raise ValueError('automatic-negotiation-binary-or-ignored')
+            selected.append(name)
+    expected = list(AUTOMATIC_NEGOTIATION_TESTS)
+    if (len(selected) != len(expected) or len(set(selected)) != len(expected)
+            or set(selected) != set(expected)):
+        raise ValueError('automatic-negotiation-exact-inventory')
+    return {'selected_nonignored': len(expected), 'selected_ignored': 0,
+            'tests': expected, 'binary': 'marmot_app', 'package': 'marmot-app',
+            'compiler_scope': 'one shared exact library inventory and one shared runtime command'}
+
+
+def automatic_negotiation_runtime(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    found = re.findall(
+        r'(?m)^\s*(PASS|FAIL)\s+\[\s*([0-9]{1,5}(?:\.[0-9]{1,9})?)s\s*\]\s+'
+        r'(?:\(([0-9]{1,3})/([0-9]{1,3})\)[ \t]+)?marmot-app[ \t]+([^\s]+)[ \t]*$', text)
+    rows = []
+    unexpected = max(0, len(re.findall(r'(?m)^\s*(?:PASS|FAIL)\s+', text)) - len(found))
+    progress = []
+    for outcome, duration, ordinal, total, name in found:
+        if ordinal or total:
+            progress.append((int(ordinal), int(total)))
+        if name not in AUTOMATIC_NEGOTIATION_TESTS or not 0 <= float(duration) <= 1800:
+            unexpected += 1
+            continue
+        rows.append({'test': name, 'outcome': outcome, 'runtime_seconds': float(duration)})
+    summary = summary_counts(raw)
+    counts_value = summary['counts']
+    expected = set(AUTOMATIC_NEGOTIATION_TESTS)
+    complete = (unexpected == 0
+                and (not progress or (len(progress) == len(expected)
+                    and {ordinal for ordinal, _ in progress} == set(range(1, len(expected) + 1))
+                    and all(total == len(expected) for _, total in progress)))
+                and len(rows) == len(expected)
+                and len({row['test'] for row in rows}) == len(expected)
+                and {row['test'] for row in rows} == expected
+                and counts_value is not None
+                and counts_value['executed'] == len(expected)
+                and counts_value['passed'] + counts_value['failed'] == len(expected)
+                and counts_value['passed'] == sum(row['outcome'] == 'PASS' for row in rows)
+                and counts_value['failed'] == sum(row['outcome'] == 'FAIL' for row in rows))
+    # Preserve incomplete/failed actual observations without certifying them.
+    return {'counts': counts_value, 'rows': rows, 'unexpected_terminal_rows': unexpected,
+            'complete': complete, 'runtime_summary': summary}
+
+
+def automatic_negotiation_panics(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    headers = re.findall(
+        r"(?m)^[ \t]{0,8}thread '([^'\r\n]+)'(?: \([0-9]+\))? panicked at ([^\s]+\.rs):([0-9]+):([0-9]+):", text)
+    sites = []
+    unknown = max(0, text.count('panicked at ') - len(headers))
+    for thread, path, line, column in headers:
+        if (thread in AUTOMATIC_NEGOTIATION_TESTS and path == AUTOMATIC_NEGOTIATION_TESTS[thread]
+                and 0 < int(line) <= 1000000 and 0 < int(column) <= 1000000 and len(sites) < 8):
+            sites.append({'test': thread, 'path': path, 'line': int(line), 'column': int(column)})
+        else:
+            unknown += 1
+    return {'sites': sites, 'unknown_or_excess_headers': unknown}
+
+
+def automatic_negotiation_controls():
+    """Metadata controls only; never credit six synthetic rows as execution."""
+    names = list(AUTOMATIC_NEGOTIATION_TESTS)
+    suite = {'binary-name': 'marmot_app', 'kind': 'lib', 'testcases': {
+        name: {'ignored': False, 'filter-match': {'status': 'matches'}} for name in names}}
+    good = {'rust-suites': {'unit': suite}}
+    assert selected_automatic_negotiation(good)['selected_nonignored'] == len(names)
+    bad_inventory = []
+    for key, value in [('binary-name', 'PRIVATE'), ('kind', 'test')]:
+        changed = json.loads(json.dumps(good)); changed['rust-suites']['unit'][key] = value; bad_inventory.append(changed)
+    for key, value in [('ignored', True), ('ignored', 0), ('filter-match', {'status': 'mismatch'})]:
+        changed = json.loads(json.dumps(good)); changed['rust-suites']['unit']['testcases'][names[0]][key] = value; bad_inventory.append(changed)
+    changed = json.loads(json.dumps(good)); del changed['rust-suites']['unit']['testcases'][names[0]]; bad_inventory.append(changed)
+    changed = json.loads(json.dumps(good)); changed['rust-suites']['extra'] = suite; bad_inventory.append(changed)
+    changed = json.loads(json.dumps(good)); changed['rust-suites']['unit']['testcases']['PRIVATE'] = {'ignored': False, 'filter-match': {'status': 'matches'}}; bad_inventory.append(changed)
+    for changed in bad_inventory:
+        try:
+            selected_automatic_negotiation(changed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('automatic-negotiation-inventory-negative')
+    def runtime(outcomes, selected=names):
+        rows = ''.join(outcome + ' [ 0.001s] marmot-app ' + name + '\n' for outcome, name in zip(outcomes, selected))
+        return (rows + 'Summary [ 0.1s] ' + str(len(selected)) + ' tests run: '
+                + str(outcomes.count('PASS')) + ' passed, ' + str(outcomes.count('FAIL')) + ' failed, 0 skipped\n').encode()
+    positive = runtime(['PASS'] * len(names))
+    failed = runtime(['FAIL'] + ['PASS'] * (len(names) - 1))
+    assert automatic_negotiation_runtime(positive)['complete']
+    assert automatic_negotiation_runtime(failed)['complete'] and automatic_negotiation_runtime(failed)['counts']['failed'] == 1
+    progress = positive
+    for ordinal, name in enumerate(names, 1):
+        progress = progress.replace(('marmot-app ' + name).encode(),
+            ('(' + str(ordinal) + '/' + str(len(names)) + ') marmot-app ' + name).encode())
+    assert automatic_negotiation_runtime(progress)['complete']
+    bad_runtime = [progress.replace(b'(1/', b'(0/', 1),
+        progress.replace(('(1/' + str(len(names)) + ')').encode(), b'(1/1)', 1),
+        progress.replace(('(1/' + str(len(names)) + ') ').encode(), b'', 1),
+        progress + b'PASS [ PRIVATE] PRIVATE\n', b'', positive + positive, runtime(['PASS'] * (len(names) - 1), names[:-1]),
+        runtime(['PASS'] * len(names), names[:-1] + [names[0]]),
+        runtime(['PASS'] * len(names), names[:-1] + ['PRIVATE']),
+        positive.replace((str(len(names)) + ' tests run:').encode(), b'0 tests run:'),
+        positive.replace((str(len(names)) + ' passed').encode(), (str(len(names) - 1) + ' passed').encode()), positive.replace(b'0 failed', b'1 failed'),
+        positive.replace(b'PASS', b'FAIL', 1), positive.replace(b'0.001s', b'PRIVATE', 1)]
+    assert all(not automatic_negotiation_runtime(raw)['complete'] for raw in bad_runtime)
+    return {'inventory_positive': 1, 'inventory_negative': len(bad_inventory),
+            'runtime_positive': 3, 'runtime_negative': len(bad_runtime),
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+AUTOMATIC_SCAN_EXPIRY_RED_CASE = 'native-automatic-scan-expiry-red'
+AUTOMATIC_SCAN_EXPIRY_TEST = 'runtime::device_linking::tests::expired_automatic_scan_is_rejected_after_real_roster_wait'
+AUTOMATIC_SCAN_EXPIRY_PATH = 'crates/marmot-app/src/runtime/device_linking.rs'
+AUTOMATIC_SCAN_EXPIRY_PREFIX = 'AUTOMATIC_SCAN_EXPIRY_PROBE'
+AUTOMATIC_SCAN_EXPIRY_MESSAGE = 'expired scanned bootstrap must not be renewed by the protected roster wait'
+AUTOMATIC_SCAN_EXPIRY_PREREQUISITES = {
+    'initial_targets_empty', 'initial_code_valid', 'roster_wait_pending',
+    'wall_expired_before_release', 'scan_completed', 'cleanup_succeeded',
+}
+AUTOMATIC_SCAN_EXPIRY_FIELDS = AUTOMATIC_SCAN_EXPIRY_PREREQUISITES | {'expired_scan_rejected'}
+AUTOMATIC_SCAN_EXPIRY_CASES = {AUTOMATIC_SCAN_EXPIRY_CASE, AUTOMATIC_SCAN_EXPIRY_RED_CASE}
+AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE}
+
+
+def automatic_scan_expiry_probe(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    lines = [line for line in text.splitlines() if AUTOMATIC_SCAN_EXPIRY_PREFIX in line]
+    if (len(lines) != 1 or text.count(AUTOMATIC_SCAN_EXPIRY_PREFIX) != 1
+            or len(lines[0]) > 1024):
+        raise ValueError('automatic-scan-expiry-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + AUTOMATIC_SCAN_EXPIRY_PREFIX
+                         + r' (\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('automatic-scan-expiry-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if (type(value) is not dict or set(value) != AUTOMATIC_SCAN_EXPIRY_FIELDS
+            or any(type(item) is not bool for item in value.values())):
+        raise ValueError('automatic-scan-expiry-fields')
+    return value
+
+
+def automatic_scan_expiry_site():
+    text = Path(AUTOMATIC_SCAN_EXPIRY_PATH).read_text()
+    pattern = (r'assert!\(\s*expired_scan_rejected,\s*"'
+               + re.escape(AUTOMATIC_SCAN_EXPIRY_MESSAGE) + r'"\s*,?\s*\);')
+    found = list(re.finditer(pattern, text))
+    if len(found) != 1:
+        raise ValueError('automatic-scan-expiry-source-site')
+    return {'line': text[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - text.rfind('\n', 0, found[0].start())}
+
+
+def automatic_scan_expiry_failure(raw, site):
+    try:
+        value = automatic_scan_expiry_probe(raw)
+        text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    except (ValueError, UnicodeError):
+        return False
+    if (not all(value[key] is True for key in AUTOMATIC_SCAN_EXPIRY_PREREQUISITES)
+            or value['expired_scan_rejected'] is not False or text.count('panicked at ') != 1):
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(AUTOMATIC_SCAN_EXPIRY_TEST)
+               + r"'(?: \([0-9]+\))? panicked at " + re.escape(AUTOMATIC_SCAN_EXPIRY_PATH)
+               + ':' + str(site['line']) + ':' + str(site['column'])
+               + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}'
+               + re.escape(AUTOMATIC_SCAN_EXPIRY_MESSAGE) + r'[ \t]*(?:\n|$)')
+    found = re.search(pattern, text)
+    return found is not None and text.index(AUTOMATIC_SCAN_EXPIRY_PREFIX) < found.start()
+
+
+def automatic_scan_expiry_controls(site):
+    """Authored parser adversaries; these are not product execution."""
+    value = dict.fromkeys(AUTOMATIC_SCAN_EXPIRY_FIELDS, True)
+    def row(item):
+        return (AUTOMATIC_SCAN_EXPIRY_PREFIX + ' ' + json.dumps(item) + '\n').encode()
+    good = row(value)
+    assert automatic_scan_expiry_probe(good) == value
+    bad = [b'', good + good, good + b'\xff', b'PRIVATE ' + good,
+           b' ' * 9 + good, good.replace(b'\n', b' PRIVATE\n'),
+           row(dict(value, private_account_id='PRIVATE')),
+           (AUTOMATIC_SCAN_EXPIRY_PREFIX + ' []\n').encode()]
+    for key in sorted(value):
+        bad.extend([row({name: item for name, item in value.items() if name != key}),
+                    good.replace(b'{', ('{' + json.dumps(key) + ':true,').encode(), 1),
+                    row(dict(value, **{key: 1}))])
+    for raw in bad:
+        try:
+            automatic_scan_expiry_probe(raw)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('automatic-scan-expiry-invalid-accepted')
+    header = ("thread '" + AUTOMATIC_SCAN_EXPIRY_TEST + "' (7) panicked at "
+              + AUTOMATIC_SCAN_EXPIRY_PATH + ':' + str(site['line']) + ':' + str(site['column'])
+              + ':\n' + AUTOMATIC_SCAN_EXPIRY_MESSAGE + '\n').encode()
+    red = dict(value, expired_scan_rejected=False)
+    assert automatic_scan_expiry_failure(row(red) + header, site)
+    invalid = [row(value) + header, row(red), header + row(red), row(red) + header + header,
+               row(red) + header.replace(AUTOMATIC_SCAN_EXPIRY_TEST.encode(), b'PRIVATE'),
+               row(red) + header.replace(AUTOMATIC_SCAN_EXPIRY_PATH.encode(), b'PRIVATE.rs'),
+               row(red) + header.replace(AUTOMATIC_SCAN_EXPIRY_MESSAGE.encode(), b'PRIVATE'),
+               row(red) + header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+               row(red) + header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n')]
+    invalid += [row(dict(red, **{key: False})) + header for key in AUTOMATIC_SCAN_EXPIRY_PREREQUISITES]
+    assert all(not automatic_scan_expiry_failure(raw, site) for raw in invalid)
+    return {'marker_positive': 1, 'marker_negative': len(bad), 'own_red_positive': 1,
+            'own_red_negative': len(invalid), 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 CASES = {
     'sdk-private-missing-route': ('transport_nostr_adapter', 'sdk_client::tests::enrollment_acquisition_failed_private_route_sync_burns_freshness_until_valid_reissue', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     FAMILY_STABILITY_CASE: ('transport_nostr_adapter', 'sdk_client::tests::unrelated_family_sync_preserves_private_and_untouched_wire_ids', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
@@ -551,6 +792,14 @@ for _family_pfp_case in FAMILY_PFP_CASES:
     ADAPTER_CASES.add(_family_pfp_case)
     EXPERIMENTAL_CASES.add(_family_pfp_case)
     BOUNDED_CASES.add(_family_pfp_case)
+
+
+CASES[AUTOMATIC_NEGOTIATION_CASE] = ('marmot_app', AUTOMATIC_NEGOTIATION_CASE,
+    'crates/marmot-app/src/native_device_linking/enabled/negotiated.rs')
+for automatic_case in AUTOMATIC_SCAN_EXPIRY_CASES:
+    CASES[automatic_case] = ('marmot_app', AUTOMATIC_SCAN_EXPIRY_TEST, AUTOMATIC_SCAN_EXPIRY_PATH)
+EXPERIMENTAL_CASES |= AUTOMATIC_NATIVE_CASES
+BOUNDED_CASES |= AUTOMATIC_NATIVE_CASES
 
 
 def package_for(case):
@@ -1509,7 +1758,10 @@ def replay_configuration_controls():
         assert package_for(role_case) == 'transport-nostr-adapter' and role_case not in INTEGRATION_CASES
         assert role_case in ADAPTER_CASES & EXPERIMENTAL_CASES & BOUNDED_CASES
 
-    return {'positive': 20, 'synthetic_metadata_only': True, 'product_bodies': 0}
+    for case in AUTOMATIC_NATIVE_CASES:
+        assert positive_configuration(case) == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+        assert package_for(case) == 'marmot-app' and case not in INTEGRATION_CASES | ADAPTER_CASES
+    return {'positive': 20 + len(AUTOMATIC_NATIVE_CASES), 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 def compiler(raw, inputs):
@@ -3643,6 +3895,14 @@ def positive(args):
               'body_passed': False, 'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
               'features': features, 'profile': profile, 'package': package, 'automatic_retries': 0, 'test_threads': 1,
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'expected_test': CASES[args.case][1]}
+    if args.case in AUTOMATIC_NATIVE_CASES:
+        report.update(evidence_scope='scoped-real-App-automatic-negotiation-only',
+                      native_protocol_qualification=False, apple_native_acceptance=False,
+                      full_suite_qualification=False, mutation_qualification=False)
+        if args.case == AUTOMATIC_NEGOTIATION_CASE:
+            del report['expected_test']
+            report['expected_tests'] = list(AUTOMATIC_NEGOTIATION_TESTS)
+            report['expected_runtime_count'] = len(AUTOMATIC_NEGOTIATION_TESTS)
     if args.case == 'late-commit-extra-epoch':
         report.update(evidence_scope='valid-real-extra-epoch-history-scenario-only',
                       native_protocol_qualification=False, original_full_failure_cause_established=False,
@@ -3705,6 +3965,11 @@ def positive(args):
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.case == AUTOMATIC_NEGOTIATION_CASE:
+            report['automatic_negotiation_controls'] = automatic_negotiation_controls()
+        if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
+            expiry_site = automatic_scan_expiry_site()
+            report['automatic_scan_expiry_controls'] = automatic_scan_expiry_controls(expiry_site)
         if args.case in LIVE_SEAL_CASES:
             fixture = Path(CASES[args.case][2]).read_text()
             validate_live_seal_fixture(fixture)
@@ -3787,6 +4052,10 @@ def positive(args):
             selection = 'package(' + package + ') & test(=' + test + ')'
             if args.case in INTEGRATION_CASES or args.case in UNIFFI_CASES or args.case in ENGINE_CASES or args.case in LIVE_SEAL_CASES:
                 selection += ' & binary(=' + binary + ')'
+            if args.case == AUTOMATIC_NEGOTIATION_CASE:
+                selection = automatic_negotiation_selection()
+            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
+                selection += ' & binary(=marmot_app)'
             body_selection = selection
             if args.case == 'private-classifier-authentication':
                 selection = engine_bundle_selection()
@@ -3800,7 +4069,17 @@ def positive(args):
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
-            if args.case == 'private-classifier-authentication':
+            if args.case in AUTOMATIC_NATIVE_CASES and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+                raise ValueError('automatic-native-inventory-compiler')
+            if args.case == AUTOMATIC_NEGOTIATION_CASE:
+                report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
+            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
+                selected_case(inventory, test)
+                matched_suites = [suite for suite in inventory['rust-suites'].values()
+                    if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
+                if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != 'marmot_app' or matched_suites[0].get('kind') != 'lib':
+                    raise ValueError('automatic-scan-expiry-exact-binary')
+            elif args.case == 'private-classifier-authentication':
                 report['engine_control_inventory'] = selected_engine_bundle(inventory)
             else:
                 selected_case(inventory, test)
@@ -3808,7 +4087,7 @@ def positive(args):
             if args.case in OFFLINE_CASES:
                 report['compiled_fingerprints'] = fingerprint_snapshot(
                     inventory, test, os.environ.get('CARGO_TARGET_DIR', 'target'))
-            report['inventory']['selected_nonignored'] = 8 if args.case == 'private-classifier-authentication' else 1
+            report['inventory']['selected_nonignored'] = (len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 8 if args.case == 'private-classifier-authentication' else 1)
             report['inventory']['selected_ignored'] = 0
             save()
             stage = 'inventory-source'
@@ -3830,8 +4109,16 @@ def positive(args):
                               'panic': panic_facts(raw, args.case), 'runtime_summary': summary_counts(raw)}
             save()  # An actual attempted body survives any later parser/closure error.
             stage = 'runtime-shape'
-            report['body']['counts'] = counts(raw, args.case)
+            if args.case == AUTOMATIC_NEGOTIATION_CASE:
+                report['body']['panic'] = automatic_negotiation_panics(raw)
+                report['body']['automatic_negotiation_runtime'] = automatic_negotiation_runtime(raw)
+                report['body']['counts'] = report['body']['automatic_negotiation_runtime']['counts']
+            else:
+                report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
+                report['body']['automatic_scan_expiry_probe'] = automatic_scan_expiry_probe(raw)
+                save()
             if args.case in PRIVATE_ROLE_CASES:
                 report['body']['private_role_probe'] = private_role_probe(raw, args.case)
                 save()  # Actual command, compiler and exact runtime counts were already saved.
@@ -3956,6 +4243,18 @@ def positive(args):
                 report['historical_cause_proven'] = False
                 save()
             command_accepted = True
+            if args.case in AUTOMATIC_NATIVE_CASES:
+                command_accepted = all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                                       for part in (report['inventory'], report['body']))
+                if args.case == AUTOMATIC_NEGOTIATION_CASE:
+                    command_accepted = command_accepted and report['body']['automatic_negotiation_runtime']['complete']
+                else:
+                    probe = report['body']['automatic_scan_expiry_probe']
+                    report['expected_automatic_scan_expiry_runtime_red_before_closure'] = (
+                        command_accepted and code == 100
+                        and report['body']['counts'] == dict(executed=1, passed=0, failed=1, skipped=report['body']['counts']['skipped'])
+                        and automatic_scan_expiry_failure(raw, expiry_site))
+                    command_accepted = command_accepted and all(probe.values())
             if args.case in FAMILY_PFP_CASES:
                 report['body']['family_stability_probe'] = family_stability_probe(raw)
                 command_accepted = (family_pfp_ready(report['body']['family_stability_probe'], args.case)
@@ -4033,7 +4332,7 @@ def positive(args):
                 report['body']['observation'] = marker(raw)
                 save()
             stage = 'body-not-passed'
-            report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == 1
+            report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == (len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 1)
                                      and report['body']['compiler']['header_count'] == 0
                                      and not report['body']['compiler']['codes']
                                      and report['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0})
@@ -4069,8 +4368,17 @@ def positive(args):
                 args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_configuration_aba_runtime_red_before_closure') is True)
 
+        if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
+            report['expected_automatic_scan_expiry_runtime_red'] = (
+                args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('expected_automatic_scan_expiry_runtime_red_before_closure') is True)
+            if args.case == AUTOMATIC_SCAN_EXPIRY_RED_CASE and args.mode == 'run':
+                report['body_passed'] = False
+                result = 1
+                if report['expected_automatic_scan_expiry_runtime_red']:
+                    report['failure_category'] = 'expected-own-runtime-red'
         report['preflight_passed'] = args.mode == 'preflight' and result == 0
-        report['scoped_control_passed'] = args.mode == 'run' and result == 0
+        report['scoped_control_passed'] = args.mode == 'run' and result == 0 and args.case != AUTOMATIC_SCAN_EXPIRY_RED_CASE
         save()
     return result
 
@@ -4242,6 +4550,8 @@ def main():
         pending_request_stage(args.stage)
     if args.case in QUIET_CONTRACT_CASES:
         quiet_contract_stage(args.stage)
+    if args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive':
+        raise ValueError('automatic-native-positive-only')
     if args.stage == 'pfp':
         return pfp(args)
     if args.stage == 'sample':
