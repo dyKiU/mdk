@@ -1033,6 +1033,112 @@ mod tests {
     use marmot_account::AccountHome;
     use std::sync::Arc;
 
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn expired_automatic_scan_is_rejected_after_real_roster_wait() {
+        use crate::device_linking::network::rendezvous::Rendezvous;
+        use nostr::prelude::{Keys, Timestamp};
+        use std::task::Poll;
+        use std::time::Duration;
+
+        let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let keys = Keys::generate();
+        AccountHome::open(dir.path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(
+            dir.path(),
+            relay.url().await.to_string(),
+        ));
+        runtime.reconcile_accounts().await.unwrap();
+        let accounts = runtime.accounts();
+        let initial_targets_empty = accounts
+            .device_linking_targets("test")
+            .await
+            .unwrap()
+            .is_empty();
+
+        // Hold the real account-worker acquisition, not a fabricated roster reply.
+        let held_workers = accounts.workers.lock().await;
+        let now = Timestamp::now().as_secs();
+        let expires_at = now + 2;
+        let code = Rendezvous::new(Keys::generate().public_key(), expires_at)
+            .encode(now)
+            .unwrap();
+        let initially_valid = Rendezvous::decode(&code, Timestamp::now().as_secs()).is_ok();
+        let mut scan = Box::pin(accounts.scan_automatic_device_linking_session("test", code));
+        let mut early_result = None;
+        let roster_wait_pending = match futures::poll!(scan.as_mut()) {
+            Poll::Pending => true,
+            Poll::Ready(result) => {
+                early_result = Some(result);
+                false
+            }
+        };
+        let initial_code_valid = initially_valid && Timestamp::now().as_secs() < expires_at;
+        // This QR's original two-second expiry is never renewed or clock-shifted.
+        let wall_expired_before_release = tokio::time::timeout(Duration::from_secs(5), async {
+            while Timestamp::now().as_secs() < expires_at {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok()
+            && Timestamp::now().as_secs() >= expires_at;
+        drop(held_workers);
+        let outcome = match early_result {
+            Some(result) => Ok(result),
+            None => tokio::time::timeout(Duration::from_secs(5), scan.as_mut()).await,
+        };
+        let (scan_completed, expired_scan_rejected, session_cleanup) = match outcome {
+            Ok(Err(crate::DeviceLinkingError::InvalidPacket)) => (true, true, true),
+            Ok(Err(_)) => (true, false, true),
+            Ok(Ok(session)) => (
+                true,
+                false,
+                tokio::time::timeout(Duration::from_secs(5), session.cancel())
+                    .await
+                    .is_ok_and(|result| result.is_ok()),
+            ),
+            Err(_) => (false, false, true),
+        };
+        drop(scan);
+        let runtime_cleanup = tokio::time::timeout(
+            Duration::from_secs(10),
+            runtime.shutdown_and_close(),
+        )
+        .await
+        .is_ok_and(|result| result.is_ok());
+        drop(relay);
+        let cleanup_succeeded = session_cleanup && runtime_cleanup;
+        eprintln!(
+            "AUTOMATIC_SCAN_EXPIRY_PROBE {}",
+            serde_json::json!({
+                "initial_targets_empty": initial_targets_empty,
+                "initial_code_valid": initial_code_valid,
+                "roster_wait_pending": roster_wait_pending,
+                "wall_expired_before_release": wall_expired_before_release,
+                "scan_completed": scan_completed,
+                "cleanup_succeeded": cleanup_succeeded,
+                "expired_scan_rejected": expired_scan_rejected,
+            })
+        );
+        assert!(
+            initial_targets_empty
+                && initial_code_valid
+                && roster_wait_pending
+                && wall_expired_before_release
+                && scan_completed
+                && cleanup_succeeded,
+            "held roster expiry fixture prerequisites must complete before the verdict"
+        );
+        assert!(
+            expired_scan_rejected,
+            "expired scanned bootstrap must not be renewed by the protected roster wait"
+        );
+    }
+
     async fn drain(
         from: &AccountManager,
         from_scope: &PurposeAttemptScope,
