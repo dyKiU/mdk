@@ -13771,7 +13771,11 @@ fn live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue()
         let first_delivery = fixture.ingest_next_live_delivery().await;
         // Freeze the original verdict before read-only aggregate observations.
         let persisted = fixture.persisted();
+        #[cfg(feature = "test-policy-overrides")]
         let observed_seal_points = *seal_points.lock().unwrap();
+        #[cfg(not(feature = "test-policy-overrides"))]
+        let _ = first_delivery;
+        #[cfg(feature = "test-policy-overrides")]
         crate::test_support::emit_line(format_args!(
             "cursor-promotion-observation {}",
             serde_json::json!({
