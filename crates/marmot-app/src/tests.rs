@@ -13743,11 +13743,24 @@ fn live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue()
     run_composed_app_runtime_test("live-cursor-promotion", || async {
         let mut fixture = LiveCursorFixture::open().await;
         let cursor_before = fixture.cursor_before;
+        // CURSOR_PROMOTION_OBSERVATION_BEGIN
+        let mut injected_ids = Vec::with_capacity(2);
+        let seal_points = Arc::new(std::sync::Mutex::new([false; 2]));
+        let observed_seal_points = seal_points.clone();
+        *fixture.client.cursor_seal_probe.get_mut().unwrap() = Some(Box::new(move |point| {
+            let index = match point {
+                crate::client::CursorSeal::Before => 0,
+                crate::client::CursorSeal::After => 1,
+            };
+            observed_seal_points.lock().unwrap()[index] = true;
+        }));
+        // CURSOR_PROMOTION_OBSERVATION_END
         for (created_at, marker) in [
             (cursor_before + 4_000, "newer"),
             (cursor_before + 1_000, "older"),
         ] {
             let delivery = fixture.delivery(fixture.probe(created_at, marker)).await;
+            injected_ids.push(hex::encode(delivery.message.id.as_slice()));
             fixture
                 .app
                 .relay_plane
@@ -13755,9 +13768,28 @@ fn live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue()
         }
         fixture.wait_for_queue_depth(2).await;
 
-        fixture.ingest_next_live_delivery().await;
+        let first_delivery = fixture.ingest_next_live_delivery().await;
+        // Freeze the original verdict before read-only aggregate observations.
+        let persisted = fixture.persisted();
+        let observed_seal_points = *seal_points.lock().unwrap();
+        crate::test_support::emit_line(format_args!(
+            "cursor-promotion-observation {}",
+            serde_json::json!({
+                "first_is_newer": first_delivery == injected_ids[0],
+                "first_is_older": first_delivery == injected_ids[1],
+                "persisted_relative_to_initial": persisted.and_then(|value| {
+                    i64::try_from(i128::from(value) - i128::from(cursor_before)).ok()
+                }),
+                "in_memory_is_newer": fixture.client.state.last_transport_timestamp == Some(cursor_before + 4_000),
+                "checkpoint_is_initial": fixture.client.checkpointed_transport_timestamp == Some(cursor_before),
+                "seal_before": observed_seal_points[0],
+                "seal_after": observed_seal_points[1],
+                "delivery_loss": fixture.client.delivery_loss_blocks_cursor(),
+                "transport_cursor_settled": fixture.client.adapter.transport_cursor_settled(),
+            })
+        ));
         assert_eq!(
-            fixture.persisted(),
+            persisted,
             Some(cursor_before + 1_000 + 120),
             "the older delivery still queued caps the promotion where a restart refetches it"
         );
@@ -23517,13 +23549,56 @@ async fn due_peer_leave_does_not_shorten_a_collecting_convergence_pass() {
             .joined_groups
             .contains(&group_id)
     );
+    // Passive pre-leave canonical epoch; no protocol work or convergence advance.
+    let peer_leave_prior_epoch = alice.runtime.group_record(&group_id).ok().map(|group| group.epoch);
     bob_client.leave_group(&group_id).await.unwrap();
     alice.sync().await.unwrap();
     let delay = alice
         .runtime
         .scheduled_self_remove_auto_commit_delay_ms(&group_id)
-        .unwrap()
         .unwrap();
+    // BEGIN passive-peer-leave-initial-delay: freeze the original getter once.
+    if delay.is_none() {
+        let epoch_state = match alice.runtime.epoch_state(&group_id) {
+            None => "unknown",
+            Some(cgka_traits::EpochState::Stable { .. }) => "stable",
+            Some(cgka_traits::EpochState::PendingPublish(_)) => "pending_publish",
+            Some(cgka_traits::EpochState::Merging(_)) => "merging",
+            Some(cgka_traits::EpochState::Recovering(_)) => "recovering",
+            Some(cgka_traits::EpochState::Unrecoverable(_)) => "unrecoverable",
+            Some(cgka_traits::EpochState::Disbanded(_)) => "disbanded",
+        };
+        let group = alice.runtime.group_record(&group_id).ok();
+        let epoch_pair = peer_leave_prior_epoch.zip(group.as_ref().map(|group| group.epoch));
+        let members = alice.runtime.members(&group_id).ok();
+        let bob_id = hex::decode(&bob.account_id_hex).ok();
+        let bob_member = members.as_ref().zip(bob_id.as_ref()).map(|(members, id)| {
+            members.iter().any(|member| member.id.as_slice() == id.as_slice())
+        });
+        let cached_storage = app.account_storages.lock().ok()
+            .and_then(|stores| stores.get("alice").cloned());
+        let own_leave = cached_storage.and_then(|storage| {
+            cgka_traits::storage::LeaveRequestStorage::leave_request(&storage, &group_id).ok()
+        }).map(|request| request.is_some());
+        crate::test_support::emit_line(format_args!(
+            "peer-leave-initial-delay-observation {}",
+            serde_json::json!({
+                "collected": true,
+                "initial_delay_present": false,
+                "epoch_state": epoch_state,
+                "same_epoch": epoch_pair.map(|(before, after)| before == after),
+                "advanced_epoch": epoch_pair.map(|(before, after)| after.0 > before.0),
+                "regressed_epoch": epoch_pair.map(|(before, after)| after.0 < before.0),
+                "group_terminal": group.as_ref().map(|group| group.is_terminal()),
+                "group_unrecoverable": group.as_ref().map(|group| group.unrecoverable),
+                "member_count": members.as_ref().map(Vec::len),
+                "bob_member": bob_member,
+                "own_leave_present": own_leave,
+            })
+        ));
+    }
+    // END passive-peer-leave-initial-delay: preserve the original unwrap below.
+    let delay = delay.unwrap();
     tokio::time::sleep(Duration::from_millis(delay + 1)).await;
     carol_client
         .runtime

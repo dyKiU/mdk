@@ -16,6 +16,10 @@ from upstream_offline_fingerprints import controls as fingerprint_controls, snap
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
+    'cursor-promotion-observation': ('marmot_app', 'tests::live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue',
+                                   'crates/marmot-app/src/tests.rs'),
+    'peer-leave-observation': ('marmot_app', 'tests::due_peer_leave_does_not_shorten_a_collecting_convergence_pass',
+                               'crates/marmot-app/src/tests.rs'),
     'offline': ('relay_runtime', 'offline_replay::offline_replay_crosses_queue',
                 'crates/marmot-app/tests/relay_runtime/offline_replay.rs'),
     'inline': ('marmot_app', 'client::sync::queued_outbound_schedule_tests::inline_epoch_change_keeps_stale_own_leave_worker_wake',
