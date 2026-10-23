@@ -374,6 +374,149 @@ def private_role_controls(case):
 
 AUTOMATIC_NEGOTIATION_CASE = 'native-automatic-negotiation-cohort'
 FOUR_DEVICE_MUTATIONS_CASE = 'native-four-device-mutations'
+# Passive projection only. Never exports arbitrary lines, identifiers or content.
+FOUR_DEVICE_STATES = (
+    'ready', 'not observed', 'catalog not ready', 'modifier rendered as a message',
+    'record not received', 'deletion differs', 'content differs',
+    'edit metadata differs', 'duplicate canonical rows',
+)
+FOUR_DEVICE_STAGES = tuple('original origin=' + str(index) for index in range(4)) + (
+    'legacy-queue-restart', 'legacy-queue-recovered-and-live')
+FOUR_DEVICE_CANONICAL_MESSAGE = 'canonical state did not converge: '
+
+
+def four_device_diagnostic_site():
+    path = CASES[FOUR_DEVICE_MUTATIONS_CASE][2]
+    source = Path(path).read_text()
+    begin = source.index('async fn wait_for_device_message_state(')
+    end = source.index('\n#[tokio::test', begin)
+    helper = source[begin:end]
+    pattern = (r'assert!\(\s*result\.is_ok\(\),\s*'
+        r'"canonical state did not converge: deleted=\{deleted\}, edited=\{\}, device states=\{last_states:\?\}",\s*'
+        r'edit_id\.is_some\(\)\s*\);')
+    found = list(re.finditer(pattern, helper))
+    if len(found) != 1 or source.count('async fn wait_for_device_message_state(') != 1:
+        raise ValueError('four-device-diagnostic-source-site')
+    offset = begin + found[0].start()
+    # Every exported enum comes from the unchanged canonical helper's literals.
+    if any(helper.count('"' + state + '"') != (2 if state == 'ready' else 1)
+           for state in FOUR_DEVICE_STATES):
+        raise ValueError('four-device-diagnostic-source-states')
+    emissions = (
+        'eprintln!("four-device-mutations stage=original origin={origin}");',
+        'eprintln!("four-device-mutations stage=legacy-queue-restart");',
+        'eprintln!("four-device-mutations stage=legacy-queue-recovered-and-live");',
+    )
+    if any(source.count(row) != 1 for row in emissions):
+        raise ValueError('four-device-diagnostic-source-stages')
+    return {'line': source[:offset].count('\n') + 1,
+            'column': offset - source.rfind('\n', 0, offset)}
+
+
+def four_device_diagnostic(raw, site, failed):
+    if type(raw) is not bytes or len(raw) > 2 * 1024 * 1024 or type(failed) is not bool:
+        raise ValueError('four-device-diagnostic-bound')
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    prefix = 'four-device-mutations stage='
+    lines = [line for line in text.splitlines() if prefix in line]
+    if len(lines) > 6 or text.count(prefix) != len(lines):
+        raise ValueError('four-device-diagnostic-stage-cardinality')
+    stages = []
+    for line in lines:
+        match = re.fullmatch(r'[ \t]{0,8}' + re.escape(prefix) + r'([^\r\n]{1,64})', line)
+        if match is None or match[1] not in FOUR_DEVICE_STAGES:
+            raise ValueError('four-device-diagnostic-stage-envelope')
+        stages.append(match[1])
+    if stages != list(FOUR_DEVICE_STAGES[:len(stages)]):
+        raise ValueError('four-device-diagnostic-stage-order')
+    headers = re.findall(r"(?m)^[ \t]{0,8}thread '[^'\r\n]{1,500}'(?: \([0-9]+\))? panicked at [^\r\n]{1,512}$", text)
+    panic = None
+    if FOUR_DEVICE_CANONICAL_MESSAGE in text:
+        path = CASES[FOUR_DEVICE_MUTATIONS_CASE][2]
+        header = (r"[ \t]{0,8}thread '" + re.escape(CASES[FOUR_DEVICE_MUTATIONS_CASE][1])
+            + r"'(?: \([0-9]+\))? panicked at " + re.escape(path)
+            + ':' + str(site['line']) + ':' + str(site['column']) + ':')
+        pattern = ('(?m)^' + header + r'\n[ \t]{0,8}' + re.escape(FOUR_DEVICE_CANONICAL_MESSAGE)
+            + r'deleted=(true|false), edited=(true|false), device states=(\[[^\r\n]{1,512}\])$')
+        matches = list(re.finditer(pattern, text))
+        if (not failed or len(matches) != 1 or len(headers) != 1
+                or text.count('panicked at ') != 1
+                or text.count(FOUR_DEVICE_CANONICAL_MESSAGE) != 1):
+            raise ValueError('four-device-diagnostic-panic-envelope')
+        match = matches[0]
+        states = json.loads(match[3])
+        if (type(states) is not list or len(states) not in (3, 4)
+                or any(type(state) is not str or state not in FOUR_DEVICE_STATES for state in states)):
+            raise ValueError('four-device-diagnostic-state-enum')
+        panic = {'deleted': match[1] == 'true', 'edited': match[2] == 'true',
+                 'device_states': states, 'line': site['line'], 'column': site['column'],
+                 'exact_thread_source_and_message': True}
+    elif headers or 'panicked at ' in text:
+        raise ValueError('four-device-diagnostic-noncanonical-panic')
+    return {'stage_sequence': stages, 'full_stage_sequence_seen': len(stages) == 6,
+            'canonical_panic': panic,
+            'complete': panic is not None if failed else len(stages) == 6,
+            'passive_only': True, 'qualification_passed': False}
+
+
+def four_device_diagnostic_controls(site):
+    stage = lambda rows: ''.join('four-device-mutations stage=' + row + '\n' for row in rows).encode()
+    header = ("thread '" + CASES[FOUR_DEVICE_MUTATIONS_CASE][1] + "' (7) panicked at "
+        + CASES[FOUR_DEVICE_MUTATIONS_CASE][2] + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    message = ('canonical state did not converge: deleted=false, edited=true, device states='
+        '["ready", "record not received", "edit metadata differs", "ready"]\n')
+    valid = stage(FOUR_DEVICE_STAGES[:2]) + (header + message).encode()
+    observed = four_device_diagnostic(valid, site, True)
+    assert observed['complete'] and observed['canonical_panic']['edited'] is True
+    assert observed['canonical_panic']['deleted'] is False
+    assert four_device_diagnostic((header + message.replace(', "ready"]', ']')).encode(), site, True)['complete']
+    assert four_device_diagnostic(stage(FOUR_DEVICE_STAGES), site, False)['complete']
+    assert four_device_diagnostic(b'', site, True)['complete'] is False
+    assert four_device_diagnostic(stage(FOUR_DEVICE_STAGES[:2]), site, False)['complete'] is False
+    for indent in (' ', ' ' * 8, ' \t' * 4):
+        indented = ''.join(indent + line + '\n' for line in valid.decode().splitlines()).encode()
+        assert four_device_diagnostic(indented, site, True)['complete']
+    bad = [
+        valid + (header + message).encode(), valid + stage(FOUR_DEVICE_STAGES[:1]),
+        valid.replace(b'origin=1', b'origin=2'), valid.replace(b'origin=1', b'origin=PRIVATE'),
+        b'PRIVATE ' + valid, valid.replace(b'edited=true', b'edited=1'),
+        valid.replace(b'deleted=false', b'deleted=False'),
+        valid.replace(b'edit metadata differs', b'PRIVATE'),
+        valid.replace(b'["ready",', b'[7,'),
+        valid.replace(b', "ready"]', b', "ready", "ready"]'),
+        valid.replace(b'["ready", "record not received", ', b'['),
+        valid.replace(CASES[FOUR_DEVICE_MUTATIONS_CASE][1].encode(), b'PRIVATE'),
+        valid.replace(CASES[FOUR_DEVICE_MUTATIONS_CASE][2].encode(), b'PRIVATE.rs'),
+        valid.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+        valid.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n'),
+        valid.replace(b'canonical state did not converge:', b'canonical state did not converge: PRIVATE'),
+        valid + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:1:\n",
+        valid + b'four-device-mutations stage=legacy-queue-restart\n',
+        valid + b'four-device-mutations stage=PRIVATE\n',
+        b'\xff' + valid, b'x' * (2 * 1024 * 1024 + 1),
+        b' ' * 9 + valid, b' \t' * 4 + b' ' + valid,
+        valid.replace(message.encode(), (' ' * 9 + message).encode()),
+        valid.replace(message.encode(), (' \t' * 4 + ' ' + message).encode()),
+        valid.replace(header.encode(), (' ' * 9 + header).encode()),
+    ]
+    for raw in bad:
+        try:
+            four_device_diagnostic(raw, site, True)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('four-device-diagnostic-invalid-accepted')
+    try:
+        four_device_diagnostic(valid, site, False)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('four-device-diagnostic-panic-in-pass')
+    assert 'PRIVATE' not in json.dumps(observed)
+    return {'positive': 8, 'negative': len(bad) + 1,
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 AUTOMATIC_SCAN_EXPIRY_CASE = 'native-automatic-scan-expiry'
 AUTOMATIC_NEGOTIATION_TESTS = {
     'native_device_linking::enabled::negotiated::tests::cancel_before_activation_retires_the_reserved_original':
@@ -4643,6 +4786,8 @@ def positive(args):
             report['restart_parser_controls'] = restart_controls()
         if args.case == PENDING_REQUEST_CASE:
             report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
+        if args.case == FOUR_DEVICE_MUTATIONS_CASE:
+            report['four_device_diagnostic_controls'] = four_device_diagnostic_controls(four_device_diagnostic_site())
         if args.case == FAMILY_STABILITY_CASE:
             report['family_stability_controls'] = family_stability_controls(family_stability_site())
         if args.case in PRIVATE_ROLE_CASES:
@@ -4752,6 +4897,18 @@ def positive(args):
             else:
                 report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == FOUR_DEVICE_MUTATIONS_CASE:
+                # Original runtime counts/panics/compiler facts are already durable.
+                # Diagnostics never alter command acceptance or reinterpret failure.
+                try:
+                    observation = four_device_diagnostic(raw, four_device_diagnostic_site(),
+                        report['body']['counts']['failed'] == 1)
+                    report['body']['four_device_diagnostic'] = observation
+                    report['body']['four_device_diagnostic_complete'] = observation['complete']
+                except (ValueError, UnicodeError):
+                    report['body']['four_device_diagnostic'] = None
+                    report['body']['four_device_diagnostic_complete'] = False
+                save()
             if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
                 report['body']['automatic_scan_expiry_probe'] = automatic_scan_expiry_probe(raw)
                 save()
