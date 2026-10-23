@@ -14063,19 +14063,34 @@ mod tests {
             .expect("the real unreachable selected route stays active and owed");
         let (actual, logical) = {
             let state = adapter.state.read().await;
-            let wire = state.private_observation_wires.get(&account)
+            let wire = state
+                .private_observation_wires
+                .get(&account)
                 .expect("actual selected private issuance exists");
-            (SubscriptionId::new(wire.actual.clone()), SubscriptionId::new(wire.logical.clone()))
+            (
+                SubscriptionId::new(wire.actual.clone()),
+                SubscriptionId::new(wire.logical.clone()),
+            )
         };
-        let healthy_relay = sdk.client().relay(healthy_url.clone()).await.unwrap().unwrap();
+        let healthy_relay = sdk
+            .client()
+            .relay(healthy_url.clone())
+            .await
+            .unwrap()
+            .unwrap();
         let real_sdk_id = actual != logical
             && healthy_relay.subscription(&actual).await.is_some()
             && healthy_relay.subscription(&logical).await.is_none();
-        let tracked_actual = sdk.account_subscriptions.read().await.get(&account)
+        let tracked_actual = sdk
+            .account_subscriptions
+            .read()
+            .await
+            .get(&account)
             .is_some_and(|ids| ids.contains(&actual) && !ids.contains(&logical));
         let owed_actual = {
             let owed = sdk.owed.relays();
-            owed.get(&down).is_some_and(|ids| ids.contains_key(&actual) && !ids.contains_key(&logical))
+            owed.get(&down)
+                .is_some_and(|ids| ids.contains_key(&actual) && !ids.contains_key(&logical))
         };
         let metrics = adapter.metrics().await;
         let stored = group_event(0xc3);
@@ -14091,10 +14106,17 @@ mod tests {
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
             && healthy_relay.subscription(&actual).await.is_none()
-            && !sdk.account_subscriptions.read().await.get(&account)
+            && !sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
                 .is_some_and(|ids| ids.contains(&actual));
         sdk.shutdown().await;
-        timeout(Duration::from_secs(2), forwarder).await.unwrap().unwrap();
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
         server.shutdown();
         healthy.shutdown();
         #[cfg(feature = "test-policy-overrides")]
@@ -14107,7 +14129,10 @@ mod tests {
             })
         ));
         assert!(
-            real_sdk_id && tracked_actual && owed_actual && cleanup_complete
+            real_sdk_id
+                && tracked_actual
+                && owed_actual
+                && cleanup_complete
                 && metrics.active_accounts == 1,
             "real scoped issuance, owed replay and teardown are required prerequisites"
         );

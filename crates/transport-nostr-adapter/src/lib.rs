@@ -1410,12 +1410,10 @@ impl NostrTransportAdapter {
             tasks.0.spawn(async move {
                 #[cfg(feature = "experimental-device-sync")]
                 let result = match &actual {
-                    Some(actual) => {
-                        relay_client
-                            .subscribe_scoped(subscription.clone(), actual.clone())
-                            .await
-                            .map(|()| NostrSubscribeReport::default())
-                    }
+                    Some(actual) => relay_client
+                        .subscribe_scoped(subscription.clone(), actual.clone())
+                        .await
+                        .map(|()| NostrSubscribeReport::default()),
                     None => relay_client.subscribe_reporting(subscription.clone()).await,
                 };
                 #[cfg(not(feature = "experimental-device-sync"))]
