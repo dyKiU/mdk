@@ -28,11 +28,13 @@ CASES.update({
                        'crates/storage-sqlite/src/approved_account_sharing_policy/tests.rs'),
     'late-consent': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::late_sibling_consent_acceptance::authenticated_late_consent_starts_initial_proof_without_periodic_tick',
                      'crates/marmot-app/src/native_device_linking/tests/late_sibling_consent_acceptance.rs'),
+    'higher-source': ('marmot_app', 'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record',
+                      'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs'),
     'spill-experimental': CASES['spill'],
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
-EXPERIMENTAL_CASES = {'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure'}
+EXPERIMENTAL_CASES = {'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 STORAGE_CASES = {'revoked-anchor', 'sharing-policy'}
 
 
@@ -108,6 +110,100 @@ def marker(raw):
     if match is None or len(lines[0]) > 16384:
         raise ValueError('diagnostic-envelope')
     return closed(json.loads(match[1], object_pairs_hook=unique))
+
+
+RESTART_PREFIX = 'pending-restart-approval '
+RESTART_OPTIONAL = {'lower_is_recipient', 'lower_ready', 'lower_handshake_published',
+                    'lower_original_live', 'lower_nonce_matches_x', 'lower_request_content_exists',
+                    'higher_is_recipient', 'higher_ready', 'higher_handshake_published',
+                    'higher_nonce_matches_x', 'higher_channel_core_valid',
+                    'higher_request_row_read_succeeded', 'higher_request_processed'}
+
+
+def restart_closed(value):
+    fields = {'approval_completed', 'sync_started', 'sync_completed', 'approval_elapsed_ms',
+              'failure_snapshot_collected', 'failure_snapshot'}
+    if type(value) is not dict or set(value) != fields:
+        raise ValueError('restart-fields')
+    if (any(type(value[key]) is not bool for key in ['approval_completed', 'failure_snapshot_collected'])
+            or any(not uint(value[key]) for key in ['sync_started', 'sync_completed', 'approval_elapsed_ms'])
+            or not value['sync_completed'] <= value['sync_started'] <= value['sync_completed'] + 1):
+        raise ValueError('restart-types-counts')
+    snapshot = value['failure_snapshot']
+    if value['approval_completed']:
+        if (value['failure_snapshot_collected'] or snapshot is not None
+                or value['sync_started'] == 0 or value['sync_started'] != value['sync_completed']):
+            raise ValueError('restart-success-snapshot')
+        return value
+    if (not value['failure_snapshot_collected'] or type(snapshot) is not dict
+            or set(snapshot) != RESTART_OPTIONAL | {'lower_entry_present', 'higher_entry_present'}):
+        raise ValueError('restart-failure-snapshot')
+    if any(type(snapshot[key]) is not bool for key in ['lower_entry_present', 'higher_entry_present']):
+        raise ValueError('restart-presence')
+    if any(snapshot[key] is not None and type(snapshot[key]) is not bool for key in RESTART_OPTIONAL):
+        raise ValueError('restart-optional-types')
+    for side, keys in [('lower', {'lower_is_recipient', 'lower_ready', 'lower_handshake_published',
+                                  'lower_original_live', 'lower_nonce_matches_x', 'lower_request_content_exists'}),
+                       ('higher', {'higher_is_recipient', 'higher_ready', 'higher_handshake_published',
+                                   'higher_nonce_matches_x', 'higher_channel_core_valid'})]:
+        if any((snapshot[key] is None) == snapshot[side + '_entry_present'] for key in keys):
+            raise ValueError('restart-presence-conditional')
+    if (snapshot['higher_request_row_read_succeeded'] is True) != (snapshot['higher_request_processed'] is not None):
+        raise ValueError('restart-read-conditional')
+    return value
+
+
+def restart_marker(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    namespace = RESTART_PREFIX.rstrip()
+    lines = [line for line in text.splitlines() if namespace in line]
+    if len(lines) != 1 or text.count(namespace) != 1 or len(lines[0]) > 8192:
+        raise ValueError('restart-marker-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(RESTART_PREFIX) + r'(\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('restart-marker-envelope')
+    return restart_closed(json.loads(match[1], object_pairs_hook=unique))
+
+
+def restart_controls():
+    success = {'approval_completed': True, 'sync_started': 1, 'sync_completed': 1,
+               'approval_elapsed_ms': 1, 'failure_snapshot_collected': False, 'failure_snapshot': None}
+    snapshot = {key: False for key in RESTART_OPTIONAL}
+    snapshot.update(lower_entry_present=True, higher_entry_present=True, higher_request_processed=None)
+    failure = dict(success, approval_completed=False, sync_completed=0, approval_elapsed_ms=20000,
+                   failure_snapshot_collected=True, failure_snapshot=snapshot)
+    absent = dict(failure, failure_snapshot={key: None for key in RESTART_OPTIONAL}
+                  | {'lower_entry_present': False, 'higher_entry_present': False})
+    for valid in [success, failure, absent]:
+        assert restart_closed(valid) == valid
+        assert restart_marker((RESTART_PREFIX + json.dumps(valid) + '\n').encode()) == valid
+    invalid = [dict(success, private='PRIVATE'), dict(success, sync_started=True),
+               dict(success, sync_completed=2), dict(success, approval_elapsed_ms=2**64),
+               dict(success, failure_snapshot_collected=True), dict(failure, failure_snapshot=None),
+               dict(failure, failure_snapshot=dict(snapshot, private='PRIVATE')),
+               dict(failure, failure_snapshot=dict(snapshot, lower_ready='PRIVATE')),
+               dict(failure, failure_snapshot=dict(snapshot, lower_entry_present=False)),
+               dict(failure, failure_snapshot=dict(snapshot, higher_channel_core_valid=None)),
+               dict(failure, failure_snapshot=dict(snapshot, higher_request_processed=True))]
+    negatives = 0
+    for value in invalid:
+        try:
+            restart_closed(value)
+        except ValueError:
+            negatives += 1
+        else:
+            raise AssertionError('restart-negative-schema-accepted')
+    raw = (RESTART_PREFIX + json.dumps(failure) + '\n').encode()
+    for value in [raw + raw, b'PRIVATE ' + raw, b' ' * 9 + raw,
+                  raw.replace(b'"sync_started": 1', b'"sync_started": 1, "sync_started": 1'),
+                  raw + b'pending-restart-approval-PRIVATE\n']:
+        try:
+            restart_marker(value)
+        except ValueError:
+            negatives += 1
+        else:
+            raise AssertionError('restart-negative-envelope-accepted')
+    return {'positive': 6, 'negative': negatives, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 WATCH_SELECTION_PREFIX = 'watch-selection-observation '
@@ -699,6 +795,8 @@ def main():
         report['parser_controls'] = controls()
         if args.case == 'watch-pressure':
             report['watch_parser_controls'] = watch_controls()
+        if args.case == 'higher-source':
+            report['restart_parser_controls'] = restart_controls()
         if args.mode == 'preflight':
             result = 0
         else:
@@ -746,6 +844,10 @@ def main():
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == 'higher-source':
+                stage = 'diagnostic'
+                report['body']['restart_observation'] = restart_marker(raw)
+                save()
             if args.case == 'watch-pressure':
                 stage = 'diagnostic'
                 report['body']['watch_observation'] = watch_marker(raw)

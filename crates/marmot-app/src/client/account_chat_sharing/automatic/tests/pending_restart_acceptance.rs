@@ -50,15 +50,67 @@ impl AppClient {
             let original_x = clients[lower].as_ref().unwrap().account_sharing_owner.automatic[&ids[lower]].channel.scope().nonce;
             let before_retry = std::time::Instant::now();
             tick(clients[lower].as_mut().unwrap(), ids[lower]).await;
-            tokio::time::timeout(Duration::from_secs(20), async {
+            let approval_started = std::time::Instant::now();
+            let mut approval_sync_started = 0_u64;
+            let mut approval_sync_completed = 0_u64;
+            let approval = tokio::time::timeout(Duration::from_secs(20), async {
                 loop {
+                    approval_sync_started = approval_sync_started.saturating_add(1);
                     clients[higher].as_mut().unwrap().sync().await.unwrap();
+                    approval_sync_completed = approval_sync_completed.saturating_add(1);
                     if clients[higher].as_ref().unwrap().account_sharing_owner.automatic.get(&ids[higher])
                         .is_some_and(|entry| entry.recipient && !entry.ready
                             && !entry.handshake_published && entry.channel.scope().nonce == original_x) { break; }
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-            }).await.expect("actual higher Core approval of X before any Consent publication");
+            }).await;
+            // Freeze the original verdict before any new read-only facts. The
+            // successful path performs no additional storage/Core observation.
+            let approval_elapsed_ms = approval_started.elapsed().as_millis();
+            let approval_snapshot = if approval.is_err() {
+                let low = clients[lower].as_ref().and_then(|client|
+                    client.account_sharing_owner.automatic.get(&ids[lower]));
+                let high = clients[higher].as_ref().and_then(|client|
+                    client.account_sharing_owner.automatic.get(&ids[higher]));
+                let actual_x_content = low.and_then(|entry|
+                    entry.channel.outbound_content_id_for_test(AccountSharingControl::Request));
+                let stored_request = actual_x_content.as_ref().and_then(|content|
+                    apps[higher].account_storage("test").ok()
+                        .map(|storage| storage.get_message(content)));
+                Some(serde_json::json!({
+                    "lower_entry_present": low.is_some(),
+                    "lower_is_recipient": low.map(|entry| entry.recipient),
+                    "lower_ready": low.map(|entry| entry.ready),
+                    "lower_handshake_published": low.map(|entry| entry.handshake_published),
+                    "lower_original_live": low.map(|entry| entry.original.live()),
+                    "lower_nonce_matches_x": low.map(|entry| entry.channel.scope().nonce == original_x),
+                    "lower_request_content_exists": low.map(|_| actual_x_content.is_some()),
+                    "higher_entry_present": high.is_some(),
+                    "higher_is_recipient": high.map(|entry| entry.recipient),
+                    "higher_ready": high.map(|entry| entry.ready),
+                    "higher_handshake_published": high.map(|entry| entry.handshake_published),
+                    "higher_nonce_matches_x": high.map(|entry| entry.channel.scope().nonce == original_x),
+                    "higher_channel_core_valid": clients[higher].as_ref().zip(high).map(|(client, entry)|
+                        client.runtime.session().validate_account_sharing_channel(&entry.channel).is_ok()),
+                    "higher_request_row_read_succeeded": stored_request.as_ref().map(|result| result.is_ok()),
+                    "higher_request_processed": stored_request.as_ref().and_then(|result| result.as_ref().ok())
+                        .map(|row| row.state == cgka_traits::message::MessageState::Processed),
+                }))
+            } else {
+                None
+            };
+            crate::test_support::emit_line(format_args!(
+                "pending-restart-approval {}",
+                serde_json::json!({
+                    "approval_completed": approval.is_ok(),
+                    "sync_started": approval_sync_started,
+                    "sync_completed": approval_sync_completed,
+                    "approval_elapsed_ms": approval_elapsed_ms,
+                    "failure_snapshot_collected": approval_snapshot.is_some(),
+                    "failure_snapshot": approval_snapshot,
+                })
+            ));
+            approval.expect("actual higher Core approval of X before any Consent publication");
             let low = &clients[lower].as_ref().unwrap().account_sharing_owner.automatic[&ids[lower]];
             assert!(!low.recipient && !low.ready && low.handshake_published && low.original.live());
             assert_eq!(low.channel.scope().nonce, original_x);
