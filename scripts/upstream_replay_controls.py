@@ -2264,6 +2264,53 @@ def private_role_pfp_controls(case, site):
         'probe_controls': probe_controls, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+PRIVATE_SEND_PRODUCT = 'crates/cgka-engine/src/message_processor/mod.rs'
+PRIVATE_SEND_GREEN = '        // Reject generic private-group work before convergence preflight or\n        // durable queue admission. A later dispatch-only refusal can strand\n        // an unsupported maintenance intent and invalidate settled reads.\n        // Keep the dispatch guard too: retained queues must remain fenced.\n        #[cfg(feature = "experimental-device-sync")]\n        if self.with_mls_group(&group_id, |group| {\n            crate::device_group_genesis::has_private_component(group)\n        })? {\n            return Err(EngineError::InvalidTransition(\n                cgka_traits::engine_state::InvalidTransition {\n                    from: "PrivateDeviceGroup",\n                    to: crate::audit_helpers::send_intent_kind_str(intent),\n                    reason: "authenticated private-group approval is required",\n                },\n            ));\n        }\n'
+PRIVATE_SEND_INVERSE = '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+PFP[PRIVATE_SEND_CASE] = (PRIVATE_SEND_PRODUCT, PRIVATE_SEND_GREEN, PRIVATE_SEND_INVERSE,
+    PRIVATE_SEND_MESSAGE,
+    r'assert!\(\s*matches!\(result, Err\(cgka_traits::EngineError::InvalidTransition\(error\)\) if error.from == "PrivateDeviceGroup"\),'
+    r'\s*"generic private send must be rejected before queue admission; queued=\{queued\}"\s*,?\s*\);')
+
+
+def validate_private_send_inverse(text, old, new):
+    owner = '    fn validate_send_acceptance(&mut self, intent: &SendIntent) -> Result<GroupId, EngineError> {'
+    if text.count(owner) != 1:
+        raise ValueError('private-send-inverse-owner')
+    start = text.index(owner)
+    end = text.index('    pub(crate) async fn advance_convergence_and_drain_queued(', start)
+    if (old != PRIVATE_SEND_GREEN or new != PRIVATE_SEND_INVERSE
+            or text.count(old) != 1 or old not in text[start:end]
+            or old.count('\n') != new.count('\n') or new != '\n' * 16):
+        raise ValueError('private-send-inverse-scope')
+
+
+def private_send_pfp_controls(site):
+    result = private_send_controls(site)
+    source = Path(PRIVATE_SEND_PRODUCT).read_text()
+    old, new = PRIVATE_SEND_GREEN, PRIVATE_SEND_INVERSE
+    validate_private_send_inverse(source, old, new)
+    invalid = [
+        (source + old, old, new),
+        (source.replace('fn validate_send_acceptance(', 'fn PRIVATE('), old, new),
+        (source.replace(old, '') + old, old, new),
+        (source, old, new + '\n'),
+        (source, old, old),
+        (source, old, new[:-1]),
+        (source, old, '        panic!("PRIVATE");' + new),
+    ]
+    for text, original, mutant in invalid:
+        try:
+            validate_private_send_inverse(text, original, mutant)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('private-send-inverse-negative')
+    assert pfp_configuration(PRIVATE_SEND_CASE) == positive_configuration(PRIVATE_SEND_CASE)
+    result.update(inverse_positive=1, inverse_negative=len(invalid))
+    return result
+
+
 AUTOMATIC_SCAN_EXPIRY_PRODUCT = 'crates/marmot-app/src/native_device_linking/enabled/negotiated.rs'
 AUTOMATIC_SCAN_EXPIRY_GREEN = '        let targets = self.device_linking_targets(account_ref).await?;\n        if targets.len() > 1 {\n            return Err(DeviceLinkingError::NotReady);\n        }\n        let now = Timestamp::now().as_secs();\n'
 AUTOMATIC_SCAN_EXPIRY_INVERSE = '        let now = Timestamp::now().as_secs();\n        let targets = self.device_linking_targets(account_ref).await?;\n        if targets.len() > 1 {\n            return Err(DeviceLinkingError::NotReady);\n        }\n'
@@ -2828,6 +2875,8 @@ def inverse(case):
         validate_private_role_pfp_inverse(text, case, old, new)
     if case in FAMILY_PFP_CASES:
         validate_family_pfp_inverse(text, case, old, new)
+    if case == PRIVATE_SEND_CASE:
+        validate_private_send_inverse(text, old, new)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
         validate_automatic_scan_expiry_inverse(text, old, new)
     if case == MISSING_ROUTE_CASE:
@@ -2886,6 +2935,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case == PRIVATE_SEND_CASE:
+        return private_send_failure(raw, site)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
         return automatic_scan_expiry_failure(raw, site)
     if case in PRIVATE_ROLE_PFP_CASES:
@@ -2912,6 +2963,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == PRIVATE_SEND_CASE:
+        return private_send_pfp_controls(site)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
         return automatic_scan_expiry_pfp_controls(site)
     if case in PRIVATE_ROLE_PFP_CASES:
@@ -2944,6 +2997,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == PRIVATE_SEND_CASE:
+        return positive_configuration(case)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
         return positive_configuration(case)
     if case in PRIVATE_ROLE_PFP_CASES:
@@ -3364,6 +3419,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == PRIVATE_SEND_CASE:
+        report.update(evidence_scope='real-private-MLS-generic-send-admission-single-mutation-only',
+            native_protocol_qualification=False, full_suite_qualification=False,
+            successful_rollback_on_mutant_proven=False, existing_queued_work_recovery_qualified=False)
     if args.case == AUTOMATIC_SCAN_EXPIRY_CASE:
         report.update(evidence_scope='real-App-held-roster-scan-expiry-single-mutation-only',
             native_protocol_qualification=False, apple_native_acceptance=False,
@@ -3458,15 +3517,15 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         inventory = json.loads(raw, object_pairs_hook=unique)
         selected_case(inventory, CASES[phase_case][1])
-        if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
+        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE}:
             matched_suites = [suite for suite in inventory['rust-suites'].values()
                 if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
-            if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != 'marmot_app' or matched_suites[0].get('kind') != 'lib':
-                raise ValueError('automatic-scan-expiry-pfp-exact-binary')
+            if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != CASES[phase_case][0] or matched_suites[0].get('kind') != 'lib':
+                raise ValueError('one-exact-pfp-library-binary')
         row['inventory'].update(selected_nonignored=1, selected_ignored=0)
         save()
         if snapshot() != expected:
@@ -3484,7 +3543,7 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE}:
+        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
         if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
@@ -4694,8 +4753,8 @@ def main():
     if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
             and not (args.case == AUTOMATIC_SCAN_EXPIRY_CASE and args.stage == 'pfp')):
         raise ValueError('automatic-native-positive-or-expiry-pfp-only')
-    if args.case == PRIVATE_SEND_CASE and args.stage != 'positive':
-        raise ValueError('private-send-positive-only')
+    if args.case == PRIVATE_SEND_CASE and args.stage not in {'positive', 'pfp'}:
+        raise ValueError('private-send-positive-or-pfp-only')
     if args.stage == 'pfp':
         return pfp(args)
     if args.stage == 'sample':
