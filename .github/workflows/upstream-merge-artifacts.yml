@@ -17,6 +17,11 @@ on:
         description: Resolve the merged dependency lock remotely and export its exact source patch only
         type: boolean
         default: false
+      lock_update:
+        description: Fixed dependency operation for the lock-only preview
+        type: choice
+        options: [workspace, ctutils-0.4.4]
+        default: workspace
       source_sha:
         description: Exact merged91e-or-descendant source for dedicated source-regeneration preview
         type: string
@@ -338,6 +343,7 @@ jobs:
     timeout-minutes: 15
     env:
       SOURCE_SHA: ${{ inputs.source_sha }}
+      LOCK_UPDATE: ${{ inputs.lock_update || 'workspace' }}
     steps:
       - name: Require exact task-owned source before checkout
         run: |
@@ -348,6 +354,7 @@ jobs:
           assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-source-regeneration-')
           assert re.fullmatch('[0-9a-f]{40}',os.environ['SOURCE_SHA'])
           assert os.environ['SOURCE_SHA']==os.environ['GITHUB_SHA']
+          assert os.environ['LOCK_UPDATE'] in ['workspace','ctutils-0.4.4']
           PY_REQUEST
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -364,9 +371,12 @@ jobs:
           assert not git('status','--porcelain')
           out=Path(os.environ['RUNNER_TEMP'])/'lock-preview'
           out.mkdir(mode=0o700)
+          commands={'workspace':['cargo','update','--workspace'],
+                    'ctutils-0.4.4':['cargo','update','-p','ctutils','--precise','0.4.4']}
           d=dict(source=os.environ['SOURCE_SHA'],tree=git('rev-parse','HEAD^{tree}'),
                  lock_before_sha256=hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
-                 command=['cargo','update','--workspace'],product_test_bodies=0,qualification_passed=False)
+                 lock_update=os.environ['LOCK_UPDATE'],command=commands[os.environ['LOCK_UPDATE']],
+                 product_test_bodies=0,qualification_passed=False)
           (out/'inputs.json').write_text(json.dumps(d,indent=2)+'\n')
           PY_BEFORE
       - name: Install exact repository Rust toolchain
@@ -377,26 +387,48 @@ jobs:
           rustup default "$toolchain"
       - name: Resolve merged workspace lock without compiling
         id: resolve
-        run: cargo update --workspace
+        run: |
+          python3 - <<'PY_RESOLVE'
+          import json,os,subprocess
+          from pathlib import Path
+          request=json.loads((Path(os.environ['RUNNER_TEMP'])/'lock-preview'/'inputs.json').read_text())
+          subprocess.run(request['command'],check=True)
+          PY_RESOLVE
       - name: Export only the exact dependency source patch
         if: always() && steps.resolve.outcome != 'skipped'
         env:
           RESOLVE_OUTCOME: ${{ steps.resolve.outcome }}
         run: |
           python3 - <<'PY_AFTER'
-          import hashlib,json,os,subprocess
+          import copy,hashlib,json,os,subprocess,tomllib
           from pathlib import Path
           git=lambda *a:subprocess.check_output(['git',*a],text=True).strip()
           out=Path(os.environ['RUNNER_TEMP'])/'lock-preview'
           d=json.loads((out/'inputs.json').read_text())
           patch=subprocess.check_output(['git','diff','--binary','--','Cargo.lock'])
+          package_scope_valid=True
+          if d['lock_update']=='ctutils-0.4.4':
+              before=tomllib.loads(git('show',d['source']+':Cargo.lock'))
+              after=tomllib.loads(Path('Cargo.lock').read_text())
+              prior=[p for p in before['package'] if p['name']=='ctutils']
+              updated=[p for p in after['package'] if p['name']=='ctutils']
+              package_scope_valid=len(prior)==len(updated)==1
+              if package_scope_valid:
+                  package_scope_valid=prior[0]['version']=='0.4.2' and updated[0]['version']=='0.4.4'
+                  normalized=copy.deepcopy(after)
+                  target=next(p for p in normalized['package'] if p['name']=='ctutils')
+                  target['version']=prior[0]['version']
+                  target['checksum']=prior[0]['checksum']
+                  package_scope_valid=package_scope_valid and normalized==before
+                  d['package_change']={'before':prior[0],'after':updated[0]}
           d.update(resolve_outcome=os.environ['RESOLVE_OUTCOME'],
                    head_unchanged=git('rev-parse','HEAD')==d['source'],
                    only_lock_changed=set(git('diff','--name-only').splitlines())<= {'Cargo.lock'},
                    index_and_untracked_pristine=not git('diff','--cached','--name-only') and not git('ls-files','--others','--exclude-standard'),
                    lock_after_sha256=hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
-                   patch_sha256=hashlib.sha256(patch).hexdigest(),patch_bytes=len(patch))
-          d['preview_complete']=d['resolve_outcome']=='success' and d['head_unchanged'] and d['only_lock_changed'] and d['index_and_untracked_pristine']
+                   patch_sha256=hashlib.sha256(patch).hexdigest(),patch_bytes=len(patch),
+                   package_scope_valid=package_scope_valid)
+          d['preview_complete']=d['resolve_outcome']=='success' and d['head_unchanged'] and d['only_lock_changed'] and d['index_and_untracked_pristine'] and d['package_scope_valid']
           (out/'dependency-lock.patch').write_bytes(patch)
           (out/'result.json').write_text(json.dumps(d,indent=2)+'\n')
           if not d['preview_complete']:raise SystemExit(1)
