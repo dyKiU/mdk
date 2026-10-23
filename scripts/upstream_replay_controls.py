@@ -803,6 +803,127 @@ def private_maintenance_controls(site):
             'own_positive': 1, 'own_negative': len(own_bad), 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+PRIVATE_HYDRATION_CASE = 'engine-private-maintenance-hydration'
+PRIVATE_HYDRATION_TESTS = {
+    'device_group_genesis::tests::hydration_retires_legacy_private_maintenance_before_bootstrap_reads':
+        'crates/cgka-engine/src/device_group_genesis.rs',
+    'device_group_genesis::tests::hydration_preserves_private_maintenance_behind_durable_pending_crypto':
+        'crates/cgka-engine/src/device_group_genesis.rs',
+}
+PRIVATE_HYDRATION_MESSAGE = 'unsupported private maintenance must retire during hydration, before network bootstrap'
+PRIVATE_HYDRATION_PATTERN = (r'assert_eq!\(\s*private_queued,\s*0,\s*"'
+    + re.escape(PRIVATE_HYDRATION_MESSAGE) + r'"\s*,?\s*\);')
+CASES[PRIVATE_HYDRATION_CASE] = ('cgka_engine', PRIVATE_HYDRATION_CASE,
+    'crates/cgka-engine/src/device_group_genesis.rs')
+ENGINE_CASES.add(PRIVATE_HYDRATION_CASE)
+PRIVATE_MAINTENANCE_COHORTS = {PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE}
+
+
+def maintenance_tests_for(case):
+    if case == PRIVATE_HYDRATION_CASE:
+        return PRIVATE_HYDRATION_TESTS
+    if case == PRIVATE_MAINTENANCE_CASE:
+        return PRIVATE_MAINTENANCE_TESTS
+    raise ValueError('closed-maintenance-cohort')
+
+
+def private_hydration_site():
+    text = Path(CASES[PRIVATE_HYDRATION_CASE][2]).read_text()
+    found = list(re.finditer(PRIVATE_HYDRATION_PATTERN, text))
+    if len(found) != 1:
+        raise ValueError('private-hydration-source-site')
+    return {'line': text[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - text.rfind('\n', 0, found[0].start())}
+
+
+def private_hydration_failure(raw, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    if text.count('panicked at ') != 1:
+        return False
+    first = next(iter(PRIVATE_HYDRATION_TESTS))
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(first)
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(PRIVATE_HYDRATION_TESTS[first])
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}assertion `left == right` failed: '
+        + re.escape(PRIVATE_HYDRATION_MESSAGE)
+        + r'[ \t]*\n[ \t]{0,8}left: 1[ \t]*\n[ \t]{0,8}right: 0[ \t]*(?:\n|$)')
+    return re.search(pattern, text) is not None
+
+
+def private_hydration_runtime(raw, red):
+    runtime = automatic_negotiation_runtime(raw, PRIVATE_HYDRATION_TESTS, 'cgka-engine')
+    panics = automatic_negotiation_panics(raw, PRIVATE_HYDRATION_TESTS)
+    names = list(PRIVATE_HYDRATION_TESTS)
+    expected = {names[0]: 'FAIL' if red else 'PASS', names[1]: 'PASS'}
+    wanted = {'executed': 2, 'passed': 1 if red else 2, 'failed': 1 if red else 0}
+    actual = runtime['counts']
+    accepted = (runtime['complete'] and actual is not None
+        and {key: actual[key] for key in wanted} == wanted
+        and type(actual['skipped']) is int and actual['skipped'] >= 0
+        and runtime['runtime_summary'] == summary_counts(raw)
+        and runtime['runtime_summary']['summary_count'] == 1
+        and runtime['runtime_summary']['counts'] == actual
+        and {row['test']: row['outcome'] for row in runtime['rows']} == expected
+        and panics['unknown_or_excess_headers'] == 0
+        and len(panics['sites']) == (1 if red else 0)
+        and (not red or private_hydration_failure(raw, private_hydration_site())))
+    return {'runtime': runtime, 'panics': panics, 'accepted': accepted}
+
+
+def private_hydration_controls(site):
+    names = list(PRIVATE_HYDRATION_TESTS)
+    suite = {'binary-name': 'cgka_engine', 'kind': 'lib', 'testcases': {
+        name: {'ignored': False, 'filter-match': {'status': 'matches'}} for name in names}}
+    inventory = {'rust-suites': {'lib': suite}}
+    assert selected_automatic_negotiation(inventory, PRIVATE_HYDRATION_TESTS, 'cgka-engine', 'cgka_engine')['selected_nonignored'] == 2
+    assert set(names).isdisjoint(PRIVATE_MAINTENANCE_TESTS)
+    bad_inventory = []
+    for key, value in [('binary-name', 'PRIVATE'), ('kind', 'test')]:
+        changed = json.loads(json.dumps(inventory)); changed['rust-suites']['lib'][key] = value; bad_inventory.append(changed)
+    for key, value in [('ignored', True), ('ignored', 0), ('filter-match', {'status': 'mismatch'})]:
+        changed = json.loads(json.dumps(inventory)); changed['rust-suites']['lib']['testcases'][names[0]][key] = value; bad_inventory.append(changed)
+    changed = json.loads(json.dumps(inventory)); del changed['rust-suites']['lib']['testcases'][names[1]]; bad_inventory.append(changed)
+    changed = json.loads(json.dumps(inventory)); changed['rust-suites']['duplicate'] = suite; bad_inventory.append(changed)
+    for changed in bad_inventory:
+        try:
+            selected_automatic_negotiation(changed, PRIVATE_HYDRATION_TESTS, 'cgka-engine', 'cgka_engine')
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('private-hydration-inventory-negative')
+    def rows(outcomes, filtered=0):
+        return (''.join(outcome + ' [ 0.001s] cgka-engine ' + name + '\n' for outcome, name in zip(outcomes, names))
+            + 'Summary [ 0.01s] 2 tests run: ' + str(outcomes.count('PASS')) + ' passed, '
+            + str(outcomes.count('FAIL')) + ' failed, ' + str(filtered) + ' skipped\n').encode()
+    header = ("thread '" + names[0] + "' (7) panicked at " + PRIVATE_HYDRATION_TESTS[names[0]]
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + ':\nassertion `left == right` failed: ' + PRIVATE_HYDRATION_MESSAGE + '\n  left: 1\n right: 0\n').encode()
+    assert private_hydration_failure(header, site)
+    assert private_hydration_runtime(rows(['PASS', 'PASS']), False)['accepted']
+    assert private_hydration_runtime(rows(['FAIL', 'PASS']) + header, True)['accepted']
+    assert private_hydration_runtime(rows(['PASS', 'PASS'], 273), False)['accepted']
+    assert private_hydration_runtime(rows(['FAIL', 'PASS'], 273) + header, True)['accepted']
+    bad_own = [b'', header + header, header.replace(b'left: 1', b'left: 0'), header.replace(b'right: 0', b'right: 1'),
+        header.replace(b'left: 1', b'left: 01'), header.replace(names[0].encode(), names[1].encode()),
+        header.replace(PRIVATE_HYDRATION_TESTS[names[0]].encode(), b'PRIVATE.rs'),
+        header.replace(PRIVATE_HYDRATION_MESSAGE.encode(), b'PRIVATE'),
+        header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+        header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n')]
+    assert all(not private_hydration_failure(raw, site) for raw in bad_own)
+    bad_runtime = [rows(['FAIL', 'FAIL']) + header, rows(['PASS', 'FAIL']) + header,
+        rows(['FAIL', 'PASS']), rows(['PASS', 'PASS']) + header,
+        rows(['FAIL', 'PASS']) + header + header,
+        (rows(['FAIL', 'PASS']) + header).replace(b'2 tests run:', b'1 test run:'),
+        (rows(['FAIL', 'PASS']) + header).replace(names[1].encode(), names[0].encode()),
+        (rows(['FAIL', 'PASS'], 273) + header).replace(b'1 failed', b'0 failed'),
+        (rows(['FAIL', 'PASS'], 273) + header).replace(b'1 passed', b'2 passed')]
+    assert all(not private_hydration_runtime(raw, True)['accepted'] for raw in bad_runtime)
+    assert positive_configuration(PRIVATE_HYDRATION_CASE) == (ENGINE_FEATURES, 'ci', None)
+    return {'inventory_positive': 1, 'inventory_negative': len(bad_inventory), 'runtime_positive': 4,
+        'runtime_negative': len(bad_runtime), 'own_positive': 1, 'own_negative': len(bad_own),
+        'configuration_positive': 1, 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 PRIVATE_SEND_MESSAGE = 'generic private send must be rejected before queue admission; queued=1'
 CASES[PRIVATE_SEND_CASE] = ('cgka_engine',
     'device_group_genesis::tests::private_group_generic_send_is_rejected_before_queue_admission',
@@ -1886,7 +2007,9 @@ def replay_configuration_controls():
     for case in AUTOMATIC_NATIVE_CASES:
         assert positive_configuration(case) == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
         assert package_for(case) == 'marmot-app' and case not in INTEGRATION_CASES | ADAPTER_CASES
-    return {'positive': 20 + len(AUTOMATIC_NATIVE_CASES), 'synthetic_metadata_only': True, 'product_bodies': 0}
+    assert positive_configuration(PRIVATE_HYDRATION_CASE) == (ENGINE_FEATURES, 'ci', None)
+    assert len(PRIVATE_HYDRATION_TESTS) == 2 and set(PRIVATE_HYDRATION_TESTS).isdisjoint(PRIVATE_MAINTENANCE_TESTS)
+    return {'positive': 21 + len(AUTOMATIC_NATIVE_CASES), 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 def compiler(raw, inputs):
@@ -2456,6 +2579,52 @@ def private_maintenance_order_controls(site):
     return {'inverse_positive': 1, 'inverse_negative': len(bad), 'own_positive': 1,
         'own_negative': len(failures), 'configuration_positive': 1,
         'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+PRIVATE_HYDRATION_PRODUCT = 'crates/cgka-engine/src/engine.rs'
+PRIVATE_HYDRATION_GREEN = '        // Negative upgrade recovery must precede bootstrap reads and network\n        // replay. Those can fail before the host receives a convergence wake.\n        // Full hydration has validated the actual tree and restored any real\n        // pending publication; never retire maintenance through that barrier.\n        #[cfg(feature = "experimental-device-sync")]\n        let has_queued_intents = if has_queued_intents\n            && !group.is_terminal()\n            && !group.unrecoverable\n            && matches!(\n                self.epoch_manager.state(group_id),\n                Some(cgka_traits::EpochState::Stable { .. })\n            ) {\n            self.retire_queued_private_maintenance(group_id)\n                .map_err(|_| GroupHydrationQuarantineReason::GroupRecordLoadFailed)?;\n            !self\n                .storage\n                .list_queued_outbound_intents(group_id)\n                .map_err(|_| GroupHydrationQuarantineReason::GroupRecordLoadFailed)?\n                .is_empty()\n        } else {\n            has_queued_intents\n        };\n'
+PRIVATE_HYDRATION_INVERSE = '\n' * 22
+PFP[PRIVATE_HYDRATION_CASE] = (
+    PRIVATE_HYDRATION_PRODUCT, PRIVATE_HYDRATION_GREEN, PRIVATE_HYDRATION_INVERSE,
+    PRIVATE_HYDRATION_MESSAGE, PRIVATE_HYDRATION_PATTERN)
+
+
+def validate_private_hydration_inverse(text, old, new):
+    owner = '    fn hydrate_one_stored_group('
+    if text.count(owner) != 1:
+        raise ValueError('private-hydration-inverse-owner')
+    start = text.index(owner)
+    end = text.index('    fn restore_durable_group_evolution_on_hydrate(', start)
+    if (old != PRIVATE_HYDRATION_GREEN or new != PRIVATE_HYDRATION_INVERSE
+            or text.count(old) != 1 or old not in text[start:end]
+            or old.count('self.retire_queued_private_maintenance(group_id)') != 1
+            or old.count('Some(cgka_traits::EpochState::Stable { .. })') != 1
+            or old.count('!group.is_terminal()') != 1 or old.count('!group.unrecoverable') != 1
+            or old.count('\n') != new.count('\n')
+            or new != '\n' * PRIVATE_HYDRATION_GREEN.count('\n')):
+        raise ValueError('private-hydration-inverse-scope')
+
+
+def private_hydration_pfp_controls(site):
+    result = private_hydration_controls(site)
+    source = Path(PRIVATE_HYDRATION_PRODUCT).read_text()
+    old, new = PRIVATE_HYDRATION_GREEN, PRIVATE_HYDRATION_INVERSE
+    validate_private_hydration_inverse(source, old, new)
+    invalid = [(source + old, old, new),
+        (source.replace('fn hydrate_one_stored_group(', 'fn PRIVATE('), old, new),
+        (source.replace(old, '') + old, old, new), (source, old, old),
+        (source, old, new + '\n'), (source, old, '        panic!("PRIVATE");' + new),
+        (source.replace('Some(cgka_traits::EpochState::Stable { .. })', 'Some(cgka_traits::EpochState::PRIVATE { .. })'), old, new)]
+    for text, original, mutant in invalid:
+        try:
+            validate_private_hydration_inverse(text, original, mutant)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('private-hydration-inverse-negative')
+    assert pfp_configuration(PRIVATE_HYDRATION_CASE) == (ENGINE_FEATURES, 'ci', None)
+    result.update(inverse_positive=1, inverse_negative=len(invalid))
+    return result
 
 
 PRIVATE_SEND_PRODUCT = 'crates/cgka-engine/src/message_processor/mod.rs'
@@ -3071,6 +3240,8 @@ def inverse(case):
         validate_family_pfp_inverse(text, case, old, new)
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
         validate_private_maintenance_order_inverse(text, old, new)
+    if case == PRIVATE_HYDRATION_CASE:
+        validate_private_hydration_inverse(text, old, new)
     if case == PRIVATE_MAINTENANCE_CASE:
         validate_private_maintenance_inverse(text, old, new)
     if case == PRIVATE_SEND_CASE:
@@ -3135,6 +3306,8 @@ def inverse(case):
 def own_failure(raw, case, site):
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
         return private_maintenance_order_failure(raw, site)
+    if case == PRIVATE_HYDRATION_CASE:
+        return private_hydration_failure(raw, site)
     if case == PRIVATE_MAINTENANCE_CASE:
         return private_maintenance_failure(raw, site)
     if case == PRIVATE_SEND_CASE:
@@ -3167,6 +3340,8 @@ def own_failure(raw, case, site):
 def pfp_controls(case, site):
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
         return private_maintenance_order_controls(site)
+    if case == PRIVATE_HYDRATION_CASE:
+        return private_hydration_pfp_controls(site)
     if case == PRIVATE_MAINTENANCE_CASE:
         return private_maintenance_pfp_controls(site)
     if case == PRIVATE_SEND_CASE:
@@ -3203,6 +3378,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == PRIVATE_HYDRATION_CASE:
+        return positive_configuration(case)
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
         return positive_configuration(case)
     if case == PRIVATE_MAINTENANCE_CASE:
@@ -3629,12 +3806,18 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == PRIVATE_HYDRATION_CASE:
+        report.update(expected_tests=list(PRIVATE_HYDRATION_TESTS), expected_runtime_count=2,
+            expected_phase_counts={'baseline': {'executed': 2, 'passed': 2, 'failed': 0},
+                'mutant': {'executed': 2, 'passed': 1, 'failed': 1},
+                'restored': {'executed': 2, 'passed': 2, 'failed': 0}},
+            selected_ignored_required=0, unselected_filtered_count='observed-nonnegative-from-runtime-summary')
     if args.case == PRIVATE_MAINTENANCE_ORDER_CASE:
         report.update(evidence_scope='real-private-MLS-maintenance-PendingPublish-order-only',
             native_protocol_qualification=False, full_suite_qualification=False,
             cold_restart_qualification=False, postassert_mutant_cleanup_proven=False)
-    if args.case == PRIVATE_MAINTENANCE_CASE:
-        report.update(evidence_scope='real-private-MLS-maintenance-call-necessity-only',
+    if args.case in PRIVATE_MAINTENANCE_COHORTS:
+        report.update(evidence_scope=('validated-private-MLS-hydration-retirement-only' if args.case == PRIVATE_HYDRATION_CASE else 'real-private-MLS-maintenance-call-necessity-only'),
             native_protocol_qualification=False, full_suite_qualification=False,
             pending_publish_gate_mutation_qualified=False, cold_restart_qualification=False)
     if args.case == PRIVATE_SEND_CASE:
@@ -3727,8 +3910,8 @@ def pfp(args):
             selection += ' & binary(=cgka_engine)'
         if phase_case in LIVE_SEAL_CASES:
             selection += ' & binary(=transport_nostr)'
-        if phase_case == PRIVATE_MAINTENANCE_CASE:
-            selection = automatic_negotiation_selection(PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
+        if phase_case in PRIVATE_MAINTENANCE_COHORTS:
+            selection = automatic_negotiation_selection(maintenance_tests_for(phase_case), 'cgka-engine', 'cgka_engine')
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                             'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
@@ -3737,11 +3920,11 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         inventory = json.loads(raw, object_pairs_hook=unique)
-        if phase_case == PRIVATE_MAINTENANCE_CASE:
-            row['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
+        if phase_case in PRIVATE_MAINTENANCE_COHORTS:
+            row['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(phase_case), 'cgka-engine', 'cgka_engine')
         else:
             selected_case(inventory, CASES[phase_case][1])
         if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
@@ -3749,7 +3932,7 @@ def pfp(args):
                 if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
             if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != CASES[phase_case][0] or matched_suites[0].get('kind') != 'lib':
                 raise ValueError('one-exact-pfp-library-binary')
-        row['inventory'].update(selected_nonignored=2 if phase_case == PRIVATE_MAINTENANCE_CASE else 1, selected_ignored=0)
+        row['inventory'].update(selected_nonignored=2 if phase_case in PRIVATE_MAINTENANCE_COHORTS else 1, selected_ignored=0)
         save()
         if snapshot() != expected:
             raise ValueError('phase-inventory-source')
@@ -3762,23 +3945,27 @@ def pfp(args):
                        'raw_sha256': hashlib.sha256(raw).hexdigest(), 'runtime_summary': summary_counts(raw),
                        'compiler': compiler(raw, expected['inputs']), 'panic': panic_facts(raw, phase_case)}
         save()
-        if phase_case == PRIVATE_MAINTENANCE_CASE:
-            row['body']['panic'] = automatic_negotiation_panics(raw, PRIVATE_MAINTENANCE_TESTS)
-            row['body']['private_maintenance_runtime'] = automatic_negotiation_runtime(raw, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine')
+        if phase_case in PRIVATE_MAINTENANCE_COHORTS:
+            row['body']['panic'] = automatic_negotiation_panics(raw, maintenance_tests_for(phase_case))
+            row['body']['private_maintenance_runtime'] = automatic_negotiation_runtime(raw, maintenance_tests_for(phase_case), 'cgka-engine')
             row['body']['counts'] = row['body']['private_maintenance_runtime']['counts']
         else:
             row['body']['counts'] = counts(raw, phase_case)
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
+        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
-        if phase_case == PRIVATE_MAINTENANCE_CASE:
+        if phase_case in PRIVATE_MAINTENANCE_COHORTS:
             runtime = row['body']['private_maintenance_runtime']
             watch_accepted = (runtime['complete']
                 and row['body']['panic']['unknown_or_excess_headers'] == 0
                 and sorted(site['test'] for site in row['body']['panic']['sites']) == sorted(item['test'] for item in runtime['rows'] if item['outcome'] == 'FAIL'))
+            save()
+        if phase_case == PRIVATE_HYDRATION_CASE:
+            row['body']['private_hydration_oracle'] = private_hydration_runtime(raw, label == 'mutant')
+            watch_accepted = row['body']['private_hydration_oracle']['accepted']
             save()
         if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
             row['body']['automatic_scan_expiry_probe'] = automatic_scan_expiry_probe(raw)
@@ -3842,7 +4029,7 @@ def pfp(args):
                                and clean_compile and watch_accepted and row['own_runtime_failure']
                                and row['source_exact_after_body'])
         else:
-            row['accepted'] = (code == 0 and row['body']['counts']['passed'] == (2 if phase_case == PRIVATE_MAINTENANCE_CASE else 1) and clean_compile and watch_accepted
+            row['accepted'] = (code == 0 and row['body']['counts']['passed'] == (2 if phase_case in PRIVATE_MAINTENANCE_COHORTS else 1) and clean_compile and watch_accepted
                                and row['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0}
                                and row['source_exact_after_body'])
         save()
@@ -4319,10 +4506,10 @@ def positive(args):
             del report['expected_test']
             report['expected_tests'] = list(AUTOMATIC_NEGOTIATION_TESTS)
             report['expected_runtime_count'] = len(AUTOMATIC_NEGOTIATION_TESTS)
-    if args.case == PRIVATE_MAINTENANCE_CASE:
+    if args.case in PRIVATE_MAINTENANCE_COHORTS:
         report.pop('expected_test')
-        report.update(expected_tests=list(PRIVATE_MAINTENANCE_TESTS), expected_runtime_count=2,
-                      evidence_scope='real-private-MLS-legacy-maintenance-recovery-only',
+        report.update(expected_tests=list(maintenance_tests_for(args.case)), expected_runtime_count=2,
+                      evidence_scope=('validated-private-MLS-hydration-retirement-only' if args.case == PRIVATE_HYDRATION_CASE else 'real-private-MLS-legacy-maintenance-recovery-only'),
                       native_protocol_qualification=False, full_suite_qualification=False,
                       retained_queue_recovery_qualification=False)
     if args.case == PRIVATE_SEND_CASE:
@@ -4391,9 +4578,9 @@ def positive(args):
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
-        if args.case == PRIVATE_MAINTENANCE_CASE:
-            maintenance_site = private_maintenance_site()
-            report['private_maintenance_controls'] = private_maintenance_controls(maintenance_site)
+        if args.case in PRIVATE_MAINTENANCE_COHORTS:
+            maintenance_site = private_hydration_site() if args.case == PRIVATE_HYDRATION_CASE else private_maintenance_site()
+            report['private_maintenance_controls'] = (private_hydration_controls(maintenance_site) if args.case == PRIVATE_HYDRATION_CASE else private_maintenance_controls(maintenance_site))
         if args.case == PRIVATE_SEND_CASE:
             private_send_source_site = private_send_site()
             report['private_send_controls'] = private_send_controls(private_send_source_site)
@@ -4488,8 +4675,8 @@ def positive(args):
                 selection = automatic_negotiation_selection()
             if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
                 selection += ' & binary(=marmot_app)'
-            if args.case == PRIVATE_MAINTENANCE_CASE:
-                selection = automatic_negotiation_selection(PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
+            if args.case in PRIVATE_MAINTENANCE_COHORTS:
+                selection = automatic_negotiation_selection(maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
             body_selection = selection
             if args.case == 'private-classifier-authentication':
                 selection = engine_bundle_selection()
@@ -4503,10 +4690,10 @@ def positive(args):
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
-            if args.case in AUTOMATIC_NATIVE_CASES | {PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE} and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+            if args.case in AUTOMATIC_NATIVE_CASES | {PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE} and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
                 raise ValueError('automatic-native-inventory-compiler')
-            if args.case == PRIVATE_MAINTENANCE_CASE:
-                report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
+            if args.case in PRIVATE_MAINTENANCE_COHORTS:
+                report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
             elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
             elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE}:
@@ -4523,7 +4710,7 @@ def positive(args):
             if args.case in OFFLINE_CASES:
                 report['compiled_fingerprints'] = fingerprint_snapshot(
                     inventory, test, os.environ.get('CARGO_TARGET_DIR', 'target'))
-            report['inventory']['selected_nonignored'] = (2 if args.case == PRIVATE_MAINTENANCE_CASE else len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 8 if args.case == 'private-classifier-authentication' else 1)
+            report['inventory']['selected_nonignored'] = (2 if args.case in PRIVATE_MAINTENANCE_COHORTS else len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 8 if args.case == 'private-classifier-authentication' else 1)
             report['inventory']['selected_ignored'] = 0
             save()
             stage = 'inventory-source'
@@ -4545,9 +4732,9 @@ def positive(args):
                               'panic': panic_facts(raw, args.case), 'runtime_summary': summary_counts(raw)}
             save()  # An actual attempted body survives any later parser/closure error.
             stage = 'runtime-shape'
-            if args.case == PRIVATE_MAINTENANCE_CASE:
-                report['body']['panic'] = automatic_negotiation_panics(raw, PRIVATE_MAINTENANCE_TESTS)
-                report['body']['private_maintenance_runtime'] = automatic_negotiation_runtime(raw, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine')
+            if args.case in PRIVATE_MAINTENANCE_COHORTS:
+                report['body']['panic'] = automatic_negotiation_panics(raw, maintenance_tests_for(args.case))
+                report['body']['private_maintenance_runtime'] = automatic_negotiation_runtime(raw, maintenance_tests_for(args.case), 'cgka-engine')
                 report['body']['counts'] = report['body']['private_maintenance_runtime']['counts']
             elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['body']['panic'] = automatic_negotiation_panics(raw)
@@ -4683,16 +4870,19 @@ def positive(args):
                 report['historical_cause_proven'] = False
                 save()
             command_accepted = True
-            if args.case == PRIVATE_MAINTENANCE_CASE:
+            if args.case in PRIVATE_MAINTENANCE_COHORTS:
                 runtime = report['body']['private_maintenance_runtime']
                 command_accepted = (runtime['complete'] and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
                     for part in (report['inventory'], report['body'])))
+                if args.case == PRIVATE_HYDRATION_CASE:
+                    report['body']['private_hydration_oracle'] = private_hydration_runtime(raw, code == 100)
+                    command_accepted = command_accepted and report['body']['private_hydration_oracle']['accepted']
                 report['expected_private_maintenance_runtime_red_before_closure'] = (
                     command_accepted and code == 100 and runtime['counts']['failed'] >= 1
                     and report['body']['panic']['unknown_or_excess_headers'] == 0
                     and sorted(site['test'] for site in report['body']['panic']['sites']) == sorted(row['test'] for row in runtime['rows'] if row['outcome'] == 'FAIL')
-                    and any(row['test'] == next(iter(PRIVATE_MAINTENANCE_TESTS)) and row['outcome'] == 'FAIL' for row in runtime['rows'])
-                    and private_maintenance_failure(raw, maintenance_site))
+                    and any(row['test'] == next(iter(maintenance_tests_for(args.case))) and row['outcome'] == 'FAIL' for row in runtime['rows'])
+                    and (private_hydration_failure(raw, maintenance_site) if args.case == PRIVATE_HYDRATION_CASE else private_maintenance_failure(raw, maintenance_site)))
             if args.case == PRIVATE_SEND_CASE:
                 command_accepted = all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
                                        for part in (report['inventory'], report['body']))
@@ -4789,7 +4979,7 @@ def positive(args):
                 report['body']['observation'] = marker(raw)
                 save()
             stage = 'body-not-passed'
-            report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == (2 if args.case == PRIVATE_MAINTENANCE_CASE else len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 1)
+            report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == (2 if args.case in PRIVATE_MAINTENANCE_COHORTS else len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 1)
                                      and report['body']['compiler']['header_count'] == 0
                                      and not report['body']['compiler']['codes']
                                      and report['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0})
@@ -4825,7 +5015,7 @@ def positive(args):
                 args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_configuration_aba_runtime_red_before_closure') is True)
 
-        if args.case == PRIVATE_MAINTENANCE_CASE:
+        if args.case in PRIVATE_MAINTENANCE_COHORTS:
             report['expected_private_maintenance_runtime_red'] = (
                 args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_private_maintenance_runtime_red_before_closure') is True)
@@ -5018,7 +5208,7 @@ def main():
     if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
             and not (args.case == AUTOMATIC_SCAN_EXPIRY_CASE and args.stage == 'pfp')):
         raise ValueError('automatic-native-positive-or-expiry-pfp-only')
-    if args.case == PRIVATE_MAINTENANCE_CASE and args.stage not in {'positive', 'pfp'}:
+    if args.case in PRIVATE_MAINTENANCE_COHORTS and args.stage not in {'positive', 'pfp'}:
         raise ValueError('private-maintenance-positive-or-pfp-only')
     if args.case == PRIVATE_SEND_CASE and args.stage not in {'positive', 'pfp'}:
         raise ValueError('private-send-positive-or-pfp-only')
