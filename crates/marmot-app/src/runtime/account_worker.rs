@@ -2060,7 +2060,6 @@ async fn run_app_runtime_account_worker(
                 .filter(|changes| changes.has_changed().is_ok());
             #[cfg(all(test, feature = "test-policy-overrides"))]
             tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 6);
-
         }
         // Once comparison input is known, its turn arbitrates both sources.
         // Native-only admission is still required while network capture waits.
