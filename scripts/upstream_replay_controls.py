@@ -20,6 +20,56 @@ from upstream_adapter_exit_observation import parse as adapter_exit_observation,
 from upstream_fresh_rejoin_observation import fresh_rejoin_observation, controls as fresh_rejoin_controls
 
 PREFIX = 'offline-replay-diagnostic '
+SCOPED_REPORT_PROBE_PREFIX = 'private-scoped-report-prerequisites'
+SCOPED_REPORT_PROBE_BOOLS = {
+    'actual_id_distinct', 'real_sdk_id', 'account_tracks_actual',
+    'account_tracks_logical_plan', 'tracking_prerequisite', 'owed_actual',
+    'actual_reconnect_replay_and_eose', 'cleanup_complete', 'active_account_before',
+}
+SCOPED_REPORT_PROBE_COUNTS = {'activations_degraded', 'activations_full', 'activations_failed'}
+
+
+def scoped_report_probe(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    lines = [line for line in text.splitlines() if SCOPED_REPORT_PROBE_PREFIX in line]
+    if len(lines) != 1 or text.count(SCOPED_REPORT_PROBE_PREFIX) != 1 or len(lines[0]) > 2048:
+        raise ValueError('scoped-report-probe-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(SCOPED_REPORT_PROBE_PREFIX) + r' (\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('scoped-report-probe-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if type(value) is not dict or set(value) != SCOPED_REPORT_PROBE_BOOLS | SCOPED_REPORT_PROBE_COUNTS:
+        raise ValueError('scoped-report-probe-fields')
+    if any(type(value[key]) is not bool for key in SCOPED_REPORT_PROBE_BOOLS):
+        raise ValueError('scoped-report-probe-bools')
+    if any(type(value[key]) is not int or not 0 <= value[key] <= 2**63-1 for key in SCOPED_REPORT_PROBE_COUNTS):
+        raise ValueError('scoped-report-probe-counts')
+    return value
+
+
+def scoped_report_probe_controls():
+    value = dict.fromkeys(SCOPED_REPORT_PROBE_BOOLS, True)
+    value.update(dict.fromkeys(SCOPED_REPORT_PROBE_COUNTS, 0))
+    def row(item):
+        return (SCOPED_REPORT_PROBE_PREFIX + ' ' + json.dumps(item) + '\n').encode()
+    valid = row(value)
+    assert scoped_report_probe(valid) == value
+    malformed = [valid + valid, b'PRIVATE ' + valid, b' '*9 + valid,
+        row(dict(value, private=True)), row(dict(value, tracking_prerequisite=1)),
+        row(dict(value, activations_failed=True)), row(dict(value, activations_failed=-1)),
+        row(dict(value, activations_full=2**63)), row(dict(value, activations_full=0.5)),
+        row({key: item for key, item in value.items() if key != 'real_sdk_id'}),
+        valid.replace(b'{', b'{"cleanup_complete":true,', 1)]
+    for raw in malformed:
+        try:
+            scoped_report_probe(raw)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('scoped-report-probe-invalid-accepted')
+    return {'positive': 1, 'negative': len(malformed), 'product_bodies': 0, 'synthetic_metadata_only': True}
+
+
 CASES = {
     'sdk-scoped-reporting': ('transport_nostr_adapter', 'sdk_client::tests::selected_private_scoped_route_preserves_owed_report_and_reconnect_id', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'fresh-rejoin-observation': ('marmot_app', 'native_device_linking::tests::automatic_fresh_rejoin_acceptance::automatic_fresh_accepted_rejoin_restores_only_the_new_source_lineage',
@@ -2888,6 +2938,8 @@ def positive(args):
             report['restart_parser_controls'] = restart_controls()
         if args.case == PENDING_REQUEST_CASE:
             report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
+        if args.case == 'sdk-scoped-reporting':
+            report['scoped_report_probe_controls'] = scoped_report_probe_controls()
         if args.mode == 'preflight':
             result = 0
         else:
@@ -2950,6 +3002,10 @@ def positive(args):
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == 'sdk-scoped-reporting':
+                report['body']['scoped_report_probe'] = scoped_report_probe(raw)
+                report['behavioral_red_qualified'] = False
+                save()  # Frozen verdict/counts survive observation or later closure failures.
             if args.case == PENDING_REQUEST_CASE:
                 report['body']['pending_request_panics'] = pending_request_panics(raw, pending_request_sites())
                 report['behavioral_red_qualified'] = False

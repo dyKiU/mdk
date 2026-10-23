@@ -14081,12 +14081,16 @@ mod tests {
         let real_sdk_id = actual != logical
             && healthy_relay.subscription(&actual).await.is_some()
             && healthy_relay.subscription(&logical).await.is_none();
-        let tracked_actual = sdk
-            .account_subscriptions
-            .read()
-            .await
-            .get(&account)
-            .is_some_and(|ids| ids.contains(&actual) && !ids.contains(&logical));
+        let (account_tracks_actual, account_tracks_logical_plan) = {
+            let subscriptions = sdk.account_subscriptions.read().await;
+            let ids = subscriptions.get(&account);
+            (
+                ids.is_some_and(|ids| ids.contains(&actual)),
+                ids.is_some_and(|ids| ids.contains(&logical)),
+            )
+        };
+        // Keep the original prerequisite while exposing its frozen operands.
+        let tracked_actual = account_tracks_actual && !account_tracks_logical_plan;
         let owed_actual = {
             let owed = sdk.owed.relays();
             owed.get(&down)
@@ -14123,9 +14127,18 @@ mod tests {
         crate::test_support::emit_line(format_args!(
             "private-scoped-report-prerequisites {}",
             serde_json::json!({
-                "actual_scoped_id": real_sdk_id && tracked_actual && owed_actual,
+                "actual_id_distinct": actual != logical,
+                "real_sdk_id": real_sdk_id,
+                "account_tracks_actual": account_tracks_actual,
+                "account_tracks_logical_plan": account_tracks_logical_plan,
+                "tracking_prerequisite": tracked_actual,
+                "owed_actual": owed_actual,
                 "actual_reconnect_replay_and_eose": true,
                 "cleanup_complete": cleanup_complete,
+                "active_account_before": metrics.active_accounts == 1,
+                "activations_degraded": metrics.activations_degraded,
+                "activations_full": metrics.activations_full,
+                "activations_failed": metrics.activations_failed,
             })
         ));
         assert!(
