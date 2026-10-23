@@ -124,6 +124,8 @@ CASES.update({
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
+CASES['cursor-promotion-experimental'] = CASES['cursor-promotion-observation']
+CURSOR_CASES = {'cursor-promotion-observation', 'cursor-promotion-experimental'}
 SELECTIVE_CASES = {'late-commit-default', 'late-commit-extra-epoch'}
 ENGINE_CLASSIFIER_CASES = {'private-classifier-authentication', 'private-classifier-kinds'}
 ENGINE_SUPPORT_CASES = {'engine-validator-empty', 'engine-validator-match', 'engine-private-deadline', 'engine-private-history', 'engine-private-sql', 'engine-validator-mismatch'}
@@ -134,6 +136,7 @@ OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 EXPERIMENTAL_CASES |= UNIFFI_CASES | {'fresh-rejoin-observation', 'sibling-send-experimental', 'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental', 'request-cleanup-experimental', 'priority-cleanup-experimental'}
+EXPERIMENTAL_CASES.add('cursor-promotion-experimental')
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
@@ -243,6 +246,7 @@ def marker(raw):
 FIXTURE_OBSERVATION_BASES = {
     'peer-leave-observation': 'peer-leave-initial-delay-observation',
     'cursor-promotion-observation': 'cursor-promotion-observation',
+    'cursor-promotion-experimental': 'cursor-promotion-observation',
 }
 PEER_OPTIONAL_BOOLS = {'same_epoch', 'advanced_epoch', 'regressed_epoch', 'group_terminal',
                        'group_unrecoverable', 'bob_member', 'own_leave_present'}
@@ -1119,6 +1123,11 @@ def snapshot():
 
 
 PFP = {
+    'cursor-promotion-observation': ('crates/marmot-app/src/client/sync.rs',
+              '        self.checkpointed_transport_timestamp = previous.max(reached);',
+              '        self.checkpointed_transport_timestamp = previous.max(self.state.last_transport_timestamp);',
+              'the older delivery still queued caps the promotion where a restart refetches it',
+              r'assert_eq!\(\s*persisted,\s*Some\(cursor_before\s*\+\s*1_000\s*\+\s*120\),\s*"{message}"\s*\);'),
     'private-classifier-authentication': ('crates/cgka-engine/src/private_enrollment_request.rs', 'pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> bool {\n    let Some(sender) = sender else { return false };\n    let Ok(event) = crate::app_payload::validate_app_payload_for_sender(payload, sender) else {', 'pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> bool {\n    let Some(sender) = sender else { return false };\n    let Ok(event) = cgka_traits::app_event::MarmotAppEvent::decode(payload).map(|event| { let _ = sender; event }) else {', 'private classification must require exact authenticated sender', 'assert!\\(\\s*!crate::private_enrollment_request::is_request_payload\\(&payload,\\s*Some\\(&other\\)\\),\\s*"{message}"\\s*\\);'),
     'private-classifier-kinds': ('crates/cgka-engine/src/private_enrollment_request.rs', '    if matches!(\n        event.kind,\n        REQUEST_KIND | crate::private_enrollment_endorsement::ENDORSEMENT_KIND\n    ) {', '    if false && matches!(\n        event.kind,\n        REQUEST_KIND | crate::private_enrollment_endorsement::ENDORSEMENT_KIND\n    ) {', 'reserved private kinds and protocol hints must stay private', 'assert!\\(\\s*crate::private_enrollment_request::is_request_payload\\(\\s*&payload,\\s*Some\\(&sender\\)\\s*\\),\\s*"{message}"\\s*\\);'),
     'uniffi-conversation-stale': ('crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs',
@@ -1162,6 +1171,8 @@ PFP = {
               r'panic!\(\s*"{message}"\s*\)'),
 }
 
+PFP['cursor-promotion-experimental'] = PFP['cursor-promotion-observation']
+
 
 def validate_sdk_capture_inverse(text, old, new):
     start = text.index('    pub(crate) async fn observe_private_sdk_eose(')
@@ -1174,12 +1185,173 @@ def validate_sdk_capture_inverse(text, old, new):
         raise ValueError('inverse-sdk-capture-owner-or-lines')
 
 
+CURSOR_INNER_THREAD = 'live-cursor-promotion'
+CURSOR_JOIN_MESSAGE = 'called `Result::unwrap()` on an `Err` value: Any { .. }'
+
+
+def bind_cursor_composed_site(fixture, case, site):
+    function = 'fn ' + CASES[case][1].split('::')[-1] + '() {'
+    start = fixture.index(function)
+    end = fixture.index('\n#[test]', start)
+    body = fixture[start:end]
+    call = 'run_composed_app_runtime_test("' + CURSOR_INNER_THREAD + '", || async {'
+    wrapper_start = fixture.index('fn run_composed_app_runtime<F, Fut>(')
+    wrapper_end = fixture.index('\n#[test]', wrapper_start)
+    wrapper = fixture[wrapper_start:wrapper_end]
+    line = '    test_thread.join().unwrap();'
+    if (body.count(call) != 1 or fixture.count(line) != 1
+            or wrapper.count(line) != 1
+            or '.name(thread_name.to_owned())' not in wrapper):
+        raise ValueError('cursor-composed-thread-source')
+    offset = fixture.index(line, wrapper_start)
+    bound = dict(site)
+    bound['inner_thread'] = CURSOR_INNER_THREAD
+    bound['wrapper'] = {'line': fixture[:offset].count('\n') + 1,
+                        'column': line.index('unwrap()') + 1}
+    return bound
+
+
+def cursor_failure_facts(raw, case, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    pattern = (r"(?m)^[ \t]{0,8}thread '([^'\r\n]{1,256})'"
+               + r"(?: \([1-9][0-9]{0,9}\))? panicked at ([A-Za-z0-9_./-]{1,256}):"
+               + r'([1-9][0-9]{0,5}):([1-9][0-9]{0,5}):[ \t]*\r?\n'
+               + r'(?:[ \t]{0,8}\r?\n){0,2}[ \t]{0,8}([^\r\n]{1,512})')
+    headers = [match.groups() for match in re.finditer(pattern, text)]
+    inner = (site['inner_thread'], CASES[case][2], str(site['line']), str(site['column']),
+             runtime_assert_message(case))
+    wrapper = (CASES[case][1], CASES[case][2], str(site['wrapper']['line']),
+               str(site['wrapper']['column']), CURSOR_JOIN_MESSAGE)
+    expected = [inner, wrapper]
+    known = []
+    for role, row in zip(('inner', 'composed_join'), expected):
+        if sum(header[:4] == row[:4] for header in headers) == 1:
+            known.append({'role': role, 'file': row[1], 'line': int(row[2]), 'column': int(row[3])})
+    count = text.count('panicked at ')
+    return {'header_count': count, 'known_sites': known,
+            'unknown_or_excess_headers': max(0, count - len(known)),
+            'exact_inner_assertion': len(headers) >= 1 and headers[0] == inner,
+            'exact_composed_join': len(headers) == 2 and headers[1] == wrapper,
+            'ordered_exact_inner_and_join': count == 2 and headers == expected}
+
+
+def cursor_synthetic_failure(case, site):
+    def header(thread, line, column):
+        return ("thread '" + thread + "' (7) panicked at " + CASES[case][2]
+                + ':' + str(line) + ':' + str(column) + ':\n')
+    return (header(site['inner_thread'], site['line'], site['column'])
+            + runtime_assert_message(case) + '\n  left: Some(5000)\n right: Some(2120)\n'
+            + header(CASES[case][1], site['wrapper']['line'], site['wrapper']['column'])
+            + CURSOR_JOIN_MESSAGE + '\n').encode()
+
+
+def cursor_pfp_own_controls(case, site):
+    valid = cursor_synthetic_failure(case, site)
+    assert own_failure(valid, case, site)
+    assert own_failure(valid.replace(b"' (7)", b"'"), case, site)
+    assert own_failure(valid.replace(b'\n', b'\r\n'), case, site)
+    assert own_failure(valid.replace(runtime_assert_message(case).encode(), b' '*8 + runtime_assert_message(case).encode()), case, site)
+    inner, wrapper = valid.split(("thread '" + CASES[case][1] + "' (7)").encode(), 1)
+    outer = ("thread '" + CASES[case][1] + "' (7)").encode() + wrapper
+    invalid = [valid + valid, outer + inner, inner,
+               valid.replace(site['inner_thread'].encode(), b'PRIVATE'),
+               valid.replace(CASES[case][1].encode(), b'PRIVATE'),
+               valid.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
+               valid.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
+               valid.replace((':' + str(site['wrapper']['line']) + ':').encode(), b':999999:'),
+               valid.replace((':' + str(site['column']) + ':\n').encode(), b':999999:\n', 1),
+               valid.replace(b'assertion `left == right` failed: ', b''),
+               valid.replace(b'left == right', b'left != right'),
+               valid.replace(CURSOR_JOIN_MESSAGE.encode(), b'PRIVATE'),
+               b'PRIVATE ' + valid,
+               valid.replace(runtime_assert_message(case).encode(), b' '*9 + runtime_assert_message(case).encode()),
+               valid + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:1:\nPRIVATE\n"]
+    for raw in invalid:
+        assert not own_failure(raw, case, site)
+    facts = cursor_failure_facts(valid, case, site)
+    assert len(facts['known_sites']) == 2 and facts['unknown_or_excess_headers'] == 0
+    return {'positive': 4, 'negative': len(invalid), 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+def validate_cursor_inverse(text, old, new):
+    start = text.index('    pub(crate) fn seal_transport_cursor(&mut self) -> SealedTransportCursor {')
+    end = text.index('    pub(crate) fn abandon_transport_cursor(', start)
+    if (text.count(old) != 1 or old not in text[start:end]
+            or old != '        self.checkpointed_transport_timestamp = previous.max(reached);'
+            or new != '        self.checkpointed_transport_timestamp = previous.max(self.state.last_transport_timestamp);'
+            or old.count('\n') != new.count('\n')):
+        raise ValueError('inverse-cursor-seal-owner')
+
+
+def runtime_assert_message(case):
+    message = PFP[case][3]
+    return 'assertion `left == right` failed: ' + message if case in CURSOR_CASES else message
+
+
+def cursor_pfp_oracle(value, mutant):
+    if (type(value) is not dict or value.get('marker_present') is not True
+            or type(value.get('observation')) is not dict):
+        return False
+    expected = dict(first_is_newer=True, first_is_older=False, in_memory_is_newer=True,
+                    checkpoint_is_initial=False, seal_before=True, seal_after=True,
+                    delivery_loss=False, transport_cursor_settled=True,
+                    persisted_relative_to_initial=4000 if mutant else 1120)
+    return value['observation'] == expected
+
+
+def cursor_pfp_controls(case, site):
+    path, old, new, message, pattern = PFP[case]
+    source = Path(path).read_text()
+    validate_cursor_inverse(source, old, new)
+    assert pfp_configuration('cursor-promotion-observation') == (LIB_FEATURES, 'ci', None)
+    assert pfp_configuration('cursor-promotion-experimental') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+    assert package_for(case) == 'marmot-app' and CASES[case] == CASES['cursor-promotion-observation']
+    scope_bad = [(source + old, new),
+                 (source.replace('    pub(crate) fn seal_transport_cursor(&mut self)', '    pub(crate) fn PRIVATE(&mut self)'), new),
+                 (source, new + ' self.checkpointed_transport_timestamp = None;')]
+    for changed, inverse in scope_bad:
+        try:
+            validate_cursor_inverse(changed, old, inverse)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('cursor-inverse-scope-negative-accepted')
+    good = dict(first_is_newer=True, first_is_older=False, in_memory_is_newer=True,
+                checkpoint_is_initial=False, seal_before=True, seal_after=True,
+                delivery_loss=False, transport_cursor_settled=True,
+                persisted_relative_to_initial=1120)
+    encode = lambda row: ('cursor-promotion-observation ' + json.dumps(row) + '\n').encode()
+    green = fixture_observation(encode(good), case)
+    red = fixture_observation(encode(dict(good, persisted_relative_to_initial=4000)), case)
+    assert cursor_pfp_oracle(green, False) and cursor_pfp_oracle(red, True)
+    negative = 0
+    for mutant, row in [(True, green), (False, red), (True, dict(red, marker_present=False)),
+                        (True, dict(red, observation=None))]:
+        assert not cursor_pfp_oracle(row, mutant)
+        negative += 1
+    for key in CURSOR_BOOLS:
+        row = dict(good, persisted_relative_to_initial=4000)
+        row[key] = not row[key]
+        assert not cursor_pfp_oracle(fixture_observation(encode(row), case), True)
+        negative += 1
+    status = ('FAIL [ 0.001s] (1/1) marmot-app ' + CASES[case][1]
+              + '\nSummary [ 0.01s] 1 test run: 0 passed, 1 failed, 0 skipped\n').encode()
+    raw = status + cursor_synthetic_failure(case, site)
+    assert counts(raw, case)['failed'] == 1 and own_failure(raw, case, site)
+    assert compiler(raw + b'error[E0308]: PRIVATE\n', {})['header_count'] == 1
+    return {'positive': 3, 'negative': negative, 'scope_negative': len(scope_bad),
+            'configuration_controls': 3, 'compiler_rejection_controls': 1,
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 def inverse(case):
     path, old, new, message, pattern = PFP[case]
     original = Path(path).read_bytes()
     text = original.decode('utf-8')
     if text.count(old) != 1:
         raise ValueError('inverse-anchor')
+    if case in CURSOR_CASES:
+        validate_cursor_inverse(text, old, new)
     if case in ENGINE_CLASSIFIER_CASES:
         start = text.index('pub(crate) fn is_request_payload(')
         end = text.index('pub(crate) fn stage(', start)
@@ -1219,10 +1391,14 @@ def inverse(case):
         raise ValueError('inverse-oracle-source')
     site = {'line': fixture[:found[0].start()].count('\n') + 1,
             'column': found[0].start() - fixture.rfind('\n', 0, found[0].start())}
+    if case in CURSOR_CASES:
+        site = bind_cursor_composed_site(fixture, case, site)
     return path, original, text.replace(old, new, 1).encode(), site
 
 
 def own_failure(raw, case, site):
+    if case in CURSOR_CASES:
+        return cursor_failure_facts(raw, case, site)['ordered_exact_inner_and_join']
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     if text.count('panicked at ') != 1:
         return False
@@ -1235,6 +1411,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case in CURSOR_CASES:
+        return cursor_pfp_own_controls(case, site)
     header = ("thread '" + CASES[case][1] + "' (7) panicked at "
               + CASES[case][2] + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
     valid = (header + PFP[case][3] + '\n').encode()
@@ -1260,7 +1438,7 @@ def pfp_configuration(case):
     if case == 'sdk-private-capture-control':
         return (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
     return ((LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
-            if case in {'command-owned-cleanup', 'watch-pressure', 'worker-input-offer', 'command-backlog'} else (LIB_FEATURES, 'ci', None))
+            if case in {'cursor-promotion-experimental', 'command-owned-cleanup', 'watch-pressure', 'worker-input-offer', 'command-backlog'} else (LIB_FEATURES, 'ci', None))
 
 
 def watch_pfp_oracle(value, mutant):
@@ -1482,6 +1660,9 @@ def pfp(args):
     if args.case in {'offline-experimental', 'wrong-recipient-routing'}:
         report.update(evidence_scope='scoped-experimental-App-only',
                       native_protocol_qualification=False, full_workspace_feature_union=False)
+    if args.case in CURSOR_CASES:
+        report.update(evidence_scope='cursor-router-pin-fixture-mechanism-only', native_protocol_qualification=False,
+                      historical_full_failure_cause_proven=False)
     if args.case == 'command-owned-cleanup':
         report.update(evidence_scope='owned-mock-relay-cleanup-mechanism-only', native_protocol_qualification=False)
     if args.case in WORKER_INPUT_CASES:
@@ -1559,6 +1740,13 @@ def pfp(args):
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
         watch_accepted = True
+        if args.case in CURSOR_CASES:
+            row['body']['cursor_panic_facts'] = cursor_failure_facts(raw, phase_case, site)
+            save()
+            row['body']['fixture_observation'] = fixture_observation(raw, phase_case)
+            watch_accepted = cursor_pfp_oracle(row['body']['fixture_observation'], label == 'mutant')
+            row['cursor_prerequisites_accepted'] = watch_accepted
+            save()
         if args.case == 'command-owned-cleanup':
             row['body']['owned_cleanup_observation'] = owned_cleanup_marker(raw)
             watch_accepted = owned_cleanup_oracle(row['body']['owned_cleanup_observation'], label == 'mutant')
@@ -1613,6 +1801,8 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case in CURSOR_CASES:
+            report['cursor_pfp_controls'] = cursor_pfp_controls(args.case, site)
         if args.case in ENGINE_CLASSIFIER_CASES:
             report['engine_bundle_controls'] = engine_bundle_controls()
         report['configuration_controls'] = replay_configuration_controls()
@@ -2061,6 +2251,9 @@ def positive(args):
     if args.case in {'offline-experimental', 'wrong-recipient-routing'}:
         report.update(evidence_scope='scoped-experimental-App-only',
                       native_protocol_qualification=False, full_workspace_feature_union=False)
+    if args.case in CURSOR_CASES:
+        report.update(evidence_scope='cursor-router-pin-fixture-mechanism-only', native_protocol_qualification=False,
+                      historical_full_failure_cause_proven=False)
     if args.case == 'command-owned-cleanup':
         report.update(evidence_scope='owned-mock-relay-cleanup-mechanism-only', native_protocol_qualification=False)
     if args.case in WORKER_INPUT_CASES:

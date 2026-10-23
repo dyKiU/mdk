@@ -13766,7 +13766,35 @@ fn live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue()
                 .relay_plane
                 .route_account_delivery_for_test(delivery);
         }
-        fixture.wait_for_queue_depth(2).await;
+        // This router-pin test installs no further REQs. Join its already-owned
+        // pump so repeated EOSE bookkeeping cannot contend with the deliberately
+        // nonblocking seal. Keep the original five-second queue-readiness budget.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            fixture._eose.0.abort();
+            let stopped = (&mut fixture._eose.0).await;
+            assert!(
+                stopped.is_err_and(|error| error.is_cancelled()),
+                "the fixture-owned EOSE pump is joined before cursor sealing"
+            );
+            fixture.wait_for_queue_depth(2).await;
+            loop {
+                let status = fixture.client.adapter.replay_admission().await;
+                assert!(
+                    status.loss.is_none(),
+                    "cursor preparation must not consume unknown replay loss"
+                );
+                let placed = !status.pending
+                    && !status.spill_pending
+                    && status.sources().all(|source| source.admitted() && source.placed());
+                drop(status);
+                if placed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the router queues and acknowledges every injected probe");
 
         let first_delivery = fixture.ingest_next_live_delivery().await;
         // Freeze the original verdict before read-only aggregate observations.
