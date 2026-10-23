@@ -583,7 +583,7 @@ async fn fresh_scanner_can_join_existing_display_group() {
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn approved_four_device_messages_edits_and_deletions_converge() {
     four_device_enrollment_with_scan_direction(
         HeldPublication::None,
@@ -1036,7 +1036,7 @@ async fn four_device_enrollment_with_scan_direction(
             .edit_message(&account, group, &original, corrected)
             .await
             .unwrap();
-        assert_eq!(edit.message_ids.len(), 1);
+        assert_mutation_admitted(&edit);
         wait_for_device_message_state(
             &runtimes[..3],
             &account,
@@ -1060,7 +1060,7 @@ async fn four_device_enrollment_with_scan_direction(
             .delete_message(&account, group, &removed.message_ids[0])
             .await
             .unwrap();
-        assert_eq!(deleted.published, 1);
+        assert_mutation_admitted(&deleted);
         wait_for_device_message_state(
             &runtimes[..3],
             &account,
@@ -1516,8 +1516,7 @@ async fn verify_four_device_mutations(
             .edit_message(account, group, &accepted.message_id_hex, &corrected)
             .await
             .unwrap();
-        assert_eq!(edited.published, 1);
-        assert_eq!(edited.message_ids.len(), 1);
+        assert_mutation_admitted(&edited);
         wait_for_device_message_state(
             runtimes,
             account,
@@ -1532,7 +1531,7 @@ async fn verify_four_device_mutations(
             .delete_message(account, group, &accepted.message_id_hex)
             .await
             .unwrap();
-        assert_eq!(deleted.published, 1);
+        assert_mutation_admitted(&deleted);
         wait_for_device_message_state(
             runtimes,
             account,
@@ -1543,6 +1542,20 @@ async fn verify_four_device_mutations(
             None,
         )
         .await;
+    }
+}
+
+/// Admission retains the original event ID even when transport confirmation is
+/// pending or unknown. Delivery is proved separately by the bounded canonical
+/// state check on every device, without resubmitting the mutation.
+fn assert_mutation_admitted(summary: &crate::SendSummary) {
+    assert_eq!(summary.message_ids.len(), 1);
+    match summary.accept_disposition {
+        cgka_traits::SendAcceptDisposition::Published => assert_eq!(summary.published, 1),
+        cgka_traits::SendAcceptDisposition::AcceptedPending
+        | cgka_traits::SendAcceptDisposition::CompletionUnknown => {
+            assert_eq!(summary.published, 0);
+        }
     }
 }
 
