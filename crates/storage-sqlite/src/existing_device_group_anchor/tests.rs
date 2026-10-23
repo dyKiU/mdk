@@ -290,7 +290,7 @@ fn existing_anchor_encrypted_reopen_preserves_denial_and_original_bytes() {
             .query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        113 // Core 0113_staged_media; private migration receipts remain separate below.
+        116 // Core 0116_attachment_keep_media; private migration receipts remain separate below.
     );
     assert_eq!(
         reopened
