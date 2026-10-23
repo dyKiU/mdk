@@ -11,12 +11,18 @@ async fn owed_offer_selects_ready_delivery_and_preserves_replay() {
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
     delivery_tx.send(7).await.unwrap();
     replay_tx.send(1).unwrap();
-    let selected = timeout(Duration::from_secs(2), wait_for_worker_input(
-        delivery_rx.recv(), replay_rx.changed(), true, true,
-    )).await.expect("ready input selector is bounded");
+    let selected = timeout(
+        Duration::from_secs(2),
+        wait_for_worker_input(delivery_rx.recv(), replay_rx.changed(), true, true),
+    )
+    .await
+    .expect("ready input selector is bounded");
     let delivery_selected = matches!(selected, Either::Right(Some(7)));
     let replay_unconsumed = replay_rx.has_changed().unwrap();
-    let delivery_consumed = matches!(delivery_rx.try_recv(), Err(mpsc::error::TryRecvError::Empty));
+    let delivery_consumed = matches!(
+        delivery_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
     // Both channel owners stay live through the discriminating reads; then
     // release every local resource before the sole intended counterfactual site.
     drop((delivery_tx, delivery_rx, replay_tx, replay_rx));
@@ -32,9 +38,12 @@ async fn ordinary_turn_selects_ready_replay_and_preserves_delivery() {
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
     delivery_tx.send(7).await.unwrap();
     replay_tx.send(1).unwrap();
-    let selected = timeout(Duration::from_secs(2), wait_for_worker_input(
-        delivery_rx.recv(), replay_rx.changed(), true, false,
-    )).await.expect("ready input selector is bounded");
+    let selected = timeout(
+        Duration::from_secs(2),
+        wait_for_worker_input(delivery_rx.recv(), replay_rx.changed(), true, false),
+    )
+    .await
+    .expect("ready input selector is bounded");
     let replay_selected = matches!(selected, Either::Left(Ok(())));
     let replay_consumed = !replay_rx.has_changed().unwrap();
     let delivery_retained = delivery_rx.try_recv() == Ok(7);
@@ -48,9 +57,12 @@ async fn owed_pending_receive_allows_replay_and_later_real_delivery() {
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
     // The live sender keeps this genuinely empty receive Pending, not closed.
     replay_tx.send(1).unwrap();
-    let selected = timeout(Duration::from_secs(2), wait_for_worker_input(
-        delivery_rx.recv(), replay_rx.changed(), true, true,
-    )).await.expect("ready replay progresses past an empty open receive");
+    let selected = timeout(
+        Duration::from_secs(2),
+        wait_for_worker_input(delivery_rx.recv(), replay_rx.changed(), true, true),
+    )
+    .await
+    .expect("ready replay progresses past an empty open receive");
     let replay_selected = matches!(selected, Either::Left(Ok(())));
     let replay_consumed = !replay_rx.has_changed().unwrap();
     delivery_tx.send(7).await.unwrap();
@@ -65,9 +77,12 @@ async fn disabled_receive_selects_replay_and_retains_ready_packet() {
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
     delivery_tx.send(7).await.unwrap();
     replay_tx.send(1).unwrap();
-    let selected = timeout(Duration::from_secs(2), wait_for_worker_input(
-        delivery_rx.recv(), replay_rx.changed(), false, true,
-    )).await.expect("ready replay progresses with receive disabled");
+    let selected = timeout(
+        Duration::from_secs(2),
+        wait_for_worker_input(delivery_rx.recv(), replay_rx.changed(), false, true),
+    )
+    .await
+    .expect("ready replay progresses with receive disabled");
     let replay_selected = matches!(selected, Either::Left(Ok(())));
     let replay_consumed = !replay_rx.has_changed().unwrap();
     let delivery_retained = delivery_rx.try_recv() == Ok(7);
