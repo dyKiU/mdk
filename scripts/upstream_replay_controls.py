@@ -4571,6 +4571,108 @@ def pfp(args):
     return result
 
 
+LATE_COMMIT_STAGE_PREFIX = 'late-commit-stage '
+LATE_COMMIT_STAGE_STATES = {'sent', 'created', 'processed', 'failed', 'retryable',
+    'convergence-deferred', 'peel-deferred', 'epoch-invalidated', 'absent'}
+LATE_COMMIT_STAGE_FIELDS = {'schema', 'after_timed_verdict', 'atomic_snapshot',
+    'sender_scan_complete', 'sender_binding_count', 'original_outer_only',
+    'raw_state', 'inner_state', 'expected_pending_app_event', 'pending_app_probe_available',
+    'active_pass', 'deferred_peel_generation', 'parked_commit',
+    'projection_present', 'projection_invalidated'}
+
+
+def late_commit_stage_marker(raw):
+    # A passive, closed observation only. It never changes the actual body verdict.
+    if type(raw) is not bytes or len(raw) > 2 * 1024 * 1024:
+        raise ValueError('late-stage-output-bound')
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    lines = [line for line in text.splitlines() if LATE_COMMIT_STAGE_PREFIX in line]
+    if len(lines) != 1 or text.count(LATE_COMMIT_STAGE_PREFIX) != 1 or len(lines[0].encode()) > 4096:
+        raise ValueError('late-stage-cardinality-bound')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(LATE_COMMIT_STAGE_PREFIX)
+        + r'(\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('late-stage-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if type(value) is not dict or set(value) != LATE_COMMIT_STAGE_FIELDS:
+        raise ValueError('late-stage-fields')
+    if (type(value['schema']) is not int or value['schema'] != 1
+            or value['after_timed_verdict'] is not True or value['atomic_snapshot'] is not False
+            or value['original_outer_only'] is not True
+            or value['pending_app_probe_available'] is not False
+            or value['expected_pending_app_event'] is not None):
+        raise ValueError('late-stage-scope')
+    if (type(value['sender_scan_complete']) is not bool
+            or type(value['sender_binding_count']) is not int
+            or not 0 <= value['sender_binding_count'] <= 64):
+        raise ValueError('late-stage-binding')
+    for key in ('raw_state', 'inner_state'):
+        if value[key] is not None and (type(value[key]) is not str or value[key] not in LATE_COMMIT_STAGE_STATES):
+            raise ValueError('late-stage-state')
+    for key in ('active_pass', 'deferred_peel_generation', 'parked_commit',
+                'projection_present', 'projection_invalidated'):
+        if value[key] is not None and type(value[key]) is not bool:
+            raise ValueError('late-stage-tristate')
+    if ((not value['sender_scan_complete'] or value['sender_binding_count'] != 1)
+            and value['inner_state'] is not None):
+        raise ValueError('late-stage-inner-unavailable')
+    if ((value['projection_present'] is not True and value['projection_invalidated'] is not None)
+            or (value['projection_present'] is True and type(value['projection_invalidated']) is not bool)):
+        raise ValueError('late-stage-projection-unavailable')
+    return value
+
+
+def late_commit_stage_controls():
+    def encode(value):
+        return (LATE_COMMIT_STAGE_PREFIX + json.dumps(value) + '\n').encode()
+    value = dict.fromkeys(LATE_COMMIT_STAGE_FIELDS, None)
+    value.update(schema=1, after_timed_verdict=True, atomic_snapshot=False,
+        sender_scan_complete=False, sender_binding_count=0, original_outer_only=True,
+        expected_pending_app_event=None, pending_app_probe_available=False)
+    good = [encode(value), encode(dict(value, sender_scan_complete=True,
+        sender_binding_count=1, raw_state='processed', inner_state='created',
+        active_pass=True, deferred_peel_generation=False, parked_commit=True,
+        projection_present=True, projection_invalidated=False)),
+        encode(dict(value, sender_scan_complete=True, sender_binding_count=64,
+                    raw_state='absent', projection_present=False))]
+    good.extend(encode(dict(value, sender_scan_complete=True, sender_binding_count=1,
+                            inner_state=state)) for state in sorted(LATE_COMMIT_STAGE_STATES))
+    good.extend([b' ' * 8 + good[0], b'\t' * 8 + good[0]])
+    for raw in good:
+        assert set(late_commit_stage_marker(raw)) == LATE_COMMIT_STAGE_FIELDS
+    invalid = [b'', good[0] + good[0], b'PRIVATE ' + good[0], b' ' * 9 + good[0],
+        good[0].replace(b'{', b'{"schema":1,', 1),
+        encode(dict(value, private='PRIVATE')), encode({key:item for key,item in value.items() if key != 'parked_commit'}),
+        encode(dict(value, schema=True)), encode(dict(value, schema=2)),
+        encode(dict(value, after_timed_verdict=False)), encode(dict(value, atomic_snapshot=True)),
+        encode(dict(value, original_outer_only=False)),
+        encode(dict(value, pending_app_probe_available=True)),
+        encode(dict(value, expected_pending_app_event=False)),
+        encode(dict(value, expected_pending_app_event=True)),
+        encode(dict(value, sender_scan_complete=1)),
+        encode(dict(value, sender_binding_count=True)), encode(dict(value, sender_binding_count=-1)),
+        encode(dict(value, sender_binding_count=65)), encode(dict(value, sender_binding_count=1.0)),
+        encode(dict(value, raw_state='PRIVATE')), encode(dict(value, raw_state=1)),
+        encode(dict(value, inner_state='processed')),
+        encode(dict(value, sender_scan_complete=True, sender_binding_count=2, inner_state='processed')),
+        encode(dict(value, projection_invalidated=False)),
+        encode(dict(value, projection_present=False, projection_invalidated=False)),
+        encode(dict(value, projection_present=True)), b'\xff' + good[0],
+        b'x' * (2 * 1024 * 1024 + 1),
+        (LATE_COMMIT_STAGE_PREFIX + '{"private":"' + 'x' * 4096 + '"}\n').encode()]
+    invalid.extend(encode(dict(value, **{key:0})) for key in (
+        'active_pass', 'deferred_peel_generation', 'parked_commit',
+        'projection_present', 'projection_invalidated'))
+    for raw in invalid:
+        try:
+            late_commit_stage_marker(raw)
+        except (ValueError, UnicodeError):
+            continue
+        raise AssertionError('late-stage-negative-control')
+    return {'positive':len(good), 'negative':len(invalid),
+            'synthetic_metadata_only':True, 'product_bodies':0}
+
+
 SELECTIVE_RECEIPT_PREFIX = 'selective-history-receipt '
 
 
@@ -5056,6 +5158,7 @@ def positive(args):
             report['owned_cleanup_controls'] = owned_cleanup_controls(owned_cleanup_site())
         if args.case in SELECTIVE_CASES:
             report['selective_receipt_parser_controls'] = selective_receipt_controls()
+            report['late_commit_stage_parser_controls'] = late_commit_stage_controls()
         if args.case == 'late-commit-extra-epoch':
             report['extra_epoch_parser_controls'] = extra_epoch_controls()
         if args.case in OFFLINE_CASES:
@@ -5191,6 +5294,17 @@ def positive(args):
             else:
                 report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case in SELECTIVE_CASES:
+                # Counts/compiler facts precede this supplemental diagnostic decoder.
+                # Missing/invalid observations remain unavailable, never raw log exports.
+                try:
+                    report['body']['late_commit_stage_observation'] = late_commit_stage_marker(raw)
+                    report['body']['late_commit_stage_export_complete'] = True
+                except (ValueError, UnicodeError):
+                    report['body']['late_commit_stage_observation'] = None
+                    report['body']['late_commit_stage_export_complete'] = False
+                    report['body']['late_commit_stage_error'] = 'absent-or-invalid-fixed-observation'
+                save()
             if args.case == SQLITE_CACHE_CASE:
                 report['body']['sqlite_cache_runtime'] = automatic_negotiation_runtime(raw,
                     {SQLITE_CACHE_TEST: SQLITE_CACHE_PATH}, 'storage-sqlite')
