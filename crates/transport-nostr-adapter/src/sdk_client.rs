@@ -14166,7 +14166,6 @@ mod tests {
         );
     }
 
-
     /// An unrelated ordinary family change must preserve the private actual
     /// REQ and an untouched ordinary family's live wire. This exercises SDK
     /// subscriptions and native EOSE, not MLS enrollment or sharing authority.
@@ -14217,7 +14216,9 @@ mod tests {
             let wire = state.private_observation_wires.get(&account).unwrap();
             (
                 wire.actual.clone(),
-                state.observation_wire_id(&account, &untouched, routes.attempt).unwrap(),
+                state
+                    .observation_wire_id(&account, &untouched, routes.attempt)
+                    .unwrap(),
                 state.observation_wire_id(&account, &selected, routes.attempt)
                     == Some(wire.actual.clone()),
             )
@@ -14225,13 +14226,22 @@ mod tests {
         let sdk_a = sdk.client().relay(url_a.clone()).await.unwrap().unwrap();
         let sdk_b = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
         let initial_private_registered = sdk_a
-            .subscription(&SubscriptionId::new(private_before.clone())).await.is_some();
+            .subscription(&SubscriptionId::new(private_before.clone()))
+            .await
+            .is_some();
         let initial_ordinary_registered = sdk_a
-            .subscription(&SubscriptionId::new(ordinary_before.clone())).await.is_some();
+            .subscription(&SubscriptionId::new(ordinary_before.clone()))
+            .await
+            .is_some();
         let sync_succeeded = adapter
             .sync_account_groups(crate::TransportGroupSync {
                 account_id: account.clone(),
-                group_subscriptions: vec![selected.clone(), untouched.clone(), existing_b, added_b.clone()],
+                group_subscriptions: vec![
+                    selected.clone(),
+                    untouched.clone(),
+                    existing_b,
+                    added_b.clone(),
+                ],
                 since: None,
             })
             .await
@@ -14256,23 +14266,42 @@ mod tests {
             )
         };
         let final_private_registered = sdk_a
-            .subscription(&SubscriptionId::new(private_after.clone())).await.is_some();
+            .subscription(&SubscriptionId::new(private_after.clone()))
+            .await
+            .is_some();
         let changed_family_registered = if let Some(id) = &added_after {
-            sdk_b.subscription(&SubscriptionId::new(id.clone())).await.is_some()
+            sdk_b
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
         } else {
             false
         };
         let private_actual_unchanged = private_after == private_before
-            && sdk_a.subscription(&SubscriptionId::new(private_before)).await.is_some();
+            && sdk_a
+                .subscription(&SubscriptionId::new(private_before))
+                .await
+                .is_some();
         let untouched_family_wire_unchanged = ordinary_after.as_ref() == Some(&ordinary_before)
-            && sdk_a.subscription(&SubscriptionId::new(ordinary_before)).await.is_some();
+            && sdk_a
+                .subscription(&SubscriptionId::new(ordinary_before))
+                .await
+                .is_some();
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
             && sdk_a.subscriptions().await.is_empty()
             && sdk_b.subscriptions().await.is_empty()
-            && sdk.account_subscriptions.read().await.get(&account).is_none_or(|ids| ids.is_empty());
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty());
         sdk.shutdown().await;
-        timeout(Duration::from_secs(2), forwarder).await.unwrap().unwrap();
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
         relay_a.shutdown();
         relay_b.shutdown();
         #[cfg(feature = "test-policy-overrides")]
@@ -14294,9 +14323,15 @@ mod tests {
             })
         ));
         assert!(
-            initial_private_registered && initial_ordinary_registered && initial_private_exact_index
-                && sync_succeeded && final_coverage_complete && final_private_registered
-                && changed_family_registered && cleanup_complete && url_a != url_b,
+            initial_private_registered
+                && initial_ordinary_registered
+                && initial_private_exact_index
+                && sync_succeeded
+                && final_coverage_complete
+                && final_private_registered
+                && changed_family_registered
+                && cleanup_complete
+                && url_a != url_b,
             "real SDK family change, native EOSE and teardown are required prerequisites"
         );
         assert!(
