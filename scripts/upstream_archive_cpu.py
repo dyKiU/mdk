@@ -43,9 +43,13 @@ def git(root, *args):
     return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
 
 
+class GuardError(ValueError):
+    """A fixed controller label, never an external command or response string."""
+
+
 def need(condition, label):
     if not condition:
-        raise ValueError(label)
+        raise GuardError(label)
 
 
 def api(path):
@@ -181,7 +185,14 @@ def main():
             report.update(artifact_digest_verified=True, archive_sha256=sha(archive), stage='inventory')
             os.chdir(source)
             common = ['--archive-file', str(archive), '--extract-to', str(source), '--workspace-remap', str(source)]
-            code, raw, _, _ = capture(['cargo', 'nextest', 'list', *common, '--message-format', 'json', '-E', FILTER], 180)
+            code, raw, _, inventory_stderr = capture(
+                ['cargo', 'nextest', 'list', *common, '--message-format', 'json', '-E', FILTER],
+                180, separate=True)
+            report['inventory_stdout_bytes'] = len(raw)
+            report['inventory_stdout_sha256'] = hashlib.sha256(raw).hexdigest()
+            report['inventory_stderr_bytes'] = len(inventory_stderr)
+            report['inventory_stderr_sha256'] = hashlib.sha256(inventory_stderr).hexdigest()
+            save()
             need(code == 0, 'archive-inventory-command')
             inventory = json.loads(raw)
             report['selected_nonignored'] = selected_case(inventory, TEST)
@@ -230,6 +241,8 @@ def main():
             report['stage'] = 'complete'
     except Exception as error:
         report['collection_error_class'] = type(error).__name__
+        if isinstance(error, GuardError):
+            report['guard_failure'] = str(error)
         # Exception text and child stdout are deliberately never exported.
     finally:
         if old_paranoid is not None:
