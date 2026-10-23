@@ -42,6 +42,7 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         checkpoints: u64,
         drain_attempts: u64,
         last_turn: Option<Turn>,
+        phase: Option<u8>,
         overflow: bool,
     }
     static ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -122,6 +123,10 @@ pub(in crate::runtime::account_worker) mod passive_bob {
             }
         });
     }
+    // Last reached location only; not an exact blocker or task-poll observation.
+    pub(in crate::runtime::account_worker) fn record_phase(account: &str, phase: u8) {
+        update(account, |counts| counts.phase = Some(phase));
+    }
     pub(in crate::runtime::account_worker) fn record_drain(account: &str) {
         update(account, |counts| {
             if let Some(next) = counts.drain_attempts.checked_add(1) {
@@ -134,6 +139,8 @@ pub(in crate::runtime::account_worker) mod passive_bob {
     #[derive(serde::Serialize)]
     pub(super) struct Frozen {
         registered: bool,
+        before_phase: Option<u8>,
+        after_phase: Option<u8>,
         checkpoints: Option<u64>,
         drain_attempts: Option<u64>,
         last_turn: Option<Turn>,
@@ -148,6 +155,8 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         let (Some(guard), Some(before)) = (guard, before) else {
             return Frozen {
                 registered: false,
+                before_phase: None,
+                after_phase: None,
                 checkpoints: None,
                 drain_attempts: None,
                 last_turn: None,
@@ -162,6 +171,8 @@ pub(in crate::runtime::account_worker) mod passive_bob {
             before.overflow || after.overflow || checkpoints.is_none() || drain_attempts.is_none();
         Frozen {
             registered: true,
+            before_phase: before.phase,
+            after_phase: after.phase,
             checkpoints: if overflow { None } else { checkpoints },
             drain_attempts: if overflow { None } else { drain_attempts },
             last_turn: if !overflow && checkpoints.is_some_and(|count| count > 0) {
@@ -199,6 +210,8 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
         .await
         .unwrap();
     let runtime = crate::MarmotAppRuntime::new(app.clone());
+    #[cfg(feature = "test-policy-overrides")]
+    let bob_observer = passive_bob::install(&bob.account_id_hex);
     runtime.reconcile_accounts().await.unwrap();
     for account in [&alice, &bob] {
         runtime
@@ -207,8 +220,6 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
             .await
             .unwrap();
     }
-    #[cfg(feature = "test-policy-overrides")]
-    let bob_observer = passive_bob::install(&bob.account_id_hex);
     let storage = app.account_storage(&alice.label).unwrap();
     let (entered, entered_wait) = oneshot::channel();
     let (release, release_wait) = std::sync::mpsc::channel();

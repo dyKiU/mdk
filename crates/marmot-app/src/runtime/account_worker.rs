@@ -1079,6 +1079,8 @@ async fn run_app_runtime_account_worker(
         publication_control,
     } = runtime;
     let mut lifecycle_shutdown = lifecycle.subscribe_shutdown();
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 1);
     let mut open_client = std::pin::pin!(app.runtime_local_client(
         &account_label,
         &relay_plane,
@@ -1648,6 +1650,8 @@ async fn run_app_runtime_account_worker(
                             () = tokio::task::yield_now(), if native_progress => {}
                             _ = tokio::time::sleep_until(local_submission_retry_at),
                                 if local_submission_due && deferred.is_empty() && !lifecycle.is_stopping() => {
+                                #[cfg(all(test, feature = "test-policy-overrides"))]
+                                tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 16);
                                 let retry = publish_next_local_submission(
                                     &mut client, &app, &shared, &events,
                                     &account_id_hex, &account_label,
@@ -1909,6 +1913,8 @@ async fn run_app_runtime_account_worker(
         }
         schedule_pending_convergence_groups(&mut scheduled_convergence, &mut client);
     }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 2);
     scheduled_runtime_group_subscription_refresh.observe_pending(
         client.has_pending_runtime_group_subscription_refresh(),
         &command_tx,
@@ -1960,6 +1966,8 @@ async fn run_app_runtime_account_worker(
     // relay I/O run independently. The worker stays available for inbound
     // delivery, maintenance, media completions, timers, and commands while a
     // degraded relay is slow. Drain waiters join reconciliation below.
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 3);
     let mut welcome_recovery = client
         .prepare_pending_welcome_delivery_recovery_best_effort()
         .map(|recovery| {
@@ -1971,6 +1979,8 @@ async fn run_app_runtime_account_worker(
             }
         });
 
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 4);
     let mut yield_to_convergence = false;
     #[cfg(feature = "experimental-device-sync")]
     let mut command_input_service_owed = false;
@@ -2002,9 +2012,16 @@ async fn run_app_runtime_account_worker(
         Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>,
         TokioInstant,
     )> = None;
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 5);
     let mut replay_changes = client.adapter.replay_changes().await;
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 6);
+
     let mut admission_retry = ReplayAdmissionRetry::default();
     'worker: loop {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 7);
         // Cooperate between owner turns without splitting comparison admission.
         #[cfg(feature = "experimental-device-sync")]
         tokio::task::yield_now().await;
@@ -2034,11 +2051,16 @@ async fn run_app_runtime_account_worker(
         // Activation may replace the source watch. Reacquire only a live
         // receiver; a closed activation must not turn this into a busy loop.
         if replay_changes.is_none() {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 5);
             replay_changes = client
                 .adapter
                 .replay_changes()
                 .await
                 .filter(|changes| changes.has_changed().is_ok());
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 6);
+
         }
         // Once comparison input is known, its turn arbitrates both sources.
         // Native-only admission is still required while network capture waits.
@@ -2050,7 +2072,12 @@ async fn run_app_runtime_account_worker(
         {
             Ok(false)
         } else {
-            admission_retry.admit_native_turn(&mut client).await
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 8);
+            let result = admission_retry.admit_native_turn(&mut client).await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 9);
+            result
         } {
             Ok(progress) => progress,
             Err(error) => {
@@ -2068,6 +2095,8 @@ async fn run_app_runtime_account_worker(
             && admit_comparison_turn
             && admission_retry.ready()
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 10);
             // An admission batch is already one foreground/convergence quantum.
             // Do not also yield the due sibling debt to another ready branch.
             #[cfg(feature = "experimental-device-sync")]
@@ -2198,9 +2227,13 @@ async fn run_app_runtime_account_worker(
                 if let Some(phase) = job.phase {
                     phase.finish(TelemetryOutcome::Success);
                 }
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 11);
                 continue 'worker;
             }
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 12);
         // Unified admission may have advanced native frames as well as the
         // comparison prefix. Publish their committed effects before live input.
         let admitted = client.take_pending_applied_sync_summary();
@@ -2312,6 +2345,8 @@ async fn run_app_runtime_account_worker(
             feature = "test-policy-overrides"
         ))]
         let watch_select = client.watch_select_recorder_for_test();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 13);
         // Freeze input-offer ordering before either service future clears its debt.
         // The copy also keeps the futures' borrows independent.
         #[cfg(feature = "experimental-device-sync")]
@@ -2328,6 +2363,8 @@ async fn run_app_runtime_account_worker(
         let input_receive_enabled = !client.has_pending_effect_projections();
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::command_backlog::watch_pressure::SelectStage as WatchSelectStage;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 14);
         tokio::select! {
                     biased;
                     _ = wait_for_runtime_shutdown(&mut lifecycle_shutdown) => {
@@ -2385,6 +2422,8 @@ async fn run_app_runtime_account_worker(
                     } => {
                         #[cfg(feature = "experimental-device-sync")]
                         {
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 20);
                             sibling_maintenance_due = false;
                             if !lifecycle.is_stopping()
                                 && client.maintain_sibling_sharing().await.is_err()
@@ -2404,6 +2443,8 @@ async fn run_app_runtime_account_worker(
                         #[cfg(not(feature = "experimental-device-sync"))]
                         { false }
                     } => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 27);
                         #[cfg(not(feature = "experimental-device-sync"))]
                         match completed {}
                         #[cfg(feature = "experimental-device-sync")]
@@ -2426,6 +2467,9 @@ async fn run_app_runtime_account_worker(
                             .wait()
                             .await
                     }, if comparison_recovery.as_ref().is_some_and(|job| job.network.is_some()) => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 27);
+
                         let job = comparison_recovery.as_mut().expect("completed comparison task exists");
                         job.network = None;
                         match completed {
@@ -2470,6 +2514,9 @@ async fn run_app_runtime_account_worker(
                             .expect("Welcome recovery branch requires a live task");
                         (&mut recovery.handle).await
                     }, if welcome_recovery.is_some() => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 27);
+
                         let mut recovery = welcome_recovery
                             .take()
                             .expect("completed Welcome recovery task must still be owned");
@@ -2497,6 +2544,9 @@ async fn run_app_runtime_account_worker(
                     }
                     // Consume completed blobs before admitting more commands.
                     done = media_http_rx.recv() => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 25);
+
                         match done {
                             Some(done) => {
                                 complete_media_http(&mut client, done, &shared, &media_http).await;
@@ -2528,6 +2578,8 @@ async fn run_app_runtime_account_worker(
                         && !(local_submission_service_owed && local_submission_due
                             && local_submission_fence_at_front(&pending)
                             && TokioInstant::now() >= local_submission_retry_at) => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 15);
                         yield_to_convergence = true;
                         match command {
                             Some((command, approved_pending)) => {
@@ -2656,6 +2708,8 @@ async fn run_app_runtime_account_worker(
                         if local_submission_fence_at_front(&pending) {
                             pending.pop_front();
                         }
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 16);
                         let retry = publish_next_local_submission(
                             &mut client, &app, &shared, &events,
                             &account_id_hex, &account_label,
@@ -2668,6 +2722,8 @@ async fn run_app_runtime_account_worker(
                         }
                     }
                     _ = scheduled_convergence.timer.as_mut(), if !scheduled_convergence_held_for_test(&account_id_hex) => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 19);
                         yield_to_convergence = false;
                         let Some(group_id) = scheduled_convergence.take_ready() else { continue };
                         let secondary_retry_yield = wait_for_local_submission_or_shutdown(
@@ -2895,6 +2951,8 @@ async fn run_app_runtime_account_worker(
                             Ok(()) if !lifecycle.is_stopping() => {
                                 #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                                 if let Some(recorder) = &watch_select { recorder.record(WatchSelectStage::WatchSelected); }
+                                #[cfg(all(test, feature = "test-policy-overrides"))]
+                                tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 24);
                                 let completion_result = client.service_sibling_publication_completions().await;
                                 #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                                 client.note_watch_pressure_service_for_test(completion_result.is_ok());
@@ -2985,6 +3043,9 @@ async fn run_app_runtime_account_worker(
                     } => {
                         let received = match input {
                             futures::future::Either::Left(changed) => {
+                                #[cfg(all(test, feature = "test-policy-overrides"))]
+                                tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 18);
+
                 #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                 if let Some(recorder) = &watch_select {
                     recorder.record(if watch_debt_before_select {
@@ -3042,6 +3103,8 @@ async fn run_app_runtime_account_worker(
                         // delivery has been claimed, finish ingest + incidental
                         // publish + projection as one uncancelled worker operation;
                         // commands remain queued until that durable sequence lands.
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 17);
                         let delivery_started = matches!(&received, Ok(transport_nostr::AccountDeliveryReceive::Delivery(_)))
                             .then(Instant::now);
                         let receive_observation = shared.app_performance_telemetry().observe(RuntimeOp::WorkerReceive);
@@ -3473,6 +3536,8 @@ async fn run_app_runtime_account_worker(
                         }
                     }
                     _ = tokio::task::yield_now(), if avatar_due && !lifecycle.is_stopping() => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 26);
                         avatar_due = false;
                         let identities = avatar_identities.run(&client, &account_id_hex);
                         let acquisition = schedule_avatar_acquisition(&client, &media_http, &mut avatar_resumed);
@@ -3487,6 +3552,8 @@ async fn run_app_runtime_account_worker(
                     _ = tokio::time::sleep_until(local_submission_retry_at),
                         if local_submission_due && (!local_submission_service_owed
                             || (pending.is_empty() && commands.is_empty())) => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 16);
                         let retry = publish_next_local_submission(
                             &mut client, &app, &shared, &events,
                             &account_id_hex, &account_label,
@@ -3504,6 +3571,8 @@ async fn run_app_runtime_account_worker(
                     _ = tokio::task::yield_now(), if presentation_due => {
                         if lifecycle.is_stopping() { continue 'worker; }
                         avatar_due = true;
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 26);
                         presentation_due = match presentation_maintenance.run(&client, &account_id_hex) {
                             Ok(more) => more,
                             Err(_) => {
@@ -3518,6 +3587,8 @@ async fn run_app_runtime_account_worker(
                     }
                     _ = tokio::task::yield_now(), if attachment_due => {
                         if lifecycle.is_stopping() { continue 'worker; }
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 26);
                         attachment_due = match attachments::schedule(&client, &shared, &media_http, &mut attachment_admission) {
                             Ok(more) => more,
                             Err(_) => {
@@ -3555,6 +3626,8 @@ async fn run_app_runtime_account_worker(
                     } => {
                         #[cfg(feature = "experimental-device-sync")]
                         if !lifecycle.is_stopping() {
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 21);
                             if client.maintain_device_linking_after_sibling_turn(Instant::now()).await.is_err() {
                                 tracing::debug!(
                                     target: "marmot_app::device_linking",
@@ -3617,6 +3690,9 @@ async fn run_app_runtime_account_worker(
                         }
                     }
                     _ = maintenance_tick.tick() => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 22);
+
                         local_submission_due = true;
                         attachment_due = true;
                         presentation_due = true;
@@ -3785,6 +3861,8 @@ async fn run_app_runtime_account_worker(
                         phase.finish(TelemetryOutcome::Success);
                     }
                 }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        tests::local_submission_queue_tests::passive_bob::record_phase(&account_id_hex, 23);
     }
     #[cfg(feature = "experimental-device-sync")]
     drop(private_echo_recovery);
@@ -5755,6 +5833,8 @@ fn account_worker_command_future<'a>(
             true
         }),
         AccountWorkerCommand::NetworkStartupSettled { respond } => Box::pin(async move {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            tests::local_submission_queue_tests::passive_bob::record_phase(account_id_hex, 28);
             let _ = respond.send(());
             true
         }),

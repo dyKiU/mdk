@@ -3,6 +3,7 @@ import json
 import re
 
 PREFIX = 'sibling-worker-observation '
+PHASES = {1: 'StartupEnter', 2: 'StartupDeferredDone', 3: 'StartupWelcomeBefore', 4: 'StartupWelcomeAfter', 5: 'ReplayWatchBefore', 6: 'ReplayWatchAfter', 7: 'LoopEntry', 8: 'NativeAdmissionBefore', 9: 'NativeAdmissionAfter', 10: 'ComparisonTailBefore', 11: 'ComparisonTailCompleted', 12: 'NativeSummaryTailBefore', 13: 'PreambleCompleted', 14: 'Preselect', 15: 'CommandSelected', 16: 'LocalDrainSelected', 17: 'ReceiveSelected', 18: 'ReplaySelected', 19: 'ConvergenceSelected', 20: 'SiblingMaintenanceSelected', 21: 'LinkingMaintenanceSelected', 22: 'BroadMaintenanceSelected', 23: 'SelectBodyCompleted', 24: 'SiblingCompletionSelected', 25: 'MediaCompletionSelected', 26: 'PresentationSelected', 27: 'RecoveryCompletionSelected', 28: 'NetworkStartupReply'}
 
 
 def unique(pairs):
@@ -24,7 +25,7 @@ def parse(raw):
     if match is None or len(lines[0]) > 2048:
         raise ValueError('worker-observation-envelope')
     value = json.loads(match[1], object_pairs_hook=unique)
-    fields = {'registered', 'checkpoints', 'drain_attempts', 'last_turn', 'overflow', 'elapsed_ms'}
+    fields = {'registered', 'checkpoints', 'drain_attempts', 'last_turn', 'overflow', 'elapsed_ms', 'before_phase', 'after_phase'}
     if type(value) is not dict or set(value) != fields:
         raise ValueError('worker-observation-fields')
     if any(type(value[key]) is not bool for key in ('registered', 'overflow')):
@@ -33,6 +34,11 @@ def parse(raw):
     if any(value[key] is not None and not uint(value[key])
            for key in ('checkpoints', 'drain_attempts', 'elapsed_ms')):
         raise ValueError('worker-observation-counters')
+    for key in ('before_phase', 'after_phase'):
+        if value[key] is not None and not (type(value[key]) is int and value[key] in PHASES):
+            raise ValueError('worker-observation-phase')
+    if not value['registered'] and any(value[key] is not None for key in ('before_phase', 'after_phase')):
+        raise ValueError('unregistered-worker-phase')
     turn = value['last_turn']
     if turn is not None and (type(turn) is not list or len(turn) != 6
             or not all(uint(item) for item in turn[:2])
@@ -48,17 +54,21 @@ def parse(raw):
             and value['elapsed_ms'] is not None,
             'scope': 'bob_only_selection_checkpoints_and_drain_attempts',
             'tuple_fields': ['pending', 'buffered', 'yielded', 'due', 'owed', 'retry_ready'],
-            'not_task_polls_or_publication_count': True, 'product_pass_claim': False}
+            'not_task_polls_or_publication_count': True, 'product_pass_claim': False,
+            'phase_semantics': 'last_reached_location_not_exact_blocker',
+            'phase_labels': {key: PHASES.get(value[key]) for key in ('before_phase', 'after_phase')},
+            'preselect_may_include_blocking_future_poll': True}
 
 
 def controls():
     """Remote-only pure metadata; no runtime/probe/SQL execution."""
-    zero = dict(registered=True, checkpoints=0, drain_attempts=0, last_turn=None, overflow=False, elapsed_ms=1000)
+    zero = dict(registered=True, checkpoints=0, drain_attempts=0, last_turn=None, overflow=False, elapsed_ms=1000, before_phase=None, after_phase=None)
     turn = [0, 2, False, True, False, True]
     good = dict(zero, checkpoints=2, drain_attempts=1, last_turn=turn)
     unavailable = dict(zero, registered=False, checkpoints=None, drain_attempts=None)
     variants = [zero, good, dict(zero, drain_attempts=1), unavailable,
-                dict(unavailable, registered=True, overflow=True), dict(good, elapsed_ms=None)]
+                dict(unavailable, registered=True, overflow=True), dict(good, elapsed_ms=None), dict(zero, before_phase=1, after_phase=27),
+                dict(zero, before_phase=14, after_phase=14), dict(zero, before_phase=28, after_phase=2)]
     encode = lambda row: (PREFIX + json.dumps(row) + '\n').encode()
     for row in variants:
         assert parse(encode(row))['observation'] == row
@@ -67,7 +77,10 @@ def controls():
            dict(good, elapsed_ms=2**64), dict(good, last_turn=turn[:5]),
            dict(good, last_turn=[True] + turn[1:]), dict(good, last_turn=turn[:2] + [0] + turn[3:]),
            dict(good, checkpoints=0), dict(good, last_turn=None), dict(good, registered=False),
-           dict(good, overflow=True), dict(good, private=True)]
+           dict(good, overflow=True), dict(good, private=True),
+           dict(zero, before_phase=True), dict(zero, after_phase=False),
+           dict(zero, before_phase=0), dict(zero, after_phase=29),
+           dict(unavailable, before_phase=1), dict(good, after_phase="14")]
     invalid = [encode(row) for row in bad]
     raw = encode(good)
     invalid += [b'', raw + raw, b'PRIVATE ' + raw, b' ' * 9 + raw, b'\xff' + raw,
