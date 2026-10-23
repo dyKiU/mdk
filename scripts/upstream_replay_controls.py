@@ -145,6 +145,12 @@ ADAPTER_CASES = {'sdk-private-capture-control', 'adapter-thousand-default', 'ada
 INTEGRATION_CASES = {'adapter-thousand-default', 'offline', 'offline-experimental', 'adapter-thousand', 'adapter-clamped'}
 SDK_REPLAY_CASES = THOUSAND_CASES | {'adapter-clamped'}
 WORKER_INPUT_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled'}
+QUIET_CONTRACT_CASE = 'adapter-quiet-pending-contract'
+CASES[QUIET_CONTRACT_CASE] = ('relay_limit_subscriptions',
+    'quiet_gap_does_not_finish_success_expected_native_replay',
+    'crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs')
+for _quiet_cases in (ADAPTER_CASES, INTEGRATION_CASES, EXPERIMENTAL_CASES, BOUNDED_CASES):
+    _quiet_cases.add(QUIET_CONTRACT_CASE)
 
 
 def package_for(case):
@@ -1572,6 +1578,173 @@ def sdk_private_capture_controls(site):
             'compiler_rejection_controls': 1, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+
+QUIET_CONTRACT_MESSAGE = 'quiet delivery gap must not finish success-expected replay while its actual source is pending'
+QUIET_CONTRACT_KEYS = {'captured_exact', 'held_eose_exact', 'initial_coverage_incomplete',
+    'returned_before_deadline', 'returned_zero', 'collected_exact', 'pending_at_return',
+    'spill_pending_at_return', 'coverage_incomplete_at_return', 'loss_absent_at_return',
+    'release_completed', 'released_exact_order', 'final_coverage_complete',
+    'final_placement_complete', 'no_extra_after_release', 'owned_shutdown_returned'}
+
+
+def quiet_contract_stage(stage):
+    if stage != 'positive':
+        raise ValueError('quiet-contract-positive-only')
+
+
+def quiet_contract_site():
+    text = Path(CASES[QUIET_CONTRACT_CASE][2]).read_text()
+    target = text.split('async fn ' + CASES[QUIET_CONTRACT_CASE][1] + '()', 1)
+    if len(target) != 2:
+        raise ValueError('quiet-contract-source-function')
+    pattern = r'assert!\(\s*complete_at_return,\s*"' + re.escape(QUIET_CONTRACT_MESSAGE) + r'"\s*,?\s*\);'
+    matches = list(re.finditer(pattern, text))
+    if len(matches) != 1 or matches[0].start() < len(target[0]):
+        raise ValueError('quiet-contract-source-assertion')
+    return {'line': text[:matches[0].start()].count('\n') + 1,
+            'column': matches[0].start() - text.rfind('\n', 0, matches[0].start())}
+
+
+def quiet_contract_observe(raw, site):
+    if len(raw) > 16 * 1024 * 1024:
+        raise ValueError('quiet-contract-output-cap')
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict'))
+    def row(namespace):
+        if text.count(namespace) != 1:
+            raise ValueError('quiet-contract-namespace')
+        found = list(re.finditer(r'(?m)^[ \t]{0,8}' + re.escape(namespace + ' ')
+            + r'(\{[^\r\n]{1,8190}\})[ \t]{0,8}\r?$', text))
+        if len(found) != 1 or len(found[0][0].encode('utf-8')) > 8192:
+            raise ValueError('quiet-contract-envelope')
+        return json.loads(found[0][1], object_pairs_hook=unique), found[0]
+    marker, marker_match = row('adapter-quiet-pending-contract')
+    exit_row, exit_match = row('adapter-distinct-deliveries-exit')
+    if (type(marker) is not dict or set(marker) != QUIET_CONTRACT_KEYS
+            or any(type(value) is not bool for value in marker.values())):
+        raise ValueError('quiet-contract-marker-fields')
+    exit_keys = {'reason', 'delivered', 'wait_ms', 'elapsed_ms', 'remaining_ms'}
+    if (type(exit_row) is not dict or set(exit_row) != exit_keys
+            or type(exit_row['reason']) is not str
+            or exit_row['reason'] not in {'quiet_timeout', 'deadline_timeout', 'receive_error', 'stream_closed'}
+            or any(type(exit_row[key]) is not int or not 0 <= exit_row[key] < 2**64
+                   for key in exit_keys - {'reason'})
+            or not 0 < exit_row['wait_ms'] <= 15000
+            or exit_row['remaining_ms'] > exit_row['wait_ms']
+            or (exit_row['elapsed_ms'] < exit_row['wait_ms']
+                and exit_row['elapsed_ms'] + exit_row['remaining_ms'] not in (exit_row['wait_ms'] - 1, exit_row['wait_ms']))
+            or (exit_row['elapsed_ms'] >= exit_row['wait_ms'] and exit_row['remaining_ms'] != 0)
+            or exit_match.end() >= marker_match.start()):
+        raise ValueError('quiet-contract-original-helper-exit')
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[QUIET_CONTRACT_CASE][1])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[QUIET_CONTRACT_CASE][2])
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\r?\n(?:[ \t]*\r?\n){0,2}[ \t]{0,8}'
+        + re.escape(QUIET_CONTRACT_MESSAGE) + r'[ \t]*(?:\r?\n|$)')
+    found = list(re.finditer(pattern, text))
+    own = text.count('panicked at ') == 1 and len(found) == 1 and marker_match.end() < found[0].start()
+    return {'marker': marker, 'helper_exit': exit_row, 'sole_source_owned_final_assertion': own,
+            'expected_site': site, 'panic_header_count': text.count('panicked at ')}
+
+
+def quiet_contract_complete(value):
+    marker = value['marker']
+    return (marker['collected_exact'] and not marker['pending_at_return']
+        and not marker['spill_pending_at_return'] and not marker['coverage_incomplete_at_return']
+        and marker['loss_absent_at_return'] and marker['returned_before_deadline']
+        and all(marker[key] for key in ('captured_exact', 'held_eose_exact', 'initial_coverage_incomplete',
+            'release_completed', 'released_exact_order', 'final_coverage_complete',
+            'final_placement_complete', 'no_extra_after_release', 'owned_shutdown_returned')))
+
+
+def quiet_contract_red(body, inventory):
+    if (type(body.get('exit_code')) is not int or body['exit_code'] != 100
+            or any(type(body.get('counts', {}).get(key)) is not int
+                   or body['counts'][key] != number
+                   for key, number in {'executed': 1, 'passed': 0, 'failed': 1}.items())
+            or body.get('compiler') != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+            or any(type(inventory.get(key)) is not int or inventory[key] != number
+                   for key, number in {'exit_code': 0, 'selected_nonignored': 1, 'selected_ignored': 0}.items())):
+        return False
+    value = body.get('quiet_contract_observation', {})
+    expected = {key: key not in {'collected_exact', 'spill_pending_at_return'} for key in QUIET_CONTRACT_KEYS}
+    exit_row = value.get('helper_exit', {})
+    return (value.get('marker') == expected and value.get('sole_source_owned_final_assertion') is True
+        and value.get('panic_header_count') == 1
+        and exit_row.get('reason') == 'quiet_timeout' and exit_row.get('delivered') == 0
+        and exit_row.get('elapsed_ms', 0) >= 1500 and exit_row.get('remaining_ms', 0) > 0)
+
+
+def quiet_contract_controls(site):
+    case = QUIET_CONTRACT_CASE
+    marker = {key: key not in {'collected_exact', 'spill_pending_at_return'} for key in QUIET_CONTRACT_KEYS}
+    exit_row = dict(reason='quiet_timeout', delivered=0, wait_ms=14900, elapsed_ms=1500, remaining_ms=13400)
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at " + CASES[case][2]
+        + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    status = ('FAIL [ 2.7s] (1/1) transport-nostr-adapter::relay_limit_subscriptions '
+        + CASES[case][1] + '\nSummary [ 2.7s] 1 test run: 0 passed, 1 failed, 0 skipped\n')
+    def encode(value=marker, event=exit_row):
+        return ('adapter-distinct-deliveries-exit ' + json.dumps(event) + '\n'
+            + 'adapter-quiet-pending-contract ' + json.dumps(value) + '\n')
+    raw = (status + encode() + header + QUIET_CONTRACT_MESSAGE + '\n').encode()
+    inventory = dict(exit_code=0, selected_nonignored=1, selected_ignored=0)
+    def body(data):
+        return dict(exit_code=100, counts=counts(data, case), compiler=compiler(data, {}),
+            quiet_contract_observation=quiet_contract_observe(data, site))
+    positives = [raw, raw.replace(b'\nadapter-', b'\n    adapter-'),
+        raw.replace(b'\nadapter-', b'\n        adapter-'), raw.replace(b'\n', b'\r\n')]
+    for data in positives:
+        assert quiet_contract_red(body(data), inventory)
+    invalid = [encode(dict(marker, private=True)), encode(dict(marker, collected_exact=0)),
+        encode({key: val for key, val in marker.items() if key != 'captured_exact'}),
+        encode(dict(marker, captured_exact=None)), encode(event=dict(exit_row, delivered=True)),
+        encode(event=dict(exit_row, reason='PRIVATE')), encode(event=dict(exit_row, remaining_ms=-1)),
+        encode(event=dict(exit_row, elapsed_ms=0)), encode(event=dict(exit_row, wait_ms=15001)),
+        encode().replace('"captured_exact": true', '"captured_exact": true, "captured_exact": true')]
+    invalid += [encode() + encode(), 'PRIVATE ' + encode(), ' '*9 + encode(),
+        encode() + 'adapter-quiet-pending-contract-PRIVATE\n',
+        encode() + 'adapter-distinct-deliveries-exit-PRIVATE\n', '', encode().replace('}\n', '}' + ' '*9 + '\n', 1),
+        b'\xff' + raw]
+    for data in invalid:
+        try:
+            quiet_contract_observe(data.encode() if type(data) is str else data, site)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('quiet-contract-malformed-accepted')
+    denied = [raw + (header + QUIET_CONTRACT_MESSAGE + '\n').encode(),
+        raw.replace(header.encode(), header.replace(CASES[case][1], 'PRIVATE').encode()),
+        raw.replace(header.encode(), header.replace(CASES[case][2], 'PRIVATE.rs').encode()),
+        raw.replace(header.encode(), header.replace(':' + str(site['line']) + ':', ':' + str(site['line'] + 1) + ':').encode()),
+        raw.replace(QUIET_CONTRACT_MESSAGE.encode(), b'PRIVATE'),
+        raw.replace(header.encode(), header.replace(':' + str(site['column']) + ':', ':' + str(site['column'] + 1) + ':').encode()),
+        (status + encode(event=dict(exit_row, delivered=1)) + header + QUIET_CONTRACT_MESSAGE + '\n').encode(),
+        (status + header + QUIET_CONTRACT_MESSAGE + '\n' + encode()).encode()]
+    denied += [(status + encode(dict(marker, **{key: not marker[key]})) + header + QUIET_CONTRACT_MESSAGE + '\n').encode()
+        for key in QUIET_CONTRACT_KEYS]
+    denied += [(status + encode(event=dict(exit_row, reason=reason)) + header + QUIET_CONTRACT_MESSAGE + '\n').encode()
+        for reason in ('deadline_timeout', 'receive_error', 'stream_closed')]
+    for data in denied:
+        assert not quiet_contract_red(body(data), inventory)
+    for key, bad in [('exit_code', 0), ('exit_code', True), ('counts', dict(executed=0, passed=0, failed=0)),
+                     ('counts', dict(executed=True, passed=0, failed=1)), ('counts', dict(executed=1, passed=1, failed=0)),
+                     ('compiler', dict(codes=['E0000'], header_count=1, sites=[], unknown_or_excess_sites=0))]:
+        value = body(raw); value[key] = bad
+        assert not quiet_contract_red(value, inventory)
+    for key, bad in [('exit_code', 1), ('selected_nonignored', 0), ('selected_nonignored', True), ('selected_ignored', 1)]:
+        assert not quiet_contract_red(body(raw), dict(inventory, **{key: bad}))
+    for stage in ('pfp', 'sample'):
+        try:
+            quiet_contract_stage(stage)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('quiet-contract-nonpositive-stage')
+    assert package_for(case) == 'transport-nostr-adapter' and case in INTEGRATION_CASES and case not in PFP
+    assert positive_configuration(case) == (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
+    return {'positive': len(positives), 'negative': len(invalid) + len(denied) + 12,
+        'configuration_controls': 2, 'product_bodies': 0, 'synthetic_metadata_only': True}
+
+
 def owned_cleanup_marker(raw):
     prefix = b'command-backlog-owned-cleanup '
     namespace = b'command-backlog-owned-cleanup'
@@ -2319,6 +2492,8 @@ def positive(args):
             report['sdk_replay_parser_controls'] = sdk_replay_controls()
         if args.case == 'adapter-clamped':
             report['adapter_exit_parser_controls'] = adapter_exit_controls()
+        if args.case == QUIET_CONTRACT_CASE:
+            report['quiet_contract_parser_controls'] = quiet_contract_controls(quiet_contract_site())
         if args.case == 'fresh-rejoin-observation':
             report['fresh_rejoin_parser_controls'] = fresh_rejoin_controls()
         if args.case == 'watch-pressure':
@@ -2450,6 +2625,15 @@ def positive(args):
                 command_accepted = extra_epoch_oracle(report['body']['extra_epoch_observation'], report['body']['receipt_observations'])
                 report['body']['extra_epoch_observation_passed'] = command_accepted
                 save()
+            if args.case == QUIET_CONTRACT_CASE:
+                stage = 'diagnostic'
+                observation = quiet_contract_observe(raw, quiet_contract_site())
+                report['body']['quiet_contract_observation'] = observation
+                report['body']['expected_contract_runtime_red_before_closure'] = quiet_contract_red(report['body'], report['inventory'])
+                report['historical_cause_proven'] = False
+                report['evidence_scope'] = 'under-page-success-expected-collector-contract-only'
+                command_accepted = quiet_contract_complete(observation)
+                save()
             if args.case == 'command-owned-cleanup':
                 stage = 'diagnostic'
                 observation = owned_cleanup_marker(raw)
@@ -2520,6 +2704,9 @@ def positive(args):
             report['failure_category'] = 'closure'
             report['body_passed'] = False
             result = 1
+        if args.case == QUIET_CONTRACT_CASE:
+            report['expected_contract_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('body', {}).get('expected_contract_runtime_red_before_closure') is True)
         report['preflight_passed'] = args.mode == 'preflight' and result == 0
         report['scoped_control_passed'] = args.mode == 'run' and result == 0
         save()
@@ -2688,6 +2875,8 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
+    if args.case == QUIET_CONTRACT_CASE:
+        quiet_contract_stage(args.stage)
     if args.stage == 'pfp':
         return pfp(args)
     if args.stage == 'sample':
