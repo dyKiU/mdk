@@ -5434,6 +5434,14 @@ impl NostrRelayClient for NostrSdkRelayClient {
             .map(drop)
     }
 
+    async fn subscribe_scoped_reporting(
+        &self,
+        subscription: NostrSubscription,
+        subscription_id: String,
+    ) -> Result<NostrSubscribeReport, TransportAdapterError> {
+        NostrSdkRelayClient::subscribe_scoped_reporting(self, subscription, subscription_id).await
+    }
+
     async fn unsubscribe(
         &self,
         subscription: NostrSubscription,

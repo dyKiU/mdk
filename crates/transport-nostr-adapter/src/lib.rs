@@ -927,6 +927,18 @@ pub trait NostrRelayClient: Send + Sync {
         ))
     }
 
+    /// Report scoped issuance without reconstructing the owner-fenced wire id.
+    /// Clients with only the unit scoped API retain its fail-closed behavior.
+    async fn subscribe_scoped_reporting(
+        &self,
+        subscription: NostrSubscription,
+        subscription_id: String,
+    ) -> Result<NostrSubscribeReport, TransportAdapterError> {
+        self.subscribe_scoped(subscription, subscription_id)
+            .await
+            .map(|()| NostrSubscribeReport::default())
+    }
+
     /// Remove the exact wire id supplied to `subscribe_scoped`.
     async fn unsubscribe_scoped(
         &self,
@@ -1411,9 +1423,8 @@ impl NostrTransportAdapter {
                 #[cfg(feature = "experimental-device-sync")]
                 let result = match &actual {
                     Some(actual) => relay_client
-                        .subscribe_scoped(subscription.clone(), actual.clone())
-                        .await
-                        .map(|()| NostrSubscribeReport::default()),
+                        .subscribe_scoped_reporting(subscription.clone(), actual.clone())
+                        .await,
                     None => relay_client.subscribe_reporting(subscription.clone()).await,
                 };
                 #[cfg(not(feature = "experimental-device-sync"))]

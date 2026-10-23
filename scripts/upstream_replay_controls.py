@@ -1406,6 +1406,99 @@ for _quiet_case in QUIET_CONTRACT_CASES:
         r'assert!\(\s*complete_at_return,\s*"{message}"\s*,?\s*\);')
 
 
+SCOPED_REPORT_CASE = 'sdk-scoped-reporting'
+SCOPED_REPORT_MESSAGE = 'selected private scoped subscription must preserve the actual degraded activation report'
+SCOPED_REPORT_GREEN = '                    Some(actual) => relay_client\n                        .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                        .await,\n'
+SCOPED_REPORT_INVERSE = '                    Some(actual) => relay_client\n                        .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                        .await.map(|_report| NostrSubscribeReport::default()),\n'
+PFP[SCOPED_REPORT_CASE] = ('crates/transport-nostr-adapter/src/lib.rs',
+    SCOPED_REPORT_GREEN, SCOPED_REPORT_INVERSE, SCOPED_REPORT_MESSAGE,
+    r'assert!\(\s*metrics\.activations_degraded\s*==\s*1\s*&&\s*metrics\.activations_full\s*==\s*0\s*&&\s*metrics\.activations_failed\s*==\s*0,\s*"{message}"\s*,?\s*\);')
+
+
+def scoped_report_ready(value, mutant=False):
+    expected = (0, 1, 0) if mutant else (1, 0, 0)
+    return (type(value) is dict
+            and set(value) == SCOPED_REPORT_PROBE_BOOLS | SCOPED_REPORT_PROBE_COUNTS
+            and all(value[key] is True for key in SCOPED_REPORT_PROBE_BOOLS)
+            and all(type(value[key]) is int for key in SCOPED_REPORT_PROBE_COUNTS)
+            and tuple(value[key] for key in ('activations_degraded', 'activations_full', 'activations_failed')) == expected)
+
+
+def validate_scoped_report_inverse(text, old, new):
+    start = text.index('    async fn subscribe_all(')
+    end = text.index('    /// Drain relay unsubscribes queued', start)
+    if (old != SCOPED_REPORT_GREEN or new != SCOPED_REPORT_INVERSE
+            or text.count(old) != 1 or old not in text[start:end]
+            or old.count('\n') != new.count('\n')):
+        raise ValueError('scoped-report-inverse-owner')
+
+
+def scoped_report_failure(raw, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    if text.count('panicked at ') != 1:
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[SCOPED_REPORT_CASE][1])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[SCOPED_REPORT_CASE][2])
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}' + re.escape(SCOPED_REPORT_MESSAGE)
+        + r'[ \t]*(?:\n|$)')
+    found = re.search(pattern, text)
+    return (found is not None and scoped_report_ready(scoped_report_probe(raw), mutant=True)
+            and text.index(SCOPED_REPORT_PROBE_PREFIX) < found.start())
+
+
+def scoped_report_controls(site):
+    value = dict.fromkeys(SCOPED_REPORT_PROBE_BOOLS, True)
+    value.update(activations_degraded=0, activations_full=1, activations_failed=0)
+    def row(item):
+        return (SCOPED_REPORT_PROBE_PREFIX + ' ' + json.dumps(item) + '\n').encode()
+    marker = row(value)
+    header = ("thread '" + CASES[SCOPED_REPORT_CASE][1] + "' (7) panicked at "
+        + CASES[SCOPED_REPORT_CASE][2] + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    valid = marker + (header + SCOPED_REPORT_MESSAGE + '\n').encode()
+    positives = [valid, valid.replace(b"' (7)", b"'"), valid.replace(b'\n', b'\r\n'), b' '*8 + valid]
+    for raw in positives:
+        assert scoped_report_failure(raw, site)
+    probe_controls = scoped_report_probe_controls()
+    rejected = [valid + (header + SCOPED_REPORT_MESSAGE + '\n').encode(),
+        valid.replace(CASES[SCOPED_REPORT_CASE][1].encode(), b'PRIVATE'),
+        valid.replace(CASES[SCOPED_REPORT_CASE][2].encode(), b'PRIVATE.rs'),
+        valid.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
+        valid.replace((':' + str(site['column']) + ':').encode(), b':999999:'),
+        valid.replace(SCOPED_REPORT_MESSAGE.encode(), b'PRIVATE'),
+        (header + SCOPED_REPORT_MESSAGE + '\n').encode() + marker,
+        marker + b'PRIVATE ' + (header + SCOPED_REPORT_MESSAGE + '\n').encode()]
+    rejected += [row(dict(value, **{key: False})) + (header + SCOPED_REPORT_MESSAGE + '\n').encode()
+                 for key in SCOPED_REPORT_PROBE_BOOLS]
+    assert all(not scoped_report_failure(raw, site) for raw in rejected)
+    assert all(not scoped_report_ready(dict(value, **{key: False}), mutant=True) for key in SCOPED_REPORT_PROBE_BOOLS)
+    control = dict(value, activations_degraded=1, activations_full=0)
+    assert scoped_report_ready(control) and not scoped_report_ready(control, mutant=True)
+    assert scoped_report_ready(value, mutant=True) and not scoped_report_ready(value)
+    wrong_metrics = [dict(value, activations_degraded=1), dict(value, activations_full=0),
+        dict(value, activations_failed=1), dict(value, activations_full=True),
+        dict(value, activations_full=1.0)]
+    assert all(not scoped_report_ready(item, mutant=True) for item in wrong_metrics)
+    wrong_metric_panics = [row(item) + (header + SCOPED_REPORT_MESSAGE + '\n').encode()
+                          for item in [control] + wrong_metrics[:3]]
+    assert all(not scoped_report_failure(raw, site) for raw in wrong_metric_panics)
+    product = Path(PFP[SCOPED_REPORT_CASE][0]).read_text()
+    validate_scoped_report_inverse(product, SCOPED_REPORT_GREEN, SCOPED_REPORT_INVERSE)
+    bad_inverses = [SCOPED_REPORT_GREEN, SCOPED_REPORT_INVERSE + '\n',
+        SCOPED_REPORT_INVERSE.replace('actual.clone()', 'subscription.subscription_id()'),
+        SCOPED_REPORT_INVERSE.replace('NostrSubscribeReport::default()', 'panic!("PRIVATE")')]
+    for changed in bad_inverses:
+        try:
+            validate_scoped_report_inverse(product, SCOPED_REPORT_GREEN, changed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('scoped-report-inverse-negative')
+    assert pfp_configuration(SCOPED_REPORT_CASE) == positive_configuration(SCOPED_REPORT_CASE)
+    return {'positive': len(positives), 'negative': len(rejected) + len(bad_inverses) + len(wrong_metrics) + len(wrong_metric_panics) + 2,
+            'configuration_controls': 1, 'probe_controls': probe_controls,
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
 
 def validate_quiet_inverse(text, old, new):
     expected_new = '    { let _ = collect_authoritative_replay; let _ = (account, expected, recorded); distinct_deliveries(adapter, deadline.saturating_duration_since(tokio::time::Instant::now())).await }'
@@ -1726,6 +1819,8 @@ def inverse(case):
     text = original.decode('utf-8')
     if text.count(old) != 1:
         raise ValueError('inverse-anchor')
+    if case == SCOPED_REPORT_CASE:
+        validate_scoped_report_inverse(text, old, new)
     if case in LIVE_SEAL_CASES:
         validate_live_seal_inverse(text, old, new)
         validate_live_seal_fixture(Path(CASES[case][2]).read_text())
@@ -1778,6 +1873,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case == SCOPED_REPORT_CASE:
+        return scoped_report_failure(raw, site)
     if case in LIVE_SEAL_CASES:
         return live_seal_failure(raw, case, site)
     if case in CURSOR_CASES:
@@ -1794,6 +1891,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == SCOPED_REPORT_CASE:
+        return scoped_report_controls(site)
     if case in LIVE_SEAL_CASES:
         return live_seal_controls(case, site)
     if case in CURSOR_CASES:
@@ -1816,6 +1915,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == SCOPED_REPORT_CASE:
+        return positive_configuration(case)
     if case in LIVE_SEAL_CASES:
         return ((['test-policy-overrides', 'experimental-device-sync'], 'm5-bounded', '4194304')
                 if case == 'live-seal-spill-experimental' else (['test-policy-overrides'], 'ci', None))
@@ -2307,6 +2408,8 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
+        if phase_case == SCOPED_REPORT_CASE and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+            raise ValueError('scoped-report-inventory-compiler')
         selected_case(json.loads(raw, object_pairs_hook=unique), CASES[phase_case][1])
         row['inventory'].update(selected_nonignored=1, selected_ignored=0)
         save()
@@ -2326,6 +2429,11 @@ def pfp(args):
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
         watch_accepted = True
+        if phase_case == SCOPED_REPORT_CASE:
+            row['body']['scoped_report_probe'] = scoped_report_probe(raw)
+            watch_accepted = scoped_report_ready(row['body']['scoped_report_probe'], mutant=label == 'mutant')
+            clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+            save()
         if args.case in QUIET_CONTRACT_CASES:
             row['body']['quiet_contract_observation'] = quiet_contract_observe(raw, site)
             save()
@@ -2940,6 +3048,14 @@ def positive(args):
             report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
         if args.case == 'sdk-scoped-reporting':
             report['scoped_report_probe_controls'] = scoped_report_probe_controls()
+        if args.case == SCOPED_REPORT_CASE:
+            fixture = Path(CASES[args.case][2]).read_text()
+            found = list(re.finditer(PFP[args.case][4].replace('{message}', re.escape(SCOPED_REPORT_MESSAGE)), fixture))
+            if len(found) != 1:
+                raise ValueError('scoped-report-positive-source-site')
+            site = {'line': fixture[:found[0].start()].count('\n') + 1,
+                    'column': found[0].start() - fixture.rfind('\n', 0, found[0].start())}
+            report['scoped_report_controls'] = scoped_report_controls(site)
         if args.mode == 'preflight':
             result = 0
         else:
@@ -3092,6 +3208,11 @@ def positive(args):
                 report['historical_cause_proven'] = False
                 save()
             command_accepted = True
+            if args.case == SCOPED_REPORT_CASE:
+                command_accepted = (scoped_report_ready(report['body']['scoped_report_probe'])
+                    and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                            for part in [report['inventory'], report['body']]))
+                save()
             if args.case == 'late-commit-extra-epoch':
                 command_accepted = extra_epoch_oracle(report['body']['extra_epoch_observation'], report['body']['receipt_observations'])
                 report['body']['extra_epoch_observation_passed'] = command_accepted
