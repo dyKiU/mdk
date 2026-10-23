@@ -177,6 +177,149 @@ fn mapped_sent_outer_ids(
         .collect()
 }
 
+// Observe only after the original timed verdict is frozen. These reads do not
+// drive the worker, admit input, decrypt, replay or grant any permission.
+#[cfg(feature = "test-policy-overrides")]
+fn late_commit_stage_probe(
+    app: &MarmotApp,
+    labels: (&str, &str),
+    group: &cgka_traits::GroupId,
+    future: &nostr_sdk::prelude::Event,
+    receipt: &crate::SendSummary,
+) -> Value {
+    use cgka_traits::message::{MessageState, StoredMessagePayload};
+    use cgka_traits::storage::{ConvergencePassStorage, DeferredPeelGenerationStorage, MessageStorage};
+    use cgka_traits::types::{EpochId, MessageId};
+
+    let mut result = json!({
+        "schema":1, "after_timed_verdict":true, "atomic_snapshot":false,
+        "sender_scan_complete":false, "sender_binding_count":0,
+        "original_outer_only":true, "raw_state":null, "inner_state":null,
+        "expected_pending_app_event":null, "pending_app_probe_available":false,
+        "active_pass":null,
+        "deferred_peel_generation":null, "parked_commit":null,
+        "projection_present":null, "projection_invalidated":null
+    });
+    let Ok(sender) = app.account_storage(labels.1) else {
+        return result;
+    };
+    let mut scanned = 0;
+    let mut incomplete = false;
+    let mut inner_ids = Vec::new();
+    let scan = sender.visit_messages_in_states(
+        group,
+        &[MessageState::Sent, MessageState::Created, MessageState::Processed,
+          MessageState::Failed, MessageState::Retryable, MessageState::ConvergenceDeferred,
+          MessageState::PeelDeferred, MessageState::EpochInvalidated],
+        EpochId(0),
+        &mut |record| {
+            if scanned == 64 {
+                incomplete = true;
+                return false;
+            }
+            scanned += 1;
+            if record.payload.len() > 65_536 {
+                incomplete = true;
+                return true;
+            }
+            match StoredMessagePayload::decode(&record.payload) {
+                Ok(payload) => {
+                    if payload.as_exact_transport().is_some_and(|wire| {
+                        wire.id.as_slice() == future.id.to_bytes().as_slice()
+                    }) && let Some(inner) = payload.as_openmls_wire() {
+                        inner_ids.push(inner.id.clone());
+                    }
+                }
+                Err(_) => incomplete = true,
+            }
+            true
+        },
+    );
+    let complete = scan.is_ok() && !incomplete;
+    result["sender_scan_complete"] = json!(complete);
+    result["sender_binding_count"] = json!(inner_ids.len());
+    let expected_inner = if complete && inner_ids.len() == 1 {
+        inner_ids.pop()
+    } else {
+        None
+    };
+    let Ok(receiver) = app.account_storage(labels.0) else {
+        return result;
+    };
+    let state = |id: &MessageId| {
+        match receiver.get_message(id) {
+            Ok(record) => Some(match record.state {
+                MessageState::Sent => "sent",
+                MessageState::Created => "created",
+                MessageState::Processed => "processed",
+                MessageState::Failed => "failed",
+                MessageState::Retryable => "retryable",
+                MessageState::ConvergenceDeferred => "convergence-deferred",
+                MessageState::PeelDeferred => "peel-deferred",
+                MessageState::EpochInvalidated => "epoch-invalidated",
+            }),
+            Err(cgka_traits::storage::StorageError::NotFound) => Some("absent"),
+            Err(_) => None,
+        }
+    };
+    result["raw_state"] = json!(state(&MessageId::new(future.id.to_bytes())));
+    result["inner_state"] = json!(expected_inner.as_ref().and_then(state));
+    result["active_pass"] = json!(receiver.convergence_pass(group).ok()
+        .map(|pass| pass.is_some_and(|pass| pass.is_active())));
+    result["deferred_peel_generation"] = json!(receiver.deferred_peel_generation(group)
+        .ok().map(|generation| generation.is_some()));
+    // Classify only retained headers, never decrypt or replay a row. Stop at
+    // one definite parked commit or the bounded row/payload limit.
+    let mut parked = false;
+    let mut parked_incomplete = false;
+    let mut parked_scanned = 0;
+    let parked_read = receiver.visit_messages_in_states(
+        group, &[MessageState::ConvergenceDeferred], EpochId(0),
+        &mut |record| {
+            if parked_scanned == 64 {
+                parked_incomplete = true;
+                return false;
+            }
+            parked_scanned += 1;
+            if record.payload.len() > 65_536 {
+                parked_incomplete = true;
+                return true;
+            }
+            let projection = StoredMessagePayload::decode(&record.payload).ok()
+                .and_then(|payload| payload.as_openmls_wire()
+                    .and_then(|wire| cgka_engine::openmls_projection::project_mls_message(
+                        &wire.payload,
+                    ).ok()));
+            match projection {
+                Some(projection) => {
+                    parked = projection.kind
+                        == cgka_engine::openmls_projection::OpenMlsContentKind::Commit;
+                    !parked
+                }
+                None => {
+                    parked_incomplete = true;
+                    true
+                }
+            }
+        },
+    );
+    result["parked_commit"] = json!(if parked { Some(true) }
+        else if parked_read.is_ok() && !parked_incomplete { Some(false) }
+        else { None });
+    // The public pending-output API materializes the account's entire vector.
+    // Do not broaden this diagnostic read or widen storage APIs for a probe.
+    // Null is unavailable evidence, never proof that the expected output is absent.
+    if receipt.message_ids.len() == 1 {
+        let projection = receiver.app_storage().timeline_message(
+            &hex::encode(group.as_slice()), &receipt.message_ids[0],
+        ).ok();
+        result["projection_present"] = json!(projection.as_ref().map(Option::is_some));
+        result["projection_invalidated"] = json!(projection.as_ref()
+            .and_then(|row| row.as_ref().map(|row| row.invalidation_status.is_some())));
+    }
+    result
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_commit_700_recovers() {
     late_commit_700_recovers_case(false).await;
@@ -637,6 +780,14 @@ async fn late_commit_700_recovers_case(extra_real_epoch: bool) {
             })
         ));
     }
+    #[cfg(feature = "test-policy-overrides")]
+    crate::test_support::emit_line(format_args!(
+        "late-commit-stage {}",
+        late_commit_stage_probe(
+            &app, (&alice.label, &bob.label), &cgka_traits::GroupId::new(group.clone()),
+            &future, &_future_receipt,
+        )
+    ));
     assert!(
         recovered.is_ok(),
         "late commit recovery failed: local_epoch={}, target_epoch={epoch}, window_requests={}",
