@@ -59,6 +59,8 @@ CASES.update({
                              'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'existing-anchor': ('storage_sqlite', 'existing_device_group_anchor::tests::existing_anchor_encrypted_reopen_preserves_denial_and_original_bytes',
                         'crates/storage-sqlite/src/existing_device_group_anchor/tests.rs'),
+    'command-backlog-held': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::command_backlog_acceptance::eight_history_reads_complete_while_actual_peer_proof_is_held',
+                        'crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs'),
     'command-backlog': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::command_backlog_acceptance::authenticated_body_is_serviced_before_eight_queued_history_reads',
                         'crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs'),
     'higher-source': ('marmot_app', 'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record',
@@ -67,7 +69,8 @@ CASES.update({
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
-EXPERIMENTAL_CASES = {'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
+EXPERIMENTAL_CASES = {'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
@@ -407,6 +410,174 @@ def watch_controls():
     return {'positive': 4, 'negative': negatives, 'metadata_only': True, 'product_bodies': 0}
 
 
+def command_debug_value(text):
+    # Called only after a complete closed Debug grammar match. No eval/code/data strings.
+    tokens = re.findall(r'Some|None|true|false|[0-9]+|[\[\](),]', text)
+    if len(tokens) > 256:
+        raise ValueError('command-debug-cap')
+    position = 0
+    def value(depth=0):
+        nonlocal position
+        if depth > 8 or position >= len(tokens):
+            raise ValueError('command-debug-depth')
+        token = tokens[position]; position += 1
+        if token == 'Some':
+            if tokens[position] != '(':
+                raise ValueError('command-debug-option')
+            position += 1
+            result = value(depth + 1)
+            if tokens[position] != ')':
+                raise ValueError('command-debug-option')
+            position += 1
+            return result
+        if token in {'None', 'true', 'false'}:
+            return {'None': None, 'true': True, 'false': False}[token]
+        if token.isdecimal():
+            result = int(token)
+            if not uint(result):
+                raise ValueError('command-debug-integer')
+            return result
+        if token in {'[', '('}:
+            end = ']' if token == '[' else ')'
+            result = []
+            while position < len(tokens) and tokens[position] != end:
+                result.append(value(depth + 1))
+                if position < len(tokens) and tokens[position] != end:
+                    if tokens[position] != ',':
+                        raise ValueError('command-debug-separator')
+                    position += 1
+            if position >= len(tokens):
+                raise ValueError('command-debug-array')
+            position += 1
+            return result
+        raise ValueError('command-debug-token')
+    result = value()
+    if position != len(tokens):
+        raise ValueError('command-debug-tail')
+    return result
+
+
+def command_backlog_marker(raw, case):
+    if case not in COMMAND_BACKLOG_CASES:
+        raise ValueError('command-marker-case')
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    lines = [line for line in text.splitlines() if 'command-backlog' in line]
+    if len(lines) != 3 or text.count('command-backlog') != 3 or any(len(line) > 16384 for line in lines):
+        raise ValueError('command-marker-cardinality')
+    boolean, number = r'(?:true|false)', r'[0-9]{1,20}'
+    array = lambda atom, n: r'\[' + ', '.join([atom]*n) + r'\]'
+    optional = lambda atom: r'(?:None|Some\(' + atom + r'\))'
+    pair = r'\(' + number + ', ' + number + r'\)'
+    queue = r'\(' + array(number,8) + ', ' + array(number,6) + ', ' + optional(pair) + ', ' + number + ', ' + boolean + ', ' + boolean + r'\)'
+    held = case == 'command-backlog-held'
+    prefix = 'command-backlog-progress' if held else 'command-backlog'
+    patterns = [
+        prefix + ' facts=(?P<facts>' + array(boolean,11 if held else 13) + ') completed_before=(?P<completed_before>' + optional(number)
+            + ') runtime_closes=(?P<runtime_closes>' + number + ') plane_shutdown_returns=(?P<plane_shutdown_returns>' + number
+            + ') relay_closed=(?P<relay_closed>' + boolean + ') attempt_completed=(?P<attempt_completed>' + boolean + ')',
+        'command-backlog-ingress schedule=(?P<ingress>' + optional(r'\(' + array(boolean,4) + ', ' + number + ', ' + number + ', ' + number + ', ' + boolean + r'\)') + ')',
+        'command-backlog-queue pause_rx_len=(?P<pause_rx_len>' + optional(number) + ') target=(?P<target_queue>' + optional(queue)
+            + ') own_id_bound=(?P<own_id_bound>' + optional(boolean) + ') own=(?P<own_queue>' + optional(queue) + ')',
+    ]
+    result = {}
+    for line, pattern in zip(lines, patterns):
+        match = re.fullmatch(r'[ \t]{0,8}' + pattern + r'[ \t]{0,8}', line)
+        if match is None:
+            raise ValueError('command-marker-envelope-or-order')
+        result.update({name: command_debug_value(value) for name, value in match.groupdict().items()})
+    # The complete grammar fixes exact field inventory, bool/int distinction,
+    # tuple/array arities, and bounded unsigned counts before anything is exported.
+    if result['completed_before'] is not None and result['completed_before'] > 8:
+        raise ValueError('command-completion-count')
+    return result
+
+
+def command_backlog_oracle(value, case, mutant=False):
+    held = case == 'command-backlog-held'
+    if case not in COMMAND_BACKLOG_CASES or (held and mutant):
+        return False
+    if (value['facts'] != ([True]*11 if held else [True]*11 + [not mutant, True])
+            or value['runtime_closes'] != 3 or value['plane_shutdown_returns'] != 3
+            or not value['relay_closed'] or not value['attempt_completed']
+            or type(value['completed_before']) is not int
+            or not (value['completed_before'] == 8 if held else
+                    2 <= value['completed_before'] <= 8 if mutant else 0 <= value['completed_before'] <= 1)):
+        return False
+    ingress = value['ingress']
+    if (ingress is None or ingress[0] != [True]*4 or ingress[1] != 1
+            or not (0 <= ingress[2] <= 32 and 0 <= ingress[3] <= 32)
+            or ingress[2] != ingress[3] or ingress[4]):
+        return False
+    if not held:
+        queue = value['target_queue']
+        if (queue is None or queue[1][0] == 0 or queue[2] != [0,1]
+                or queue[3:] != [0,False,False]):
+            return False
+    return True
+
+
+def command_backlog_controls(site):
+    queue = ('Some(([1, 1, 0, 1, 0, 1, 0, 1], [1, 0, 0, 0, 0, 0], Some((0, 1)), 0, false, false))')
+    def rows(held=False, mutant=False):
+        prefix = 'command-backlog-progress' if held else 'command-backlog'
+        facts = ['true']*(11 if held else 13)
+        if mutant:
+            facts[11] = 'false'
+        first = (prefix + ' facts=[' + ', '.join(facts) + '] completed_before=Some(' + ('8' if held else '2' if mutant else '1')
+            + ') runtime_closes=3 plane_shutdown_returns=3 relay_closed=true attempt_completed=true\n')
+        return (first + 'command-backlog-ingress schedule=Some(([true, true, true, true], 1, 3, 3, false))\n'
+            + 'command-backlog-queue pause_rx_len=Some(0) target=' + queue + ' own_id_bound=Some(true) own=None\n').encode()
+    green, red, held = rows(), rows(mutant=True), rows(held=True)
+    assert command_backlog_oracle(command_backlog_marker(green, 'command-backlog'), 'command-backlog')
+    assert command_backlog_oracle(command_backlog_marker(red, 'command-backlog'), 'command-backlog', True)
+    assert command_backlog_oracle(command_backlog_marker(held, 'command-backlog-held'), 'command-backlog-held')
+    assert command_backlog_marker(red.replace(b'\n',b'\r\n'), 'command-backlog')['facts'][11] is False
+    assert command_backlog_marker(b' '*8+green, 'command-backlog')['completed_before'] == 1
+    negatives = 0
+    for bad, case in [(red+red, 'command-backlog'), (red+b'command-backlog-unknown PRIVATE\n','command-backlog'),
+            (b'PRIVATE '+red,'command-backlog'), (b' '*9+red,'command-backlog'),
+            (red.replace(b'target=Some(',b'target=PRIVATE('),'command-backlog'),
+            (red.replace(b'own_id_bound=Some(true)',b'own_id_bound=Some(1)'),'command-backlog'),
+            (red.replace(b'completed_before=Some(2)',b'completed_before=Some(9)'),'command-backlog'),
+            (red.replace(b'pause_rx_len=Some(0)',b'pause_rx_len=Some(18446744073709551616)'),'command-backlog'),
+            (b'\n'.join(red.splitlines()[::-1])+b'\n','command-backlog'),
+            (held,'command-backlog'),(red,'command-backlog-held')]:
+        try:
+            command_backlog_marker(bad,case)
+        except ValueError:
+            negatives += 1
+        else:
+            raise AssertionError('command-marker-negative-accepted')
+    parsed = command_backlog_marker(red,'command-backlog')
+    bad = [dict(parsed, completed_before=1), dict(parsed, completed_before=None),
+           dict(parsed, facts=[True]*13), dict(parsed, runtime_closes=2), dict(parsed, plane_shutdown_returns=2),
+           dict(parsed, relay_closed=False), dict(parsed, attempt_completed=False), dict(parsed, target_queue=None),
+           dict(parsed, ingress=None), dict(parsed, ingress=[[True]*4,1,3,2,False]),
+           dict(parsed, ingress=[[True]*4,1,33,33,False]),
+           dict(parsed, ingress=[[True]*4,1,3,3,True])]
+    for index in range(13):
+        if index != 11:
+            facts = list(parsed['facts']); facts[index] = False
+            bad.append(dict(parsed, facts=facts))
+    for value in bad:
+        assert not command_backlog_oracle(value,'command-backlog',True)
+        negatives += 1
+    assert not command_backlog_oracle(command_backlog_marker(held,'command-backlog-held'),'command-backlog-held',True)
+    assert pfp_configuration('command-backlog') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded','4194304')
+    assert 'command-backlog-held' not in PFP and positive_configuration('command-backlog-held') == pfp_configuration('command-backlog')
+    assert PFP['command-backlog'][1].count('command_input_service_owed = true;') == 1
+    assert PFP['command-backlog'][2] == PFP['command-backlog'][1].replace('true','false')
+    status = ('FAIL [ 0.001s] (1/1) marmot-app ' + CASES['command-backlog'][1]
+              + '\nSummary [ 0.01s] 1 test run: 0 passed, 1 failed, 0 skipped\n').encode()
+    header = ("thread '" + CASES['command-backlog'][1] + "' (7) panicked at " + CASES['command-backlog'][2]
+              + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    own = status + red + (header + PFP['command-backlog'][3] + '\n').encode()
+    assert counts(own,'command-backlog')['failed'] == 1 and own_failure(own,'command-backlog',site)
+    assert compiler(own+b'error[E0308]: PRIVATE\n',{})['header_count'] == 1
+    return {'positive':6,'negative':negatives+1,'configuration_controls':4,'compiler_rejection_controls':1,
+            'synthetic_metadata_only':True,'product_bodies':0}
+
+
 SDK_REPLAY_PREFIX = 'sdk-replay-forwarder-diagnostic '
 SDK_REPLAY_FIELDS = {'case', 'clamp', 'expected', 'delivered', 'forwarder_finished',
                      'forwarder', 'loss', 'replay', 'coverage', 'relay_requests'}
@@ -676,6 +847,11 @@ def snapshot():
 
 
 PFP = {
+    'command-backlog': ('crates/marmot-app/src/runtime/account_worker.rs',
+              '                                { command_input_service_owed = true; }',
+              '                                { command_input_service_owed = false; }',
+              'authenticated_body_must_precede_second_queued_history_read',
+              r'assert!\(\s*facts\.into_iter\(\)\.all\(\|value\| value\)\s*&& runtime_closes == 3\s*&& planes_shutdown == 3\s*&& relay_closed\s*&& attempt_completed,\s*"{message}"\s*\);'),
     'sdk-private-capture-control': ('crates/transport-nostr-adapter/src/live_delivery.rs',
               '    pub(crate) async fn observe_private_sdk_eose(\n        &mut self,\n        endpoint: cgka_traits::TransportEndpoint,\n        subscription: &str,\n    ) {\n        let state = self.adapter.state.read().await;\n        self.eose.retain(|token| token.matches_current(&state));\n        let parsed_endpoint = nostr::prelude::RelayUrl::parse(endpoint.as_str()).ok();\n        for (account_id, wire) in &state.private_observation_wires {\n            if self\n                .account\n                .as_ref()\n                .is_some_and(|wanted| wanted != account_id)\n                || !wire.ready\n                || wire.actual != subscription\n                || !state\n                    .accounts\n                    .get(account_id)\n                    .is_some_and(|account| account.attempt == wire.attempt)\n            {\n                continue;\n            }\n            let crate::NostrSubscription::Group {\n                group_id,\n                transport_group_id,\n                endpoints,\n                ..\n            } = &wire.subscription\n            else {\n                continue;\n            };\n            if &wire.group != group_id\n                || !endpoints.iter().any(|candidate| {\n                    crate::CanonicalEndpoint::new(candidate)\n                        .matches(&endpoint, parsed_endpoint.as_ref())\n                })\n            {\n                continue;\n            }\n            let token = ReceiverEose {\n                account: account_id.clone(),\n                group: group_id.clone(),\n                transport_group: transport_group_id.clone(),\n                endpoint: endpoint.clone(),\n                subscription: subscription.to_owned(),\n                attempt: wire.attempt,\n            };\n            // Reuse the existing full route/attempt/current-wire validation.\n            if token.matches_current(&state)\n                && !self.eose.iter().any(|old| {\n                    old.account == token.account\n                        && old.group == token.group\n                        && old.endpoint == token.endpoint\n                        && old.subscription == token.subscription\n                })\n            {\n                self.eose.push(token);\n            }\n        }\n    }\n\n',
               '    pub(crate) async fn observe_private_sdk_eose(\n        &mut self,\n        endpoint: cgka_traits::TransportEndpoint,\n        subscription: &str,\n    ) {\n        self.observe_eose(endpoint, subscription).await;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n    }\n\n',
@@ -723,6 +899,12 @@ def inverse(case):
         raise ValueError('inverse-anchor')
     if case == 'sdk-private-capture-control':
         validate_sdk_capture_inverse(text, old, new)
+    if case == 'command-backlog':
+        start = text.index('async fn run_app_runtime_account_worker(')
+        owner = text.index('                            Some((command, approved_pending)) => {', start)
+        end = text.index('                                #[cfg(test)]', owner)
+        if text.count(old) != 1 or old not in text[owner:end]:
+            raise ValueError('inverse-command-dispatch-owner')
     if case == 'inline':
         start = text.index('    fn retain_effect_projection(')
         end = text.index('    fn enqueue_effect_projection(', start)
@@ -776,7 +958,7 @@ def pfp_configuration(case):
     if case == 'sdk-private-capture-control':
         return (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
     return ((LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
-            if case in {'watch-pressure', 'worker-input-offer'} else (LIB_FEATURES, 'ci', None))
+            if case in {'watch-pressure', 'worker-input-offer', 'command-backlog'} else (LIB_FEATURES, 'ci', None))
 
 
 def watch_pfp_oracle(value, mutant):
@@ -949,16 +1131,19 @@ def pfp(args):
         os.ftruncate(fd, len(data))
         os.fchmod(fd, mode)
         os.fsync(fd)
-    def phase(label, expected):
+    def phase(label, expected, *, case=None):
+        phase_case = args.case if case is None else case
+        if case is not None and (args.case != 'command-backlog' or case != 'command-backlog-held' or label not in {'baseline-held', 'restored-held'}):
+            raise ValueError('phase-case-scope')
         if snapshot() != expected:
             raise ValueError('phase-source')
-        row = {'phase': label, 'inventory_attempted': True,
+        row = {'phase': label, 'case': phase_case, 'inventory_attempted': True,
                'source_manifest_sha256': hashlib.sha256(json.dumps(expected['inputs'], sort_keys=True).encode()).hexdigest()}
         report['phases'].append(row)
         save()
-        package = package_for(args.case)
+        package = package_for(phase_case)
         flags = ['-p', package, '--lib', '--features', ','.join(features), '--locked', '--profile', profile]
-        selection = 'package(' + package + ') & test(=' + CASES[args.case][1] + ')'
+        selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                             'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
@@ -967,7 +1152,7 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        selected_case(json.loads(raw, object_pairs_hook=unique), CASES[args.case][1])
+        selected_case(json.loads(raw, object_pairs_hook=unique), CASES[phase_case][1])
         row['inventory'].update(selected_nonignored=1, selected_ignored=0)
         save()
         if snapshot() != expected:
@@ -979,9 +1164,9 @@ def pfp(args):
                                       '--success-output', 'immediate', '-E', selection], 1800)
         row['body'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'raw_bytes': len(raw),
                        'raw_sha256': hashlib.sha256(raw).hexdigest(), 'runtime_summary': summary_counts(raw),
-                       'compiler': compiler(raw, expected['inputs']), 'panic': panic_facts(raw, args.case)}
+                       'compiler': compiler(raw, expected['inputs']), 'panic': panic_facts(raw, phase_case)}
         save()
-        row['body']['counts'] = counts(raw, args.case)
+        row['body']['counts'] = counts(raw, phase_case)
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
@@ -991,8 +1176,13 @@ def pfp(args):
             watch_accepted = watch_pfp_oracle(row['body']['watch_observation'], label == 'mutant')
             row['watch_prerequisites_accepted'] = watch_accepted
             save()
+        if phase_case in COMMAND_BACKLOG_CASES:
+            row['body']['command_backlog_observation'] = command_backlog_marker(raw, phase_case)
+            watch_accepted = command_backlog_oracle(row['body']['command_backlog_observation'], phase_case, label == 'mutant')
+            row['command_prerequisites_accepted'] = watch_accepted
+            save()
         if label == 'mutant':
-            row['own_runtime_failure'] = own_failure(raw, args.case, site)
+            row['own_runtime_failure'] = own_failure(raw, phase_case, site)
             row['accepted'] = (code == 100 and row['body']['counts']['failed'] == 1
                                and clean_compile and watch_accepted and row['own_runtime_failure']
                                and row['source_exact_after_body'])
@@ -1024,6 +1214,8 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case == 'command-backlog':
+            report['command_backlog_controls'] = command_backlog_controls(site)
         if args.case == 'sdk-private-capture-control':
             report['sdk_private_capture_controls'] = sdk_private_capture_controls(site)
         if args.case == 'worker-input-offer':
@@ -1044,6 +1236,8 @@ def pfp(args):
                 raise ValueError('pfp-environment')
             stage = 'baseline'
             phase('baseline', before)
+            if args.case == 'command-backlog':
+                phase('baseline-held', before, case='command-backlog-held')
             fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
             info = os.fstat(fd)
             identity, parents = (info.st_dev, info.st_ino), admitted_parents
@@ -1076,7 +1270,9 @@ def pfp(args):
                 raise ValueError('restore-source-closure')
             stage = 'restored'
             phase('restored', before)
-            report['pfp_passed'] = (primary_failure is None and len(report['phases']) == 3
+            if args.case == 'command-backlog':
+                phase('restored-held', before, case='command-backlog-held')
+            report['pfp_passed'] = (primary_failure is None and len(report['phases']) == (5 if args.case == 'command-backlog' else 3)
                                     and all(row.get('accepted') is True for row in report['phases']))
             result = 0 if report['pfp_passed'] else 1
             if primary_failure is not None:
@@ -1225,6 +1421,12 @@ def main():
                 stage = 'diagnostic'
                 report['body']['restart_observation'] = restart_marker(raw)
                 save()
+            command_accepted = True
+            if args.case in COMMAND_BACKLOG_CASES:
+                stage = 'diagnostic'
+                report['body']['command_backlog_observation'] = command_backlog_marker(raw, args.case)
+                command_accepted = command_backlog_oracle(report['body']['command_backlog_observation'], args.case)
+                save()
             if args.case == 'watch-pressure':
                 stage = 'diagnostic'
                 report['body']['watch_observation'] = watch_marker(raw)
@@ -1234,7 +1436,7 @@ def main():
                 report['body']['observation'] = marker(raw)
                 save()
             stage = 'body-not-passed'
-            report['body_passed'] = (code == 0 and report['body']['counts']['passed'] == 1
+            report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == 1
                                      and report['body']['compiler']['header_count'] == 0
                                      and not report['body']['compiler']['codes']
                                      and report['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0})
