@@ -74,7 +74,7 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native!='ios-control':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='fdb887b839f9674335058b7afcdf002cc356c06f'
+              assert cohort['mac_sha']=='6b2e61011b68fe064645339291d24506a2f3078b'
               assert cohort['ios_sha']=='e3335ab1adfc38179f1913d9fa1e68a5c5cfafce'
           else:
               assert not sdk and not sdk_run
