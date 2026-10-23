@@ -565,14 +565,35 @@ async fn four_device_enrollment_with_delivery(
         reverse_initial_roles,
         verify_public_chat_delivery,
         false,
+        false,
     )
     .await;
 }
 
 #[tokio::test]
 async fn fresh_scanner_can_join_existing_display_group() {
-    four_device_enrollment_with_scan_direction(HeldPublication::None, None, false, false, true)
-        .await;
+    four_device_enrollment_with_scan_direction(
+        HeldPublication::None,
+        None,
+        false,
+        false,
+        true,
+        false,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn approved_four_device_messages_edits_and_deletions_converge() {
+    four_device_enrollment_with_scan_direction(
+        HeldPublication::None,
+        None,
+        false,
+        false,
+        true,
+        true,
+    )
+    .await;
 }
 
 async fn four_device_enrollment_with_scan_direction(
@@ -581,8 +602,10 @@ async fn four_device_enrollment_with_scan_direction(
     reverse_initial_roles: bool,
     verify_public_chat_delivery: bool,
     existing_device_displays: bool,
+    verify_live_sync: bool,
 ) {
     assert!(!verify_public_chat_delivery || public_relay.is_some());
+    assert!(!verify_live_sync || (existing_device_displays && public_relay.is_none()));
     use cgka_traits::StorageProvider;
     use nostr_relay_builder::prelude::NostrDatabase;
     // Match MockRelay's pinned default storage exactly, retaining an alias for
@@ -1003,6 +1026,59 @@ async fn four_device_enrollment_with_scan_direction(
         }
         return;
     }
+    let prior_mutations = if verify_live_sync {
+        let (group, event) = existing_chat
+            .as_ref()
+            .expect("synthetic source chat required");
+        let original = hex::encode(event);
+        let corrected = "Synthetic history edited before fourth enrollment";
+        let edit = runtimes[0]
+            .edit_message(&account, group, &original, corrected)
+            .await
+            .unwrap();
+        assert_eq!(edit.message_ids.len(), 1);
+        wait_for_device_message_state(
+            &runtimes[..3],
+            &account,
+            group,
+            &original,
+            corrected,
+            false,
+            Some(&edit.message_ids[0]),
+        )
+        .await;
+        let removed = managers[0]
+            .send_message(
+                &account,
+                group,
+                b"Synthetic history deleted before fourth enrollment".to_vec(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(removed.message_ids.len(), 1);
+        let deleted = runtimes[0]
+            .delete_message(&account, group, &removed.message_ids[0])
+            .await
+            .unwrap();
+        assert_eq!(deleted.published, 1);
+        wait_for_device_message_state(
+            &runtimes[..3],
+            &account,
+            group,
+            &removed.message_ids[0],
+            "",
+            true,
+            None,
+        )
+        .await;
+        Some((
+            original,
+            edit.message_ids[0].clone(),
+            removed.message_ids[0].clone(),
+        ))
+    } else {
+        None
+    };
     let d = managers[3]
         .begin_device_linking_session(&account)
         .await
@@ -1272,9 +1348,291 @@ async fn four_device_enrollment_with_scan_direction(
         .await
         .expect("fourth device must automatically receive existing chat and history");
     }
+    if verify_live_sync {
+        let (group, _) = existing_chat
+            .as_ref()
+            .expect("synthetic source chat required");
+        let (original, edit, deleted) = prior_mutations.as_ref().expect("prior mutations required");
+        wait_for_device_message_state(
+            &runtimes,
+            &account,
+            group,
+            original,
+            "Synthetic history edited before fourth enrollment",
+            false,
+            Some(edit),
+        )
+        .await;
+        wait_for_device_message_state(&runtimes, &account, group, deleted, "", true, None).await;
+        verify_four_device_mutations(&runtimes, &account, group).await;
+        assert!(
+            apps[1..]
+                .iter()
+                .all(|app| app.load_state(&account).unwrap().groups.is_empty()),
+            "sharing must never invent ordinary MLS membership for a mirror"
+        );
+        // Reopen an actual installation with the exact unsupported maintenance
+        // row older builds admitted. Startup must retire only that negative
+        // work and resume the existing approvals without another pairing.
+        eprintln!("four-device-mutations stage=legacy-queue-restart");
+        runtimes[2].shutdown_and_close().await.unwrap();
+        assert!(runtimes[2].storage_is_closed());
+        let recovered_app = MarmotApp::with_relay(dirs[2].path(), &url);
+        let private_group = {
+            use cgka_traits::storage::OutboundIntentStorage;
+            let storage = recovered_app.account_storage(&account).unwrap();
+            let round = storage
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap();
+            let private_group = round.anchor.group_id;
+            storage
+                .put_queued_outbound_intent(&cgka_traits::storage::QueuedOutboundIntent {
+                    id: cgka_traits::MessageId::new(vec![0xf1; 32]),
+                    group_id: private_group.clone(),
+                    intent: cgka_traits::SendIntent::SelfUpdate {
+                        group_id: private_group.clone(),
+                    },
+                    created_at_ms: crate::unix_now_seconds().saturating_mul(1000),
+                    reissue_attempts: 0,
+                })
+                .unwrap();
+            assert_eq!(
+                storage
+                    .list_queued_outbound_intents(&private_group)
+                    .unwrap()
+                    .len(),
+                1
+            );
+            private_group
+        };
+        let recovered = MarmotAppRuntime::new(recovered_app.clone());
+        recovered.reconcile_accounts().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            use cgka_traits::storage::OutboundIntentStorage;
+            loop {
+                if recovered_app
+                    .account_storage(&account)
+                    .unwrap()
+                    .list_queued_outbound_intents(&private_group)
+                    .unwrap()
+                    .is_empty()
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("startup must automatically retire legacy private maintenance");
+        let recovered_runtimes = [
+            runtimes[0].clone(),
+            runtimes[1].clone(),
+            recovered.clone(),
+            runtimes[3].clone(),
+        ];
+        wait_for_device_message_state(
+            &recovered_runtimes,
+            &account,
+            group,
+            original,
+            "Synthetic history edited before fourth enrollment",
+            false,
+            Some(edit),
+        )
+        .await;
+        let accepted = recovered
+            .submit_text(
+                &account,
+                group,
+                "Synthetic message after private queue recovery".to_owned(),
+                "four-device-after-upgrade".to_owned(),
+            )
+            .await
+            .unwrap();
+        wait_for_device_message_state(
+            &recovered_runtimes,
+            &account,
+            group,
+            &accepted.message_id_hex,
+            "Synthetic message after private queue recovery",
+            false,
+            None,
+        )
+        .await;
+        assert!(
+            recovered_app
+                .load_state(&account)
+                .unwrap()
+                .groups
+                .is_empty()
+        );
+        eprintln!("four-device-mutations stage=legacy-queue-recovered-and-live");
+        recovered.shutdown_and_close().await.unwrap();
+    }
     for runtime in runtimes {
         runtime.shutdown_and_close().await.unwrap();
     }
+}
+
+/// Each installed device creates a message through the same public admission path.
+/// The actual ordinary member then edits/deletes its authenticated own originals.
+/// Mirrored-device mutation APIs are deliberately not inferred from this coverage.
+async fn verify_four_device_mutations(
+    runtimes: &[MarmotAppRuntime; 4],
+    account: &str,
+    group: &crate::GroupId,
+) {
+    for (origin, runtime) in runtimes.iter().enumerate() {
+        eprintln!("four-device-mutations stage=original origin={origin}");
+        let token = format!("four-device-synthetic-origin-{origin}");
+        let text = format!("Synthetic original from device {origin}");
+        let accepted = runtime
+            .submit_text(account, group, text.clone(), token.clone())
+            .await
+            .unwrap();
+        let retry = runtime
+            .submit_text(account, group, text.clone(), token)
+            .await
+            .unwrap();
+        assert_eq!(
+            accepted.message_id_hex, retry.message_id_hex,
+            "retry keeps its canonical identity"
+        );
+        wait_for_device_message_state(
+            runtimes,
+            account,
+            group,
+            &accepted.message_id_hex,
+            &text,
+            false,
+            None,
+        )
+        .await;
+        let corrected = format!("Synthetic corrected message from device {origin}");
+        let edited = runtimes[0]
+            .edit_message(account, group, &accepted.message_id_hex, &corrected)
+            .await
+            .unwrap();
+        assert_eq!(edited.published, 1);
+        assert_eq!(edited.message_ids.len(), 1);
+        wait_for_device_message_state(
+            runtimes,
+            account,
+            group,
+            &accepted.message_id_hex,
+            &corrected,
+            false,
+            Some(&edited.message_ids[0]),
+        )
+        .await;
+        let deleted = runtimes[0]
+            .delete_message(account, group, &accepted.message_id_hex)
+            .await
+            .unwrap();
+        assert_eq!(deleted.published, 1);
+        wait_for_device_message_state(
+            runtimes,
+            account,
+            group,
+            &accepted.message_id_hex,
+            "",
+            true,
+            None,
+        )
+        .await;
+    }
+}
+
+async fn wait_for_device_message_state(
+    runtimes: &[MarmotAppRuntime],
+    account: &str,
+    group: &crate::GroupId,
+    target: &str,
+    content: &str,
+    deleted: bool,
+    edit_id: Option<&str>,
+) {
+    let mut last_states = vec!["not observed"; runtimes.len()];
+    let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            for (index, runtime) in runtimes.iter().enumerate() {
+                let page = match runtime
+                    .accounts()
+                    .account_conversation_page(account, group.clone(), None, 128)
+                    .await
+                {
+                    Ok(page) => page,
+                    Err(crate::AccountChatReadError::NotReady) => {
+                        last_states[index] = "catalog not ready";
+                        continue;
+                    }
+                    Err(error) => panic!("canonical conversation read failed: {error:?}"),
+                };
+                let observations: Vec<_> = page
+                    .rows
+                    .iter()
+                    .filter_map(|row| match row {
+                        crate::AccountConversationRow::LocalMls(row)
+                            if row.message_id_hex == target =>
+                        {
+                            Some((row.plaintext.as_str(), row.deleted, row.edit.as_ref()))
+                        }
+                        crate::AccountConversationRow::PairedSource(row)
+                            if hex::encode(row.event_id) == target =>
+                        {
+                            Some((row.content.as_str(), row.deleted, row.edit.as_ref()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                if edit_id.is_some_and(|edit_id| {
+                    page.rows.iter().any(|row| match row {
+                        crate::AccountConversationRow::LocalMls(row) => {
+                            row.message_id_hex == edit_id
+                        }
+                        crate::AccountConversationRow::PairedSource(row) => {
+                            hex::encode(row.event_id) == edit_id
+                        }
+                    })
+                }) {
+                    last_states[index] = "modifier rendered as a message";
+                    continue;
+                }
+                last_states[index] = match observations.as_slice() {
+                    [] => "record not received",
+                    [(text, is_deleted, edit)] => {
+                        if *is_deleted != deleted {
+                            "deletion differs"
+                        } else if *text != content {
+                            "content differs"
+                        } else if edit_id.is_some_and(|id| {
+                            edit.is_none_or(|edit| {
+                                edit.latest_edit_message_id_hex != id || edit.edit_count != 1
+                            })
+                        }) {
+                            "edit metadata differs"
+                        } else {
+                            "ready"
+                        }
+                    }
+                    _ => "duplicate canonical rows",
+                };
+            }
+            if last_states.iter().all(|state| *state == "ready") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await;
+    assert!(
+        result.is_ok(),
+        "canonical state did not converge: deleted={deleted}, edited={}, device states={last_states:?}",
+        edit_id.is_some()
+    );
 }
 
 #[tokio::test]
