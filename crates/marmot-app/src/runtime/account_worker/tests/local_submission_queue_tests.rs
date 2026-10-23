@@ -102,6 +102,9 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
     })
     .await
     .expect("the blocked account owns its admission/selection gate");
+    let mut submit_returned = false;
+    let mut status_polls = 0_u64;
+    let mut last_status = "unknown";
     let healthy = timeout(Duration::from_secs(1), async {
         let accepted = runtime
             .submit_text(
@@ -110,17 +113,27 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
                 "healthy sibling".into(),
                 "healthy-token".into(),
             )
-            .await?;
+            .await;
+        submit_returned = true;
+        let accepted = accepted?;
         loop {
-            if let Some(crate::LocalSendStatus::Completed(summary)) =
-                runtime.local_send_status(&bob.label, &bob_group, "healthy-token")?
-            {
+            status_polls += 1;
+            let status = runtime.local_send_status(&bob.label, &bob_group, "healthy-token")?;
+            last_status = match &status {
+                None => "none",
+                Some(crate::LocalSendStatus::Queued) => "queued",
+                Some(crate::LocalSendStatus::EngineOwned) => "engine_owned",
+                Some(crate::LocalSendStatus::Rejected) => "rejected",
+                Some(crate::LocalSendStatus::Completed(_)) => "completed",
+            };
+            if let Some(crate::LocalSendStatus::Completed(summary)) = status {
                 break Ok::<_, AppError>((accepted, summary));
             }
             sleep(Duration::from_millis(5)).await;
         }
     })
     .await;
+    let healthy_observation = (submit_returned, status_polls, last_status);
     // Removal must wait for the owned admission before committing its wipe
     // and cancelling observations. Only UUID/temp fixture identities exist.
     let removing = {
@@ -140,6 +153,14 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
         .unwrap()
         .unwrap()
         .unwrap();
+    eprintln!(
+        "sibling-send-observation {}",
+        serde_json::json!({
+            "submit_returned": healthy_observation.0,
+            "status_polls": healthy_observation.1,
+            "last_status": healthy_observation.2,
+        })
+    );
     let (accepted, published) = healthy
         .expect("one account's database contention cannot postpone another account's durable send")
         .unwrap();

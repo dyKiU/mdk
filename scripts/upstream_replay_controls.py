@@ -14,8 +14,14 @@ from upstream_uniffi_receive_controls import (CASES as UNIFFI_CASES, observe as 
 from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
 from upstream_offline_fingerprints import controls as fingerprint_controls, snapshot as fingerprint_snapshot
 
+from upstream_sibling_send_observation import parse as sibling_send_observation, controls as sibling_send_controls
+
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
+    'sibling-send-default': ('marmot_app', 'runtime::account_worker::tests::local_submission_queue_tests::blocked_account_admission_does_not_delay_sibling_send_or_resurrect_deleted_timing',
+                                 'crates/marmot-app/src/runtime/account_worker/tests/local_submission_queue_tests.rs'),
+    'sibling-send-experimental': ('marmot_app', 'runtime::account_worker::tests::local_submission_queue_tests::blocked_account_admission_does_not_delay_sibling_send_or_resurrect_deleted_timing',
+                                 'crates/marmot-app/src/runtime/account_worker/tests/local_submission_queue_tests.rs'),
     'request-cleanup-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::request_retry_completion_acceptance::authenticated_consent_retires_obsolete_request_retry_before_proof',
                                       'crates/marmot-app/src/native_device_linking/tests/request_retry_completion_acceptance.rs'),
     'priority-cleanup-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_retry_priority_acceptance::older_recipient_proof_retry_precedes_later_consent_retry',
@@ -122,7 +128,7 @@ ENGINE_CONTROL_ORDER = ['private-classifier-authentication', 'private-classifier
 OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
-EXPERIMENTAL_CASES |= UNIFFI_CASES | {'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental', 'request-cleanup-experimental', 'priority-cleanup-experimental'}
+EXPERIMENTAL_CASES |= UNIFFI_CASES | {'sibling-send-experimental', 'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental', 'request-cleanup-experimental', 'priority-cleanup-experimental'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
@@ -930,6 +936,8 @@ def routing_prerequisite_controls():
 
 
 def replay_configuration_controls():
+    assert positive_configuration('sibling-send-default') == (LIB_FEATURES, 'ci', None)
+    assert positive_configuration('sibling-send-experimental') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
     assert positive_configuration('offline') == (['test-policy-overrides'], 'ci', None)
     assert positive_configuration('offline-experimental') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
     for case in UNIFFI_CASES:
@@ -938,7 +946,7 @@ def replay_configuration_controls():
     assert pfp_configuration('uniffi-conversation-stale') == (UNIFFI_FEATURES, 'm5-bounded', '4194304')
     assert positive_configuration('wrong-recipient-routing') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
     assert positive_configuration('late-commit-extra-epoch') == (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'], 'ci', None)
-    return {'positive': 8, 'synthetic_metadata_only': True, 'product_bodies': 0}
+    return {'positive': 10, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 def compiler(raw, inputs):
@@ -2092,6 +2100,8 @@ def main():
         report['configuration_controls'] = replay_configuration_controls()
         if args.case in FIXTURE_OBSERVATION_BASES:
             report['fixture_observation_controls'] = fixture_observation_controls()
+        if args.case in {'sibling-send-default', 'sibling-send-experimental'}:
+            report['sibling_send_parser_controls'] = sibling_send_controls()
         if args.case in ENGINE_CLASSIFIER_CASES:
             report['engine_bundle_controls'] = engine_bundle_controls()
         if args.case in UNIFFI_CASES:
@@ -2177,6 +2187,14 @@ def main():
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case in {'sibling-send-default', 'sibling-send-experimental'}:
+                try:
+                    report['body']['sibling_send_observation'] = sibling_send_observation(ANSI.sub('', raw.decode('utf-8', errors='strict')).encode())
+                    report['body']['sibling_send_export_complete'] = True
+                except (ValueError, UnicodeError):
+                    report['body']['sibling_send_observation'] = None
+                    report['body']['sibling_send_export_complete'] = False
+                save()
             if args.case in FIXTURE_OBSERVATION_BASES:
                 # Supplemental facts never replace the actual runtime verdict.
                 try:
