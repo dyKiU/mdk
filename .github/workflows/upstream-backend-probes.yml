@@ -24,7 +24,7 @@ on:
       replay_case:
         description: One exact replay or terminal-storage control
         type: choice
-        options: [command-owned-cleanup, late-commit-default, sdk-private-capture-control, offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, command-backlog-held, adapter-thousand, adapter-thousand-default, adapter-clamped, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
+        options: [offline-experimental, uniffi-conversation, uniffi-list, uniffi-conversation-stale, wrong-recipient-routing, command-owned-cleanup, late-commit-default, sdk-private-capture-control, offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, command-backlog-held, adapter-thousand, adapter-thousand-default, adapter-clamped, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
         default: offline
       reviewed_baseline:
         description: Explicit reviewed full source SHA including passive test observations
@@ -377,7 +377,7 @@ jobs:
           tool: cargo-nextest@0.9.132
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
-          shared-key: ${{ inputs.replay_case == 'offline' && 'relay-runtime' || 'upstream-default-app' }}
+          shared-key: ${{ contains(fromJSON('["offline","offline-experimental"]'), inputs.replay_case) && 'relay-runtime' || 'upstream-default-app' }}
           cache-on-failure: true
       - name: Read-only post-cache capacity guard
         env:
@@ -386,7 +386,7 @@ jobs:
           python3 scripts/qualification_build_preflight.py --label default-replay-controls
           --output "$RUNNER_TEMP/replay-capacity.json"
       - name: Match the bounded stack for explicit reviewed replay cases
-        if: contains(fromJSON('["command-owned-cleanup","sdk-private-capture-control","revoked-anchor","sharing-policy","late-consent","spill-experimental","watch-pressure","higher-source","mirrored-catalog","mirrored-messages","adapter-cancelled","adapter-failed-route","existing-anchor","command-backlog","command-backlog-held","adapter-thousand","adapter-thousand-default","adapter-clamped","hidden-echo","departure-native","worker-input-offer","worker-input-replay-first","worker-input-pending","worker-input-disabled"]'), inputs.replay_case)
+        if: contains(fromJSON('["offline-experimental","uniffi-conversation","uniffi-list","uniffi-conversation-stale","wrong-recipient-routing","command-owned-cleanup","sdk-private-capture-control","revoked-anchor","sharing-policy","late-consent","spill-experimental","watch-pressure","higher-source","mirrored-catalog","mirrored-messages","adapter-cancelled","adapter-failed-route","existing-anchor","command-backlog","command-backlog-held","adapter-thousand","adapter-thousand-default","adapter-clamped","hidden-echo","departure-native","worker-input-offer","worker-input-replay-first","worker-input-pending","worker-input-disabled"]'), inputs.replay_case)
         run: echo 'RUST_MIN_STACK=4194304' >> "$GITHUB_ENV"
       - name: Run exact scoped replay controls with original assertions
         env:

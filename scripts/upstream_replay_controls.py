@@ -8,6 +8,8 @@ import re
 import subprocess
 
 from upstream_current_backend_probe import ANSI, capture
+from upstream_uniffi_receive_controls import (CASES as UNIFFI_CASES, observe as uniffi_receive_marker,
+    oracle as uniffi_receive_oracle, controls as uniffi_receive_controls)
 from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
 from upstream_offline_fingerprints import controls as fingerprint_controls, snapshot as fingerprint_snapshot
 
@@ -23,6 +25,15 @@ CASES = {
               'crates/marmot-app/src/client/delivery_spill.rs'),
 }
 CASES.update({
+    'offline-experimental': CASES['offline'],
+    'uniffi-conversation': ('marmot_uniffi', 'commands::account_chat_windows::tests::account_conversation_receive_cancellation_preserves_actual_command_update',
+                            'crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs'),
+    'uniffi-list': ('marmot_uniffi', 'commands::account_chat_windows::tests::account_list_receive_cancellation_preserves_actual_command_update',
+                    'crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs'),
+    'uniffi-conversation-stale': ('marmot_uniffi', 'commands::account_chat_windows::tests::account_conversation_actual_stale_sequence_preserves_cancelled_command_update',
+                                  'crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs'),
+    'wrong-recipient-routing': ('marmot_app', 'native_device_linking::tests::sibling_sharing_routing_acceptance::public_wrong_recipient_sharing_request_is_not_retained_by_c_original',
+                                 'crates/marmot-app/src/native_device_linking/sibling_sharing_routing_acceptance.rs'),
     'command-owned-cleanup': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::command_backlog_acceptance::owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop',
                          'crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs'),
     'late-commit-default': ('marmot_app', 'runtime::account_worker::tests::selective_history_tests::late_commit_700_recovers',
@@ -73,19 +84,23 @@ CASES.update({
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
+OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+EXPERIMENTAL_CASES |= UNIFFI_CASES | {'offline-experimental', 'wrong-recipient-routing'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
 THOUSAND_CASES = {'adapter-thousand', 'adapter-thousand-default'}
 ADAPTER_CASES = {'sdk-private-capture-control', 'adapter-thousand-default', 'adapter-cancelled', 'adapter-failed-route', 'adapter-thousand', 'adapter-clamped'}
-INTEGRATION_CASES = {'adapter-thousand-default', 'offline', 'adapter-thousand', 'adapter-clamped'}
+INTEGRATION_CASES = {'adapter-thousand-default', 'offline', 'offline-experimental', 'adapter-thousand', 'adapter-clamped'}
 SDK_REPLAY_CASES = THOUSAND_CASES | {'adapter-clamped'}
 WORKER_INPUT_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled'}
 
 
 def package_for(case):
+    if case in UNIFFI_CASES:
+        return 'marmot-uniffi'
     if case in ADAPTER_CASES:
         return 'transport-nostr-adapter'
     return 'storage-sqlite' if case in STORAGE_CASES else 'marmot-app'
@@ -102,6 +117,9 @@ FIELDS = SCALARS | {'completed', 'arrival_buckets_10s', 'maximum_group_page', 'r
 LIB_FEATURES = ['marmot-app/test-policy-overrides', 'marmot-app/otlp-export',
                 'marmot-app/product-analytics-export', 'cgka-engine/test-policy-overrides',
                 'cgka-engine/test-crash-hooks']
+UNIFFI_FEATURES = LIB_FEATURES + ['marmot-uniffi/otlp-export',
+                                  'marmot-uniffi/product-analytics-export',
+                                  'marmot-uniffi/experimental-device-sync']
 FAILURES = {'admission', 'environment', 'inventory-command', 'inventory-shape',
             'inventory-source', 'body-command', 'runtime-shape', 'diagnostic', 'body-not-passed', 'closure', 'internal'}
 
@@ -697,6 +715,84 @@ def sdk_replay_controls():
     return {'positive':10, 'negative':len(invalid)+len(scoped), 'synthetic_metadata_only':True, 'product_bodies':0}
 
 
+
+UNIFFI_STALE_ASSERT = 'actual stale replacement must preserve the cancelled command update'
+UNIFFI_STALE_PATTERN = r'assert!\(\s*stale_observed\s*&&\s*command_after_stale\s*&&\s*observed,\s*"{message}"\s*\);'
+
+
+def uniffi_receive_site():
+    # Positive causal RED deliberately accepts the marked break-None source.
+    # Only inverse() admits the green continue arm for a PFP mutation.
+    text = Path(CASES['uniffi-conversation-stale'][2]).read_text()
+    found = list(re.finditer(UNIFFI_STALE_PATTERN.replace('{message}', re.escape(UNIFFI_STALE_ASSERT)), text))
+    if len(found) != 1:
+        raise ValueError('uniffi-own-oracle-source')
+    return {'line': text[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - text.rfind('\n', 0, found[0].start())}
+
+
+def routing_prerequisite_marker(raw):
+    prefix = 'sibling-routing-prerequisite '
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    lines = [line for line in text.splitlines() if prefix.rstrip() in line]
+    if len(lines) != 1 or text.count(prefix.rstrip()) != 1 or len(lines[0]) > 2048:
+        raise ValueError('routing-prerequisite-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(prefix) + r'(\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('routing-prerequisite-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if (type(value) is not dict or set(value) != {'addressed_a_intake', 'c_observed_count', 'wait_succeeded'}
+            or any(type(value[k]) is not bool for k in ['addressed_a_intake', 'wait_succeeded'])
+            or (value['c_observed_count'] is not None and not uint(value['c_observed_count']))):
+        raise ValueError('routing-prerequisite-fields')
+    if (not value['addressed_a_intake'] and value['c_observed_count'] is not None
+            or value['wait_succeeded'] and (not value['addressed_a_intake']
+                or value['c_observed_count'] is None or value['c_observed_count'] == 0)):
+        raise ValueError('routing-prerequisite-short-circuit')
+    return value
+
+
+def routing_prerequisite_controls():
+    prefix = 'sibling-routing-prerequisite '
+    positive = [{'addressed_a_intake': True, 'c_observed_count': 1, 'wait_succeeded': True},
+                {'addressed_a_intake': False, 'c_observed_count': None, 'wait_succeeded': False},
+                {'addressed_a_intake': True, 'c_observed_count': 0, 'wait_succeeded': False},
+                {'addressed_a_intake': True, 'c_observed_count': None, 'wait_succeeded': False}]
+    for row in positive:
+        assert routing_prerequisite_marker((prefix + json.dumps(row) + '\n').encode()) == row
+    good = positive[0]
+    bad = [dict(good, private='PRIVATE'), dict(good, addressed_a_intake=1),
+           dict(good, wait_succeeded=1), dict(good, c_observed_count=True),
+           dict(good, c_observed_count=-1), dict(good, c_observed_count=2**64),
+           dict(good, c_observed_count=0), dict(good, c_observed_count=None),
+           dict(good, addressed_a_intake=False), dict(positive[1], c_observed_count=0)]
+    raw = (prefix + json.dumps(good) + '\n').encode()
+    invalid = [(prefix + json.dumps(row) + '\n').encode() for row in bad]
+    invalid += [raw + raw, b'PRIVATE ' + raw, b' '*9 + raw,
+                raw.replace(b'"c_observed_count": 1', b'"c_observed_count": 1, "c_observed_count": 1'),
+                raw + b'sibling-routing-prerequisite-PRIVATE\n']
+    for raw in invalid:
+        try:
+            routing_prerequisite_marker(raw)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('routing-prerequisite-negative-accepted')
+    return {'positive': len(positive), 'negative': len(invalid),
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+def replay_configuration_controls():
+    assert positive_configuration('offline') == (['test-policy-overrides'], 'ci', None)
+    assert positive_configuration('offline-experimental') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+    for case in UNIFFI_CASES:
+        assert package_for(case) == 'marmot-uniffi' and CASES[case][0] == 'marmot_uniffi'
+        assert positive_configuration(case) == (UNIFFI_FEATURES, 'm5-bounded', '4194304')
+    assert pfp_configuration('uniffi-conversation-stale') == (UNIFFI_FEATURES, 'm5-bounded', '4194304')
+    assert positive_configuration('wrong-recipient-routing') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+    return {'positive': 7, 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 def compiler(raw, inputs):
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     codes = sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]', text)))
@@ -851,6 +947,10 @@ def snapshot():
 
 
 PFP = {
+    'uniffi-conversation-stale': ('crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs',
+              '                    // ACTUAL_STALE_COMMAND_RECOVERY_BEGIN\n                    continue;\n                    // ACTUAL_STALE_COMMAND_RECOVERY_END',
+              '                    // ACTUAL_STALE_COMMAND_RECOVERY_BEGIN\n                    break None;\n                    // ACTUAL_STALE_COMMAND_RECOVERY_END',
+              UNIFFI_STALE_ASSERT, UNIFFI_STALE_PATTERN),
     'command-owned-cleanup': ('crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs',
               '            // accepts. The locked MockRelay stop notification is not sticky;\n            // this does not establish why any earlier stop was unobserved.\n            relay.shutdown();',
               '            // accepts. The locked MockRelay stop notification is not sticky;\n            // this does not establish why any earlier stop was unobserved.\n            let _ = relay;',
@@ -908,6 +1008,11 @@ def inverse(case):
         raise ValueError('inverse-anchor')
     if case == 'sdk-private-capture-control':
         validate_sdk_capture_inverse(text, old, new)
+    if case == 'uniffi-conversation-stale':
+        start = text.index('async fn actual_window_receive_cancellation(')
+        end = text.index('        let observed = if let Some((pending, completed_before, replacement))', start)
+        if old not in text[start:end]:
+            raise ValueError('inverse-uniffi-stale-owner')
     if case == 'command-backlog':
         start = text.index('async fn run_app_runtime_account_worker(')
         owner = text.index('                            Some((command, approved_pending)) => {', start)
@@ -969,6 +1074,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == 'uniffi-conversation-stale':
+        return UNIFFI_FEATURES, 'm5-bounded', '4194304'
     if case == 'sdk-private-capture-control':
         return (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
     return ((LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
@@ -1183,6 +1290,13 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case in UNIFFI_CASES:
+        report.update(evidence_scope='uniffi-window-cancellation-fixture-mechanism-only',
+                      package='marmot-uniffi', binary='marmot_uniffi',
+                      native_protocol_qualification=False, sdk_native_acceptance_qualification=False)
+    if args.case in {'offline-experimental', 'wrong-recipient-routing'}:
+        report.update(evidence_scope='scoped-experimental-App-only',
+                      native_protocol_qualification=False, full_workspace_feature_union=False)
     if args.case == 'command-owned-cleanup':
         report.update(evidence_scope='owned-mock-relay-cleanup-mechanism-only', native_protocol_qualification=False)
     if args.case in WORKER_INPUT_CASES:
@@ -1229,6 +1343,8 @@ def pfp(args):
         package = package_for(phase_case)
         flags = ['-p', package, '--lib', '--features', ','.join(features), '--locked', '--profile', profile]
         selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
+        if phase_case in UNIFFI_CASES:
+            selection += ' & binary(=marmot_uniffi)'
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                             'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
@@ -1271,6 +1387,12 @@ def pfp(args):
             watch_accepted = command_backlog_oracle(row['body']['command_backlog_observation'], phase_case, label == 'mutant')
             row['command_prerequisites_accepted'] = watch_accepted
             save()
+        if phase_case in UNIFFI_CASES:
+            observation = uniffi_receive_marker(raw, phase_case, ANSI)
+            row['body']['uniffi_receive_observation'] = observation
+            watch_accepted = uniffi_receive_oracle(observation, phase_case, label == 'mutant')
+            row['uniffi_prerequisites_accepted'] = watch_accepted
+            save()
         if label == 'mutant':
             row['own_runtime_failure'] = own_failure(raw, phase_case, site)
             row['accepted'] = (code == 100 and row['body']['counts']['failed'] == 1
@@ -1304,6 +1426,9 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        report['configuration_controls'] = replay_configuration_controls()
+        if args.case in UNIFFI_CASES:
+            report['uniffi_receive_controls'] = uniffi_receive_controls(ANSI)
         if args.case == 'command-owned-cleanup':
             report['owned_cleanup_controls'] = owned_cleanup_controls(site)
         if args.case == 'command-backlog':
@@ -1484,6 +1609,8 @@ def selective_receipt_controls():
 
 
 def positive_configuration(case):
+    if case in UNIFFI_CASES:
+        return UNIFFI_FEATURES, 'm5-bounded', '4194304'
     features = (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'] if case == 'late-commit-default' else
                 ['sdk', 'test-policy-overrides'] if case == 'adapter-thousand-default' else
                 ['sdk', 'experimental-device-sync', 'test-policy-overrides'] if case in ADAPTER_CASES else
@@ -1514,6 +1641,13 @@ def main():
               'body_passed': False, 'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
               'features': features, 'profile': profile, 'package': package, 'automatic_retries': 0, 'test_threads': 1,
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'expected_test': CASES[args.case][1]}
+    if args.case in UNIFFI_CASES:
+        report.update(evidence_scope='uniffi-window-cancellation-fixture-mechanism-only',
+                      package='marmot-uniffi', binary='marmot_uniffi',
+                      native_protocol_qualification=False, sdk_native_acceptance_qualification=False)
+    if args.case in {'offline-experimental', 'wrong-recipient-routing'}:
+        report.update(evidence_scope='scoped-experimental-App-only',
+                      native_protocol_qualification=False, full_workspace_feature_union=False)
     if args.case == 'command-owned-cleanup':
         report.update(evidence_scope='owned-mock-relay-cleanup-mechanism-only', native_protocol_qualification=False)
     if args.case in WORKER_INPUT_CASES:
@@ -1546,11 +1680,18 @@ def main():
         before = snapshot()
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
+        report['configuration_controls'] = replay_configuration_controls()
+        if args.case in UNIFFI_CASES:
+            uniffi_site = uniffi_receive_site()
+            report['uniffi_receive_controls'] = uniffi_receive_controls(ANSI)
+            report['uniffi_own_oracle_controls'] = pfp_controls('uniffi-conversation-stale', uniffi_site)
+        if args.case == 'wrong-recipient-routing':
+            report['routing_prerequisite_controls'] = routing_prerequisite_controls()
         if args.case == 'command-owned-cleanup':
             report['owned_cleanup_controls'] = owned_cleanup_controls(owned_cleanup_site())
         if args.case == 'late-commit-default':
             report['selective_receipt_parser_controls'] = selective_receipt_controls()
-        if args.case == 'offline':
+        if args.case in OFFLINE_CASES:
             report['fingerprint_parser_controls'] = fingerprint_controls()
         if args.case in SDK_REPLAY_CASES:
             report['sdk_replay_parser_controls'] = sdk_replay_controls()
@@ -1573,7 +1714,7 @@ def main():
             flags = ['-p', package, '--test', binary] if args.case in INTEGRATION_CASES else ['-p', package, '--lib']
             flags += ['--features', ','.join(features), '--locked', '--profile', profile]
             selection = 'package(' + package + ') & test(=' + test + ')'
-            if args.case in INTEGRATION_CASES:
+            if args.case in INTEGRATION_CASES or args.case in UNIFFI_CASES:
                 selection += ' & binary(=' + binary + ')'
             stage = 'inventory-command'
             code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
@@ -1586,7 +1727,7 @@ def main():
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
             selected_case(inventory, test)
-            if args.case == 'offline':
+            if args.case in OFFLINE_CASES:
                 report['compiled_fingerprints'] = fingerprint_snapshot(
                     inventory, test, os.environ.get('CARGO_TARGET_DIR', 'target'))
             report['inventory']['selected_nonignored'] = 1
@@ -1633,6 +1774,26 @@ def main():
                     and owned_cleanup_oracle(observation, True) and report['body']['own_runtime_failure'])
                 command_accepted = owned_cleanup_oracle(observation, False)
                 save()
+            if args.case in UNIFFI_CASES:
+                stage = 'diagnostic'
+                observation = uniffi_receive_marker(raw, args.case, ANSI)
+                report['body']['uniffi_receive_observation'] = observation
+                command_accepted = uniffi_receive_oracle(observation, args.case)
+                if args.case == 'uniffi-conversation-stale':
+                    report['body']['expected_stale_runtime_red'] = (
+                        code == 100 and report['body']['counts']['failed'] == 1
+                        and report['body']['compiler']['codes'] == [] and report['body']['compiler']['header_count'] == 0
+                        and uniffi_receive_oracle(observation, args.case, True)
+                        and own_failure(raw, args.case, uniffi_site))
+                save()
+            if args.case == 'wrong-recipient-routing':
+                stage = 'diagnostic'
+                observation = routing_prerequisite_marker(raw)
+                report['body']['routing_prerequisite_observation'] = observation
+                command_accepted = observation['wait_succeeded']
+                report['body']['prerequisite_observation_passed'] = command_accepted
+                report['body']['behavioral_red_qualified'] = False
+                save()
             if args.case in COMMAND_BACKLOG_CASES:
                 stage = 'diagnostic'
                 report['body']['command_backlog_observation'] = command_backlog_marker(raw, args.case)
@@ -1642,7 +1803,7 @@ def main():
                 stage = 'diagnostic'
                 report['body']['watch_observation'] = watch_marker(raw)
                 save()
-            if args.case == 'offline':
+            if args.case in OFFLINE_CASES:
                 stage = 'diagnostic'
                 report['body']['observation'] = marker(raw)
                 save()

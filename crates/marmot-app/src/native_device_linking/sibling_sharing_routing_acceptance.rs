@@ -41,7 +41,9 @@ pub(super) async fn assert_wrong_recipient_request_is_not_pending(
             && source.recipient_device.as_slice() == devices[0]
     );
     original.approve(source.revision).await.unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+    let mut last_addressed_a_intake = false;
+    let mut last_c_observed_count = None;
+    let prerequisite_wait = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             let intended_received = managers[0]
                 .pending_account_chat_sharing("test")
@@ -57,14 +59,24 @@ pub(super) async fn assert_wrong_recipient_request_is_not_pending(
                         .as_ref()
                         .is_some_and(|scope| scope.nonce == nonce)
                 });
-            if intended_received && probe.snapshot_for_test()[0] > 0 {
+            last_addressed_a_intake = intended_received;
+            last_c_observed_count = intended_received.then(|| probe.snapshot_for_test()[0]);
+            if last_c_observed_count.is_some_and(|count| count > 0) {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
     })
-    .await
-    .expect("actual addressed A intake and verified exact-request observation on C");
+    .await;
+    let wait_succeeded = prerequisite_wait.is_ok();
+    let c_observed_count_json = last_c_observed_count
+        .map_or_else(|| "null".to_owned(), |count| count.to_string());
+    crate::test_support::emit_line(format_args!(
+        "sibling-routing-prerequisite {{\"addressed_a_intake\":{},\"c_observed_count\":{},\"wait_succeeded\":{}}}",
+        last_addressed_a_intake, c_observed_count_json, wait_succeeded
+    ));
+    prerequisite_wait
+        .expect("actual addressed A intake and verified exact-request observation on C");
     // Let ordinary maintenance retry anything C retained, without another
     // approval, refetch or direct invocation of its private control handler.
     tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
