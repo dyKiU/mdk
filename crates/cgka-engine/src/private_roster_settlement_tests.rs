@@ -2890,6 +2890,55 @@ async fn private_enrollment_endorsement_send_sql_fault_rolls_back_actual_ratchet
 }
 
 #[test]
+fn private_enrollment_classifier_rejects_unauthenticated_or_noncanonical_payloads() {
+    let author = cgka_traits::MemberId::new(vec![1; 32]);
+    let other = cgka_traits::MemberId::new(vec![2; 32]);
+    let empty = cgka_traits::MemberId::new(Vec::new());
+    let event = cgka_traits::app_event::MarmotAppEvent::new(
+        hex::encode(author.as_slice()),
+        0,
+        crate::private_enrollment_request::REQUEST_KIND,
+        vec![],
+        "{broken",
+    );
+    let payload = event.encode().unwrap();
+    assert!(crate::private_enrollment_request::is_request_payload(
+        &payload,
+        Some(&author)
+    ));
+    assert!(
+        !crate::private_enrollment_request::is_request_payload(&payload, Some(&other)),
+        "private classification must require exact authenticated sender"
+    );
+    assert!(!crate::private_enrollment_request::is_request_payload(
+        &payload, None
+    ));
+    assert!(!crate::private_enrollment_request::is_request_payload(
+        &payload,
+        Some(&empty)
+    ));
+    let mut noncanonical = event;
+    noncanonical.content = "changed without recomputing canonical id".into();
+    assert!(!crate::private_enrollment_request::is_request_payload(
+        &noncanonical.encode().unwrap(),
+        Some(&author)
+    ));
+    let ordinary = cgka_traits::app_event::MarmotAppEvent::new(
+        hex::encode(author.as_slice()),
+        0,
+        1,
+        vec![],
+        "ordinary chat",
+    )
+    .encode()
+    .unwrap();
+    assert!(!crate::private_enrollment_request::is_request_payload(
+        &ordinary,
+        Some(&author)
+    ));
+}
+
+#[test]
 fn private_enrollment_endorsement_malformed_and_wrong_kind_are_private_controls() {
     let sender = cgka_traits::MemberId::new(vec![1; 32]);
     for (kind, content) in [
@@ -2912,10 +2961,10 @@ fn private_enrollment_endorsement_malformed_and_wrong_kind_are_private_controls(
         )
         .encode()
         .unwrap();
-        assert!(crate::private_enrollment_request::is_request_payload(
-            &payload,
-            Some(&sender)
-        ));
+        assert!(
+            crate::private_enrollment_request::is_request_payload(&payload, Some(&sender)),
+            "reserved private kinds and protocol hints must stay private"
+        );
     }
 }
 

@@ -531,36 +531,32 @@ pub(crate) fn seal<S: StorageProvider>(
 }
 pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> bool {
     let Some(sender) = sender else { return false };
-    if let Ok(event) = crate::app_payload::validate_app_payload_for_sender(payload, sender)
-        && matches!(
-            event.kind,
-            REQUEST_KIND | crate::private_enrollment_endorsement::ENDORSEMENT_KIND
-        )
-    {
+    let Ok(event) = crate::app_payload::validate_app_payload_for_sender(payload, sender) else {
+        return false;
+    };
+    if matches!(
+        event.kind,
+        REQUEST_KIND | crate::private_enrollment_endorsement::ENDORSEMENT_KIND
+    ) {
         return true;
     }
-    {
-        #[derive(Deserialize)]
-        struct Hint {
-            protocol: Option<String>,
-        }
-        crate::app_payload::validate_app_payload_for_sender(payload, sender)
-            .ok()
-            .is_some_and(|event| {
-                serde_json::from_str::<Hint>(&event.content).is_ok_and(|hint| {
-                    matches!(
-                        hint.protocol.as_deref(),
-                        Some(
-                            REQUEST_PROTOCOL
-                                | PROPOSAL_PROTOCOL
-                                | crate::private_enrollment_endorsement::PROTOCOL
-                                | crate::private_enrollment_endorsement::SHARING_PROTOCOL
-                        )
-                    )
-                })
-            })
+    #[derive(Deserialize)]
+    struct Hint {
+        protocol: Option<String>,
     }
+    serde_json::from_str::<Hint>(&event.content).is_ok_and(|hint| {
+        matches!(
+            hint.protocol.as_deref(),
+            Some(
+                REQUEST_PROTOCOL
+                    | PROPOSAL_PROTOCOL
+                    | crate::private_enrollment_endorsement::PROTOCOL
+                    | crate::private_enrollment_endorsement::SHARING_PROTOCOL
+            )
+        )
+    })
 }
+
 pub(crate) fn stage(
     sealed: Option<SealedEnrollmentSource>,
     payload: &[u8],

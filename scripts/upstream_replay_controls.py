@@ -25,6 +25,22 @@ CASES = {
               'crates/marmot-app/src/client/delivery_spill.rs'),
 }
 CASES.update({
+    'private-classifier-authentication': ('cgka_engine', 'private_roster_settlement::tests::private_enrollment_classifier_rejects_unauthenticated_or_noncanonical_payloads',
+                          'crates/cgka-engine/src/private_roster_settlement_tests.rs'),
+    'private-classifier-kinds': ('cgka_engine', 'private_roster_settlement::tests::private_enrollment_endorsement_malformed_and_wrong_kind_are_private_controls',
+                          'crates/cgka-engine/src/private_roster_settlement_tests.rs'),
+    'engine-validator-empty': ('cgka_engine', 'app_payload::tests::empty_sender_is_rejected_even_when_event_pubkey_is_empty',
+                          'crates/cgka-engine/src/app_payload.rs'),
+    'engine-validator-mismatch': ('cgka_engine', 'app_payload::tests::pubkey_mismatch_is_rejected',
+                          'crates/cgka-engine/src/app_payload.rs'),
+    'engine-validator-match': ('cgka_engine', 'app_payload::tests::matching_sender_validates',
+                          'crates/cgka-engine/src/app_payload.rs'),
+    'engine-private-sql': ('cgka_engine', 'private_roster_settlement::tests::private_enrollment_request_sql_fault_preserves_crypto_and_original_retry',
+                          'crates/cgka-engine/src/private_roster_settlement_tests.rs'),
+    'engine-private-history': ('cgka_engine', 'private_roster_settlement::tests::private_enrollment_request_ordinary_history_ingress_never_becomes_live_metadata',
+                          'crates/cgka-engine/src/private_roster_settlement_tests.rs'),
+    'engine-private-deadline': ('cgka_engine', 'private_roster_settlement::tests::private_enrollment_request_acquisition_deadline_expired_before_ingest_stays_private',
+                          'crates/cgka-engine/src/private_roster_settlement_tests.rs'),
     'offline-experimental': CASES['offline'],
     'uniffi-conversation': ('marmot_uniffi', 'commands::account_chat_windows::tests::account_conversation_receive_cancellation_preserves_actual_command_update',
                             'crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs'),
@@ -87,6 +103,11 @@ CASES.update({
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
 SELECTIVE_CASES = {'late-commit-default', 'late-commit-extra-epoch'}
+ENGINE_CLASSIFIER_CASES = {'private-classifier-authentication', 'private-classifier-kinds'}
+ENGINE_SUPPORT_CASES = {'engine-validator-empty', 'engine-validator-match', 'engine-private-deadline', 'engine-private-history', 'engine-private-sql', 'engine-validator-mismatch'}
+ENGINE_CASES = ENGINE_CLASSIFIER_CASES | ENGINE_SUPPORT_CASES
+ENGINE_FEATURES = ['experimental-device-sync', 'test-policy-overrides']
+ENGINE_CONTROL_ORDER = ['private-classifier-authentication', 'private-classifier-kinds', 'engine-validator-empty', 'engine-validator-mismatch', 'engine-validator-match', 'engine-private-sql', 'engine-private-history', 'engine-private-deadline']
 OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
@@ -102,6 +123,8 @@ WORKER_INPUT_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker
 
 
 def package_for(case):
+    if case in ENGINE_CASES:
+        return 'cgka-engine'
     if case in UNIFFI_CASES:
         return 'marmot-uniffi'
     if case in ADAPTER_CASES:
@@ -951,6 +974,8 @@ def snapshot():
 
 
 PFP = {
+    'private-classifier-authentication': ('crates/cgka-engine/src/private_enrollment_request.rs', 'pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> bool {\n    let Some(sender) = sender else { return false };\n    let Ok(event) = crate::app_payload::validate_app_payload_for_sender(payload, sender) else {', 'pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> bool {\n    let Some(sender) = sender else { return false };\n    let Ok(event) = cgka_traits::app_event::MarmotAppEvent::decode(payload).map(|event| { let _ = sender; event }) else {', 'private classification must require exact authenticated sender', 'assert!\\(\\s*!crate::private_enrollment_request::is_request_payload\\(&payload,\\s*Some\\(&other\\)\\),\\s*"{message}"\\s*\\);'),
+    'private-classifier-kinds': ('crates/cgka-engine/src/private_enrollment_request.rs', '    if matches!(\n        event.kind,\n        REQUEST_KIND | crate::private_enrollment_endorsement::ENDORSEMENT_KIND\n    ) {', '    if false && matches!(\n        event.kind,\n        REQUEST_KIND | crate::private_enrollment_endorsement::ENDORSEMENT_KIND\n    ) {', 'reserved private kinds and protocol hints must stay private', 'assert!\\(\\s*crate::private_enrollment_request::is_request_payload\\(\\s*&payload,\\s*Some\\(&sender\\)\\s*\\),\\s*"{message}"\\s*\\);'),
     'uniffi-conversation-stale': ('crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs',
               '                    // ACTUAL_STALE_COMMAND_RECOVERY_BEGIN\n                    continue;\n                    // ACTUAL_STALE_COMMAND_RECOVERY_END',
               '                    // ACTUAL_STALE_COMMAND_RECOVERY_BEGIN\n                    break None;\n                    // ACTUAL_STALE_COMMAND_RECOVERY_END',
@@ -1010,6 +1035,11 @@ def inverse(case):
     text = original.decode('utf-8')
     if text.count(old) != 1:
         raise ValueError('inverse-anchor')
+    if case in ENGINE_CLASSIFIER_CASES:
+        start = text.index('pub(crate) fn is_request_payload(')
+        end = text.index('pub(crate) fn stage(', start)
+        if old not in text[start:end] or old.count('\n') != new.count('\n'):
+            raise ValueError('inverse-engine-classifier-owner')
     if case == 'sdk-private-capture-control':
         validate_sdk_capture_inverse(text, old, new)
     if case == 'uniffi-conversation-stale':
@@ -1078,6 +1108,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case in ENGINE_CLASSIFIER_CASES:
+        return ENGINE_FEATURES, 'ci', None
     if case == 'uniffi-conversation-stale':
         return UNIFFI_FEATURES, 'm5-bounded', '4194304'
     if case == 'sdk-private-capture-control':
@@ -1294,6 +1326,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case in ENGINE_CLASSIFIER_CASES:
+        report.update(evidence_scope='private-Engine-classifier-and-preserved-ingress-controls-only',
+                      package='cgka-engine', binary='cgka_engine',
+                      native_protocol_qualification=False, throughput_fix_established=False)
     if args.case in UNIFFI_CASES:
         report.update(evidence_scope='uniffi-window-cancellation-fixture-mechanism-only',
                       package='marmot-uniffi', binary='marmot_uniffi',
@@ -1349,6 +1385,8 @@ def pfp(args):
         selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
         if phase_case in UNIFFI_CASES:
             selection += ' & binary(=marmot_uniffi)'
+        if phase_case in ENGINE_CASES:
+            selection += ' & binary(=cgka_engine)'
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                             'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
@@ -1430,6 +1468,8 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case in ENGINE_CLASSIFIER_CASES:
+            report['engine_bundle_controls'] = engine_bundle_controls()
         report['configuration_controls'] = replay_configuration_controls()
         if args.case in UNIFFI_CASES:
             report['uniffi_receive_controls'] = uniffi_receive_controls(ANSI)
@@ -1754,7 +1794,90 @@ def extra_epoch_controls():
             'metadata_only': True, 'product_bodies': 0}
 
 
+def engine_bundle_selection():
+    return 'package(cgka-engine) & binary(=cgka_engine) & (' + ' | '.join(
+        'test(=' + CASES[case][1] + ')' for case in ENGINE_CONTROL_ORDER) + ')'
+
+
+def selected_engine_bundle(inventory):
+    selected = []
+    for suite in inventory['rust-suites'].values():
+        for name, item in suite['testcases'].items():
+            if item['filter-match']['status'] != 'matches':
+                continue
+            if suite.get('binary-name') != 'cgka_engine' or suite.get('kind') != 'lib' or item['ignored'] is not False:
+                raise ValueError('engine-bundle-binary-or-ignored')
+            selected.append(name)
+    expected = [CASES[case][1] for case in ENGINE_CONTROL_ORDER]
+    if len(selected) != len(expected) or len(set(selected)) != len(expected) or set(selected) != set(expected):
+        raise ValueError('engine-bundle-exact-inventory')
+    return {'selected_nonignored': len(expected), 'selected_ignored': 0, 'tests': expected,
+            'binary': 'cgka_engine', 'package': 'cgka-engine'}
+
+
+def engine_bundle_controls():
+    names = [CASES[case][1] for case in ENGINE_CONTROL_ORDER]
+    suite = {'binary-name': 'cgka_engine', 'kind': 'lib',
+             'testcases': {name: {'ignored': False, 'filter-match': {'status': 'matches'}} for name in names}}
+    good = {'rust-suites': {'unit': suite}}
+    assert selected_engine_bundle(good)['selected_nonignored'] == 8
+    bad = []
+    for key, value in [('binary-name', 'marmot_app'), ('kind', 'test')]:
+        row = json.loads(json.dumps(good)); row['rust-suites']['unit'][key] = value; bad.append(row)
+    for key, value in [('ignored', True), ('ignored', 0), ('filter-match', {'status': 'mismatch'})]:
+        row = json.loads(json.dumps(good)); row['rust-suites']['unit']['testcases'][names[0]][key] = value; bad.append(row)
+    row = json.loads(json.dumps(good)); del row['rust-suites']['unit']['testcases'][names[0]]; bad.append(row)
+    row = json.loads(json.dumps(good)); row['rust-suites']['unit']['testcases']['PRIVATE'] = {'ignored': False, 'filter-match': {'status': 'matches'}}; bad.append(row)
+    row = json.loads(json.dumps(good)); row['rust-suites']['duplicate'] = suite; bad.append(row)
+    for invalid in bad:
+        try:
+            selected_engine_bundle(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('engine-bundle-negative-accepted')
+    for case in ENGINE_CLASSIFIER_CASES:
+        assert package_for(case) == 'cgka-engine' and CASES[case][0] == 'cgka_engine'
+        assert positive_configuration(case) == pfp_configuration(case) == (ENGINE_FEATURES, 'ci', None)
+    return {'positive': 1, 'negative': len(bad), 'configuration': 2, 'product_bodies': 0, 'metadata_only': True}
+
+
+def engine_support_bodies(report, before, flags, save):
+    # All eight names were admitted by ONE exact inventory; the primary body has
+    # already passed. Reuse the same frozen binary/flags for seven real controls.
+    rows = report['supporting_controls'] = []
+    for case in ENGINE_CONTROL_ORDER[1:]:
+        row = {'case': case, 'expected_test': CASES[case][1], 'body_attempted': False}
+        rows.append(row)
+        if snapshot() != before:
+            raise ValueError('phase-source')
+        selection = 'package(cgka-engine) & binary(=cgka_engine) & test(=' + CASES[case][1] + ')'
+        row['body_attempted'] = True
+        save()
+        code, raw, elapsed, _ = capture(['cargo', 'nextest', 'run'] + flags + ['--retries', '0', '--test-threads', '1',
+                                      '--status-level', 'pass', '--final-status-level', 'none', '--no-fail-fast',
+                                      '--success-output', 'immediate', '-E', selection], 1800)
+        row['body'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'raw_bytes': len(raw),
+                       'raw_sha256': hashlib.sha256(raw).hexdigest(), 'runtime_summary': summary_counts(raw),
+                       'compiler': compiler(raw, before['inputs']), 'panic': panic_facts(raw, case)}
+        save()
+        row['body']['counts'] = counts(raw, case)
+        row['source_exact_after_body'] = snapshot() == before
+        row['accepted'] = (code == 0 and row['body']['counts']['passed'] == 1
+                           and row['body']['compiler']['header_count'] == 0 and not row['body']['compiler']['codes']
+                           and row['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0}
+                           and row['source_exact_after_body'])
+        save()
+        if not row['accepted']:
+            return 1
+    report['control_bundle_actual'] = {'executed': 8, 'passed': 8, 'failed': 0, 'selected_ignored': 0}
+    save()
+    return 0
+
+
 def positive_configuration(case):
+    if case in ENGINE_CASES:
+        return ENGINE_FEATURES, 'ci', None
     if case in UNIFFI_CASES:
         return UNIFFI_FEATURES, 'm5-bounded', '4194304'
     features = (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'] if case in SELECTIVE_CASES else
@@ -1773,7 +1896,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['preflight', 'run'], required=True)
     parser.add_argument('--stage', choices=['positive', 'pfp'], default='positive')
-    parser.add_argument('--case', choices=CASES, required=True)
+    parser.add_argument('--case', choices=[case for case in CASES if case not in ENGINE_SUPPORT_CASES], required=True)
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
@@ -1791,6 +1914,10 @@ def main():
         report.update(evidence_scope='valid-real-extra-epoch-history-scenario-only',
                       native_protocol_qualification=False, original_full_failure_cause_established=False,
                       mutation_necessity_claimed=False)
+    if args.case in ENGINE_CLASSIFIER_CASES:
+        report.update(evidence_scope='private-Engine-classifier-and-preserved-ingress-controls-only',
+                      package='cgka-engine', binary='cgka_engine',
+                      native_protocol_qualification=False, throughput_fix_established=False)
     if args.case in UNIFFI_CASES:
         report.update(evidence_scope='uniffi-window-cancellation-fixture-mechanism-only',
                       package='marmot-uniffi', binary='marmot_uniffi',
@@ -1831,6 +1958,8 @@ def main():
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.case in ENGINE_CLASSIFIER_CASES:
+            report['engine_bundle_controls'] = engine_bundle_controls()
         if args.case in UNIFFI_CASES:
             uniffi_site = uniffi_receive_site()
             report['uniffi_receive_controls'] = uniffi_receive_controls(ANSI)
@@ -1866,8 +1995,11 @@ def main():
             flags = ['-p', package, '--test', binary] if args.case in INTEGRATION_CASES else ['-p', package, '--lib']
             flags += ['--features', ','.join(features), '--locked', '--profile', profile]
             selection = 'package(' + package + ') & test(=' + test + ')'
-            if args.case in INTEGRATION_CASES or args.case in UNIFFI_CASES:
+            if args.case in INTEGRATION_CASES or args.case in UNIFFI_CASES or args.case in ENGINE_CASES:
                 selection += ' & binary(=' + binary + ')'
+            body_selection = selection
+            if args.case == 'private-classifier-authentication':
+                selection = engine_bundle_selection()
             stage = 'inventory-command'
             code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
             report['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'stdout_bytes': len(raw),
@@ -1878,11 +2010,15 @@ def main():
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
-            selected_case(inventory, test)
+            if args.case == 'private-classifier-authentication':
+                report['engine_control_inventory'] = selected_engine_bundle(inventory)
+            else:
+                selected_case(inventory, test)
+            selection = body_selection
             if args.case in OFFLINE_CASES:
                 report['compiled_fingerprints'] = fingerprint_snapshot(
                     inventory, test, os.environ.get('CARGO_TARGET_DIR', 'target'))
-            report['inventory']['selected_nonignored'] = 1
+            report['inventory']['selected_nonignored'] = 8 if args.case == 'private-classifier-authentication' else 1
             report['inventory']['selected_ignored'] = 0
             save()
             stage = 'inventory-source'
@@ -1973,6 +2109,13 @@ def main():
                                      and not report['body']['compiler']['codes']
                                      and report['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0})
             result = 0 if report['body_passed'] else 1
+            if result == 0 and args.case == 'private-classifier-authentication':
+                report['primary_body_passed'] = True
+                result = 1
+                report['body_passed'] = False
+                save()
+                result = engine_support_bodies(report, before, flags, save)
+                report['body_passed'] = result == 0
             if result:
                 report['failure_category'] = 'body-not-passed'
     except Exception:
