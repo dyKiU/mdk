@@ -368,30 +368,31 @@ async fn offline_plaintext_replay(senders: usize, per_sender: usize, offline: Du
             )
         })
         .collect();
-    let requests = relay.requests.lock().unwrap();
-    eprintln!(
-        "offline-replay-diagnostic {}",
-        json!({
-            "senders": senders,
-            "per_sender": per_sender,
-            "expected": expected.len(),
-            "snapshot": snapshot_count,
-            "observed": observed.len(),
-            "stored": stored.len(),
-            "completed": complete.is_ok(),
-            "catchup_elapsed_ms": catchup_started.elapsed().as_millis(),
-            "arrival_buckets_10s": arrival_buckets,
-            "completed_group_pages": requests.completed_group_pages.len(),
-            "maximum_group_page": requests.completed_group_pages.iter().max().copied(),
-            "refused_comparisons": requests.refused_comparisons,
-            "projection_attempts": performance.inbound_delivery_projection.attempts,
-            "projection_successes": performance.inbound_delivery_projection.successes,
-            "projection_failures": performance.inbound_delivery_projection.failures,
-            "projection_sum_ms": performance.inbound_delivery_projection.duration_ms.sum_ms,
-            "runtime_operations": runtime_operations,
-        })
-    );
-    drop(requests);
+    {
+        let requests = relay.requests.lock().unwrap();
+        eprintln!(
+            "offline-replay-diagnostic {}",
+            json!({
+                "senders": senders,
+                "per_sender": per_sender,
+                "expected": expected.len(),
+                "snapshot": snapshot_count,
+                "observed": observed.len(),
+                "stored": stored.len(),
+                "completed": complete.is_ok(),
+                "catchup_elapsed_ms": catchup_started.elapsed().as_millis(),
+                "arrival_buckets_10s": arrival_buckets,
+                "completed_group_pages": requests.completed_group_pages.len(),
+                "maximum_group_page": requests.completed_group_pages.iter().max().copied(),
+                "refused_comparisons": requests.refused_comparisons,
+                "projection_attempts": performance.inbound_delivery_projection.attempts,
+                "projection_successes": performance.inbound_delivery_projection.successes,
+                "projection_failures": performance.inbound_delivery_projection.failures,
+                "projection_sum_ms": performance.inbound_delivery_projection.duration_ms.sum_ms,
+                "runtime_operations": runtime_operations,
+            })
+        );
+    }
     assert!(
         complete.is_ok(),
         "permanent consumer saw {} of {} texts; durable projection holds {}",
