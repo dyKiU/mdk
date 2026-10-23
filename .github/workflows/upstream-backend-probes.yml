@@ -9,13 +9,18 @@ on:
       scope:
         description: Run remaining unchanged convergence/withdrawal controls or the default backend controls
         type: choice
-        options: [experimental, default, all, current-source]
+        options: [experimental, default, all, current-source, replay-controls]
         default: experimental
       current_case:
         description: Exact reviewed current-source default-CI diagnostic
         type: choice
         options: [key-package, avatar]
         default: key-package
+      replay_case:
+        description: One exact default-natural replay diagnostic (no mutation credit)
+        type: choice
+        options: [offline, inline, input-only, spill]
+        default: offline
       reviewed_baseline:
         description: Explicit reviewed full source SHA including passive test observations
         type: string
@@ -310,5 +315,85 @@ jobs:
           path: |
             current-probe/*.json
             ${{ runner.temp }}/current-backend-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+
+  replay-controls-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'replay-controls'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact replay source and synthetic closed parser controls
+        env:
+          REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
+          REPLAY_CASE: ${{ inputs.replay_case }}
+        run: >-
+          python3 scripts/upstream_replay_controls.py --mode preflight
+          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE"
+          --output replay-probe/preflight.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: replay-preflight-${{ inputs.replay_case }}-${{ github.sha }}
+          path: replay-probe/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  replay-controls-body:
+    needs: replay-controls-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: ${{ inputs.replay_case == 'offline' && 'relay-runtime' || 'upstream-default-app' }}
+          cache-on-failure: true
+      - name: Read-only post-cache capacity guard
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label default-replay-controls
+          --output "$RUNNER_TEMP/replay-capacity.json"
+      - name: Run one exact default replay body with original assertions
+        env:
+          CARGO_INCREMENTAL: "1"
+          REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
+          REPLAY_CASE: ${{ inputs.replay_case }}
+        run: >-
+          python3 scripts/upstream_replay_controls.py --mode run
+          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE"
+          --output replay-probe/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: replay-body-${{ inputs.replay_case }}-${{ github.sha }}
+          path: |
+            replay-probe/*.json
+            ${{ runner.temp }}/replay-capacity.json
           if-no-files-found: error
           retention-days: 7
