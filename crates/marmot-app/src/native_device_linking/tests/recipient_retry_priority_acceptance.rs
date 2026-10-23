@@ -303,8 +303,10 @@ async fn older_recipient_proof_retry_precedes_later_consent_retry() {
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed =
-        super::request_retry_completion_acceptance::owned_loopback_listener_is_closed(address)
-            .await;
+        super::request_retry_completion_acceptance::owned_loopback_listener_is_closed(
+            address, &relay,
+        )
+        .await;
     eprintln!(
         "recipient-retry-priority source_proof_held={} real_frontier={} both_due_unchanged={} next_real_ack={} source_dispatch_ack_after_release={} exact_peer_proof_authenticated={} enrollment_complete={} source_cancelled={} recipient_cancelled={} probe_custody_released={} selected_proof={} runtime_closes={} storage_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
         facts[0],

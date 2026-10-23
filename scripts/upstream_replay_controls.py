@@ -16,6 +16,14 @@ from upstream_offline_fingerprints import controls as fingerprint_controls, snap
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
+    'request-cleanup-default': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::request_retry_completion_acceptance::authenticated_consent_retires_obsolete_request_retry_before_proof',
+                                 'crates/marmot-app/src/native_device_linking/tests/request_retry_completion_acceptance.rs'),
+    'request-cleanup-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::request_retry_completion_acceptance::authenticated_consent_retires_obsolete_request_retry_before_proof',
+                                      'crates/marmot-app/src/native_device_linking/tests/request_retry_completion_acceptance.rs'),
+    'priority-cleanup-default': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_retry_priority_acceptance::older_recipient_proof_retry_precedes_later_consent_retry',
+                                  'crates/marmot-app/src/native_device_linking/tests/recipient_retry_priority_acceptance.rs'),
+    'priority-cleanup-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_retry_priority_acceptance::older_recipient_proof_retry_precedes_later_consent_retry',
+                                       'crates/marmot-app/src/native_device_linking/tests/recipient_retry_priority_acceptance.rs'),
     'recipient-admission-default': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::admitted_recipient_starts_first_consent_without_periodic_tick',
                                     'crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admission_acceptance.rs'),
     'recipient-admission-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::admitted_recipient_starts_first_consent_without_periodic_tick',
@@ -120,7 +128,7 @@ ENGINE_CONTROL_ORDER = ['private-classifier-authentication', 'private-classifier
 OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
-EXPERIMENTAL_CASES |= UNIFFI_CASES | {'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental'}
+EXPERIMENTAL_CASES |= UNIFFI_CASES | {'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental', 'request-cleanup-experimental', 'priority-cleanup-experimental'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}

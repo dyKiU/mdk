@@ -252,10 +252,13 @@ pub(super) async fn owned_loopback_listener_is_closed(
     address: &str,
     relay: &nostr_relay_builder::MockRelay,
 ) -> bool {
-    let _ = relay;
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
             drop(socket);
+            // Finish the same owned shutdown after observing its listener still
+            // accepts. The locked MockRelay stop notification is not sticky;
+            // this does not establish why any earlier stop was unobserved.
+            relay.shutdown();
             tokio::task::yield_now().await;
         }
     })

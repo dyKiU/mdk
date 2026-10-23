@@ -1,6 +1,6 @@
 //! Real authenticated Body0 versus eight bounded actor read commands; independent scheduling regression.
-use super::*;
 use super::recipient_sibling_admission_acceptance::owned_loopback_listener_is_closed;
+use super::*;
 use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Duration;

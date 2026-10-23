@@ -1,4 +1,5 @@
 //! Genuine first Request ACK, a later retry SDK result held, then real Consent.
+pub(super) use super::recipient_sibling_admission_acceptance::owned_loopback_listener_is_closed;
 use super::*;
 use crate::client::device_linking::sibling_sharing::peer_proof_probe::retry_completion;
 use futures::FutureExt;
@@ -258,7 +259,7 @@ async fn authenticated_consent_retires_obsolete_request_retry_before_proof() {
     }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
-    let relay_closed = owned_loopback_listener_is_closed(address).await;
+    let relay_closed = owned_loopback_listener_is_closed(address, &relay).await;
     eprintln!(
         "request-retry-completion consent_held={} first_request_ack={} retry_sdk_ack_held={} fresh_pending_retry={} periodic_observed={} consent_bound={} proof_progress_before_release={} retry_future_dropped_before_release={} enrollment_complete={} public_cancelled={} guards_released={} peer_proof_held={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
         facts[0],
@@ -286,17 +287,4 @@ async fn authenticated_consent_retires_obsolete_request_retry_before_proof() {
             && attempt.is_ok(),
         "authenticated_consent_must_retire_only_obsolete_request_retry_before_proof"
     );
-}
-
-// Probe only this fixture's owned loopback MockRelay listener.
-#[allow(clippy::disallowed_methods)]
-pub(super) async fn owned_loopback_listener_is_closed(address: &str) -> bool {
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
-            drop(socket);
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .is_ok()
 }
