@@ -2339,6 +2339,7 @@ impl NostrTransportAdapter {
         if previous != selected.as_ref()
             && let Some(wire) = state.private_observation_wires.get_mut(account)
         {
+            wire.selection_revoked = true;
             wire.ready = false;
             wire.completed = false;
         }
@@ -2450,6 +2451,7 @@ impl NostrTransportAdapter {
                     attempt,
                     ready: false,
                     completed: false,
+                    selection_revoked: false,
                 })
             } else {
                 None
@@ -2505,7 +2507,7 @@ impl NostrTransportAdapter {
                 "private observation selection changed".into(),
             ));
         };
-        if current.actual != replacement.actual {
+        if current.actual != replacement.actual || current.selection_revoked {
             return Err(TransportAdapterError::Subscription(
                 "private observation selection changed".into(),
             ));
@@ -6820,6 +6822,9 @@ struct PrivateObservationWire {
     attempt: SubscriptionAttempt,
     ready: bool,
     completed: bool,
+    // Selection changes permanently revoke this actual generation, including
+    // while its predecessor CLOSE is in flight. Only allocation clears it.
+    selection_revoked: bool,
 }
 
 #[derive(Default)]
