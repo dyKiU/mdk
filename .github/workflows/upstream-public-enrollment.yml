@@ -1,5 +1,8 @@
 name: Upstream public three-device enrollment
 on:
+  push:
+    branches: ["ci/upstream-public-enrollment-register-*"]
+    paths: [".github/workflows/upstream-public-enrollment.yml"]
   workflow_dispatch:
     inputs:
       sdk_sha:
@@ -22,7 +25,55 @@ concurrency:
   group: public-enrollment-${{ github.sha }}-${{ inputs.sdk_sha }}-${{ inputs.route }}
   cancel-in-progress: false
 jobs:
+  registration:
+    if: github.event_name == 'push' && github.repository == 'dyKiU/mdk' && startsWith(github.ref, 'refs/heads/ci/upstream-public-enrollment-register-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Required workflow policy checks; no Rust or SDK workloads
+        run: |
+          python3 scripts/test_classify_ci_changes.py
+          python3 scripts/test_ci_workflow_policy.py
+      - name: Record exact source-only registration and manual-only runtime guards
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          assert os.environ['GITHUB_EVENT_NAME']=='push'
+          assert os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk'
+          ref=os.environ['GITHUB_REF'];head=os.environ['GITHUB_SHA']
+          assert ref.startswith('refs/heads/ci/upstream-public-enrollment-register-')
+          assert os.environ['GITHUB_WORKFLOW_SHA']==head
+          path='.github/workflows/upstream-public-enrollment.yml'
+          assert os.environ['GITHUB_WORKFLOW_REF']=='dyKiU/mdk/'+path+'@'+ref
+          actual=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert actual==head
+          subprocess.run(['git','diff','--exit-code','HEAD'],check=True)
+          source=Path(path).read_bytes();text=source.decode()
+          for job in ['identity','sdk','public-enrollment']:
+              assert '  '+job+":\n    if: github.event_name == 'workflow_dispatch'\n" in text
+          assert "    if: github.event_name == 'workflow_dispatch' && always() && inputs.route == 'both'\n" in text
+          root=Path('public-registration');root.mkdir()
+          (root/'result.json').write_text(json.dumps({'source':head,
+            'tree':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),
+            'workflow_sha256':hashlib.sha256(source).hexdigest(),
+            'event':'push','ref':ref,'workflow_definition_equals_checkout':True,
+            'policy_scripts_passed':['test_classify_ci_changes.py','test_ci_workflow_policy.py'],
+            'runtime_jobs_manual_only':True,'rust_bodies':0,'sdk_jobs':0,
+            'native_bodies':0,'qualification_passed':False},indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upstream-public-enrollment-registration-${{ github.sha }}
+          path: public-registration/result.json
+          retention-days: 7
   identity:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       routes: ${{ steps.identity.outputs.routes }}
@@ -77,6 +128,7 @@ jobs:
           name: upstream-public-enrollment-identity-${{ github.sha }}-${{ inputs.sdk_sha }}
           path: public-identity/
   sdk:
+    if: github.event_name == 'workflow_dispatch'
     needs: identity
     runs-on: ubuntu-latest
     timeout-minutes: 110
@@ -91,6 +143,7 @@ jobs:
           persist-credentials: false
       - run: python3 scripts/upstream_apple_ci/wait-sdk.py
   public-enrollment:
+    if: github.event_name == 'workflow_dispatch'
     needs: [identity, sdk]
     runs-on: macos-26
     timeout-minutes: 100
@@ -142,7 +195,7 @@ jobs:
           retention-days: 7
   public-gates:
     needs: [identity, public-enrollment]
-    if: always() && inputs.route == 'both'
+    if: github.event_name == 'workflow_dispatch' && always() && inputs.route == 'both'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
