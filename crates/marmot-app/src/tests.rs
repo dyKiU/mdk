@@ -23550,7 +23550,11 @@ async fn due_peer_leave_does_not_shorten_a_collecting_convergence_pass() {
             .contains(&group_id)
     );
     // Passive pre-leave canonical epoch; no protocol work or convergence advance.
-    let peer_leave_prior_epoch = alice.runtime.group_record(&group_id).ok().map(|group| group.epoch);
+    let peer_leave_prior_epoch = alice
+        .runtime
+        .group_record(&group_id)
+        .ok()
+        .map(|group| group.epoch);
     bob_client.leave_group(&group_id).await.unwrap();
     alice.sync().await.unwrap();
     let delay = alice
@@ -23573,13 +23577,20 @@ async fn due_peer_leave_does_not_shorten_a_collecting_convergence_pass() {
         let members = alice.runtime.members(&group_id).ok();
         let bob_id = hex::decode(&bob.account_id_hex).ok();
         let bob_member = members.as_ref().zip(bob_id.as_ref()).map(|(members, id)| {
-            members.iter().any(|member| member.id.as_slice() == id.as_slice())
+            members
+                .iter()
+                .any(|member| member.id.as_slice() == id.as_slice())
         });
-        let cached_storage = app.account_storages.lock().ok()
+        let cached_storage = app
+            .account_storages
+            .lock()
+            .ok()
             .and_then(|stores| stores.get("alice").cloned());
-        let own_leave = cached_storage.and_then(|storage| {
-            cgka_traits::storage::LeaveRequestStorage::leave_request(&storage, &group_id).ok()
-        }).map(|request| request.is_some());
+        let own_leave = cached_storage
+            .and_then(|storage| {
+                cgka_traits::storage::LeaveRequestStorage::leave_request(&storage, &group_id).ok()
+            })
+            .map(|request| request.is_some());
         crate::test_support::emit_line(format_args!(
             "peer-leave-initial-delay-observation {}",
             serde_json::json!({
