@@ -2331,6 +2331,53 @@ def private_role_pfp_controls(case, site):
         'probe_controls': probe_controls, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+PRIVATE_MAINTENANCE_PRODUCT = 'crates/cgka-engine/src/message_processor/mod.rs'
+PRIVATE_MAINTENANCE_GREEN = '        // Older builds could retain an ordinary SelfUpdate that this private\n        // group can never authorize. Retire only unexposed maintenance work;\n        // normal convergence still owns every actual crypto/input transition.\n        #[cfg(feature = "experimental-device-sync")]\n        self.retire_queued_private_maintenance(group_id)?;\n'
+PRIVATE_MAINTENANCE_INVERSE = '\n' * 5
+PFP[PRIVATE_MAINTENANCE_CASE] = (
+    PRIVATE_MAINTENANCE_PRODUCT, PRIVATE_MAINTENANCE_GREEN, PRIVATE_MAINTENANCE_INVERSE,
+    PRIVATE_MAINTENANCE_MESSAGE,
+    r'assert!\(\s*result.is_ok\(\),\s*'
+    r'"unsupported private queue must retire without publication; remaining=\{remaining\}"\s*,?\s*\);')
+
+
+def validate_private_maintenance_inverse(text, old, new):
+    owner = '    fn prepare_convergence_input_advance('
+    if text.count(owner) != 1:
+        raise ValueError('private-maintenance-inverse-owner')
+    start = text.index(owner)
+    end = text.index('    async fn run_drain_maintenance(', start)
+    gate = '        if let Some(state) = self.epoch_manager.state(group_id)'
+    if (old != PRIVATE_MAINTENANCE_GREEN or new != PRIVATE_MAINTENANCE_INVERSE
+            or text.count(old) != 1 or old not in text[start:end]
+            or text[start:end].count(gate) != 1
+            or text.index(old, start) < text.index(gate, start)
+            or old.count('\n') != new.count('\n') or new != '\n' * 5):
+        raise ValueError('private-maintenance-inverse-scope')
+
+
+def private_maintenance_pfp_controls(site):
+    result = private_maintenance_controls(site)
+    source = Path(PRIVATE_MAINTENANCE_PRODUCT).read_text()
+    old, new = PRIVATE_MAINTENANCE_GREEN, PRIVATE_MAINTENANCE_INVERSE
+    validate_private_maintenance_inverse(source, old, new)
+    invalid = [(source + old, old, new),
+               (source.replace('fn prepare_convergence_input_advance(', 'fn PRIVATE('), old, new),
+               (source.replace(old, '') + old, old, new),
+               (source, old, new + '\n'), (source, old, old),
+               (source, old, '        panic!("PRIVATE");' + new)]
+    for text, original, mutant in invalid:
+        try:
+            validate_private_maintenance_inverse(text, original, mutant)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('private-maintenance-inverse-negative')
+    assert pfp_configuration(PRIVATE_MAINTENANCE_CASE) == positive_configuration(PRIVATE_MAINTENANCE_CASE)
+    result.update(inverse_positive=1, inverse_negative=len(invalid))
+    return result
+
+
 PRIVATE_SEND_PRODUCT = 'crates/cgka-engine/src/message_processor/mod.rs'
 PRIVATE_SEND_GREEN = '        // Reject generic private-group work before convergence preflight or\n        // durable queue admission. A later dispatch-only refusal can strand\n        // an unsupported maintenance intent and invalidate settled reads.\n        // Keep the dispatch guard too: retained queues must remain fenced.\n        #[cfg(feature = "experimental-device-sync")]\n        if self.with_mls_group(&group_id, |group| {\n            crate::device_group_genesis::has_private_component(group)\n        })? {\n            return Err(EngineError::InvalidTransition(\n                cgka_traits::engine_state::InvalidTransition {\n                    from: "PrivateDeviceGroup",\n                    to: crate::audit_helpers::send_intent_kind_str(intent),\n                    reason: "authenticated private-group approval is required",\n                },\n            ));\n        }\n'
 PRIVATE_SEND_INVERSE = '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
@@ -2942,6 +2989,8 @@ def inverse(case):
         validate_private_role_pfp_inverse(text, case, old, new)
     if case in FAMILY_PFP_CASES:
         validate_family_pfp_inverse(text, case, old, new)
+    if case == PRIVATE_MAINTENANCE_CASE:
+        validate_private_maintenance_inverse(text, old, new)
     if case == PRIVATE_SEND_CASE:
         validate_private_send_inverse(text, old, new)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
@@ -3002,6 +3051,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case == PRIVATE_MAINTENANCE_CASE:
+        return private_maintenance_failure(raw, site)
     if case == PRIVATE_SEND_CASE:
         return private_send_failure(raw, site)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
@@ -3030,6 +3081,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == PRIVATE_MAINTENANCE_CASE:
+        return private_maintenance_pfp_controls(site)
     if case == PRIVATE_SEND_CASE:
         return private_send_pfp_controls(site)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
@@ -3064,6 +3117,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == PRIVATE_MAINTENANCE_CASE:
+        return positive_configuration(case)
     if case == PRIVATE_SEND_CASE:
         return positive_configuration(case)
     if case == AUTOMATIC_SCAN_EXPIRY_CASE:
@@ -3486,6 +3541,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == PRIVATE_MAINTENANCE_CASE:
+        report.update(evidence_scope='real-private-MLS-maintenance-call-necessity-only',
+            native_protocol_qualification=False, full_suite_qualification=False,
+            pending_publish_gate_mutation_qualified=False, cold_restart_qualification=False)
     if args.case == PRIVATE_SEND_CASE:
         report.update(evidence_scope='real-private-MLS-generic-send-admission-single-mutation-only',
             native_protocol_qualification=False, full_suite_qualification=False,
@@ -3576,6 +3635,8 @@ def pfp(args):
             selection += ' & binary(=cgka_engine)'
         if phase_case in LIVE_SEAL_CASES:
             selection += ' & binary(=transport_nostr)'
+        if phase_case == PRIVATE_MAINTENANCE_CASE:
+            selection = automatic_negotiation_selection(PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                             'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
@@ -3584,16 +3645,19 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         inventory = json.loads(raw, object_pairs_hook=unique)
-        selected_case(inventory, CASES[phase_case][1])
+        if phase_case == PRIVATE_MAINTENANCE_CASE:
+            row['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
+        else:
+            selected_case(inventory, CASES[phase_case][1])
         if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE}:
             matched_suites = [suite for suite in inventory['rust-suites'].values()
                 if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
             if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != CASES[phase_case][0] or matched_suites[0].get('kind') != 'lib':
                 raise ValueError('one-exact-pfp-library-binary')
-        row['inventory'].update(selected_nonignored=1, selected_ignored=0)
+        row['inventory'].update(selected_nonignored=2 if phase_case == PRIVATE_MAINTENANCE_CASE else 1, selected_ignored=0)
         save()
         if snapshot() != expected:
             raise ValueError('phase-inventory-source')
@@ -3606,13 +3670,24 @@ def pfp(args):
                        'raw_sha256': hashlib.sha256(raw).hexdigest(), 'runtime_summary': summary_counts(raw),
                        'compiler': compiler(raw, expected['inputs']), 'panic': panic_facts(raw, phase_case)}
         save()
-        row['body']['counts'] = counts(raw, phase_case)
+        if phase_case == PRIVATE_MAINTENANCE_CASE:
+            row['body']['panic'] = automatic_negotiation_panics(raw, PRIVATE_MAINTENANCE_TESTS)
+            row['body']['private_maintenance_runtime'] = automatic_negotiation_runtime(raw, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine')
+            row['body']['counts'] = row['body']['private_maintenance_runtime']['counts']
+        else:
+            row['body']['counts'] = counts(raw, phase_case)
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE}:
+        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
+        if phase_case == PRIVATE_MAINTENANCE_CASE:
+            runtime = row['body']['private_maintenance_runtime']
+            watch_accepted = (runtime['complete']
+                and row['body']['panic']['unknown_or_excess_headers'] == 0
+                and sorted(site['test'] for site in row['body']['panic']['sites']) == sorted(item['test'] for item in runtime['rows'] if item['outcome'] == 'FAIL'))
+            save()
         if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
             row['body']['automatic_scan_expiry_probe'] = automatic_scan_expiry_probe(raw)
             probe = row['body']['automatic_scan_expiry_probe']
@@ -3671,11 +3746,11 @@ def pfp(args):
             save()
         if label == 'mutant':
             row['own_runtime_failure'] = own_failure(raw, phase_case, site)
-            row['accepted'] = (code == 100 and row['body']['counts']['failed'] == 1
+            row['accepted'] = (code == 100 and row['body']['counts']['failed'] == (2 if phase_case == PRIVATE_MAINTENANCE_CASE else 1)
                                and clean_compile and watch_accepted and row['own_runtime_failure']
                                and row['source_exact_after_body'])
         else:
-            row['accepted'] = (code == 0 and row['body']['counts']['passed'] == 1 and clean_compile and watch_accepted
+            row['accepted'] = (code == 0 and row['body']['counts']['passed'] == (2 if phase_case == PRIVATE_MAINTENANCE_CASE else 1) and clean_compile and watch_accepted
                                and row['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0}
                                and row['source_exact_after_body'])
         save()
@@ -4851,8 +4926,8 @@ def main():
     if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
             and not (args.case == AUTOMATIC_SCAN_EXPIRY_CASE and args.stage == 'pfp')):
         raise ValueError('automatic-native-positive-or-expiry-pfp-only')
-    if args.case == PRIVATE_MAINTENANCE_CASE and args.stage != 'positive':
-        raise ValueError('private-maintenance-positive-only')
+    if args.case == PRIVATE_MAINTENANCE_CASE and args.stage not in {'positive', 'pfp'}:
+        raise ValueError('private-maintenance-positive-or-pfp-only')
     if args.case == PRIVATE_SEND_CASE and args.stage not in {'positive', 'pfp'}:
         raise ValueError('private-send-positive-or-pfp-only')
     if args.stage == 'pfp':
