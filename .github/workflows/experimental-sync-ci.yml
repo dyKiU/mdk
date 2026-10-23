@@ -3205,7 +3205,8 @@ jobs:
     name: Experimental sync tests (${{ matrix.partition }}/12)
     needs: experimental-test-build
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Include archive transfer/extraction without changing any test execution bounds.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
