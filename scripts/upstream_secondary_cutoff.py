@@ -20,6 +20,7 @@ FIXTURE = 'crates/marmot-app/src/runtime/account_worker/tests/secondary_retry_sc
 CASES = {key: 'runtime::account_worker::tests::secondary_retry_scheduler_tests::captured_'
          + key + '_prefix_drains_before_later_archive_commands' for key in ['deferred', 'buffered']}
 ASSERTION = 'captured predecessor prefix must drain before post-cutoff archive commands'
+CAPTURE = 'secondary-cutoff-capture '
 PRIOR = 'secondary-cutoff-prerequisites '
 RESULT = 'secondary-cutoff-result '
 PRIOR_KEYS = {'captured_initial_four', 'original_deferred_prefix', 'original_buffered_prefix',
@@ -106,7 +107,7 @@ def oracle(raw, case, fixture, mutant):
     def marker(prefix, keys):
         rows = []
         for line in text.splitlines():
-            if prefix not in line:
+            if prefix.rstrip() not in line:
                 continue
             matched = re.fullmatch(re.escape(prefix) + r'(\{[^\r\n]{1,2048}\})', line)
             if matched is None:
@@ -126,6 +127,7 @@ def oracle(raw, case, fixture, mutant):
                 return None
             rows.append(value)
         return rows[0] if len(rows) == 1 else None
+    capture = marker(CAPTURE, PRIOR_KEYS - {'later_commands_enqueued_after_cutoff'})
     prior = marker(PRIOR, PRIOR_KEYS)
     result = marker(RESULT, RESULT_KEYS)
     expected_prior = {key: True for key in PRIOR_KEYS}
@@ -136,18 +138,21 @@ def oracle(raw, case, fixture, mutant):
     intended = bool(panic_count == 1 and re.search(
         r"thread '" + re.escape(name) + r"'(?: \([0-9]+\))? panicked at " + re.escape(FIXTURE) + ':' + str(site) + r':\d+:\n'
         + re.escape(ASSERTION) + r'\s*(?:\n|$)', text))
-    ordered = (prior is not None and result is not None and text.index(PRIOR) < text.index(RESULT)
+    ordered = (capture is not None and prior is not None and result is not None
+               and text.index(CAPTURE) < text.index(PRIOR) < text.index(RESULT)
                and (not mutant or intended and text.index(RESULT) < text.index('panicked at ')))
     diagnostics = compiler_diagnostics(raw, cargo_test_context=('marmot-app', '--lib'))
     expected = [('FAILED', '0', '1', '0')] if mutant else [('ok', '1', '0', '0')]
     return {'counts': counts, 'running_one': running == ['1'],
             'actual_named_body': named == ['FAILED' if mutant else 'ok'],
             'prerequisites': prior, 'result': result, 'markers_ordered': bool(ordered),
+            'frozen_capture_prerequisites': capture,
             'panic_header_count': panic_count, 'intended_order_assertion': intended,
             'trusted_assertion_line': site, 'compiler_diagnostics': diagnostics,
             'runtime_panic_coordinates': runtime_panic_coordinates(raw),
             'evidence_passed': bool(summaries == expected and running == ['1']
                 and named == ['FAILED' if mutant else 'ok'] and ordered
+                and capture == {key: True for key in PRIOR_KEYS - {'later_commands_enqueued_after_cutoff'}}
                 and prior == expected_prior and result == expected_result
                 and (intended if mutant else panic_count == 0)
                 and not diagnostics['compiler_codes'] and diagnostics['compiler_header_count'] == 0)}
@@ -161,6 +166,7 @@ def parser_controls(fixture):
             result = {key: True for key in RESULT_KEYS}
             result['later_commands_after_first_drain'] = not mutant
             return ('running 1 test\ntest ' + name + (' ... FAILED\n' if mutant else ' ... ok\n')
+                + CAPTURE + json.dumps({key: True for key in PRIOR_KEYS - {'later_commands_enqueued_after_cutoff'}}) + '\n'
                 + PRIOR + json.dumps({key: True for key in PRIOR_KEYS}) + '\n'
                 + RESULT + json.dumps(result) + '\n'
                 + ("thread '" + name + "' panicked at " + FIXTURE + ':' + str(site) + ':5:\n' + ASSERTION + '\n' if mutant else '')
@@ -191,6 +197,11 @@ def parser_controls(fixture):
                killed.replace(b'0 ignored', b'1 ignored'),
                killed.replace(b'"runtime_closed": true', b'"runtime_closed": 1'),
                killed.replace(PRIOR.encode(), b'unknown-prefix '),
+               killed.replace(CAPTURE.encode(), b'unknown-capture '),
+               killed.replace(CAPTURE.encode(), b'secondary-cutoff-capture-PRIVATE '),
+               killed.replace(b'\"due_retry_owed\": true', b'\"due_retry_owed\": \"PRIVATE\"'),
+               killed + (CAPTURE + json.dumps({key: True for key in PRIOR_KEYS - {'later_commands_enqueued_after_cutoff'}}) + '\n').encode(),
+               killed.replace(b'"due_retry_owed": true', b'"due_retry_owed": 1'),
                killed + b'error[E0382]: source-owned synthetic compile error\n']
         if any(oracle(item, case, fixture, True)['evidence_passed'] for item in bad):
             raise ValueError('parser-negative')

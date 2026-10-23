@@ -724,6 +724,17 @@ async fn captured_prefix_drains_before_later_archive_commands(deferred_count: us
     // difference binds captured archives while preserving other FIFO controls.
     let original_buffered_prefix =
         cutoff.after_archives.checked_sub(cutoff.before_archives) == Some(4 - deferred_count);
+    // Freeze only the already captured prerequisite facts before their verdict.
+    eprintln!(
+        "secondary-cutoff-capture {}",
+        serde_json::json!({
+            "captured_initial_four": captured_initial_four,
+            "original_deferred_prefix": original_deferred_prefix,
+            "original_buffered_prefix": original_buffered_prefix,
+            "no_archive_or_drain_before_cutoff": cutoff.no_archive_or_drain,
+            "due_retry_owed": cutoff.due_retry_owed,
+        })
+    );
     assert!(
         captured_initial_four
             && original_deferred_prefix
