@@ -3025,17 +3025,39 @@ async fn maintenance_replay_is_ordered() {
 async fn distinct_deliveries(adapter: &NostrTransportAdapter, wait: Duration) -> usize {
     const IDLE: Duration = Duration::from_millis(1_500);
     let deadline = tokio::time::Instant::now() + wait;
+    let started = deadline - wait;
     let mut seen = HashSet::new();
     loop {
         let next = deadline.min(tokio::time::Instant::now() + IDLE);
-        match tokio::time::timeout_at(next, adapter.receive()).await {
+        let exit_reason = match tokio::time::timeout_at(next, adapter.receive()).await {
             Ok(Ok(Some(delivery))) => {
                 adapter
                     .ack_replay_delivery(&delivery.account_id, &delivery.message.id)
                     .await;
                 seen.insert(delivery.message.id);
+                None
             }
-            _ => return seen.len(),
+            Ok(Ok(None)) => Some("stream_closed"),
+            Ok(Err(_)) => Some("receive_error"),
+            Err(_) => Some(if next == deadline {
+                "deadline_timeout"
+            } else {
+                "quiet_timeout"
+            }),
+        };
+        if let Some(reason) = exit_reason {
+            let returned_at = tokio::time::Instant::now();
+            eprintln!(
+                "adapter-distinct-deliveries-exit {}",
+                serde_json::json!({
+                    "reason": reason,
+                    "delivered": seen.len(),
+                    "wait_ms": u64::try_from(wait.as_millis()).ok(),
+                    "elapsed_ms": u64::try_from(returned_at.saturating_duration_since(started).as_millis()).ok(),
+                    "remaining_ms": u64::try_from(deadline.saturating_duration_since(returned_at).as_millis()).ok(),
+                })
+            );
+            return seen.len();
         }
     }
 }

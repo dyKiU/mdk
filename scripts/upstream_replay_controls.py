@@ -15,6 +15,7 @@ from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
 from upstream_offline_fingerprints import controls as fingerprint_controls, snapshot as fingerprint_snapshot
 
 from upstream_sibling_send_observation import parse as sibling_send_observation, controls as sibling_send_controls
+from upstream_adapter_exit_observation import parse as adapter_exit_observation, controls as adapter_exit_controls
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
@@ -2121,6 +2122,8 @@ def main():
             report['body_resource_controls'] = resource_controls()
         if args.case in SDK_REPLAY_CASES:
             report['sdk_replay_parser_controls'] = sdk_replay_controls()
+        if args.case == 'adapter-clamped':
+            report['adapter_exit_parser_controls'] = adapter_exit_controls()
         if args.case == 'watch-pressure':
             report['watch_parser_controls'] = watch_controls()
         if args.case == 'higher-source':
@@ -2212,6 +2215,14 @@ def main():
             if args.case in SELECTIVE_CASES:
                 stage = 'diagnostic'
                 report['body']['receipt_observations'] = selective_receipt_marker(raw)
+                save()
+            if args.case == 'adapter-clamped':
+                try:
+                    report['body']['adapter_exit_observation'] = adapter_exit_observation(ANSI.sub('', raw.decode('utf-8', errors='strict')).encode())
+                    report['body']['adapter_exit_export_complete'] = True
+                except (ValueError, UnicodeError):
+                    report['body']['adapter_exit_observation'] = None
+                    report['body']['adapter_exit_export_complete'] = False
                 save()
             if args.case in SDK_REPLAY_CASES:
                 stage = 'diagnostic'
