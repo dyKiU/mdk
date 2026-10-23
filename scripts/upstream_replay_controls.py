@@ -157,6 +157,168 @@ def family_stability_controls(site):
             'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+PRIVATE_ROLE_CASES = {
+    'sdk-private-family-partial': {
+        'test': 'private_family_survives_partial_ordinary_failure_and_retry',
+        'prefix': 'private-family-partial-prerequisites',
+        'prerequisites': {
+            'distinct_relays', 'initial_registered', 'terminal_ban', 'partial_failed',
+            'retry_succeeded', 'final_native_eose', 'retried_registered', 'cleanup_complete',
+        },
+        'verdicts': {
+            'healthy_committed', 'healthy_registered', 'healthy_native_eose',
+            'failed_family_retained', 'private_partial_unchanged',
+            'retry_keeps_successful_carriers', 'retried_family_committed',
+            'old_b_absent_from_retry_instance',
+        },
+    },
+    'sdk-private-role-transition': {
+        'test': 'failed_private_selection_never_exposes_prior_logical_wire',
+        'prefix': 'private-role-transition-prerequisites',
+        'prerequisites': {
+            'distinct_relays', 'initial_actual_registered', 'terminal_ban',
+            'replacement_failed', 'prior_standalone_retained', 'successor_not_ready',
+            'predecessor_closed', 'healthy_registered', 'healthy_native_eose',
+            'retry_succeeded', 'retry_native_eose', 'replacement_registered',
+            'demotion_succeeded', 'demotion_native_eose', 'demoted_batch_registered',
+            'cleanup_complete',
+        },
+        'verdicts': {
+            'prior_negative', 'successor_negative', 'prior_ordinary_is_new_batch',
+            'healthy_unchanged', 'healthy_after_demotion', 'demotion_has_no_standalone',
+            'demotion_uses_new_batch', 'replacement_actual_closed',
+        },
+    },
+    'sdk-private-configuration-aba': {
+        'test': 'configuration_aba_during_private_close_cannot_reauthorise_replacement',
+        'prefix': 'private-configuration-aba-prerequisites',
+        'prerequisites': {
+            'initial_actual_registered', 'initially_revoked', 'distinct_successor_actual',
+            'predecessor_still_registered', 'successor_absent_while_held',
+            'held_revocation', 'predecessor_closed', 'cleanup_complete',
+        },
+        'verdicts': {
+            'sync_rejected', 'preparation_not_reauthorised', 'successor_not_registered',
+        },
+    },
+}
+PRIVATE_ABA_CASE = 'sdk-private-configuration-aba'
+PRIVATE_ABA_MESSAGE = 'configuration ABA must not reauthorise the private replacement prepared before revocation'
+
+
+def private_role_probe(raw, case):
+    spec = PRIVATE_ROLE_CASES[case]
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    prefix = spec['prefix']
+    lines = [line for line in text.splitlines() if prefix in line]
+    if (len(lines) != 1 or text.count(prefix) != 1 or len(lines[0]) > 2048
+            or any(other['prefix'] in text for key, other in PRIVATE_ROLE_CASES.items() if key != case)):
+        raise ValueError('private-role-cardinality-namespace')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(prefix)
+                         + r' (\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('private-role-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if (type(value) is not dict or set(value) != spec['prerequisites'] | spec['verdicts']
+            or any(type(item) is not bool for item in value.values())):
+        raise ValueError('private-role-fields')
+    return value
+
+
+def private_role_green(value, case):
+    spec = PRIVATE_ROLE_CASES[case]
+    return (type(value) is dict and set(value) == spec['prerequisites'] | spec['verdicts']
+            and all(type(item) is bool and item is True for item in value.values()))
+
+
+def private_aba_site():
+    text = Path(CASES[PRIVATE_ABA_CASE][2]).read_text()
+    pattern = (r'assert!\(\s*sync_rejected\s*&&\s*preparation_not_reauthorised'
+               r'\s*&&\s*successor_not_registered,\s*"' + re.escape(PRIVATE_ABA_MESSAGE)
+               + r'"\s*,?\s*\);')
+    found = list(re.finditer(pattern, text))
+    if len(found) != 1:
+        raise ValueError('private-aba-source-site')
+    return {'line': text[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - text.rfind('\n', 0, found[0].start())}
+
+
+def private_aba_failure(raw, site):
+    try:
+        value = private_role_probe(raw, PRIVATE_ABA_CASE)
+        text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    except (ValueError, UnicodeError):
+        return False
+    spec = PRIVATE_ROLE_CASES[PRIVATE_ABA_CASE]
+    if (not all(value[key] is True for key in spec['prerequisites'])
+            or all(value[key] is True for key in spec['verdicts'])
+            or text.count('panicked at ') != 1):
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[PRIVATE_ABA_CASE][1])
+               + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[PRIVATE_ABA_CASE][2])
+               + ':' + str(site['line']) + ':' + str(site['column'])
+               + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}'
+               + re.escape(PRIVATE_ABA_MESSAGE) + r'[ \t]*(?:\n|$)')
+    found = re.search(pattern, text)
+    return found is not None and text.index(spec['prefix']) < found.start()
+
+
+def private_role_controls(case):
+    """Only synthetic parser/oracle adversaries; zero product execution credit."""
+    spec = PRIVATE_ROLE_CASES[case]
+    value = dict.fromkeys(spec['prerequisites'] | spec['verdicts'], True)
+    def row(item):
+        return (spec['prefix'] + ' ' + json.dumps(item) + '\n').encode()
+    valid = row(value)
+    assert private_role_probe(valid, case) == value and private_role_green(value, case)
+    bad = [valid + valid, b'PRIVATE ' + valid, b' ' * 9 + valid, valid + b'\xff',
+           row(dict(value, private=True)), row(dict(value, private_account_id='PRIVATE')),
+           valid.replace(b'\n', b' trailing\n'),
+           (spec['prefix'] + ' []\n').encode(),
+           (spec['prefix'] + ' null\n').encode(), b'']
+    first = sorted(value)[0]
+    for key in sorted(value):
+        bad.append(row({name: item for name, item in value.items() if name != key}))
+        bad.append(valid.replace(b'{', ('{' + json.dumps(key) + ':true,').encode(), 1))
+        false = dict(value, **{key: False})
+        assert private_role_probe(row(false), case) == false and not private_role_green(false, case)
+    for replacement in [1, 0, None, 'PRIVATE', [], {}, 0.5]:
+        bad.append(row(dict(value, **{first: replacement})))
+    for key, other in PRIVATE_ROLE_CASES.items():
+        if key != case:
+            other_row = (other['prefix'] + ' ' + json.dumps(dict.fromkeys(other['prerequisites'] | other['verdicts'], True)) + '\n').encode()
+            bad.extend([other_row, valid + other_row])
+    for raw in bad:
+        try:
+            private_role_probe(raw, case)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('private-role-invalid-accepted')
+    result = {'positive': 1 + len(value), 'negative': len(bad),
+              'synthetic_metadata_only': True, 'product_bodies': 0}
+    if case == PRIVATE_ABA_CASE:
+        site = private_aba_site()
+        header = ("thread '" + CASES[case][1] + "' (7) panicked at " + CASES[case][2]
+                  + ':' + str(site['line']) + ':' + str(site['column']) + ':\n'
+                  + PRIVATE_ABA_MESSAGE + '\n').encode()
+        red = dict(value, sync_rejected=False)
+        for key in sorted(spec['verdicts']):
+            assert private_aba_failure(row(dict(value, **{key: False})) + header, site)
+        invalid = [row(value) + header, row(red), row(red) + header + header,
+                   header + row(red), row(red) + header.replace(PRIVATE_ABA_MESSAGE.encode(), b'PRIVATE'),
+                   row(red) + header.replace(CASES[case][1].encode(), b'PRIVATE'),
+                   row(red) + header.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
+                   row(red) + header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+                   row(red) + header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n')]
+        invalid += [row(dict(red, **{key: False})) + header for key in spec['prerequisites']]
+        assert all(not private_aba_failure(raw, site) for raw in invalid)
+        result['own_red_positive'] = len(spec['verdicts'])
+        result['own_red_negative'] = len(invalid)
+    return result
+
+
+
 CASES = {
     'sdk-private-missing-route': ('transport_nostr_adapter', 'sdk_client::tests::enrollment_acquisition_failed_private_route_sync_burns_freshness_until_valid_reissue', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     FAMILY_STABILITY_CASE: ('transport_nostr_adapter', 'sdk_client::tests::unrelated_family_sync_preserves_private_and_untouched_wire_ids', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
@@ -318,6 +480,16 @@ for _scoped_reporting_set in (ADAPTER_CASES, EXPERIMENTAL_CASES, BOUNDED_CASES):
     _scoped_reporting_set.add('sdk-scoped-reporting')
     _scoped_reporting_set.add(FAMILY_STABILITY_CASE)
     _scoped_reporting_set.add('sdk-private-missing-route')
+
+
+
+for _private_role_case, _private_role_spec in PRIVATE_ROLE_CASES.items():
+    CASES[_private_role_case] = ('transport_nostr_adapter',
+        'sdk_client::tests::' + _private_role_spec['test'],
+        'crates/transport-nostr-adapter/src/sdk_client.rs')
+    ADAPTER_CASES.add(_private_role_case)
+    EXPERIMENTAL_CASES.add(_private_role_case)
+    BOUNDED_CASES.add(_private_role_case)
 
 
 FAMILY_PFP_CASES = {'sdk-private-family-refresh-pfp', 'sdk-private-family-ordinary-pfp'}
@@ -1279,7 +1451,12 @@ def replay_configuration_controls():
     assert positive_configuration('late-commit-extra-epoch') == (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'], 'ci', None)
     assert positive_configuration('sdk-scoped-reporting') == (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
     assert package_for('sdk-scoped-reporting') == 'transport-nostr-adapter' and 'sdk-scoped-reporting' not in INTEGRATION_CASES
-    return {'positive': 11, 'synthetic_metadata_only': True, 'product_bodies': 0}
+    for role_case in PRIVATE_ROLE_CASES:
+        assert positive_configuration(role_case) == (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
+        assert package_for(role_case) == 'transport-nostr-adapter' and role_case not in INTEGRATION_CASES
+        assert role_case in ADAPTER_CASES & EXPERIMENTAL_CASES & BOUNDED_CASES
+
+    return {'positive': 20, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 def compiler(raw, inputs):
@@ -1600,6 +1777,88 @@ def family_pfp_controls(case, site):
     return {'positive': len(positives), 'negative': len(invalid) + len(bad_owners) + len(bad_inverses),
         'verdict_vector_controls': vector_controls, 'configuration_controls': 1,
         'probe_controls': probe_controls, 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+MISSING_ROUTE_CASE = 'sdk-private-missing-route'
+MISSING_ROUTE_MESSAGE = 'failed owner operation leaves this exact private wire ineligible'
+MISSING_ROUTE_GREEN = '                            // Failure must revoke the predecessor even when\n                            // planning rejects the route before preparation.\n                            if let Some(wire) =\n                                state.private_observation_wires.get_mut(&sync.account_id)\n                            {\n                                wire.ready = false;\n                                wire.completed = false;\n                            }\n                            return Err(TransportAdapterError::Subscription(\n                                "selected private observation route unavailable".into(),\n                            ));\n'
+MISSING_ROUTE_INVERSE = '                            // Failure must revoke the predecessor even when\n                            // planning rejects the route before preparation.\n                            if let Some(wire) =\n                                state.private_observation_wires.get_mut(&sync.account_id)\n                            {\n                                let _ = wire.ready;\n                                let _ = wire.completed;\n                            }\n                            return Err(TransportAdapterError::Subscription(\n                                "selected private observation route unavailable".into(),\n                            ));\n'
+PFP[MISSING_ROUTE_CASE] = ('crates/transport-nostr-adapter/src/lib.rs',
+    MISSING_ROUTE_GREEN, MISSING_ROUTE_INVERSE, MISSING_ROUTE_MESSAGE,
+    r'assert!\(\s*wire\.actual\s*==\s*actual\s*&&\s*wire\.attempt\s*==\s*attempt\s*&&\s*!wire\.ready,\s*"{message}"\s*,?\s*\);')
+
+
+def validate_missing_route_inverse(text, old, new):
+    owner = '    async fn sync_account_groups('
+    boundary = '    async fn deactivate_account('
+    if text.count(owner) != 1 or text.count(boundary) != 1:
+        raise ValueError('missing-route-owner-cardinality')
+    start = text.index(owner)
+    end = text.index(boundary, start)
+    if (old != MISSING_ROUTE_GREEN or new != MISSING_ROUTE_INVERSE
+            or text.count(old) != 1 or old not in text[start:end]
+            or old.count('wire.ready = false;') != 1
+            or old.count('wire.completed = false;') != 1
+            or old.count('return Err(') != 1
+            or old.count('Failure must revoke the predecessor even when') != 1
+            or old.count('selected private observation route unavailable') != 1
+            or old.count('\n') != new.count('\n')):
+        raise ValueError('missing-route-inverse-owner')
+
+
+def missing_route_failure(raw, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    if text.count('panicked at ') != 1:
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[MISSING_ROUTE_CASE][1])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[MISSING_ROUTE_CASE][2])
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}' + re.escape(MISSING_ROUTE_MESSAGE)
+        + r'[ \t]*(?:\n|$)')
+    return re.search(pattern, text) is not None
+
+
+def missing_route_controls(site):
+    header = ("thread '" + CASES[MISSING_ROUTE_CASE][1] + "' (7) panicked at "
+        + CASES[MISSING_ROUTE_CASE][2] + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    valid = (header + MISSING_ROUTE_MESSAGE + '\n').encode()
+    positive = [valid, valid.replace(b"' (7)", b"'"), valid.replace(b'\n', b'\r\n'), b' '*8 + valid]
+    assert all(missing_route_failure(raw, site) for raw in positive)
+    invalid = [valid + valid, b'PRIVATE ' + valid, b' '*9 + valid,
+        valid.replace(MISSING_ROUTE_MESSAGE.encode(), b'PRIVATE'),
+        valid.replace(CASES[MISSING_ROUTE_CASE][1].encode(), b'PRIVATE'),
+        valid.replace(CASES[MISSING_ROUTE_CASE][2].encode(), b'PRIVATE.rs'),
+        valid.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
+        valid.replace((':' + str(site['column']) + ':').encode(), b':999999:'),
+        valid + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:2:\n",
+        valid.replace(MISSING_ROUTE_MESSAGE.encode(), ('assertion failed: ' + MISSING_ROUTE_MESSAGE).encode())]
+    assert all(not missing_route_failure(raw, site) for raw in invalid)
+    product = Path(PFP[MISSING_ROUTE_CASE][0]).read_text()
+    validate_missing_route_inverse(product, MISSING_ROUTE_GREEN, MISSING_ROUTE_INVERSE)
+    bad_owners = [product.replace('    async fn sync_account_groups(', '    async fn unrelated('),
+        product.replace('    async fn deactivate_account(', '    async fn unrelated('),
+        product + MISSING_ROUTE_GREEN, product.replace(MISSING_ROUTE_GREEN, '') + MISSING_ROUTE_GREEN]
+    for changed in bad_owners:
+        try:
+            validate_missing_route_inverse(changed, MISSING_ROUTE_GREEN, MISSING_ROUTE_INVERSE)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('missing-route-owner-negative')
+    bad_inverses = [MISSING_ROUTE_GREEN, MISSING_ROUTE_INVERSE + '\n',
+        MISSING_ROUTE_INVERSE.replace('let _ = wire.ready;', 'wire.ready = false;'),
+        MISSING_ROUTE_INVERSE.replace('let _ = wire.completed;', 'wire.completed = false;'),
+        MISSING_ROUTE_INVERSE.replace('return Err(', 'return Ok(')]
+    for changed in bad_inverses:
+        try:
+            validate_missing_route_inverse(product, MISSING_ROUTE_GREEN, changed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('missing-route-inverse-negative')
+    assert pfp_configuration(MISSING_ROUTE_CASE) == positive_configuration(MISSING_ROUTE_CASE)
+    return {'positive': len(positive), 'negative': len(invalid) + len(bad_owners) + len(bad_inverses),
+        'configuration_controls': 1, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 SCOPED_REPORT_CASE = 'sdk-scoped-reporting'
@@ -2035,6 +2294,8 @@ def inverse(case):
         raise ValueError('inverse-anchor')
     if case in FAMILY_PFP_CASES:
         validate_family_pfp_inverse(text, case, old, new)
+    if case == MISSING_ROUTE_CASE:
+        validate_missing_route_inverse(text, old, new)
     if case == SCOPED_REPORT_CASE:
         validate_scoped_report_inverse(text, old, new)
     if case in LIVE_SEAL_CASES:
@@ -2089,6 +2350,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case == MISSING_ROUTE_CASE:
+        return missing_route_failure(raw, site)
     if case in FAMILY_PFP_CASES:
         return family_pfp_failure(raw, case, site)
     if case == SCOPED_REPORT_CASE:
@@ -2109,6 +2372,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == MISSING_ROUTE_CASE:
+        return missing_route_controls(site)
     if case in FAMILY_PFP_CASES:
         return family_pfp_controls(case, site)
     if case == SCOPED_REPORT_CASE:
@@ -2135,6 +2400,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == MISSING_ROUTE_CASE:
+        return positive_configuration(case)
     if case in FAMILY_PFP_CASES:
         return positive_configuration(case)
     if case == SCOPED_REPORT_CASE:
@@ -2549,6 +2816,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == MISSING_ROUTE_CASE:
+        report.update(evidence_scope='existing-real-SDK-missing-route-freshness-revocation-only',
+            native_protocol_qualification=False, teardown_on_mutant_proven=False,
+            separate_wire_operands_exported=False)
     if args.case in LIVE_SEAL_CASES:
         report.update(evidence_scope='real-in-flight-spill-cursor-fence-only',
                       package='transport-nostr', binary='transport_nostr',
@@ -2630,7 +2901,7 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | {SCOPED_REPORT_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         selected_case(json.loads(raw, object_pairs_hook=unique), CASES[phase_case][1])
         row['inventory'].update(selected_nonignored=1, selected_ignored=0)
@@ -2650,6 +2921,8 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
+        if phase_case == MISSING_ROUTE_CASE:
+            clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
         if phase_case in FAMILY_PFP_CASES:
             row['body']['family_stability_probe'] = family_stability_probe(raw)
@@ -3200,6 +3473,11 @@ def positive(args):
     if args.case == 'sdk-private-capture-control':
         report.update(evidence_scope='sdk-private-capture-component-only',
                       native_protocol_qualification=False, queue_overflow_remedy_qualified=False)
+
+    if args.case in PRIVATE_ROLE_CASES:
+        report.update(evidence_scope='real-SDK-private-family-role-component-only',
+                      native_protocol_qualification=False, full_suite_qualification=False,
+                      mutation_qualification=False, behavioral_red_qualified=False)
     if args.stage == 'sample':
         report['execution_stage'] = 'sample'
     before = None
@@ -3275,6 +3553,9 @@ def positive(args):
             report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
         if args.case == FAMILY_STABILITY_CASE:
             report['family_stability_controls'] = family_stability_controls(family_stability_site())
+        if args.case in PRIVATE_ROLE_CASES:
+            report['private_role_controls'] = private_role_controls(args.case)
+
         if args.case in FAMILY_PFP_CASES:
             report['family_pfp_controls'] = family_pfp_controls(args.case, family_stability_site())
         if args.case == 'sdk-scoped-reporting':
@@ -3349,6 +3630,24 @@ def positive(args):
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case in PRIVATE_ROLE_CASES:
+                report['body']['private_role_probe'] = private_role_probe(raw, args.case)
+                save()  # Actual command, compiler and exact runtime counts were already saved.
+                if args.case == PRIVATE_ABA_CASE:
+                    aba_site = private_aba_site()
+                    report['body']['own_runtime_failure'] = private_aba_failure(raw, aba_site)
+                    report['expected_configuration_aba_runtime_red_before_closure'] = (
+                        code == 100 and report['body']['counts']['executed'] == 1
+                        and report['body']['counts']['passed'] == 0
+                        and report['body']['counts']['failed'] == 1
+                        and report['inventory']['selected_nonignored'] == 1
+                        and report['inventory']['selected_ignored'] == 0
+                        and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                                for part in [report['inventory'], report['body']])
+                        and report['body']['panic'] == {'sites': [{'expected_thread': True, 'expected_source': True,
+                            'line': aba_site['line'], 'column': aba_site['column']}], 'unknown_or_excess_headers': 0}
+                        and report['body']['own_runtime_failure'])
+                    save()  # Expected behavioral RED remains a failed positive command.
             if args.case == FAMILY_STABILITY_CASE:
                 report['body']['family_stability_probe'] = family_stability_probe(raw)
                 report['body']['own_runtime_failure'] = family_stability_failure(raw, family_stability_site())
@@ -3459,6 +3758,12 @@ def positive(args):
                 save()
             if args.case == FAMILY_STABILITY_CASE:
                 command_accepted = all(report['body']['family_stability_probe'].values())
+            if args.case in PRIVATE_ROLE_CASES:
+                command_accepted = (private_role_green(report['body']['private_role_probe'], args.case)
+                    and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                            for part in [report['inventory'], report['body']]))
+                save()
+
             if args.case == SCOPED_REPORT_CASE:
                 command_accepted = (scoped_report_ready(report['body']['scoped_report_probe'])
                     and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
@@ -3553,6 +3858,11 @@ def positive(args):
         if args.case == FAMILY_STABILITY_CASE:
             report['expected_family_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_family_runtime_red_before_closure') is True)
+        if args.case == PRIVATE_ABA_CASE:
+            report['expected_configuration_aba_runtime_red'] = (
+                args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('expected_configuration_aba_runtime_red_before_closure') is True)
+
         report['preflight_passed'] = args.mode == 'preflight' and result == 0
         report['scoped_control_passed'] = args.mode == 'run' and result == 0
         save()
