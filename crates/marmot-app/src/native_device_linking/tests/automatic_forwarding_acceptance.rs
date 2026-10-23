@@ -455,20 +455,6 @@ pub(super) async fn verify_offline_reopen(
         recipient.local_send_status("test", group, &token).unwrap(),
         Some(crate::LocalSendStatus::Queued)
     ));
-    let retry = recipient
-        .submit_text("test", group, text.clone(), token.clone())
-        .await
-        .unwrap();
-    assert!(
-        accepted == retry,
-        "encrypted restart preserves exact original event identity"
-    );
-    assert!(
-        recipient
-            .submit_text("test", group, "changed after restart".into(), token.clone())
-            .await
-            .is_err()
-    );
     let member_app = MarmotApp::with_relay(roots[0], url);
     let member = MarmotAppRuntime::new(member_app.clone());
     member.reconcile_accounts().await.unwrap();
@@ -502,6 +488,21 @@ pub(super) async fn verify_offline_reopen(
     })
     .await
     .expect("fresh approved channels must deliver original durable offline intent");
+    // Resume must deliver without a host re-submit; check idempotency afterward.
+    let retry = recipient
+        .submit_text("test", group, text.clone(), token.clone())
+        .await
+        .unwrap();
+    assert!(
+        accepted == retry,
+        "encrypted restart preserves exact original event identity"
+    );
+    assert!(
+        recipient
+            .submit_text("test", group, "changed after restart".into(), token.clone())
+            .await
+            .is_err()
+    );
     assert!(recipient_app.load_state("test").unwrap().groups.is_empty());
     recipient.shutdown_and_close().await.unwrap();
     member.shutdown_and_close().await.unwrap();
