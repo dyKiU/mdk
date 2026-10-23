@@ -727,6 +727,56 @@ ENGINE_CLASSIFIER_CASES = {'private-classifier-authentication', 'private-classif
 ENGINE_SUPPORT_CASES = {'engine-validator-empty', 'engine-validator-match', 'engine-private-deadline', 'engine-private-history', 'engine-private-sql', 'engine-validator-mismatch'}
 ENGINE_CASES = ENGINE_CLASSIFIER_CASES | ENGINE_SUPPORT_CASES
 ENGINE_FEATURES = ['experimental-device-sync', 'test-policy-overrides']
+PRIVATE_SEND_CASE = 'engine-private-send-admission'
+PRIVATE_SEND_MESSAGE = 'generic private send must be rejected before queue admission; queued=1'
+CASES[PRIVATE_SEND_CASE] = ('cgka_engine',
+    'device_group_genesis::tests::private_group_generic_send_is_rejected_before_queue_admission',
+    'crates/cgka-engine/src/device_group_genesis.rs')
+ENGINE_CASES.add(PRIVATE_SEND_CASE)
+
+
+def private_send_site():
+    text = Path(CASES[PRIVATE_SEND_CASE][2]).read_text()
+    pattern = (r'assert!\(\s*matches!\(result, Err\(cgka_traits::EngineError::InvalidTransition\(error\)\) if error.from == "PrivateDeviceGroup"\),'
+               r'\s*"generic private send must be rejected before queue admission; queued=\{queued\}"\s*,?\s*\);')
+    found = list(re.finditer(pattern, text))
+    if len(found) != 1:
+        raise ValueError('private-send-source-site')
+    return {'line': text[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - text.rfind('\n', 0, found[0].start())}
+
+
+def private_send_failure(raw, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    if text.count('panicked at ') != 1:
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[PRIVATE_SEND_CASE][1])
+               + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[PRIVATE_SEND_CASE][2])
+               + ':' + str(site['line']) + ':' + str(site['column'])
+               + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}'
+               + re.escape(PRIVATE_SEND_MESSAGE) + r'[ \t]*(?:\n|$)')
+    return re.search(pattern, text) is not None
+
+
+def private_send_controls(site):
+    header = ("thread '" + CASES[PRIVATE_SEND_CASE][1] + "' (7) panicked at "
+              + CASES[PRIVATE_SEND_CASE][2] + ':' + str(site['line']) + ':' + str(site['column'])
+              + ':\n' + PRIVATE_SEND_MESSAGE + '\n').encode()
+    assert private_send_failure(header, site)
+    bad = [b'', header + header, header.replace(b'queued=1', b'queued=0'),
+           header.replace(b'queued=1', b'queued=2'), header.replace(b'queued=1', b'queued=10'),
+           header.replace(CASES[PRIVATE_SEND_CASE][1].encode(), b'PRIVATE'),
+           header.replace(CASES[PRIVATE_SEND_CASE][2].encode(), b'PRIVATE.rs'),
+           header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+           header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n'),
+           header.replace(PRIVATE_SEND_MESSAGE.encode(), b'PRIVATE')]
+    assert all(not private_send_failure(raw, site) for raw in bad)
+    assert positive_configuration(PRIVATE_SEND_CASE) == (ENGINE_FEATURES, 'ci', None)
+    assert package_for(PRIVATE_SEND_CASE) == 'cgka-engine' and PRIVATE_SEND_CASE not in INTEGRATION_CASES
+    return {'own_positive': 1, 'own_negative': len(bad), 'configuration_positive': 1,
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 ENGINE_CONTROL_ORDER = ['private-classifier-authentication', 'private-classifier-kinds', 'engine-validator-empty', 'engine-validator-mismatch', 'engine-validator-match', 'engine-private-sql', 'engine-private-history', 'engine-private-deadline']
 OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
@@ -3976,6 +4026,10 @@ def positive(args):
             del report['expected_test']
             report['expected_tests'] = list(AUTOMATIC_NEGOTIATION_TESTS)
             report['expected_runtime_count'] = len(AUTOMATIC_NEGOTIATION_TESTS)
+    if args.case == PRIVATE_SEND_CASE:
+        report.update(evidence_scope='real-private-MLS-generic-send-queue-admission-only',
+                      native_protocol_qualification=False, full_suite_qualification=False,
+                      existing_queued_work_recovery_qualified=False)
     if args.case == 'late-commit-extra-epoch':
         report.update(evidence_scope='valid-real-extra-epoch-history-scenario-only',
                       native_protocol_qualification=False, original_full_failure_cause_established=False,
@@ -4038,6 +4092,9 @@ def positive(args):
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.case == PRIVATE_SEND_CASE:
+            private_send_source_site = private_send_site()
+            report['private_send_controls'] = private_send_controls(private_send_source_site)
         if args.case == AUTOMATIC_NEGOTIATION_CASE:
             report['automatic_negotiation_controls'] = automatic_negotiation_controls()
         if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
@@ -4142,16 +4199,16 @@ def positive(args):
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
-            if args.case in AUTOMATIC_NATIVE_CASES and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+            if args.case in AUTOMATIC_NATIVE_CASES | {PRIVATE_SEND_CASE} and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
                 raise ValueError('automatic-native-inventory-compiler')
             if args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
-            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
+            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE}:
                 selected_case(inventory, test)
                 matched_suites = [suite for suite in inventory['rust-suites'].values()
                     if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
-                if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != 'marmot_app' or matched_suites[0].get('kind') != 'lib':
-                    raise ValueError('automatic-scan-expiry-exact-binary')
+                if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != binary or matched_suites[0].get('kind') != 'lib':
+                    raise ValueError('exact-library-binary')
             elif args.case == 'private-classifier-authentication':
                 report['engine_control_inventory'] = selected_engine_bundle(inventory)
             else:
@@ -4316,6 +4373,13 @@ def positive(args):
                 report['historical_cause_proven'] = False
                 save()
             command_accepted = True
+            if args.case == PRIVATE_SEND_CASE:
+                command_accepted = all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                                       for part in (report['inventory'], report['body']))
+                report['expected_private_send_runtime_red_before_closure'] = (
+                    command_accepted and code == 100 and report['body']['counts']['executed'] == 1
+                    and report['body']['counts']['passed'] == 0 and report['body']['counts']['failed'] == 1
+                    and private_send_failure(raw, private_send_source_site))
             if args.case in AUTOMATIC_NATIVE_CASES:
                 command_accepted = all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
                                        for part in (report['inventory'], report['body']))
@@ -4441,6 +4505,10 @@ def positive(args):
                 args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_configuration_aba_runtime_red_before_closure') is True)
 
+        if args.case == PRIVATE_SEND_CASE:
+            report['expected_private_send_runtime_red'] = (
+                args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('expected_private_send_runtime_red_before_closure') is True)
         if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
             report['expected_automatic_scan_expiry_runtime_red'] = (
                 args.mode == 'run' and report['source_closure_exact'] is True
@@ -4626,6 +4694,8 @@ def main():
     if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
             and not (args.case == AUTOMATIC_SCAN_EXPIRY_CASE and args.stage == 'pfp')):
         raise ValueError('automatic-native-positive-or-expiry-pfp-only')
+    if args.case == PRIVATE_SEND_CASE and args.stage != 'positive':
+        raise ValueError('private-send-positive-only')
     if args.stage == 'pfp':
         return pfp(args)
     if args.stage == 'sample':

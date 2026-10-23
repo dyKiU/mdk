@@ -530,6 +530,52 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn private_group_generic_send_is_rejected_before_queue_admission() {
+        use cgka_traits::engine::{CgkaEngine, SendIntent, SendResult};
+        use cgka_traits::storage::OutboundIntentStorage;
+        let storage = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
+        let mut engine = current_test_engine(storage.clone());
+        let genesis = engine.create_private_device_group_genesis().unwrap();
+        let group = genesis.group_id().clone();
+        // Stage genuine crypto work through the internal test seam; a generic
+        // caller still has no private-group publishing or queueing authority.
+        let SendResult::GroupEvolution { pending, .. } =
+            engine.do_send_self_update(group.clone()).await.unwrap()
+        else {
+            panic!("expected actual private staged evolution");
+        };
+        let result = engine
+            .send(SendIntent::AppMessage {
+                group_id: group.clone(),
+                payload: cgka_traits::app_event::MarmotAppEvent::new(
+                    hex::encode(engine.self_id().as_slice()),
+                    1_700_000_000,
+                    cgka_traits::app_event::MARMOT_APP_EVENT_KIND_CHAT,
+                    vec![],
+                    "synthetic unauthorized private payload",
+                )
+                .encode()
+                .unwrap(),
+                expected_epoch: None,
+            })
+            .await;
+        let queued = storage.list_queued_outbound_intents(&group).unwrap().len();
+        let rollback = engine.publish_failed(pending).await;
+        assert!(
+            matches!(result, Err(cgka_traits::EngineError::InvalidTransition(error)) if error.from == "PrivateDeviceGroup"),
+            "generic private send must be rejected before queue admission; queued={queued}"
+        );
+        assert_eq!(queued, 0, "rejected private work must never be queued");
+        rollback.unwrap();
+        assert!(
+            engine
+                .validated_private_device_group_genesis(&group)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
     async fn private_birth_active_denial_survives_real_epoch_advance_and_rewind() {
         use cgka_traits::engine::{CgkaEngine, SendResult};
         use cgka_traits::storage::{MessageStorage, StorageProvider};
