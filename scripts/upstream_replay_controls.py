@@ -2341,7 +2341,9 @@ def private_role_pfp_controls(case, site):
 
 PRIVATE_MAINTENANCE_PRODUCT = 'crates/cgka-engine/src/message_processor/mod.rs'
 PRIVATE_MAINTENANCE_GREEN = '        // Older builds could retain an ordinary SelfUpdate that this private\n        // group can never authorize. Retire only unexposed maintenance work;\n        // normal convergence still owns every actual crypto/input transition.\n        #[cfg(feature = "experimental-device-sync")]\n        self.retire_queued_private_maintenance(group_id)?;\n'
-PRIVATE_MAINTENANCE_INVERSE = '\n' * 5
+PRIVATE_MAINTENANCE_INVERSE = PRIVATE_MAINTENANCE_GREEN.replace(
+    '        self.retire_queued_private_maintenance(group_id)?;\n',
+    '        if false { self.retire_queued_private_maintenance(group_id)?; }\n')
 PFP[PRIVATE_MAINTENANCE_CASE] = (
     PRIVATE_MAINTENANCE_PRODUCT, PRIVATE_MAINTENANCE_GREEN, PRIVATE_MAINTENANCE_INVERSE,
     PRIVATE_MAINTENANCE_MESSAGE,
@@ -2360,7 +2362,8 @@ def validate_private_maintenance_inverse(text, old, new):
             or text.count(old) != 1 or old not in text[start:end]
             or text[start:end].count(gate) != 1
             or text.index(old, start) < text.index(gate, start)
-            or old.count('\n') != new.count('\n') or new != '\n' * 5):
+            or old.count('\n') != new.count('\n') or old.count('\n') != 5
+            or old.count('self.retire_queued_private_maintenance(group_id)?;') != 1):
         raise ValueError('private-maintenance-inverse-scope')
 
 
@@ -2373,6 +2376,7 @@ def private_maintenance_pfp_controls(site):
                (source.replace('fn prepare_convergence_input_advance(', 'fn PRIVATE('), old, new),
                (source.replace(old, '') + old, old, new),
                (source, old, new + '\n'), (source, old, old),
+               (source, old, '\n' * 5),
                (source, old, '        panic!("PRIVATE");' + new)]
     for text, original, mutant in invalid:
         try:
