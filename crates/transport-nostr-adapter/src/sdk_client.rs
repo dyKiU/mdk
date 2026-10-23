@@ -9673,15 +9673,27 @@ mod tests {
         let (actual, attempt) = wire;
         let event = timeout(Duration::from_secs(20), async {
             loop {
-                let notification = notifications.next().await.expect("SDK observer remains open");
+                let notification = notifications
+                    .next()
+                    .await
+                    .expect("SDK observer remains open");
                 if let ClientNotification::Message { relay_url, message } = notification
                     && relay_url.to_string() == endpoint.as_str()
-                    && let RelayMessage::Event { subscription_id, event } = *message
+                    && let RelayMessage::Event {
+                        subscription_id,
+                        event,
+                    } = *message
                     && subscription_id.as_str() == actual
                     && event.id == signed.id
                 {
-                    assert!(event.as_json() == signed.as_json(), "actual old wire carries exact signed bytes");
-                    assert!(event.verify().is_ok(), "actual old wire signature remains valid");
+                    assert!(
+                        event.as_json() == signed.as_json(),
+                        "actual old wire carries exact signed bytes"
+                    );
+                    assert!(
+                        event.verify().is_ok(),
+                        "actual old wire signature remains valid"
+                    );
                     break event;
                 }
             }
@@ -9690,21 +9702,36 @@ mod tests {
         .expect("actual signed old-wire carrier must reach the SDK observer");
         let dto = NostrTransportEvent::from_nostr_event(&event).unwrap();
         let message = dto.to_transport_message().unwrap();
-        let captured = capture.capture(&NostrRelayEvent {
-            endpoint: endpoint.clone(),
-            subscription_id: Some(actual.to_owned()),
-            event: dto,
-        }).unwrap();
+        let captured = capture
+            .capture(&NostrRelayEvent {
+                endpoint: endpoint.clone(),
+                subscription_id: Some(actual.to_owned()),
+                event: dto,
+            })
+            .unwrap();
         {
             let state = adapter.state.read().await;
-            let wire = state.private_observation_wires.get(account).expect("retired private wire remains identified");
-            assert!(wire.actual == actual && wire.attempt == attempt && !wire.ready,
-                "failed owner operation leaves this exact private wire ineligible");
-            assert!(captured.observations(adapter, &state, &message, Some(account)).is_empty(),
-                "actual old wire cannot supply an eligible acquisition capture");
+            let wire = state
+                .private_observation_wires
+                .get(account)
+                .expect("retired private wire remains identified");
+            assert!(
+                wire.actual == actual && wire.attempt == attempt && !wire.ready,
+                "failed owner operation leaves this exact private wire ineligible"
+            );
+            assert!(
+                captured
+                    .observations(adapter, &state, &message, Some(account))
+                    .is_empty(),
+                "actual old wire cannot supply an eligible acquisition capture"
+            );
         }
-        assert!(timeout(Duration::from_millis(30), adapter.receive_observed()).await.is_err(),
-            "retired private request cannot bypass native replay as ordinary delivery");
+        assert!(
+            timeout(Duration::from_millis(30), adapter.receive_observed())
+                .await
+                .is_err(),
+            "retired private request cannot bypass native replay as ordinary delivery"
+        );
     }
 
     #[cfg(feature = "experimental-device-sync")]
@@ -9763,11 +9790,22 @@ mod tests {
         })
         .await
         .expect("actual issued request reached EOSE before cancellation");
-        let old_actual = adapter.state.read().await.private_observation_wires
-            .get(&account).expect("actual private wire was issued").actual.clone();
+        let old_actual = adapter
+            .state
+            .read()
+            .await
+            .private_observation_wires
+            .get(&account)
+            .expect("actual private wire was issued")
+            .actual
+            .clone();
         observe_private_sdk_eose(
-            &mut old_wire_notifications, &mut old_wire_capture, &endpoint, &old_actual,
-        ).await;
+            &mut old_wire_notifications,
+            &mut old_wire_capture,
+            &endpoint,
+            &old_actual,
+        )
+        .await;
         activation_task.abort();
         assert!(activation_task.await.unwrap_err().is_cancelled());
         // A cancellation cleanup holding the lifecycle lock must finish before
@@ -9782,9 +9820,15 @@ mod tests {
         let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
         publisher.send_event(&signed).await.unwrap();
         assert_retired_private_sdk_carrier(
-            &mut old_wire_notifications, &old_wire_capture, &adapter, &account,
-            &endpoint, (&old_actual, attempt), &signed,
-        ).await;
+            &mut old_wire_notifications,
+            &old_wire_capture,
+            &adapter,
+            &account,
+            &endpoint,
+            (&old_actual, attempt),
+            &signed,
+        )
+        .await;
         paused.paused.store(false, Ordering::SeqCst);
         adapter.activate_account(activation).await.unwrap();
         let next = adapter
@@ -9877,11 +9921,22 @@ mod tests {
         })
         .await
         .expect("actual initial private request EOSE");
-        let old_actual = adapter.state.read().await.private_observation_wires
-            .get(&account).expect("actual private wire was issued").actual.clone();
+        let old_actual = adapter
+            .state
+            .read()
+            .await
+            .private_observation_wires
+            .get(&account)
+            .expect("actual private wire was issued")
+            .actual
+            .clone();
         observe_private_sdk_eose(
-            &mut old_wire_notifications, &mut old_wire_capture, &endpoint, &old_actual,
-        ).await;
+            &mut old_wire_notifications,
+            &mut old_wire_capture,
+            &endpoint,
+            &old_actual,
+        )
+        .await;
         let failed = adapter
             .sync_account_groups(cgka_traits::TransportGroupSync {
                 account_id: account.clone(),
@@ -9902,9 +9957,15 @@ mod tests {
         let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
         publisher.send_event(&signed).await.unwrap();
         assert_retired_private_sdk_carrier(
-            &mut old_wire_notifications, &old_wire_capture, &adapter, &account,
-            &endpoint, (&old_actual, attempt), &signed,
-        ).await;
+            &mut old_wire_notifications,
+            &old_wire_capture,
+            &adapter,
+            &account,
+            &endpoint,
+            (&old_actual, attempt),
+            &signed,
+        )
+        .await;
         adapter
             .sync_account_groups(cgka_traits::TransportGroupSync {
                 account_id: account.clone(),
