@@ -20,7 +20,7 @@ on:
       lock_update:
         description: Fixed dependency operation for the lock-only preview
         type: choice
-        options: [workspace, ctutils-0.4.4]
+        options: [workspace, ctutils-0.4.4, audit-only]
         default: workspace
       source_sha:
         description: Exact merged91e-or-descendant source for dedicated source-regeneration preview
@@ -354,7 +354,7 @@ jobs:
           assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-source-regeneration-')
           assert re.fullmatch('[0-9a-f]{40}',os.environ['SOURCE_SHA'])
           assert os.environ['SOURCE_SHA']==os.environ['GITHUB_SHA']
-          assert os.environ['LOCK_UPDATE'] in ['workspace','ctutils-0.4.4']
+          assert os.environ['LOCK_UPDATE'] in ['workspace','ctutils-0.4.4','audit-only']
           PY_REQUEST
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -372,7 +372,8 @@ jobs:
           out=Path(os.environ['RUNNER_TEMP'])/'lock-preview'
           out.mkdir(mode=0o700)
           commands={'workspace':['cargo','update','--workspace'],
-                    'ctutils-0.4.4':['cargo','update','-p','ctutils','--precise','0.4.4']}
+                    'ctutils-0.4.4':['cargo','update','-p','ctutils','--precise','0.4.4'],
+                    'audit-only':['cargo','--locked','audit']}
           d=dict(source=os.environ['SOURCE_SHA'],tree=git('rev-parse','HEAD^{tree}'),
                  lock_before_sha256=hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
                  lock_update=os.environ['LOCK_UPDATE'],command=commands[os.environ['LOCK_UPDATE']],
@@ -385,7 +386,12 @@ jobs:
           test -n "$toolchain"
           rustup toolchain install "$toolchain" --profile minimal
           rustup default "$toolchain"
-      - name: Resolve merged workspace lock without compiling
+      - name: Install pinned cargo-audit for the read-only audit operation
+        if: inputs.lock_update == 'audit-only'
+        uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-audit@0.22.1
+      - name: Run the fixed dependency operation without product compilation
         id: resolve
         run: |
           python3 - <<'PY_RESOLVE'
@@ -407,6 +413,8 @@ jobs:
           d=json.loads((out/'inputs.json').read_text())
           patch=subprocess.check_output(['git','diff','--binary','--','Cargo.lock'])
           package_scope_valid=True
+          if d['lock_update']=='audit-only':
+              package_scope_valid=not patch and hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest()==d['lock_before_sha256']
           if d['lock_update']=='ctutils-0.4.4':
               before=tomllib.loads(git('show',d['source']+':Cargo.lock'))
               after=tomllib.loads(Path('Cargo.lock').read_text())
