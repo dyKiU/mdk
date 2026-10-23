@@ -14089,8 +14089,9 @@ mod tests {
                 ids.is_some_and(|ids| ids.contains(&logical)),
             )
         };
-        // Keep the original prerequisite while exposing its frozen operands.
-        let tracked_actual = account_tracks_actual && !account_tracks_logical_plan;
+        // Replacement plans retain logical socket ownership. Actual SDK and
+        // owed registries above/below must still contain only the scoped wire.
+        let tracked_actual = account_tracks_actual && account_tracks_logical_plan;
         let owed_actual = {
             let owed = sdk.owed.relays();
             owed.get(&down)
@@ -14110,12 +14111,12 @@ mod tests {
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
             && healthy_relay.subscription(&actual).await.is_none()
-            && !sdk
+            && sdk
                 .account_subscriptions
                 .read()
                 .await
                 .get(&account)
-                .is_some_and(|ids| ids.contains(&actual));
+                .is_none_or(|ids| ids.is_empty());
         sdk.shutdown().await;
         timeout(Duration::from_secs(2), forwarder)
             .await
