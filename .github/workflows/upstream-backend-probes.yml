@@ -17,14 +17,14 @@ on:
         options: [key-package, avatar]
         default: key-package
       replay_stage:
-        description: Positive control, or inline/spill original-runtime omission PFP
+        description: Exact positive control, or supported original-runtime/selector PFP
         type: choice
         options: [positive, pfp]
         default: positive
       replay_case:
         description: One exact replay or terminal-storage control
         type: choice
-        options: [offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, adapter-thousand, adapter-clamped, hidden-echo, departure-native]
+        options: [offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, adapter-thousand, adapter-clamped, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
         default: offline
       reviewed_baseline:
         description: Explicit reviewed full source SHA including passive test observations
@@ -386,7 +386,7 @@ jobs:
           python3 scripts/qualification_build_preflight.py --label default-replay-controls
           --output "$RUNNER_TEMP/replay-capacity.json"
       - name: Match the original experimental stack for explicit experimental cases
-        if: contains(fromJSON('["revoked-anchor","sharing-policy","late-consent","spill-experimental","watch-pressure","higher-source","mirrored-catalog","mirrored-messages","adapter-cancelled","adapter-failed-route","existing-anchor","command-backlog","adapter-thousand","adapter-clamped","hidden-echo","departure-native"]'), inputs.replay_case)
+        if: contains(fromJSON('["revoked-anchor","sharing-policy","late-consent","spill-experimental","watch-pressure","higher-source","mirrored-catalog","mirrored-messages","adapter-cancelled","adapter-failed-route","existing-anchor","command-backlog","adapter-thousand","adapter-clamped","hidden-echo","departure-native","worker-input-offer","worker-input-replay-first","worker-input-pending","worker-input-disabled"]'), inputs.replay_case)
         run: echo 'RUST_MIN_STACK=4194304' >> "$GITHUB_ENV"
       - name: Run exact scoped replay controls with original assertions
         env:

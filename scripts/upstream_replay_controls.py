@@ -22,6 +22,14 @@ CASES = {
               'crates/marmot-app/src/client/delivery_spill.rs'),
 }
 CASES.update({
+    'worker-input-offer': ('marmot_app', 'runtime::account_worker::tests::worker_input_selection_tests::owed_offer_selects_ready_delivery_and_preserves_replay',
+                         'crates/marmot-app/src/runtime/account_worker/tests/worker_input_selection_tests.rs'),
+    'worker-input-replay-first': ('marmot_app', 'runtime::account_worker::tests::worker_input_selection_tests::ordinary_turn_selects_ready_replay_and_preserves_delivery',
+                         'crates/marmot-app/src/runtime/account_worker/tests/worker_input_selection_tests.rs'),
+    'worker-input-pending': ('marmot_app', 'runtime::account_worker::tests::worker_input_selection_tests::owed_pending_receive_allows_replay_and_later_real_delivery',
+                         'crates/marmot-app/src/runtime/account_worker/tests/worker_input_selection_tests.rs'),
+    'worker-input-disabled': ('marmot_app', 'runtime::account_worker::tests::worker_input_selection_tests::disabled_receive_selects_replay_and_retains_ready_packet',
+                         'crates/marmot-app/src/runtime/account_worker/tests/worker_input_selection_tests.rs'),
     'adapter-thousand': ('relay_limit_subscriptions', 'a_thousand_groups_fit_in_a_few_reqs_and_every_group_delivers',
                          'crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs'),
     'adapter-clamped': ('relay_limit_subscriptions', 'stored_replay_beyond_500_is_paged_before_counting_complete',
@@ -54,12 +62,13 @@ CASES.update({
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
-EXPERIMENTAL_CASES = {'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+EXPERIMENTAL_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 ADAPTER_CASES = {'adapter-cancelled', 'adapter-failed-route', 'adapter-thousand', 'adapter-clamped'}
 INTEGRATION_CASES = {'offline', 'adapter-thousand', 'adapter-clamped'}
 SDK_REPLAY_CASES = {'adapter-thousand', 'adapter-clamped'}
+WORKER_INPUT_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled'}
 
 
 def package_for(case):
@@ -648,9 +657,14 @@ def snapshot():
 
 
 PFP = {
+    'worker-input-offer': ('crates/marmot-app/src/runtime/account_worker.rs',
+              '    if owed {\n        tokio::select! {\n            biased;\n            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),\n            changed = &mut replay => futures::future::Either::Left(changed),\n        }\n',
+              '    if owed {\n        tokio::select! {\n            biased;\n            changed = &mut replay => futures::future::Either::Left(changed),\n            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),\n        }\n',
+              'owed input offer must select ready delivery and preserve the replay version',
+              r'assert!\(\s*delivery_selected\s*&&\s*replay_unconsumed\s*&&\s*delivery_consumed,\s*"{message}"\s*\);'),
     'watch-pressure': ('crates/marmot-app/src/runtime/account_worker.rs',
-              '                        if input_offer_owed_before_select {\n                            tokio::select! {\n                                biased;\n                                received = &mut receive, if input_receive_enabled =>\n                                    futures::future::Either::Right(received),\n                                changed = wait_for_replay_change(&mut replay_changes) =>\n                                    futures::future::Either::Left(changed),\n                            }\n',
-              '                        if input_offer_owed_before_select {\n                            tokio::select! {\n                                biased;\n                                changed = wait_for_replay_change(&mut replay_changes) =>\n                                    futures::future::Either::Left(changed),\n                                received = &mut receive, if input_receive_enabled =>\n                                    futures::future::Either::Right(received),\n                            }\n',
+              '    if owed {\n        tokio::select! {\n            biased;\n            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),\n            changed = &mut replay => futures::future::Either::Left(changed),\n        }\n',
+              '    if owed {\n        tokio::select! {\n            biased;\n            changed = &mut replay => futures::future::Either::Left(changed),\n            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),\n        }\n',
               'authenticated_body_must_precede_second_ready_watch_service',
               r'assert!\(\s*facts\.into_iter\(\)\.all\(\|value\| value\)\s*&& runtime_closes == 3\s*&& planes_shutdown == 3\s*&& relay_closed\s*&& attempt_completed,\s*"{message}"\s*\);'),
     'inline': ('crates/marmot-app/src/client/sync.rs',
@@ -677,6 +691,11 @@ def inverse(case):
         end = text.index('    fn enqueue_effect_projection(', start)
         if old not in text[start:end]:
             raise ValueError('inverse-owner')
+    if case in {'watch-pressure', 'worker-input-offer'}:
+        start = text.index('async fn wait_for_worker_input<Receive, Replay>(')
+        end = text.index('async fn wait_for_replay_change(', start)
+        if old not in text[start:end]:
+            raise ValueError('inverse-input-selector-owner')
     fixture = Path(CASES[case][2]).read_text()
     found = list(re.finditer(pattern.replace('{message}', re.escape(message)), fixture))
     if len(found) != 1:
@@ -718,7 +737,7 @@ def pfp_controls(case, site):
 
 def pfp_configuration(case):
     return ((LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
-            if case == 'watch-pressure' else (LIB_FEATURES, 'ci', None))
+            if case in {'watch-pressure', 'worker-input-offer'} else (LIB_FEATURES, 'ci', None))
 
 
 def watch_pfp_oracle(value, mutant):
@@ -770,6 +789,35 @@ def watch_pfp_controls():
             'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+def worker_input_controls(site):
+    case = 'worker-input-offer'
+    expected = (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+    assert pfp_configuration(case) == expected
+    assert 'watch-pressure' in PFP and case in PFP
+    for control in WORKER_INPUT_CASES - {case}:
+        assert control not in PFP and control in EXPERIMENTAL_CASES
+    assert pfp_configuration('inline') == (LIB_FEATURES, 'ci', None)
+    assert pfp_configuration('spill') == (LIB_FEATURES, 'ci', None)
+    # Real library spelling and exact named status; own source and static
+    # assertion message remain independently required for a mutant kill.
+    status = ('FAIL [ 0.001s] (1/1) marmot-app ' + CASES[case][1]
+              + '\nSummary [ 0.01s] 1 test run: 0 passed, 1 failed, 0 skipped\n').encode()
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at " + CASES[case][2]
+              + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    raw = status + (header + '    ' + PFP[case][3] + '\n').encode()
+    assert counts(raw, case)['failed'] == 1 and own_failure(raw, case, site)
+    negatives = 0
+    for bad in [raw.replace(CASES[case][1].encode(), b'PRIVATE'),
+                raw.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
+                raw.replace(PFP[case][3].encode(), b'PRIVATE'),
+                raw + (header + PFP[case][3] + '\n').encode()]:
+        assert not own_failure(bad, case, site)
+        negatives += 1
+    assert compiler(raw + b'error[E0308]: PRIVATE\n', {})['header_count'] == 1
+    return {'positive': 1, 'negative': negatives, 'configuration_controls': 7,
+            'compiler_rejection_controls': 1, 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 def pfp(args):
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -778,6 +826,8 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case in WORKER_INPUT_CASES:
+        report.update(evidence_scope='worker-input-selection-mechanism-only', native_protocol_qualification=False)
     before, fd, original, identity, parents = None, None, None, None, None
     stage, result = 'admission', 1
     def save():
@@ -878,6 +928,8 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case == 'worker-input-offer':
+            report['worker_input_controls'] = worker_input_controls(site)
         if args.case == 'watch-pressure':
             report['watch_parser_controls'] = watch_controls()
             report['watch_pfp_controls'] = watch_pfp_controls()
@@ -972,6 +1024,8 @@ def main():
               'body_passed': False, 'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
               'features': features, 'profile': profile, 'package': package, 'automatic_retries': 0, 'test_threads': 1,
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'expected_test': CASES[args.case][1]}
+    if args.case in WORKER_INPUT_CASES:
+        report.update(evidence_scope='worker-input-selection-mechanism-only', native_protocol_qualification=False)
     before = None
     stage = 'admission'
     result = 1
