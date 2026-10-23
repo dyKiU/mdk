@@ -329,31 +329,44 @@ async fn late_commit_700_recovers() {
         let selected = [&old, commit, future];
         let rows: [[usize; 3]; 3] = std::array::from_fn(|index| {
             let receipt = receipts[index];
-            let unique_matches = captured.iter()
-                .filter(|event| receipt.message_ids.iter().any(|id| *id == event.id.to_hex()))
+            let unique_matches = captured
+                .iter()
+                .filter(|event| {
+                    receipt
+                        .message_ids
+                        .iter()
+                        .any(|id| *id == event.id.to_hex())
+                })
                 .map(|event| event.id)
                 .collect::<std::collections::HashSet<_>>()
                 .len();
             [receipt.published, receipt.message_ids.len(), unique_matches]
         });
         let kinds: [u16; 3] = std::array::from_fn(|index| selected[index].kind.as_u16());
-        let bound: [bool; 3] = std::array::from_fn(|index| receipts[index].message_ids
-            .iter().any(|id| *id == selected[index].id.to_hex()));
+        let bound: [bool; 3] = std::array::from_fn(|index| {
+            receipts[index]
+                .message_ids
+                .iter()
+                .any(|id| *id == selected[index].id.to_hex())
+        });
         (rows, kinds, bound, captured.len())
     };
     #[cfg(feature = "test-policy-overrides")]
-    crate::test_support::emit_line(format_args!("selective-history-receipt {}", json!({
-        "stage": 0,
-        "receipts": receipt_observations.0,
-        "selected_kinds": receipt_observations.1,
-        "selected_bound": receipt_observations.2,
-        "captured_event_count": receipt_observations.3,
-        "wait_succeeded": null,
-        "expected_message_present": null,
-        "local_epoch": null,
-        "target_epoch": epoch,
-        "window_requests": proxy.counts.window_requests.load(Ordering::SeqCst),
-    })));
+    crate::test_support::emit_line(format_args!(
+        "selective-history-receipt {}",
+        json!({
+            "stage": 0,
+            "receipts": receipt_observations.0,
+            "selected_kinds": receipt_observations.1,
+            "selected_bound": receipt_observations.2,
+            "captured_event_count": receipt_observations.3,
+            "wait_succeeded": null,
+            "expected_message_present": null,
+            "local_epoch": null,
+            "target_epoch": epoch,
+            "window_requests": proxy.counts.window_requests.load(Ordering::SeqCst),
+        })
+    ));
     runtime
         .accounts()
         .sign_in_account(&alice.label)
@@ -386,21 +399,31 @@ async fn late_commit_700_recovers() {
     {
         // Freeze the original timed verdict before these read-only observations.
         let wait_succeeded = recovered.is_ok();
-        let expected_message_present = app.messages(&alice.label).unwrap().iter()
+        let expected_message_present = app
+            .messages(&alice.label)
+            .unwrap()
+            .iter()
             .any(|message| message.plaintext == expected);
-        let local_epoch = runtime.group_mls_state(&alice.label, &group).await.unwrap().epoch;
-        crate::test_support::emit_line(format_args!("selective-history-receipt {}", json!({
-            "stage": 1,
-            "receipts": receipt_observations.0,
-            "selected_kinds": receipt_observations.1,
-            "selected_bound": receipt_observations.2,
-            "captured_event_count": receipt_observations.3,
-            "wait_succeeded": wait_succeeded,
-            "expected_message_present": expected_message_present,
-            "local_epoch": local_epoch,
-            "target_epoch": epoch,
-            "window_requests": proxy.counts.window_requests.load(Ordering::SeqCst),
-        })));
+        let local_epoch = runtime
+            .group_mls_state(&alice.label, &group)
+            .await
+            .unwrap()
+            .epoch;
+        crate::test_support::emit_line(format_args!(
+            "selective-history-receipt {}",
+            json!({
+                "stage": 1,
+                "receipts": receipt_observations.0,
+                "selected_kinds": receipt_observations.1,
+                "selected_bound": receipt_observations.2,
+                "captured_event_count": receipt_observations.3,
+                "wait_succeeded": wait_succeeded,
+                "expected_message_present": expected_message_present,
+                "local_epoch": local_epoch,
+                "target_epoch": epoch,
+                "window_requests": proxy.counts.window_requests.load(Ordering::SeqCst),
+            })
+        ));
     }
     assert!(
         recovered.is_ok(),

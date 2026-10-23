@@ -1,4 +1,4 @@
-"""One pristine trusted upstream offline body. Source S differs from tooling T."""
+"""One pristine trusted upstream recovery body. Source S differs from tooling T."""
 import argparse
 import hashlib
 import json
@@ -53,14 +53,18 @@ def snapshot():
 
 def controls(case='offline'):
     _, _, test, binary, _ = configuration(case)
-    passed = ('PASS [ 1s] marmot-app::' + binary + ' ' + test
+    display = 'marmot-app::' + binary if case == 'offline' else 'marmot-app'
+    passed = ('PASS [ 1s] ' + display + ' ' + test
               + '\nSummary [ 1s] 1 test run: 1 passed, 12 skipped\n').encode()
     failed = passed.replace(b'PASS [', b'FAIL [').replace(b'1 passed, 12 skipped', b'0 passed, 1 failed, 12 skipped')
     assert counts(passed, case)['passed'] == 1
     assert counts(failed, case)['failed'] == 1
     negatives = 0
-    for raw in [passed + passed, passed.replace(test.encode(), b'PRIVATE'),
-                passed.replace(b'1 test run', b'0 test run'), passed.replace(b'1 passed', b'0 passed')]:
+    invalid = [passed + passed, passed.replace(test.encode(), b'PRIVATE'),
+               passed.replace(b'1 test run', b'0 test run'), passed.replace(b'1 passed', b'0 passed')]
+    if case == 'late-commit-default':
+        invalid.append(passed.replace(b'marmot-app ', b'marmot-app::marmot_app '))
+    for raw in invalid:
         try:
             counts(raw, case)
         except ValueError:
@@ -191,7 +195,7 @@ def main():
             report['body']['counts'] = counts(raw, args.case)
             save()
             # Pristine upstream has no later private diagnostic marker. The
-            # original authenticated-text/60s/storage/cleanup assertions decide.
+            # Original message, deadline, storage and cleanup assertions decide.
             report['scoped_original_control_passed'] = (code == 0 and report['body']['counts']['passed'] == 1
                 and not report['body']['compiler']['codes'] and report['body']['compiler']['header_count'] == 0
                 and report['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0})
