@@ -185,7 +185,7 @@ impl Fixture {
         eose: transport_nostr_adapter::AccountSubscriptionEose, stats: &LimitStats,
     ) {
         let forwarder = self.forwarder_snapshot.as_ref().map(|snapshot| snapshot());
-        let loss = self.sdk.notification_loss().and_then(|receiver| {
+        let loss = self.sdk.notification_loss().ok().and_then(|receiver| {
             let observed = receiver.borrow();
             observed.as_ref().map(|loss| [loss.receiver_generation, loss.cumulative_skipped])
         });
