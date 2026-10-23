@@ -2214,6 +2214,53 @@ def private_role_pfp_controls(case, site):
         'probe_controls': probe_controls, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+AUTOMATIC_SCAN_EXPIRY_PRODUCT = 'crates/marmot-app/src/native_device_linking/enabled/negotiated.rs'
+AUTOMATIC_SCAN_EXPIRY_GREEN = '        let targets = self.device_linking_targets(account_ref).await?;\n        if targets.len() > 1 {\n            return Err(DeviceLinkingError::NotReady);\n        }\n        let now = Timestamp::now().as_secs();\n'
+AUTOMATIC_SCAN_EXPIRY_INVERSE = '        let now = Timestamp::now().as_secs();\n        let targets = self.device_linking_targets(account_ref).await?;\n        if targets.len() > 1 {\n            return Err(DeviceLinkingError::NotReady);\n        }\n'
+PFP[AUTOMATIC_SCAN_EXPIRY_CASE] = (
+    AUTOMATIC_SCAN_EXPIRY_PRODUCT, AUTOMATIC_SCAN_EXPIRY_GREEN, AUTOMATIC_SCAN_EXPIRY_INVERSE,
+    AUTOMATIC_SCAN_EXPIRY_MESSAGE,
+    r'assert!\(\s*expired_scan_rejected,\s*"{message}"\s*,?\s*\);')
+
+
+def validate_automatic_scan_expiry_inverse(text, old, new):
+    owner = '    pub async fn scan_automatic_device_linking_session('
+    if text.count(owner) != 1:
+        raise ValueError('automatic-scan-expiry-inverse-owner')
+    start = text.index(owner)
+    end = text.index('\n}\n\n#[cfg(all(test, feature = "test-policy-overrides"))]', start)
+    if (old != AUTOMATIC_SCAN_EXPIRY_GREEN or new != AUTOMATIC_SCAN_EXPIRY_INVERSE
+            or text.count(old) != 1 or old not in text[start:end]
+            or old.count('\n') != new.count('\n')):
+        raise ValueError('automatic-scan-expiry-inverse-scope')
+
+
+def automatic_scan_expiry_pfp_controls(site):
+    result = automatic_scan_expiry_controls(site)
+    source = Path(AUTOMATIC_SCAN_EXPIRY_PRODUCT).read_text()
+    old, new = AUTOMATIC_SCAN_EXPIRY_GREEN, AUTOMATIC_SCAN_EXPIRY_INVERSE
+    validate_automatic_scan_expiry_inverse(source, old, new)
+    invalid = [
+        (source + old, old, new),
+        (source.replace('pub async fn scan_automatic_device_linking_session(',
+                        'pub async fn PRIVATE('), old, new),
+        (source.replace(old, '') + old, old, new),
+        (source, old, new + '\n'),
+        (source, old, old),
+        (source, old, new.replace('Timestamp::now()', 'Timestamp::from_secs(0)')),
+    ]
+    for text, original, mutant in invalid:
+        try:
+            validate_automatic_scan_expiry_inverse(text, original, mutant)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('automatic-scan-expiry-inverse-negative')
+    assert pfp_configuration(AUTOMATIC_SCAN_EXPIRY_CASE) == positive_configuration(AUTOMATIC_SCAN_EXPIRY_CASE)
+    result.update(inverse_positive=1, inverse_negative=len(invalid), configuration_positive=1)
+    return result
+
+
 MISSING_ROUTE_CASE = 'sdk-private-missing-route'
 MISSING_ROUTE_MESSAGE = 'failed owner operation leaves this exact private wire ineligible'
 MISSING_ROUTE_GREEN = '                            // Failure must revoke the predecessor even when\n                            // planning rejects the route before preparation.\n                            if let Some(wire) =\n                                state.private_observation_wires.get_mut(&sync.account_id)\n                            {\n                                wire.ready = false;\n                                wire.completed = false;\n                            }\n                            return Err(TransportAdapterError::Subscription(\n                                "selected private observation route unavailable".into(),\n                            ));\n'
@@ -2731,6 +2778,8 @@ def inverse(case):
         validate_private_role_pfp_inverse(text, case, old, new)
     if case in FAMILY_PFP_CASES:
         validate_family_pfp_inverse(text, case, old, new)
+    if case == AUTOMATIC_SCAN_EXPIRY_CASE:
+        validate_automatic_scan_expiry_inverse(text, old, new)
     if case == MISSING_ROUTE_CASE:
         validate_missing_route_inverse(text, old, new)
     if case == SCOPED_REPORT_CASE:
@@ -2787,6 +2836,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case == AUTOMATIC_SCAN_EXPIRY_CASE:
+        return automatic_scan_expiry_failure(raw, site)
     if case in PRIVATE_ROLE_PFP_CASES:
         return private_role_pfp_failure(raw, case, site)
     if case == MISSING_ROUTE_CASE:
@@ -2811,6 +2862,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == AUTOMATIC_SCAN_EXPIRY_CASE:
+        return automatic_scan_expiry_pfp_controls(site)
     if case in PRIVATE_ROLE_PFP_CASES:
         return private_role_pfp_controls(case, site)
     if case == MISSING_ROUTE_CASE:
@@ -2841,6 +2894,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == AUTOMATIC_SCAN_EXPIRY_CASE:
+        return positive_configuration(case)
     if case in PRIVATE_ROLE_PFP_CASES:
         return positive_configuration(case)
     if case == MISSING_ROUTE_CASE:
@@ -3259,6 +3314,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == AUTOMATIC_SCAN_EXPIRY_CASE:
+        report.update(evidence_scope='real-App-held-roster-scan-expiry-single-mutation-only',
+            native_protocol_qualification=False, apple_native_acceptance=False,
+            full_suite_qualification=False)
     if args.case in PRIVATE_ROLE_PFP_CASES:
         report.update(evidence_scope='real-SDK-private-family-role-single-mutation-only',
             native_protocol_qualification=False, full_suite_qualification=False)
@@ -3331,6 +3390,8 @@ def pfp(args):
         flags = (['-p', package, '--test', CASES[phase_case][0]] if phase_case in QUIET_CONTRACT_CASES
                  else ['-p', package, '--lib']) + ['--features', ','.join(features), '--locked', '--profile', profile]
         selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
+        if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
+            selection += ' & binary(=marmot_app)'
         if phase_case in QUIET_CONTRACT_CASES:
             selection += ' & binary(=relay_limit_subscriptions)'
         if phase_case in UNIFFI_CASES:
@@ -3347,9 +3408,15 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
-        selected_case(json.loads(raw, object_pairs_hook=unique), CASES[phase_case][1])
+        inventory = json.loads(raw, object_pairs_hook=unique)
+        selected_case(inventory, CASES[phase_case][1])
+        if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
+            matched_suites = [suite for suite in inventory['rust-suites'].values()
+                if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
+            if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != 'marmot_app' or matched_suites[0].get('kind') != 'lib':
+                raise ValueError('automatic-scan-expiry-pfp-exact-binary')
         row['inventory'].update(selected_nonignored=1, selected_ignored=0)
         save()
         if snapshot() != expected:
@@ -3367,9 +3434,15 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case == MISSING_ROUTE_CASE:
+        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
+        if phase_case == AUTOMATIC_SCAN_EXPIRY_CASE:
+            row['body']['automatic_scan_expiry_probe'] = automatic_scan_expiry_probe(raw)
+            probe = row['body']['automatic_scan_expiry_probe']
+            watch_accepted = (all(probe[key] is True for key in AUTOMATIC_SCAN_EXPIRY_PREREQUISITES)
+                              and probe['expired_scan_rejected'] is (label != 'mutant'))
+            save()
         if phase_case in PRIVATE_ROLE_PFP_CASES:
             row['body']['private_role_probe'] = private_role_probe(raw, phase_case)
             watch_accepted = private_role_pfp_ready(row['body']['private_role_probe'], phase_case, mutant=label == 'mutant')
@@ -4550,8 +4623,9 @@ def main():
         pending_request_stage(args.stage)
     if args.case in QUIET_CONTRACT_CASES:
         quiet_contract_stage(args.stage)
-    if args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive':
-        raise ValueError('automatic-native-positive-only')
+    if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
+            and not (args.case == AUTOMATIC_SCAN_EXPIRY_CASE and args.stage == 'pfp')):
+        raise ValueError('automatic-native-positive-or-expiry-pfp-only')
     if args.stage == 'pfp':
         return pfp(args)
     if args.stage == 'sample':
