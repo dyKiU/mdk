@@ -14165,4 +14165,145 @@ mod tests {
             "selected private scoped subscription must preserve the actual degraded activation report"
         );
     }
+
+
+    /// An unrelated ordinary family change must preserve the private actual
+    /// REQ and an untouched ordinary family's live wire. This exercises SDK
+    /// subscriptions and native EOSE, not MLS enrollment or sharing authority.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unrelated_family_sync_preserves_private_and_untouched_wire_ids() {
+        let relay_a = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let relay_b = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let url_a = relay_a.url().await;
+        let url_b = relay_b.url().await;
+        let sdk = fast_retry_sdk();
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = |byte: u8, url: &RelayUrl| crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![byte; 16]),
+            transport_group_id: vec![byte; 32],
+            endpoints: vec![TransportEndpoint(url.to_string())],
+            retained_since: None,
+        };
+        let selected = group(0xc3, &url_a);
+        let untouched = group(0xc4, &url_a);
+        let existing_b = group(0xc5, &url_b);
+        let added_b = group(0xc6, &url_b);
+        let initial = vec![selected.clone(), untouched.clone(), existing_b.clone()];
+        adapter
+            .configure_private_observation_group(&account, Some(selected.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url_a.to_string())],
+                group_subscriptions: initial,
+                since: None,
+            })
+            .await
+            .expect("the real initial private and ordinary REQs activate");
+        timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("initial native SDK EOSE covers the actual routes");
+        let (private_before, ordinary_before, initial_private_exact_index) = {
+            let state = adapter.state.read().await;
+            let routes = state.accounts.get(&account).unwrap();
+            let wire = state.private_observation_wires.get(&account).unwrap();
+            (
+                wire.actual.clone(),
+                state.observation_wire_id(&account, &untouched, routes.attempt).unwrap(),
+                state.observation_wire_id(&account, &selected, routes.attempt)
+                    == Some(wire.actual.clone()),
+            )
+        };
+        let sdk_a = sdk.client().relay(url_a.clone()).await.unwrap().unwrap();
+        let sdk_b = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
+        let initial_private_registered = sdk_a
+            .subscription(&SubscriptionId::new(private_before.clone())).await.is_some();
+        let initial_ordinary_registered = sdk_a
+            .subscription(&SubscriptionId::new(ordinary_before.clone())).await.is_some();
+        let sync_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![selected.clone(), untouched.clone(), existing_b, added_b.clone()],
+                since: None,
+            })
+            .await
+            .is_ok();
+        let final_coverage_complete = timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .is_ok();
+        let (private_after, ordinary_after, added_after, original_private_wire_current) = {
+            let state = adapter.state.read().await;
+            let routes = state.accounts.get(&account).unwrap();
+            let wire = state.private_observation_wires.get(&account).unwrap();
+            (
+                wire.actual.clone(),
+                state.observation_wire_id(&account, &untouched, routes.attempt),
+                state.observation_wire_id(&account, &added_b, routes.attempt),
+                state.observation_wire_id(&account, &selected, routes.attempt)
+                    == Some(private_before.clone()),
+            )
+        };
+        let final_private_registered = sdk_a
+            .subscription(&SubscriptionId::new(private_after.clone())).await.is_some();
+        let changed_family_registered = if let Some(id) = &added_after {
+            sdk_b.subscription(&SubscriptionId::new(id.clone())).await.is_some()
+        } else {
+            false
+        };
+        let private_actual_unchanged = private_after == private_before
+            && sdk_a.subscription(&SubscriptionId::new(private_before)).await.is_some();
+        let untouched_family_wire_unchanged = ordinary_after.as_ref() == Some(&ordinary_before)
+            && sdk_a.subscription(&SubscriptionId::new(ordinary_before)).await.is_some();
+        adapter.deactivate_account(&account).await.unwrap();
+        let cleanup_complete = adapter.metrics().await.active_accounts == 0
+            && sdk_a.subscriptions().await.is_empty()
+            && sdk_b.subscriptions().await.is_empty()
+            && sdk.account_subscriptions.read().await.get(&account).is_none_or(|ids| ids.is_empty());
+        sdk.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder).await.unwrap().unwrap();
+        relay_a.shutdown();
+        relay_b.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-family-stability-prerequisites {}",
+            serde_json::json!({
+                "initial_private_registered": initial_private_registered,
+                "initial_ordinary_registered": initial_ordinary_registered,
+                "initial_private_exact_index": initial_private_exact_index,
+                "sync_succeeded": sync_succeeded,
+                "final_coverage_complete": final_coverage_complete,
+                "final_private_registered": final_private_registered,
+                "changed_family_registered": changed_family_registered,
+                "cleanup_complete": cleanup_complete,
+                "distinct_ordinary_families": url_a != url_b,
+                "private_actual_unchanged": private_actual_unchanged,
+                "untouched_family_wire_unchanged": untouched_family_wire_unchanged,
+                "original_private_wire_current": original_private_wire_current,
+            })
+        ));
+        assert!(
+            initial_private_registered && initial_ordinary_registered && initial_private_exact_index
+                && sync_succeeded && final_coverage_complete && final_private_registered
+                && changed_family_registered && cleanup_complete && url_a != url_b,
+            "real SDK family change, native EOSE and teardown are required prerequisites"
+        );
+        assert!(
+            private_actual_unchanged
+                && untouched_family_wire_unchanged
+                && original_private_wire_current,
+            "unrelated family sync must preserve private actual and untouched ordinary wire identities"
+        );
+    }
 }

@@ -70,7 +70,95 @@ def scoped_report_probe_controls():
     return {'positive': 1, 'negative': len(malformed), 'product_bodies': 0, 'synthetic_metadata_only': True}
 
 
+
+FAMILY_STABILITY_CASE = 'sdk-private-family-stability'
+FAMILY_STABILITY_PREFIX = 'private-family-stability-prerequisites'
+FAMILY_STABILITY_MESSAGE = 'unrelated family sync must preserve private actual and untouched ordinary wire identities'
+FAMILY_STABILITY_PREREQUISITES = {
+    'initial_private_registered', 'initial_ordinary_registered', 'initial_private_exact_index',
+    'sync_succeeded', 'final_coverage_complete', 'final_private_registered',
+    'changed_family_registered', 'cleanup_complete', 'distinct_ordinary_families',
+}
+FAMILY_STABILITY_VERDICTS = {
+    'private_actual_unchanged', 'untouched_family_wire_unchanged', 'original_private_wire_current',
+}
+
+
+def family_stability_probe(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    lines = [line for line in text.splitlines() if FAMILY_STABILITY_PREFIX in line]
+    if len(lines) != 1 or text.count(FAMILY_STABILITY_PREFIX) != 1 or len(lines[0]) > 2048:
+        raise ValueError('family-stability-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(FAMILY_STABILITY_PREFIX) + r' (\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('family-stability-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if (type(value) is not dict or set(value) != FAMILY_STABILITY_PREREQUISITES | FAMILY_STABILITY_VERDICTS
+            or any(type(item) is not bool for item in value.values())):
+        raise ValueError('family-stability-fields')
+    return value
+
+
+def family_stability_site():
+    text = Path(CASES[FAMILY_STABILITY_CASE][2]).read_text()
+    pattern = (r'assert!\(\s*private_actual_unchanged\s*&&\s*untouched_family_wire_unchanged'
+        r'\s*&&\s*original_private_wire_current,\s*"' + re.escape(FAMILY_STABILITY_MESSAGE) + r'"\s*\);')
+    found = list(re.finditer(pattern, text))
+    if len(found) != 1:
+        raise ValueError('family-stability-source-site')
+    return {'line': text[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - text.rfind('\n', 0, found[0].start())}
+
+
+def family_stability_failure(raw, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    value = family_stability_probe(raw)
+    if (not all(value[key] for key in FAMILY_STABILITY_PREREQUISITES)
+            or all(value[key] for key in FAMILY_STABILITY_VERDICTS)
+            or text.count('panicked at ') != 1):
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[FAMILY_STABILITY_CASE][1])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[FAMILY_STABILITY_CASE][2])
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}' + re.escape(FAMILY_STABILITY_MESSAGE) + r'[ \t]*(?:\n|$)')
+    found = re.search(pattern, text)
+    return found is not None and text.index(FAMILY_STABILITY_PREFIX) < found.start()
+
+
+def family_stability_controls(site):
+    value = dict.fromkeys(FAMILY_STABILITY_PREREQUISITES | FAMILY_STABILITY_VERDICTS, True)
+    def row(item):
+        return (FAMILY_STABILITY_PREFIX + ' ' + json.dumps(item) + '\n').encode()
+    valid = row(value)
+    assert family_stability_probe(valid) == value
+    red = dict(value, private_actual_unchanged=False, original_private_wire_current=False)
+    header = ("thread '" + CASES[FAMILY_STABILITY_CASE][1] + "' (7) panicked at "
+        + CASES[FAMILY_STABILITY_CASE][2] + ':' + str(site['line']) + ':' + str(site['column']) + ':\n'
+        + FAMILY_STABILITY_MESSAGE + '\n').encode()
+    assert family_stability_failure(row(red) + header, site)
+    bad_rows = [valid + valid, b'PRIVATE ' + valid, b' ' * 9 + valid,
+        row(dict(value, private=True)), row(dict(value, cleanup_complete=1)),
+        row({key: item for key, item in value.items() if key != 'sync_succeeded'}),
+        valid.replace(b'{', b'{"cleanup_complete":true,', 1)]
+    for raw in bad_rows:
+        try:
+            family_stability_probe(raw)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('family-stability-invalid-accepted')
+    invalid = [row(value) + header, row(red) + header + header, header + row(red),
+        row(red) + header.replace(FAMILY_STABILITY_MESSAGE.encode(), b'PRIVATE'),
+        row(red) + header.replace((":" + str(site['line']) + ":").encode(), b':0:'),
+        row(red) + header.replace(CASES[FAMILY_STABILITY_CASE][1].encode(), b'PRIVATE')]
+    invalid += [row(dict(red, **{key: False})) + header for key in FAMILY_STABILITY_PREREQUISITES]
+    assert all(not family_stability_failure(raw, site) for raw in invalid)
+    return {'positive': 2, 'negative': len(bad_rows) + len(invalid),
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 CASES = {
+    FAMILY_STABILITY_CASE: ('transport_nostr_adapter', 'sdk_client::tests::unrelated_family_sync_preserves_private_and_untouched_wire_ids', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'sdk-scoped-reporting': ('transport_nostr_adapter', 'sdk_client::tests::selected_private_scoped_route_preserves_owed_report_and_reconnect_id', 'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'fresh-rejoin-observation': ('marmot_app', 'native_device_linking::tests::automatic_fresh_rejoin_acceptance::automatic_fresh_accepted_rejoin_restores_only_the_new_source_lineage',
                                  'crates/marmot-app/src/native_device_linking/tests/automatic_fresh_rejoin_acceptance.rs'),
@@ -227,6 +315,7 @@ EXPERIMENTAL_CASES.add('live-seal-spill-experimental')
 BOUNDED_CASES.add('live-seal-spill-experimental')
 for _scoped_reporting_set in (ADAPTER_CASES, EXPERIMENTAL_CASES, BOUNDED_CASES):
     _scoped_reporting_set.add('sdk-scoped-reporting')
+    _scoped_reporting_set.add(FAMILY_STABILITY_CASE)
 
 
 def package_for(case):
@@ -3046,6 +3135,8 @@ def positive(args):
             report['restart_parser_controls'] = restart_controls()
         if args.case == PENDING_REQUEST_CASE:
             report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
+        if args.case == FAMILY_STABILITY_CASE:
+            report['family_stability_controls'] = family_stability_controls(family_stability_site())
         if args.case == 'sdk-scoped-reporting':
             report['scoped_report_probe_controls'] = scoped_report_probe_controls()
         if args.case == SCOPED_REPORT_CASE:
@@ -3118,6 +3209,18 @@ def positive(args):
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == FAMILY_STABILITY_CASE:
+                report['body']['family_stability_probe'] = family_stability_probe(raw)
+                report['body']['own_runtime_failure'] = family_stability_failure(raw, family_stability_site())
+                report['expected_family_runtime_red_before_closure'] = (
+                    code == 100 and report['body']['counts']['executed'] == 1
+                    and report['body']['counts']['failed'] == 1
+                    and report['inventory']['selected_nonignored'] == 1
+                    and report['inventory']['selected_ignored'] == 0
+                    and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                            for part in [report['inventory'], report['body']])
+                    and report['body']['own_runtime_failure'])
+                save()  # Exact attempted body and frozen prerequisites precede interpretation.
             if args.case == 'sdk-scoped-reporting':
                 report['body']['scoped_report_probe'] = scoped_report_probe(raw)
                 report['behavioral_red_qualified'] = False
@@ -3208,6 +3311,8 @@ def positive(args):
                 report['historical_cause_proven'] = False
                 save()
             command_accepted = True
+            if args.case == FAMILY_STABILITY_CASE:
+                command_accepted = all(report['body']['family_stability_probe'].values())
             if args.case == SCOPED_REPORT_CASE:
                 command_accepted = (scoped_report_ready(report['body']['scoped_report_probe'])
                     and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
@@ -3299,6 +3404,9 @@ def positive(args):
         if args.case in QUIET_CONTRACT_CASES:
             report['expected_contract_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('body', {}).get('expected_contract_runtime_red_before_closure') is True)
+        if args.case == FAMILY_STABILITY_CASE:
+            report['expected_family_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('expected_family_runtime_red_before_closure') is True)
         report['preflight_passed'] = args.mode == 'preflight' and result == 0
         report['scoped_control_passed'] = args.mode == 'run' and result == 0
         save()
