@@ -489,7 +489,7 @@ mod tests {
             .unwrap();
         let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(
             dir.path(),
-            &relay.url().await.to_string(),
+            relay.url().await.to_string(),
         ));
         runtime.reconcile_accounts().await.unwrap();
         let accounts = runtime.accounts();
@@ -521,7 +521,7 @@ mod tests {
             .unwrap();
         let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(
             dir.path(),
-            &relay.url().await.to_string(),
+            relay.url().await.to_string(),
         ));
         runtime.reconcile_accounts().await.unwrap();
         let session = runtime
@@ -558,7 +558,7 @@ mod tests {
             .unwrap();
         let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(
             dir.path(),
-            &relay.url().await.to_string(),
+            relay.url().await.to_string(),
         ));
         runtime.reconcile_accounts().await.unwrap();
         let accounts = runtime.accounts();
