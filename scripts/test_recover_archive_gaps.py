@@ -44,10 +44,30 @@ class ArchiveGapTests(unittest.TestCase):
         import subprocess
         root = Path(__file__).resolve().parents[1]
         source = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-        # Upstream reduced default CI to seven shards; experimental stays twelve.
+        # Default CI is rebalanced to eight shards; experimental stays twelve.
         # Bind each archive/runtime denominator to the actual immutable source.
-        for cohort, count in (("default", 7), ("experimental", 12)):
+        for cohort, count in (("default", 8), ("experimental", 12)):
             self.assertEqual(source_partition_count(source, cohort), count)
+
+    def test_current_eight_partition_origin_exact_union(self):
+        run, jobs, artifact = origin()
+        jobs = [dict(jobs[0], id=i, name=f"Rust tests ({i}/8)") for i in range(1, 9)]
+        self.assertEqual(len(validate_origin(run, jobs, artifact, "default", 7, "a" * 40,
+                                             expected_partitions=8)), 8)
+        variants = [jobs[:-1], jobs + [jobs[0]],
+                    jobs + [dict(jobs[0], id=9, name="Rust tests (9/8)")],
+                    jobs + [dict(jobs[0], id=9, name="Rust tests (foreign)")],
+                    jobs[:-1] + [dict(jobs[-1], name="Rust tests (8/7)")],
+                    jobs[:-1] + [dict(jobs[-1], id=jobs[0]["id"])],
+                    jobs[:-1] + [dict(jobs[-1], head_sha="b" * 40)]]
+        for changed in variants:
+            with self.assertRaises(ValueError):
+                validate_origin(run, changed, artifact, "default", 7, "a" * 40,
+                                expected_partitions=8)
+        for count in (True, 0, 5, 6, 7, 12, 13):
+            with self.assertRaises(ValueError):
+                validate_origin(run, jobs, artifact, "default", 7, "a" * 40,
+                                expected_partitions=count)
 
     def test_current_seven_partition_origin_exact_union(self):
         run, jobs, artifact = origin()
@@ -103,9 +123,9 @@ class ArchiveGapTests(unittest.TestCase):
                 + "    strategy:\n      matrix:\n        partition: "
                 + json.dumps(list(range(1, count + 1))) + "\n"
                 + "    steps:\n      - run: cargo nextest run --partition count:${{ matrix.partition }}/" + str(count) + "\n")
-        for count in (5, 7, 12):
+        for count in (5, 7, 8, 12):
             self.assertEqual(workflow_partition_count(workflow(count), "default"), count)
-        for count in (6, 8):
+        for count in (6, 9):
             with self.assertRaises(ValueError):
                 workflow_partition_count(workflow(count), "default")
         good = workflow(12)

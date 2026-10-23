@@ -19,13 +19,13 @@ TARGET = ROOT / 'scripts/recover_archive_gaps.py'
 FIXTURE = ROOT / 'scripts/test_recover_archive_gaps.py'
 TEST = 'ArchiveGapTests.test_current_partition_extra_duplicate_mixed_and_foreign_roles_refused'
 METHOD = TEST.split('.')[1]
-FIXTURE_SHA = '01e83e44739d796dc5978691704192b5f228927325c54ce42ba033f6bbac1527'
+FIXTURE_SHA = 'eb15dfd9e87241d37e8157c076f2ebff03add66f6d3f461deb4fc909e2788755'
 ANCHOR = b'selected = [job for job in jobs if job["name"].startswith(label + " (")]'
 OMISSION = b'selected = [job for job in jobs if job["name"] in expected]'
-SEVEN_TEST = 'ArchiveGapTests.test_current_seven_partition_origin_exact_union'
-SEVEN_METHOD = SEVEN_TEST.split('.')[1]
-SEVEN_ANCHOR = b'expected_partitions not in {5, 7, 12}'
-SEVEN_INVERSE = b'expected_partitions not in {5, 12}'
+EIGHT_TEST = 'ArchiveGapTests.test_current_eight_partition_origin_exact_union'
+EIGHT_METHOD = EIGHT_TEST.split('.')[1]
+EIGHT_ANCHOR = b'expected_partitions not in {5, 7, 8, 12}'
+EIGHT_INVERSE = b'expected_partitions not in {5, 7, 12}'
 GUARDED = [TARGET, FIXTURE, Path(__file__).resolve(), ROOT / 'scripts/recover_experimental_coverage.py',
     ROOT / '.github/workflows/ci.yml', ROOT / '.github/workflows/experimental-sync-ci.yml', ROOT / 'Cargo.lock']
 OUT = ROOT / 'archive-partition-origin-pfp-evidence'
@@ -104,7 +104,7 @@ def physical(expected_target):
     return actual
 
 
-def execute(label, expected_target, intended_failure=False, *, selected_test=TEST, reject_seven=False):
+def execute(label, expected_target, intended_failure=False, *, selected_test=TEST, reject_eight=False):
     method = selected_test.split('.')[1]
     row = {'phase': label, 'test': selected_test, 'executed': None, 'passed': None, 'failed': None,
         'errors': None, 'skipped': None, 'qualified': False}
@@ -127,7 +127,7 @@ def execute(label, expected_target, intended_failure=False, *, selected_test=TES
         row['source_postcheck'] = physical(expected_target)
         save()
     assert row['executed'] == len(status) == 1 and row['skipped'] == 0
-    if reject_seven:
+    if reject_eight:
         fixture_frames = re.findall(r'File "[^"]*/scripts/test_recover_archive_gaps\.py", line (\d+), in '
             + re.escape(method), raw)
         production_frames = re.findall(r'File "[^"]*/scripts/recover_archive_gaps\.py", line (\d+), in validate_origin', raw)
@@ -136,13 +136,13 @@ def execute(label, expected_target, intended_failure=False, *, selected_test=TES
         row['intended_production_rejection'] = (
             code == 1 and row['passed'] == row['failed'] == 0 and row['errors'] == 1
             and headers == [method + ' (__main__.ArchiveGapTests.' + method + ')']
-            and fixture_frames == [str(seven_call_line)]
-            and production_frames == [str(seven_guard_line)]
+            and fixture_frames == [str(eight_call_line)]
+            and production_frames == [str(eight_guard_line)]
             and exceptions == ['ValueError: Reviewed partition count required']
             and raw.count('Traceback (most recent call last):') == 1
             and re.search(r'(?m)^FAILED \(errors=1\)$', raw) is not None)
         save()
-        assert row['intended_production_rejection'], 'unknown-error-not-seven-admission-inverse'
+        assert row['intended_production_rejection'], 'unknown-error-not-eight-admission-inverse'
     elif intended_failure:
         assert row['errors'] == 0
         frames = re.findall(r'File "[^"]*/scripts/test_recover_archive_gaps\.py", line (\d+), in '
@@ -188,8 +188,8 @@ try:
         assert bool(path.stat().st_mode & 0o111) == (mode == '100755')
     report['original_source_partition_counts'] = {cohort: source_partition_count(source, cohort)
         for cohort in ['default', 'experimental']}
-    assert report['original_source_partition_counts'] == {'default': 7, 'experimental': 12}
-    assert digest(FIXTURE.read_bytes()) == FIXTURE_SHA and ORIGINAL.count(ANCHOR) == ORIGINAL.count(SEVEN_ANCHOR) == 1
+    assert report['original_source_partition_counts'] == {'default': 8, 'experimental': 12}
+    assert digest(FIXTURE.read_bytes()) == FIXTURE_SHA and ORIGINAL.count(ANCHOR) == ORIGINAL.count(EIGHT_ANCHOR) == 1
     text = FIXTURE.read_text()
     method_start = text.index('    def ' + METHOD + '(')
     next_method = text.index('\n    def ', method_start + 1)
@@ -199,13 +199,13 @@ try:
     assert len(sites) == 1
     assertion_line = sites[0]
     report['assertion_site'] = {'file': 'scripts/test_recover_archive_gaps.py', 'line': assertion_line}
-    seven_start = text.index('    def ' + SEVEN_METHOD + '(')
-    seven_end = text.index('\n    def ', seven_start + 1)
-    seven_prefix = text[:seven_start].count('\n')
-    seven_calls = [seven_prefix + i for i, line in enumerate(text[seven_start:seven_end].splitlines(), 1)
+    eight_start = text.index('    def ' + EIGHT_METHOD + '(')
+    eight_end = text.index('\n    def ', eight_start + 1)
+    eight_prefix = text[:eight_start].count('\n')
+    eight_calls = [eight_prefix + i for i, line in enumerate(text[eight_start:eight_end].splitlines(), 1)
         if 'self.assertEqual(len(validate_origin(' in line]
-    assert len(seven_calls) == 1
-    seven_call_line = seven_calls[0]
+    assert len(eight_calls) == 1
+    eight_call_line = eight_calls[0]
     production = ORIGINAL.decode()
     guard_start = production.index('def validate_origin(')
     guard_end = production.index('\n\ndef ', guard_start + 1)
@@ -213,10 +213,10 @@ try:
     guard_lines = [guard_prefix + i for i, line in enumerate(production[guard_start:guard_end].splitlines(), 1)
         if line.strip() == 'raise ValueError("Reviewed partition count required")']
     assert len(guard_lines) == 1
-    seven_guard_line = guard_lines[0]
-    report['seven_admission_sites'] = {'fixture': 'scripts/test_recover_archive_gaps.py',
-        'fixture_call_line': seven_call_line, 'production': 'scripts/recover_archive_gaps.py',
-        'production_guard_line': seven_guard_line}
+    eight_guard_line = guard_lines[0]
+    report['eight_admission_sites'] = {'fixture': 'scripts/test_recover_archive_gaps.py',
+        'fixture_call_line': eight_call_line, 'production': 'scripts/recover_archive_gaps.py',
+        'production_guard_line': eight_guard_line}
     mutant = ORIGINAL.replace(ANCHOR, OMISSION, 1)
     with tempfile.TemporaryDirectory(prefix='archive-origin-private-'):
         execute('baseline', ORIGINAL)
@@ -239,16 +239,16 @@ try:
         if mutation_error:
             raise mutation_error
         # Preserve the original three role-guard bodies above. This independent
-        # inverse removes only the newly admitted seven from production validation.
-        execute('seven-admission-baseline', ORIGINAL, selected_test=SEVEN_TEST)
-        inverse = ORIGINAL.replace(SEVEN_ANCHOR, SEVEN_INVERSE, 1)
+        # inverse removes only the newly admitted eight from production validation.
+        execute('eight-admission-baseline', ORIGINAL, selected_test=EIGHT_TEST)
+        inverse = ORIGINAL.replace(EIGHT_ANCHOR, EIGHT_INVERSE, 1)
         mutation_error = None
         try:
             physical(ORIGINAL)
             TARGET.write_bytes(inverse)
-            report['seven_inverse_sha256'] = digest(inverse)
-            execute('seven-admission-production-inverse', inverse,
-                selected_test=SEVEN_TEST, reject_seven=True)
+            report['eight_inverse_sha256'] = digest(inverse)
+            execute('eight-admission-production-inverse', inverse,
+                selected_test=EIGHT_TEST, reject_eight=True)
         except InterruptedError:
             raise
         except Exception as error:
@@ -258,7 +258,7 @@ try:
             TARGET.write_bytes(ORIGINAL)
             TARGET.chmod(MODE)
             save()
-        execute('seven-admission-restored', ORIGINAL, selected_test=SEVEN_TEST)
+        execute('eight-admission-restored', ORIGINAL, selected_test=EIGHT_TEST)
         if mutation_error:
             raise mutation_error
     report['passed'] = True
