@@ -17,25 +17,29 @@ on:
       - .github/workflows/upstream-acceptance-supplement.yml
   workflow_dispatch:
     inputs:
+      metadata_only:
+        description: Syntax and synthetic metadata only; no SDK or app inputs or execution
+        type: boolean
+        default: false
       sdk_source:
         description: Exact qualified final SDK source F, shared by default and experimental artifacts
-        required: true
+        required: false
         type: string
       default_run_id:
         description: Actual nonpublishing default-profile Apple producer run for F
-        required: true
+        required: false
         type: string
       experimental_run_id:
         description: Actual nonpublishing experimental-profile Apple producer run for same F
-        required: true
+        required: false
         type: string
       mac_sha:
         description: Exact qualified Mac capability candidate
-        required: true
+        required: false
         type: string
       ios_sha:
         description: Exact qualified iOS capability candidate
-        required: true
+        required: false
         type: string
       cohort:
         description: Select only missing qualification; all runs both apps across all three cohorts
@@ -75,11 +79,14 @@ jobs:
           INPUT_MAC: ${{ inputs.mac_sha }}
           INPUT_IOS: ${{ inputs.ios_sha }}
           INPUT_COHORT: ${{ inputs.cohort }}
+          INPUT_METADATA_ONLY: ${{ inputs.metadata_only }}
         run: |
           python3 - <<'PY'
           import json,os,re
           assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-app-sdk-cohorts-')
-          if os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch':
+          metadata=os.environ.get('INPUT_METADATA_ONLY','')
+          assert metadata in ('','false','true')
+          if os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and metadata != 'true':
               values={key:os.environ['INPUT_'+key.upper()] for key in ['sdk','default_run','experimental_run','mac','ios']}
               assert all(re.fullmatch('[0-9a-f]{40}',values[key]) for key in ['sdk','mac','ios'])
               assert all(re.fullmatch('[1-9][0-9]*',values[key]) for key in ['default_run','experimental_run'])
@@ -113,7 +120,7 @@ jobs:
       - name: Six synthetic cross-profile receipt/parser controls; no SDK or fixture execution
         run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_profile_interop_evidence.py -v
   sdk:
-    if: github.event_name == 'workflow_dispatch' && inputs.cohort != 'historical'
+    if: github.event_name == 'workflow_dispatch' && inputs.metadata_only != true && inputs.cohort != 'historical'
     needs: identity
     runs-on: ubuntu-latest
     timeout-minutes: 110
@@ -134,7 +141,7 @@ jobs:
       - name: Wait for exact pre-existing profile artifact; never build or retry producer
         run: python3 scripts/upstream_apple_ci/wait-sdk.py
   applications:
-    if: always() && github.event_name == 'workflow_dispatch' && needs.identity.result == 'success' && (needs.sdk.result == 'success' || needs.sdk.result == 'skipped')
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.metadata_only != true && needs.identity.result == 'success' && (needs.sdk.result == 'success' || needs.sdk.result == 'skipped')
     needs: [identity, sdk]
     runs-on: macos-26
     timeout-minutes: 300
