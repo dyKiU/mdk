@@ -1104,12 +1104,10 @@ mod tests {
             Err(_) => (false, false, true),
         };
         drop(scan);
-        let runtime_cleanup = tokio::time::timeout(
-            Duration::from_secs(10),
-            runtime.shutdown_and_close(),
-        )
-        .await
-        .is_ok_and(|result| result.is_ok());
+        let runtime_cleanup =
+            tokio::time::timeout(Duration::from_secs(10), runtime.shutdown_and_close())
+                .await
+                .is_ok_and(|result| result.is_ok());
         drop(relay);
         let cleanup_succeeded = session_cleanup && runtime_cleanup;
         eprintln!(
