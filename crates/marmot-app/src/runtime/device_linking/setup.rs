@@ -157,6 +157,9 @@ pub(super) async fn handle(
             let _ = respond.send(client.native_authenticated_received_bindings());
         }
         SetupCommand::Targets { respond } => {
+            crate::native_device_linking::diagnostics::targets_read(
+                crate::native_device_linking::diagnostics::TargetRead::WorkerHandling,
+            );
             let _ = respond.send(client.native_device_linking_targets());
         }
         SetupCommand::ApprovalPhase { binding, respond } => {
@@ -401,6 +404,9 @@ impl AccountManager {
         account: &str,
     ) -> Result<Vec<crate::DeviceLinkingTarget>, ClientLinkingError> {
         self.verifier_command(account, |respond| {
+            crate::native_device_linking::diagnostics::targets_read(
+                crate::native_device_linking::diagnostics::TargetRead::WorkerAcquired,
+            );
             VerifierCommand::Setup(SetupCommand::Targets { respond })
         })
         .await
