@@ -428,15 +428,16 @@ async fn owned_loopback_listener_is_closed(
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
             drop(socket);
-            // Baseline driver only observes closure of the same owned relay.
-            let _ = relay;
+            // Finish the same owned shutdown after observing its listener still
+            // accepts. The locked MockRelay stop notification is not sticky;
+            // this does not establish why any earlier stop was unobserved.
+            relay.shutdown();
             tokio::task::yield_now().await;
         }
     })
     .await
     .is_ok()
 }
-
 
 // Independent cleanup mechanism coverage, without changing native ordering facts.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -446,7 +447,10 @@ async fn owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop() {
     let url = relay.url().await.to_string();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let listener_started = match tokio::net::TcpStream::connect(address).await {
-        Ok(socket) => { drop(socket); true }
+        Ok(socket) => {
+            drop(socket);
+            true
+        }
         Err(_) => false,
     };
     // No first stop is issued: exercise an actually open owned listener, not
@@ -460,7 +464,9 @@ async fn owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop() {
             relay.shutdown();
             tokio::task::yield_now().await;
         }
-    }).await.is_ok();
+    })
+    .await
+    .is_ok();
     crate::test_support::emit_line(format_args!(
         "command-backlog-owned-cleanup {{\"listener_started\":{},\"closed_in_original_bound\":{},\"owned_cleanup_completed\":{}}}",
         listener_started, closed_in_original_bound, owned_cleanup_completed
