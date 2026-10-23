@@ -2377,6 +2377,28 @@ impl<S: StorageProvider> Engine<S> {
                 .convergence_pass(group_id)
                 .map_err(|_| GroupHydrationQuarantineReason::GroupRecordLoadFailed)?
                 .is_some_and(|pass| !pass.proposal_dependency_wakes.is_empty());
+        // Negative upgrade recovery must precede bootstrap reads and network
+        // replay. Those can fail before the host receives a convergence wake.
+        // Full hydration has validated the actual tree and restored any real
+        // pending publication; never retire maintenance through that barrier.
+        #[cfg(feature = "experimental-device-sync")]
+        let has_queued_intents = if has_queued_intents
+            && !group.is_terminal()
+            && !group.unrecoverable
+            && matches!(
+                self.epoch_manager.state(group_id),
+                Some(cgka_traits::EpochState::Stable { .. })
+            ) {
+            self.retire_queued_private_maintenance(group_id)
+                .map_err(|_| GroupHydrationQuarantineReason::GroupRecordLoadFailed)?;
+            !self
+                .storage
+                .list_queued_outbound_intents(group_id)
+                .map_err(|_| GroupHydrationQuarantineReason::GroupRecordLoadFailed)?
+                .is_empty()
+        } else {
+            has_queued_intents
+        };
         if has_queued_intents
             || has_proposal_dependency_wakes
             || has_convergence_inputs

@@ -649,6 +649,103 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn hydration_retires_legacy_private_maintenance_before_bootstrap_reads() {
+        use cgka_traits::engine::{CgkaEngine, CreateGroupRequest, SendIntent};
+        use cgka_traits::storage::OutboundIntentStorage;
+        let storage = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
+        let mut engine = current_test_engine(storage.clone());
+        let genesis = engine.create_private_device_group_genesis().unwrap();
+        let group = genesis.group_id().clone();
+        let (ordinary, _) = engine
+            .create_group(CreateGroupRequest {
+                name: "ordinary restart queue preservation".into(),
+                description: String::new(),
+                members: vec![],
+                required_features: vec![],
+                app_components: vec![],
+                initial_admins: vec![],
+            })
+            .await
+            .unwrap();
+        for selected in [&group, &ordinary] {
+            engine
+                .queue_outbound_intent(
+                    selected.clone(),
+                    SendIntent::SelfUpdate {
+                        group_id: selected.clone(),
+                    },
+                    0,
+                )
+                .unwrap();
+        }
+        drop(engine);
+        let mut reopened = current_test_engine(storage.clone());
+        reopened.hydrate_all_stored_groups().unwrap();
+        assert_eq!(reopened.quarantined_group_count(), 0);
+        assert!(matches!(
+            reopened.epoch_manager.state(&group),
+            Some(cgka_traits::EpochState::Stable { .. })
+        ));
+        let private_queued = storage.list_queued_outbound_intents(&group).unwrap().len();
+        assert_eq!(
+            storage
+                .list_queued_outbound_intents(&ordinary)
+                .unwrap()
+                .len(),
+            1,
+            "startup must retain authorized ordinary queued work"
+        );
+        assert_eq!(
+            private_queued, 0,
+            "unsupported private maintenance must retire during hydration, before network bootstrap"
+        );
+    }
+
+    #[tokio::test]
+    async fn hydration_preserves_private_maintenance_behind_durable_pending_crypto() {
+        use cgka_traits::engine::{SendIntent, SendResult};
+        use cgka_traits::storage::OutboundIntentStorage;
+        let storage = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
+        let mut engine = current_test_engine(storage.clone());
+        let genesis = engine.create_private_device_group_genesis().unwrap();
+        let group = genesis.group_id().clone();
+        engine
+            .queue_outbound_intent(
+                group.clone(),
+                SendIntent::SelfUpdate {
+                    group_id: group.clone(),
+                },
+                0,
+            )
+            .unwrap();
+        let SendResult::GroupEvolution { msg, .. } =
+            engine.do_send_self_update(group.clone()).await.unwrap()
+        else {
+            panic!("expected actual durable staged crypto");
+        };
+        drop(engine);
+        let mut reopened = current_test_engine(storage.clone());
+        reopened.hydrate_all_stored_groups().unwrap();
+        assert_eq!(reopened.quarantined_group_count(), 0);
+        assert!(matches!(
+            reopened.epoch_manager.state(&group),
+            Some(cgka_traits::EpochState::PendingPublish(_))
+        ));
+        assert_eq!(
+            storage.list_queued_outbound_intents(&group).unwrap().len(),
+            1
+        );
+        let restored = reopened
+            .auto_publish_buf
+            .front()
+            .expect("actual retained publication");
+        assert!(
+            restored.msg == msg,
+            "startup must preserve exact signed pending bytes"
+        );
+    }
+
+    #[tokio::test]
     async fn private_maintenance_recovery_preserves_a_real_pending_publish() {
         use cgka_traits::engine::{CgkaEngine, SendIntent, SendResult};
         use cgka_traits::storage::OutboundIntentStorage;
