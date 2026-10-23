@@ -2036,17 +2036,8 @@ def positive_configuration(case):
     return features, profile, expected_stack
 
 
-def main():
-    os.umask(0o077)
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=['preflight', 'run'], required=True)
-    parser.add_argument('--stage', choices=['positive', 'pfp'], default='positive')
-    parser.add_argument('--case', choices=[case for case in CASES if case not in ENGINE_SUPPORT_CASES], required=True)
-    parser.add_argument('--baseline', required=True)
-    parser.add_argument('--output', required=True)
-    args = parser.parse_args()
-    if args.stage == 'pfp':
-        return pfp(args)
+def positive(args):
+    # The positive path is shared unchanged; sample retains the real event stage.
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     features, profile, expected_stack = positive_configuration(args.case)
@@ -2077,6 +2068,8 @@ def main():
     if args.case == 'sdk-private-capture-control':
         report.update(evidence_scope='sdk-private-capture-component-only',
                       native_protocol_qualification=False, queue_overflow_remedy_qualified=False)
+    if args.stage == 'sample':
+        report['execution_stage'] = 'sample'
     before = None
     stage = 'admission'
     result = 1
@@ -2095,7 +2088,7 @@ def main():
             raise ValueError('replay-manual-source-identity')
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(), object_pairs_hook=unique)
         if (event['inputs'].get('scope') != 'replay-controls'
-                or event['inputs'].get('replay_stage', 'positive') != 'positive'
+                or event['inputs'].get('replay_stage', 'positive') != args.stage
                 or event['inputs'].get('replay_case') != args.case
                 or event['inputs'].get('reviewed_baseline') != args.baseline):
             raise ValueError('replay-event-inputs')
@@ -2103,6 +2096,10 @@ def main():
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.stage == 'sample':
+            if args.case != 'sibling-send-experimental':
+                raise ValueError('sample-case')
+            report['sample_parser_controls'] = sample_controls()
         if args.case in FIXTURE_OBSERVATION_BASES:
             report['fixture_observation_controls'] = fixture_observation_controls()
         if args.case in {'sibling-send-default', 'sibling-send-experimental'}:
@@ -2334,6 +2331,175 @@ def main():
         report['scoped_control_passed'] = args.mode == 'run' and result == 0
         save()
     return result
+
+
+SAMPLE_LIMIT = 6
+
+
+def sample_trial_status(report, code, source):
+    """A compile/zero-body/controller failure is never a runtime-failure witness."""
+    if (type(code) is not int or report.get('source') != source
+            or report.get('baseline') != source
+            or report.get('case') != 'sibling-send-experimental'
+            or report.get('source_closure_exact') is not True):
+        return 'guard-error'
+    inventory, body = report.get('inventory', {}), report.get('body', {})
+    if (type(inventory.get('exit_code')) is not int or inventory.get('exit_code') != 0
+            or type(inventory.get('selected_nonignored')) is not int
+            or inventory.get('selected_nonignored') != 1
+            or type(inventory.get('selected_ignored')) is not int
+            or inventory.get('selected_ignored') != 0):
+        return 'guard-error'
+    for item in (inventory, body):
+        if (type(item.get('compiler', {}).get('header_count')) is not int
+                or type(item.get('compiler', {}).get('unknown_or_excess_sites')) is not int
+                or item.get('compiler') != {'codes': [], 'header_count': 0,
+                                    'sites': [], 'unknown_or_excess_sites': 0}):
+            return 'guard-error'
+    counts = body.get('counts', {})
+    if (any(type(counts.get(key)) is not int for key in ('executed', 'passed', 'failed'))
+            or counts['executed'] != 1 or counts['passed'] + counts['failed'] != 1
+            or type(body.get('exit_code')) is not int):
+        return 'guard-error'
+    if code != 0 and body['exit_code'] != 0 and counts['failed'] == 1:
+        return 'actual-runtime-failure'
+    if (code != 0 or body['exit_code'] != 0 or counts['passed'] != 1
+            or report.get('body_passed') is not True
+            or body.get('panic') != {'sites': [], 'unknown_or_excess_headers': 0}
+            or body.get('sibling_send_export_complete') is not True
+            or body.get('sibling_worker_export_complete') is not True
+            or body.get('sibling_worker_observation', {}).get('collection_complete') is not True):
+        return 'guard-error'
+    return 'actual-pass'
+
+
+def sample_controls():
+    # Metadata only; no target invocation, source mutation, or synthetic RED credit.
+    fixture = {'source': 's', 'baseline': 's', 'case': 'sibling-send-experimental',
+               'source_closure_exact': True, 'body_passed': True,
+               'inventory': {'exit_code': 0, 'selected_nonignored': 1, 'selected_ignored': 0},
+               'body': {'counts': {'executed': 1, 'passed': 1, 'failed': 0}, 'exit_code': 0,
+                        'panic': {'sites': [], 'unknown_or_excess_headers': 0},
+                        'sibling_send_export_complete': True, 'sibling_worker_export_complete': True,
+                        'sibling_worker_observation': {'collection_complete': True}}}
+    clean = {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+    fixture['inventory']['compiler'] = clean
+    fixture['body']['compiler'] = clean
+    def copy():
+        return json.loads(json.dumps(fixture))
+    if sample_trial_status(fixture, 0, 's') != 'actual-pass':
+        raise ValueError('sample-positive-control')
+    failed = copy()
+    failed['body_passed'] = False
+    failed['body']['counts'].update(passed=0, failed=1)
+    failed['body']['exit_code'] = 100
+    if sample_trial_status(failed, 1, 's') != 'actual-runtime-failure':
+        raise ValueError('sample-retained-failure-control')
+    negatives = []
+    for section, key, value in [('inventory', 'selected_nonignored', 0),
+                                ('inventory', 'selected_nonignored', True),
+                                ('inventory', 'selected_ignored', 1),
+                                ('body', 'exit_code', True),
+                                ('body', 'sibling_send_export_complete', False),
+                                ('body', 'sibling_worker_export_complete', False)]:
+        row = copy(); row[section][key] = value; negatives.append(row)
+    row = copy(); row['body']['counts'].update(executed=0, passed=0); negatives.append(row)
+    row = copy(); row['body']['counts']['executed'] = True; negatives.append(row)
+    row = copy(); row['source_closure_exact'] = False; negatives.append(row)
+    row = copy(); row['source'] = 'other'; negatives.append(row)
+    row = copy(); row['body']['compiler']['header_count'] = 1; negatives.append(row)
+    row = json.loads(json.dumps(failed)); row['body']['compiler']['codes'] = ['E0000']; negatives.append(row)
+    row = copy(); row['body']['sibling_worker_observation']['collection_complete'] = False; negatives.append(row)
+    for row in negatives:
+        if sample_trial_status(row, 0, 's') != 'guard-error':
+            raise ValueError('sample-negative-control')
+    if sample_trial_status(negatives[-2], 1, 's') != 'guard-error':
+        raise ValueError('sample-compiler-is-not-runtime-control')
+    # A failed trial stops the sequence; it cannot be replaced by a later pass.
+    statuses = ['actual-pass', 'actual-runtime-failure', 'actual-pass']
+    retained = []
+    for status in statuses:
+        retained.append(status)
+        if status != 'actual-pass':
+            break
+    if retained != statuses[:2] or SAMPLE_LIMIT - len(retained) != 4:
+        raise ValueError('sample-stop-control')
+    return {'positive': 3, 'negative': len(negatives) + 1,
+            'product_bodies': 0, 'qualification_passed': False}
+
+
+def sample(args):
+    """Bounded failure capture, not retry-to-green or a qualification gate."""
+    if args.case != 'sibling-send-experimental':
+        raise ValueError('sample-case')
+    if args.mode == 'preflight':
+        return positive(args)  # One normal source/parser admission; zero product bodies.
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = {'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
+              'case': args.case, 'stage': 'sample', 'diagnostic_only': True,
+              'qualification_passed': False, 'automatic_retries': 0,
+              'max_trials': SAMPLE_LIMIT, 'trials': [], 'not_executed': SAMPLE_LIMIT,
+              'stop_reason': 'guard-error', 'all_attempted_passed': False}
+    def save():
+        pending = output.with_suffix('.pending')
+        pending.write_text(json.dumps(report, sort_keys=True, indent=2) + '\n')
+        pending.replace(output)
+    save()
+    result = 1
+    try:
+        report['sample_parser_controls'] = sample_controls()
+        for number in range(1, SAMPLE_LIMIT + 1):
+            trial_path = output.with_name(output.stem + '.trial-' + str(number) + '.json')
+            trial_args = argparse.Namespace(**vars(args))
+            trial_args.output = str(trial_path)
+            entry = {'trial': number, 'status': 'guard-error', 'controller_exit_code': None,
+                     'result_file': trial_path.name, 'body_command_attempted': None}
+            report['trials'].append(entry)
+            report['not_executed'] = SAMPLE_LIMIT - number  # Remaining unstarted trial slots.
+            save()
+            try:
+                code = positive(trial_args)
+                trial = json.loads(trial_path.read_text(), object_pairs_hook=unique)
+                status = sample_trial_status(trial, code, report['source'])
+                body = trial.get('body', {})
+                entry.update(status=status, controller_exit_code=code,
+                             result_sha256=hashlib.sha256(trial_path.read_bytes()).hexdigest(),
+                             body_command_attempted=trial.get('body_command_attempted', False),
+                             counts=body.get('counts'), body_exit_code=body.get('exit_code'),
+                             send=body.get('sibling_send_observation'),
+                             worker=body.get('sibling_worker_observation'))
+            except Exception:
+                status = 'guard-error'  # Keep the partial trial file and bounded entry, never raw errors.
+            report['stop_reason'] = status
+            save()  # Keep the actual failed trial before deciding whether another may start.
+            if status != 'actual-pass':
+                break
+        else:
+            report['stop_reason'] = 'sample-limit-all-passed'
+            report['all_attempted_passed'] = True
+            result = 0
+    except Exception:
+        report['stop_reason'] = 'guard-error'
+    finally:
+        save()
+    return result
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--mode', choices=['preflight', 'run'], required=True)
+    parser.add_argument('--stage', choices=['positive', 'pfp', 'sample'], default='positive')
+    parser.add_argument('--case', choices=[case for case in CASES if case not in ENGINE_SUPPORT_CASES], required=True)
+    parser.add_argument('--baseline', required=True)
+    parser.add_argument('--output', required=True)
+    args = parser.parse_args()
+    if args.stage == 'pfp':
+        return pfp(args)
+    if args.stage == 'sample':
+        return sample(args)
+    return positive(args)
 
 
 if __name__ == '__main__':

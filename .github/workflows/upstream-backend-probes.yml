@@ -17,9 +17,9 @@ on:
         options: [key-package, avatar]
         default: key-package
       replay_stage:
-        description: Exact positive control, or supported original-runtime/selector PFP
+        description: Exact positive/PFP, or bounded experimental sibling failure sample
         type: choice
-        options: [positive, pfp]
+        options: [positive, pfp, sample]
         default: positive
       replay_case:
         description: One exact replay or terminal-storage control
