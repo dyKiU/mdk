@@ -617,6 +617,12 @@ def current_omission_source_guard(baseline, stage, omission):
 FINAL_OWNED_TOOLS = {SELF, WORKFLOW}
 FINAL_REVIEWED_PARENT = '1497415b4712c63ce56b60934089c535333a03f1'
 
+# Final-source admission retains the five reviewed boundary tests and private
+# omissions, plus upstream App ownership for keep-media and avatar-file rows.
+# Historical current-cohort RED/GREEN byte pins remain unchanged above.
+FINAL_BOUNDARY_PINS = {name: dict(pin) for name, pin in CURRENT_BOUNDARY_PINS.items()}
+FINAL_BOUNDARY_PINS[BOUNDARY[2]]['green'] = 'acde77639532169ccea58cce7a5c3450df6b29da693a9946985453654ef659c3'
+
 
 def final_admission_contract(final_source, baseline, tooling, changes, ancestor, event, facts):
     ensure(all(type(value) is str and re.fullmatch(r'[0-9a-f]{40}', value)
@@ -643,6 +649,51 @@ def final_target_rustflags(environment):
     ensure(not any(value for key, value in environment.items()
                    if re.fullmatch(r'CARGO_TARGET_.+_RUSTFLAGS', key)), 'final-no-target-rustflags')
     return True
+
+
+def final_reviewed_boundary_contract(inputs, table_source):
+    for name, pin in FINAL_BOUNDARY_PINS.items():
+        entry = inputs.get(name) if type(inputs) is dict else None
+        ensure(type(entry) is dict and entry.get('mode') == pin['mode']
+               and entry.get('sha256') == pin['green'], 'final-retained-reviewed-boundary-oracles')
+    ensure(type(table_source) is bytes, 'final-reviewed-table-source-bytes')
+    for row in [b'    ("attachment_keep_media", Side::App),\n',
+                b'    ("avatar_file_refs", Side::App),\n']:
+        ensure(table_source.count(row) == 1, 'final-upstream-App-table-ownership-required')
+    ensure(digest(table_source) == FINAL_BOUNDARY_PINS[BOUNDARY[2]]['green'],
+           'final-reviewed-table-source-hash')
+    return True
+
+
+def final_reviewed_boundary_controls():
+    table_source = Path(BOUNDARY[2]).read_bytes()
+    good = {name: {'mode': pin['mode'], 'sha256': pin['green']}
+            for name, pin in FINAL_BOUNDARY_PINS.items()}
+    ensure(final_reviewed_boundary_contract(good, table_source), 'final-boundary-pins-positive')
+    bad = []
+    for name, key, value in [
+        (BOUNDARY[2], 'sha256', CURRENT_BOUNDARY_PINS[BOUNDARY[2]]['green']),
+        (BOUNDARY[2], 'sha256', FINAL_BOUNDARY_PINS[BOUNDARY[1]]['green']),
+        (BOUNDARY[1], 'sha256', '0' * 64),
+        (BOUNDARY[2], 'mode', '100755'),
+    ]:
+        inputs = {name: dict(pin) for name, pin in good.items()}
+        inputs[name][key] = value
+        bad.append((inputs, table_source))
+    bad.append(({name: pin for name, pin in good.items() if name != BOUNDARY[1]}, table_source))
+    bad.extend([
+        (good, table_source.replace(b'    ("attachment_keep_media", Side::App),\n', b'', 1)),
+        (good, table_source.replace(b'    ("avatar_file_refs", Side::App),\n',
+                                    b'    ("avatar_file_refs", Side::Protocol),\n', 1)),
+        (good, table_source + b'\n// unreviewed source delta\n'),
+    ])
+    for inputs, body in bad:
+        try:
+            final_reviewed_boundary_contract(inputs, body)
+        except GateFailure:
+            continue
+        raise GateFailure('final-boundary-pins-negative-accepted')
+    return {'positive': 1, 'negative': len(bad), 'actual_runtime_bodies': 0}
 
 
 def final_admission_controls():
@@ -683,7 +734,8 @@ def final_admission_controls():
     else:
         raise GateFailure('final-target-rustflags-negative-accepted')
     return {'positive': 1, 'negative': len(bad), 'target_flags_positive': 1,
-            'target_flags_negative': 1, 'actual_runtime_bodies': 0}
+            'target_flags_negative': 1, 'reviewed_boundary_pins': final_reviewed_boundary_controls(),
+            'actual_runtime_bodies': 0}
 
 
 def final_physical_inputs():
@@ -736,8 +788,7 @@ def final_omission_source_guard(baseline, stage, omission, final_source):
         body = stream.read(int(header[2]))
         ensure(stream.read(1) == b'\n' and inputs[name] == {'mode': mode, 'actual_executable': mode in {'100755', '120000'}, 'sha256': digest(body)}, 'final-physical-bytes-modes-links-exact-tooling')
     ensure(stream.read() == b'', 'final-complete-Git-inputs')
-    for name, pin in CURRENT_BOUNDARY_PINS.items():
-        ensure(inputs[name]['mode'] == pin['mode'] and inputs[name]['sha256'] == pin['green'], 'final-retained-reviewed-boundary-oracles')
+    final_reviewed_boundary_contract(inputs, Path(BOUNDARY[2]).read_bytes())
     ensure(not OUT.is_symlink() and OUT.resolve() == Path.cwd() / OUT, 'final-physical-output')
     result = OUT / 'result.json'
     if result.exists() or result.is_symlink():
@@ -753,7 +804,7 @@ def final_omission_source_guard(baseline, stage, omission, final_source):
     return {'source': source, 'final_source': final_source, 'tooling_source': source,
             'reviewed_cohort_baseline': final_source, 'baseline_tree': git('rev-parse', final_source + '^{tree}'),
             'workflow_identity': workflow, 'overlay_paths': sorted(changed), 'current_cohort_stage': stage,
-            'current_boundary_pins': CURRENT_BOUNDARY_PINS, 'all_non_overlay_inputs_exact_baseline': True,
+            'current_boundary_pins': FINAL_BOUNDARY_PINS, 'all_non_overlay_inputs_exact_baseline': True,
             'physical_input_bytes_modes_and_link_targets_exact_HEAD': True,
             'selected_original_current_tests': CURRENT_TESTS, 'historical_results_reused': False}
 
