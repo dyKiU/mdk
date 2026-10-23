@@ -9,6 +9,7 @@ import subprocess
 
 from upstream_current_backend_probe import capture
 from upstream_extraction_cohort import frozen_inputs, git
+from upstream_offline_fingerprints import controls as fingerprint_controls, snapshot as fingerprint_snapshot
 from upstream_replay_controls import compiler, counts, panic_facts, selected_case, summary_counts, unique
 
 SOURCE = 'd274dd228a3ac8d624073d8f5835e06c7cd7b30d'
@@ -103,6 +104,7 @@ def main():
         report['tooling_tree'] = tooling_before['tree']
         report['tooling_inputs_sha256'] = digest(json.dumps(tooling_before['inputs'], sort_keys=True).encode())
         report['parser_controls'] = controls()
+        report['fingerprint_parser_controls'] = fingerprint_controls()
         if args.mode == 'preflight':
             result = 0
         else:
@@ -147,7 +149,10 @@ def main():
             if code != 0:
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
-            selected_case(json.loads(raw, object_pairs_hook=unique), TEST)
+            inventory = json.loads(raw, object_pairs_hook=unique)
+            selected_case(inventory, TEST)
+            report['compiled_fingerprints'] = fingerprint_snapshot(
+                inventory, TEST, os.environ.get('CARGO_TARGET_DIR', 'target'))
             report['inventory'].update(selected_nonignored=1, selected_ignored=0)
             save()
             if snapshot() != source_before:

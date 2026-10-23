@@ -9,6 +9,7 @@ import subprocess
 
 from upstream_current_backend_probe import ANSI, capture
 from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
+from upstream_offline_fingerprints import controls as fingerprint_controls, snapshot as fingerprint_snapshot
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
@@ -1051,6 +1052,8 @@ def main():
         before = snapshot()
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
+        if args.case == 'offline':
+            report['fingerprint_parser_controls'] = fingerprint_controls()
         if args.case in SDK_REPLAY_CASES:
             report['sdk_replay_parser_controls'] = sdk_replay_controls()
         if args.case == 'watch-pressure':
@@ -1085,6 +1088,9 @@ def main():
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
             selected_case(inventory, test)
+            if args.case == 'offline':
+                report['compiled_fingerprints'] = fingerprint_snapshot(
+                    inventory, test, os.environ.get('CARGO_TARGET_DIR', 'target'))
             report['inventory']['selected_nonignored'] = 1
             report['inventory']['selected_ignored'] = 0
             save()
