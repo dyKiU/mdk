@@ -1392,7 +1392,7 @@ SELECTIVE_RECEIPT_PREFIX = 'selective-history-receipt '
 def selective_receipt_marker(raw):
     rows = []
     fields = {'stage', 'receipts', 'selected_kinds', 'selected_bound', 'captured_event_count',
-              'wait_succeeded', 'expected_message_present', 'local_epoch', 'target_epoch', 'window_requests'}
+              'wait_succeeded', 'expected_message_present', 'local_epoch', 'target_epoch', 'window_requests', 'mapped_outer_id_counts'}
     for line in raw.decode('utf-8', errors='replace').splitlines():
         stripped = line.lstrip(' \t')
         if 'selective-history-receipt' not in stripped:
@@ -1416,6 +1416,12 @@ def selective_receipt_marker(raw):
                 or type(row['selected_bound']) is not list or len(row['selected_bound']) != 3
                 or any(type(value) is not bool for value in row['selected_bound'])):
             raise ValueError('selective-receipt-bindings')
+        if (type(row['mapped_outer_id_counts']) is not list or len(row['mapped_outer_id_counts']) != 3
+                or any(not uint(value) or value > 65535 for value in row['mapped_outer_id_counts'])):
+            raise ValueError('selective-receipt-mapped-counts')
+        if any(count == 0 and (row['selected_bound'][index] or row['receipts'][index][2] != 0)
+               for index, count in enumerate(row['mapped_outer_id_counts'])):
+            raise ValueError('selective-receipt-unknown-mapping')
         if row['stage'] == 0:
             if any(row[key] is not None for key in ['wait_succeeded', 'expected_message_present', 'local_epoch']):
                 raise ValueError('selective-receipt-early-verdict')
@@ -1425,7 +1431,7 @@ def selective_receipt_marker(raw):
         rows.append(row)
     if len(rows) != 2:
         raise ValueError('selective-receipt-incomplete')
-    for key in ['receipts', 'selected_kinds', 'selected_bound', 'captured_event_count', 'target_epoch']:
+    for key in ['receipts', 'selected_kinds', 'selected_bound', 'mapped_outer_id_counts', 'captured_event_count', 'target_epoch']:
         if rows[0][key] != rows[1][key]:
             raise ValueError('selective-receipt-input-changed')
     if rows[1]['window_requests'] < rows[0]['window_requests']:
@@ -1435,7 +1441,7 @@ def selective_receipt_marker(raw):
 
 def selective_receipt_controls():
     first = {'stage': 0, 'receipts': [[1, 1, 1]] * 3, 'selected_kinds': [1, 2, 3],
-             'selected_bound': [True, False, True], 'captured_event_count': 4,
+             'selected_bound': [True, False, True], 'mapped_outer_id_counts': [1, 1, 1], 'captured_event_count': 4,
              'wait_succeeded': None, 'expected_message_present': None, 'local_epoch': None,
              'target_epoch': 2, 'window_requests': 0}
     last = dict(first, stage=1, wait_succeeded=False, expected_message_present=False, local_epoch=3, window_requests=11)
@@ -1445,6 +1451,10 @@ def selective_receipt_controls():
     raw = encoded(first, last)
     assert selective_receipt_marker(raw) == [first, last]
     assert selective_receipt_marker(raw.replace(b'\n', b'\r\n')) == [first, last]
+    unknown = dict(first, mapped_outer_id_counts=[0, 1, 0], selected_bound=[False, True, False],
+                   receipts=[[1, 1, 0], [1, 1, 1], [1, 1, 0]])
+    unknown_last = dict(unknown, stage=1, wait_succeeded=False, expected_message_present=False, local_epoch=3, window_requests=11)
+    assert selective_receipt_marker(encoded(unknown, unknown_last)) == [unknown, unknown_last]
     bad = [encoded(dict(first, private='PRIVATE'), last), encoded(dict(first, stage=True), last),
            encoded(first, dict(last, local_epoch=True)), encoded(first, dict(last, wait_succeeded=1)),
            encoded(dict(first, receipts=[[1, 1, 'PRIVATE']] * 3), last),
@@ -1456,6 +1466,13 @@ def selective_receipt_controls():
            raw.replace(SELECTIVE_RECEIPT_PREFIX.encode(), b'PRIVATE ' + SELECTIVE_RECEIPT_PREFIX.encode()),
            raw.replace(b'"captured_event_count": 4', b'"captured_event_count":18446744073709551616'),
            (SELECTIVE_RECEIPT_PREFIX + json.dumps(first) + '\n').encode()]
+    bad += [encoded(dict(first, mapped_outer_id_counts=[True, 1, 1]), last),
+            encoded(dict(first, mapped_outer_id_counts=[1, 1]), last),
+            encoded(dict(first, mapped_outer_id_counts=[65536, 1, 1]), last),
+            encoded(dict(first, mapped_outer_id_counts=[0, 1, 1]), last),
+            encoded(first, dict(last, mapped_outer_id_counts=[1, 0, 1])),
+            encoded({key: value for key, value in first.items() if key != 'mapped_outer_id_counts'},
+                    {key: value for key, value in last.items() if key != 'mapped_outer_id_counts'})]
     for invalid in bad:
         try:
             selective_receipt_marker(invalid)
@@ -1463,7 +1480,7 @@ def selective_receipt_controls():
             pass
         else:
             raise AssertionError('selective-receipt-negative-accepted')
-    return {'positive': 2, 'negative': len(bad), 'metadata_only': True, 'product_bodies': 0}
+    return {'positive': 3, 'negative': len(bad), 'metadata_only': True, 'product_bodies': 0}
 
 
 def positive_configuration(case):

@@ -148,6 +148,32 @@ async fn switching_relay(backend: String) -> SwitchingRelay {
     }
 }
 
+// Passive namespace translation only: application receipts name app events;
+// the finalized sender timeline links them to the actual transport publication.
+// An unavailable or unreadable projection leaves the diagnostic mapping unknown.
+#[cfg(feature = "test-policy-overrides")]
+fn mapped_sent_outer_ids(
+    app: &MarmotApp,
+    label: &str,
+    group: &cgka_traits::GroupId,
+    receipt: &crate::SendSummary,
+) -> Vec<String> {
+    if receipt.message_ids.len() != 1 {
+        return Vec::new();
+    }
+    let mapped = (|| {
+        let storage = app.account_storage(label).ok()?;
+        let row = storage.app_storage()
+            .timeline_message(&hex::encode(group.as_slice()), &receipt.message_ids[0])
+            .ok().flatten()?;
+        row.source_message_id_hex
+    })();
+    mapped.into_iter()
+        .filter(|source| source.len() == 64 && hex::decode(source).is_ok())
+        .map(|source| source.to_ascii_lowercase())
+        .collect()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_commit_700_recovers() {
     use marmot_account::AccountHome;
@@ -221,6 +247,8 @@ async fn late_commit_700_recovers() {
     })
     .await
     .expect("Alice durably receives the old MLS payload");
+    #[cfg(feature = "test-policy-overrides")]
+    let old_outer_ids = mapped_sent_outer_ids(&app, &bob.label, &group, &_old_receipt);
     let old = proxy
         .counts
         .group_events
@@ -252,6 +280,8 @@ async fn late_commit_700_recovers() {
         .send_message(&bob.label, &group, expected.as_bytes().to_vec())
         .await
         .unwrap();
+    #[cfg(feature = "test-policy-overrides")]
+    let future_outer_ids = mapped_sent_outer_ids(&app, &bob.label, &group, &_future_receipt);
     let epoch = runtime
         .group_mls_state(&bob.label, &group)
         .await
@@ -326,17 +356,14 @@ async fn late_commit_700_recovers() {
         let mut captured = proxy.counts.group_events.lock().unwrap().clone();
         captured.extend(published.iter().cloned());
         let receipts = [&_old_receipt, &_update_receipt, &_future_receipt];
+        // Group-profile summaries already contain transport report IDs.
+        let outer_ids = [&old_outer_ids, &_update_receipt.message_ids, &future_outer_ids];
         let selected = [&old, commit, future];
         let rows: [[usize; 3]; 3] = std::array::from_fn(|index| {
             let receipt = receipts[index];
             let unique_matches = captured
                 .iter()
-                .filter(|event| {
-                    receipt
-                        .message_ids
-                        .iter()
-                        .any(|id| *id == event.id.to_hex())
-                })
+                .filter(|event| outer_ids[index].iter().any(|id| *id == event.id.to_hex()))
                 .map(|event| event.id)
                 .collect::<std::collections::HashSet<_>>()
                 .len();
@@ -344,12 +371,10 @@ async fn late_commit_700_recovers() {
         });
         let kinds: [u16; 3] = std::array::from_fn(|index| selected[index].kind.as_u16());
         let bound: [bool; 3] = std::array::from_fn(|index| {
-            receipts[index]
-                .message_ids
-                .iter()
-                .any(|id| *id == selected[index].id.to_hex())
+            outer_ids[index].iter().any(|id| *id == selected[index].id.to_hex())
         });
-        (rows, kinds, bound, captured.len())
+        let mapped_counts: [usize; 3] = std::array::from_fn(|index| outer_ids[index].len());
+        (rows, kinds, bound, captured.len(), mapped_counts)
     };
     #[cfg(feature = "test-policy-overrides")]
     crate::test_support::emit_line(format_args!(
@@ -359,6 +384,7 @@ async fn late_commit_700_recovers() {
             "receipts": receipt_observations.0,
             "selected_kinds": receipt_observations.1,
             "selected_bound": receipt_observations.2,
+            "mapped_outer_id_counts": receipt_observations.4,
             "captured_event_count": receipt_observations.3,
             "wait_succeeded": null,
             "expected_message_present": null,
@@ -416,6 +442,7 @@ async fn late_commit_700_recovers() {
                 "receipts": receipt_observations.0,
                 "selected_kinds": receipt_observations.1,
                 "selected_bound": receipt_observations.2,
+                "mapped_outer_id_counts": receipt_observations.4,
                 "captured_event_count": receipt_observations.3,
                 "wait_succeeded": wait_succeeded,
                 "expected_message_present": expected_message_present,
