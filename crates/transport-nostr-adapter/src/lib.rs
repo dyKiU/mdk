@@ -2365,7 +2365,6 @@ impl NostrTransportAdapter {
         since: Option<Timestamp>,
         attempt: SubscriptionAttempt,
         activation_reset: bool,
-        force: bool,
         planned_subscription: Option<&NostrSubscription>,
     ) -> Result<Option<NostrSubscription>, TransportAdapterError> {
         let (old, replacement) = {
@@ -2406,20 +2405,9 @@ impl NostrTransportAdapter {
                     }
                     None => expected,
                 };
-                if !force
-                    && !activation_reset
-                    && previous.as_ref().is_some_and(|old| {
-                        old.ready
-                            && old.completed
-                            && old.subscription == subscription
-                            && old.attempt == attempt
-                    })
-                {
-                    return Ok(None);
-                }
-                // Any replacement attempt invalidates its predecessor before
-                // fallible allocation or I/O. An exact completed no-op above
-                // retains its existing evidence; failure can only revoke it.
+                // Planning retains completed no-ops. Every issuance reaching
+                // preparation invalidates its predecessor before allocation
+                // or I/O; failure can only revoke existing evidence.
                 if let Some(wire) = state.private_observation_wires.get_mut(account) {
                     wire.ready = false;
                     wire.completed = false;
@@ -3773,7 +3761,6 @@ impl TransportAdapter for NostrTransportAdapter {
                 private_since,
                 attempt,
                 true,
-                true,
                 None,
             )
             .await
@@ -4060,7 +4047,6 @@ impl TransportAdapter for NostrTransportAdapter {
                         sync.since,
                         attempt,
                         false,
-                        true,
                         private_issue.as_ref().map(|(_, subscription)| subscription),
                     )
                     .await;
@@ -8235,35 +8221,34 @@ fn issued_group_wire_ids(
     let mut ids = HashMap::new();
     for batch in batches {
         let id = batch.subscription_id();
-        match batch {
-            NostrSubscription::GroupBatch {
-                account_id,
-                routes,
-                endpoints,
-                ..
-            } => {
-                let endpoints = normalized_endpoints(endpoints);
-                for route in routes {
-                    ids.insert(
-                        NostrSubscriptionRouteKey::Group {
-                            account_id: account_id.clone(),
-                            group_id: route.group_id.clone(),
-                            transport_group_id: route.transport_group_id.clone(),
-                            endpoints: endpoints.clone(),
-                        },
-                        id.clone(),
-                    );
-                }
+        // Standalone carriers are private even when a failed selection
+        // leaves their predecessor authoritative. Never expose their
+        // logical id through ordinary capture fallback. The selected
+        // private route resolves only its exact scoped actual above.
+        if let NostrSubscription::GroupBatch {
+            account_id,
+            routes,
+            endpoints,
+            ..
+        } = batch
+        {
+            let endpoints = normalized_endpoints(endpoints);
+            for route in routes {
+                ids.insert(
+                    NostrSubscriptionRouteKey::Group {
+                        account_id: account_id.clone(),
+                        group_id: route.group_id.clone(),
+                        transport_group_id: route.transport_group_id.clone(),
+                        endpoints: endpoints.clone(),
+                    },
+                    id.clone(),
+                );
             }
-            // Standalone carriers are private even when a failed selection
-            // leaves their predecessor authoritative. Never expose their
-            // logical id through ordinary capture fallback. The selected
-            // private route resolves only its exact scoped actual above.
-            _ => {}
         }
     }
     ids
 }
+
 
 /// Pack per-route group REQs into batches of at most [`GROUP_BATCH_ROUTES`]
 /// routes that share endpoints and `since`, keeping the routes' order, and
