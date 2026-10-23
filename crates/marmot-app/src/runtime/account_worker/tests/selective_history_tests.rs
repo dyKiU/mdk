@@ -308,14 +308,42 @@ async fn late_commit_700_recovers_case(extra_real_epoch: bool) {
     let future = if extra_real_epoch {
         #[cfg(feature = "test-policy-overrides")]
         {
-            assert_eq!(old_outer_ids.len(), 1, "old application must have one actual wire binding");
-            assert_eq!(old.id.to_hex(), old_outer_ids[0], "old held wire must match the actual submission");
-            assert_eq!(_update_receipt.message_ids.len(), 1, "first profile commit must publish one wire");
-            assert_eq!(published[0].id.to_hex(), _update_receipt.message_ids[0], "held commit must match the actual profile update");
-            assert_eq!(future_outer_ids.len(), 1, "future application must have one actual wire binding");
-            let mut matched = published.iter().filter(|event| event.id.to_hex() == future_outer_ids[0]);
-            let future = matched.next().expect("actual future application wire must be captured").clone();
-            assert!(matched.next().is_none(), "future application wire must be unique");
+            assert_eq!(
+                old_outer_ids.len(),
+                1,
+                "old application must have one actual wire binding"
+            );
+            assert_eq!(
+                old.id.to_hex(),
+                old_outer_ids[0],
+                "old held wire must match the actual submission"
+            );
+            assert_eq!(
+                _update_receipt.message_ids.len(),
+                1,
+                "first profile commit must publish one wire"
+            );
+            assert_eq!(
+                published[0].id.to_hex(),
+                _update_receipt.message_ids[0],
+                "held commit must match the actual profile update"
+            );
+            assert_eq!(
+                future_outer_ids.len(),
+                1,
+                "future application must have one actual wire binding"
+            );
+            let mut matched = published
+                .iter()
+                .filter(|event| event.id.to_hex() == future_outer_ids[0]);
+            let future = matched
+                .next()
+                .expect("actual future application wire must be captured")
+                .clone();
+            assert!(
+                matched.next().is_none(),
+                "future application wire must be unique"
+            );
             future
         }
         #[cfg(not(feature = "test-policy-overrides"))]
@@ -388,37 +416,84 @@ async fn late_commit_700_recovers_case(extra_real_epoch: bool) {
     let extra_epoch_observation = if extra_real_epoch {
         // Both application bindings and the 700 genuine future wrappers are
         // frozen before this separate, ordinary SDK-backed profile update.
-        let before = runtime.group_mls_state(&bob.label, &group).await.unwrap().epoch;
-        assert_eq!(before, epoch, "Bob must remain at the captured application epoch");
-        assert_eq!(before, 2, "extra-epoch scenario must start at the actual second epoch");
+        let before = runtime
+            .group_mls_state(&bob.label, &group)
+            .await
+            .unwrap()
+            .epoch;
+        assert_eq!(
+            before, epoch,
+            "Bob must remain at the captured application epoch"
+        );
+        assert_eq!(
+            before, 2,
+            "extra-epoch scenario must start at the actual second epoch"
+        );
         let original_bindings = [
             old_outer_ids[0] == old.id.to_hex(),
             _update_receipt.message_ids[0] == commit.id.to_hex(),
             future_outer_ids[0] == future.id.to_hex(),
         ];
-        assert!(original_bindings.into_iter().all(|bound| bound), "original wire bindings must remain frozen before the extra commit");
+        assert!(
+            original_bindings.into_iter().all(|bound| bound),
+            "original wire bindings must remain frozen before the extra commit"
+        );
         let captured_start = proxy.counts.group_events.lock().unwrap().len();
         let receipt = runtime
             .update_group_profile(&bob.label, &group, Some("later real commit".into()), None)
             .await
             .unwrap();
-        let after = runtime.group_mls_state(&bob.label, &group).await.unwrap().epoch;
-        assert_eq!(after, before.checked_add(1).unwrap(), "real profile update must advance exactly one epoch");
-        assert_eq!(receipt.published, 1, "extra real commit must actually publish once");
-        assert_eq!(receipt.message_ids.len(), 1, "extra real commit must name one publication");
+        let after = runtime
+            .group_mls_state(&bob.label, &group)
+            .await
+            .unwrap()
+            .epoch;
+        assert_eq!(
+            after,
+            before.checked_add(1).unwrap(),
+            "real profile update must advance exactly one epoch"
+        );
+        assert_eq!(
+            receipt.published, 1,
+            "extra real commit must actually publish once"
+        );
+        assert_eq!(
+            receipt.message_ids.len(),
+            1,
+            "extra real commit must name one publication"
+        );
         let captured = proxy.counts.group_events.lock().unwrap();
         let unique_publications = captured[captured_start..]
             .iter()
-            .filter(|event| receipt.message_ids.iter().any(|id| *id == event.id.to_hex()))
+            .filter(|event| {
+                receipt
+                    .message_ids
+                    .iter()
+                    .any(|id| *id == event.id.to_hex())
+            })
             .map(|event| event.id)
             .collect::<std::collections::HashSet<_>>()
             .len();
-        assert_eq!(unique_publications, 1, "extra commit must match the actual relay publication");
+        assert_eq!(
+            unique_publications, 1,
+            "extra commit must match the actual relay publication"
+        );
         let distinct = receipt.message_ids[0] != old.id.to_hex()
             && receipt.message_ids[0] != commit.id.to_hex()
             && receipt.message_ids[0] != future.id.to_hex();
-        assert!(distinct, "extra commit must not replace any original selected wire");
-        Some((before, after, receipt.published, receipt.message_ids.len(), unique_publications, distinct, original_bindings))
+        assert!(
+            distinct,
+            "extra commit must not replace any original selected wire"
+        );
+        Some((
+            before,
+            after,
+            receipt.published,
+            receipt.message_ids.len(),
+            unique_publications,
+            distinct,
+            original_bindings,
+        ))
     } else {
         None
     };
@@ -507,11 +582,13 @@ async fn late_commit_700_recovers_case(extra_real_epoch: bool) {
                     .unwrap()
                     .epoch
                     >= epoch
-                && (!extra_real_epoch || runtime
-                    .group_mls_state(&alice.label, &group)
-                    .await
-                    .unwrap()
-                    .epoch >= recovery_epoch)
+                && (!extra_real_epoch
+                    || runtime
+                        .group_mls_state(&alice.label, &group)
+                        .await
+                        .unwrap()
+                        .epoch
+                        >= recovery_epoch)
             {
                 break;
             }
