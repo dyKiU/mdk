@@ -52,6 +52,9 @@ pub(crate) struct DeliverySpillReader {
     /// Earliest retry time of a deferred row.
     next_retry_at: Option<u64>,
     live_turn: bool,
+    /// The current reader already offered a cooperative turn before claiming a row.
+    /// Survives cancellation of the receive future, without claiming any delivery.
+    yield_offered: bool,
     /// Row whose delivery is with ingest, and that delivery's event ID.
     in_flight: Option<(i64, String)>,
     /// Rows just became queue loss; the next receive starts its recovery.
@@ -69,6 +72,7 @@ impl Default for DeliverySpillReader {
             maybe_rows: true,
             next_retry_at: None,
             live_turn: false,
+            yield_offered: false,
             in_flight: None,
             loss_recorded: false,
             #[cfg(test)]
@@ -80,6 +84,14 @@ impl Default for DeliverySpillReader {
 }
 
 impl DeliverySpillReader {
+    pub(super) fn offer_cooperative_turn(&mut self) -> bool {
+        !std::mem::replace(&mut self.yield_offered, true)
+    }
+
+    pub(super) fn complete_cooperative_offer(&mut self) {
+        self.yield_offered = false;
+    }
+
     pub(super) fn pending(&mut self) -> bool {
         // A hand-off that was never settled, after an early error or a
         // cancelled ingest, left its row stored. Read it again.
@@ -123,6 +135,7 @@ impl AppClient {
     pub(super) fn take_ready_delivery(
         &mut self,
     ) -> Result<Option<AccountDeliveryReceive>, AppError> {
+        self.delivery_spill.complete_cooperative_offer();
         if !self.delivery_spill.pending() {
             return Ok(None);
         }
@@ -134,7 +147,7 @@ impl AppClient {
         }
         Ok(self
             .next_spilled_delivery()?
-            .map(|delivery| AccountDeliveryReceive::Delivery(Box::new(delivery))))
+            .map(|delivery| AccountDeliveryReceive::Delivery(Box::new(delivery.into()))))
     }
 
     fn next_spilled_delivery(&mut self) -> Result<Option<TransportDelivery>, AppError> {
@@ -652,7 +665,7 @@ mod tests {
         }
         assert!(matches!(
             received,
-            Some(transport_nostr::AccountDeliveryReceive::Delivery(d)) if *d == delivery(5)
+            Some(transport_nostr::AccountDeliveryReceive::Delivery(d)) if d.delivery == delivery(5)
         ));
     }
 
@@ -729,5 +742,160 @@ mod tests {
                 > attempts,
             "next_event starts recovery for the new queue loss"
         );
+    }
+}
+
+#[cfg(test)]
+mod yield_handoff_tests {
+    use std::sync::Arc;
+    use std::task::Poll;
+    use std::time::Duration;
+
+    use super::ACCOUNT_DELIVERY_SPILL_LIMITS;
+    use crate::tests::{
+        ScriptedPushRelayClient, every_subscription, remember_test_member_inbox, scripted_eose_pump,
+    };
+    use crate::{AccountHome, MarmotApp, TimelineMessageQuery, unix_now_seconds};
+    use transport_nostr::{AccountDeliveryReceive, MarmotRelayPlane};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = AccountHome::open(dir.path());
+        home.create_account("alice").unwrap();
+        let bob_account = home.create_account("bob").unwrap();
+        let relay = Arc::new(ScriptedPushRelayClient::default());
+        let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+            .with_test_relay_client(relay.clone());
+        remember_test_member_inbox(&app, &bob_account.account_id_hex, "wss://relay.example");
+        let plane = MarmotRelayPlane::new(None, relay.clone());
+        let _eose = scripted_eose_pump(plane.clone(), relay, every_subscription);
+        let mut alice = app
+            .client_with_relay_plane("alice", &plane, None)
+            .await
+            .unwrap();
+        let mut bob = app
+            .client_with_relay_plane("bob", &plane, None)
+            .await
+            .unwrap();
+        bob.sync().await.unwrap();
+        let group = alice
+            .create_group("spill handoff", &[bob_account.account_id_hex.as_str()])
+            .await
+            .unwrap();
+        assert!(bob.sync().await.unwrap().joined_groups.contains(&group));
+        alice
+            .send(&group, b"cooperative spill handoff")
+            .await
+            .unwrap();
+        // A joined group's real local-publication echo now belongs to ordered
+        // native ingress, not the ordinary account queue. Keep that actual loan
+        // unacknowledged while exercising the durable spill receive below.
+        let mut native = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let ingress = bob
+                    .recovery_owner
+                    .native_ingress
+                    .as_mut()
+                    .expect("the joined receiver registered its native ingress");
+                match ingress.take_batch(Some(&group)).await {
+                    transport_nostr_adapter::ReplayBatchTake::Ready(batch) => break batch,
+                    transport_nostr_adapter::ReplayBatchTake::Pending
+                    | transport_nostr_adapter::ReplayBatchTake::Empty => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("actual ordinary relay delivery reaches its joined receiver");
+        let delivery = native
+            .delivery()
+            .expect("one actual ordinary delivery is required")
+            .clone();
+        let event_id = hex::encode(delivery.message.id.as_slice());
+        assert!(!bob.transport_receipts().unwrap().contains(&event_id));
+        let storage = app.account_storage("bob").unwrap();
+        storage
+            .app_storage()
+            .spill_account_deliveries(
+                std::slice::from_ref(&delivery),
+                ACCOUNT_DELIVERY_SPILL_LIMITS,
+                unix_now_seconds(),
+            )
+            .unwrap();
+        // No ordinary account-queue take occurred, so there is no ordinary
+        // queue receipt to release. The real native loan remains owned.
+        assert!(native.delivery().is_some_and(|held| held == &delivery));
+        bob.delivery_spill.maybe_rows = true;
+        let cursor = bob.state.last_transport_timestamp;
+        let persisted_cursor = app.load_state("bob").unwrap().last_transport_timestamp;
+        let seq = storage
+            .app_storage()
+            .spilled_account_deliveries(10, unix_now_seconds())
+            .unwrap()
+            .deliveries[0]
+            .seq;
+
+        // Match a worker select that offered background maintenance one turn
+        // before claiming durable input, then cancelled this receive future.
+        let mut first = Box::pin(bob.receive_next_delivery());
+        assert!(futures::poll!(&mut first).is_pending());
+        drop(first);
+        assert!(bob.delivery_spill.in_flight.is_none());
+        let rows = storage
+            .app_storage()
+            .spilled_account_deliveries(10, unix_now_seconds())
+            .unwrap()
+            .deliveries;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].seq, seq);
+        assert!(rows[0].delivery == delivery);
+        assert!(!bob.transport_receipts().unwrap().contains(&event_id));
+        assert_eq!(bob.state.last_transport_timestamp, cursor);
+        assert_eq!(
+            app.load_state("bob").unwrap().last_transport_timestamp,
+            persisted_cursor
+        );
+
+        let mut next = Box::pin(bob.receive_next_delivery());
+        let received = match futures::poll!(&mut next) {
+            Poll::Ready(Ok(AccountDeliveryReceive::Delivery(received))) => received,
+            Poll::Pending => panic!(
+                "a cancelled cooperative offer must not be repeated before the same durable receive"
+            ),
+            _ => panic!("the same durable ordinary delivery remains available"),
+        };
+        drop(next);
+        assert!(received.delivery == delivery);
+        bob.ingest_received_delivery(*received).await.unwrap();
+        assert!(bob.transport_receipts().unwrap().contains(&event_id));
+        assert!(
+            storage
+                .app_storage()
+                .spilled_account_deliveries(10, unix_now_seconds())
+                .unwrap()
+                .deliveries
+                .is_empty()
+        );
+        let timeline = app
+            .timeline_messages_with_query(
+                "bob",
+                TimelineMessageQuery {
+                    group_id_hex: Some(hex::encode(group.as_slice())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            timeline
+                .messages
+                .iter()
+                .any(|message| message.plaintext == "cooperative spill handoff")
+        );
+        // Only successful real ingest, receipt persistence and spill settlement
+        // above permit the source loan to release this same frame.
+        assert!(native.delivery().is_some_and(|held| held == &delivery));
+        native.acknowledge().await;
     }
 }

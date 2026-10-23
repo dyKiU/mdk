@@ -12,6 +12,8 @@ default = []
 # (marmot-app enables it through its dev-dependency). Never enable in app
 # artifacts.
 test-support = []
+experimental-device-sync = ["transport-nostr-adapter/experimental-device-sync", "transport-nostr-peeler/experimental-device-sync"]
+test-policy-overrides = ["transport-nostr-adapter/test-policy-overrides"]
 
 [dependencies]
 async-trait.workspace = true

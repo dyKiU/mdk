@@ -73,3 +73,49 @@ cargo test -p transport-nostr-peeler
 
 See [`AGENTS.md`](AGENTS.md) for the strict tag validation contract. The Nostr transport spec lives in
 [marmot-protocol/marmot](https://github.com/marmot-protocol/marmot).
+
+## Experimental private enrollment transport
+
+`experimental-device-sync` adds a dedicated private Welcome wrapper and bounded
+batch peeler. This uses local draft rumor kind38174/profile
+`whitenoise.experimental.linking-welcome.v1` inside signed NIP-59 gift wraps.
+It does not change ordinary kind444 Welcome validation or fabricate a published
+KeyPackage event ID. The shared account signer authenticates the pairing context;
+recipient MLS signer and exact KeyPackage bindings are separate fields.
+
+Welcomes are bounded to2MiB and split into24KiB raw chunks (at most86 events).
+Each event is bounded to128KiB before JSON parsing/decryption and each decoded
+rumor to40KiB. The complete batch is authenticated against an exact caller-owned
+context, reassembled by unique indices and verified against its raw Welcome
+SHA-256 digest. Missing, duplicate, mixed or substituted batches fail closed.
+These are application resource limits; the pinned Nostr implementation supports
+NIP-44 extended lengths. Returned bytes are transport evidence only and never
+supply SDK consent, MLS membership or enrollment permission.
+
+This private format is not an adopted interoperable Marmot protocol. Relay
+collection, original pairing deadlines, durable retry and trusted recipient join
+remain owned above this pure transport crate.
+
+
+The experimental `observe_private_linking_welcome` method authenticates one
+bounded chunk and exposes its context and collection bounds without requiring
+artifact hashes that are created after pairing. This observation is not a
+complete Welcome or consent. The account owner must compare every already-known
+SDK binding (identities, generations, group, nonce/context digest and exact
+KeyPackage reference/digest) before collection or admission. Post-preparation
+commit/Welcome hashes are authenticated transport metadata. The complete batch
+still requires exact common context, unique indices and final raw Welcome digest;
+actual enrollment independently requires the live NewDevice SDK policy and
+cryptographically validated MLS tree.
+
+`TransportPeeler::peel_private_linking_welcome_batch` delegates to this same
+complete-batch validator when the experimental feature is enabled. Its default
+implementation rejects private input. App transport decorators must forward the
+operation to retain that validation; reassembled bytes still carry no join
+permission, and ordinary `peel_welcome` continues to reject private framing.
+
+`TransportPeeler::observe_private_linking_welcome` delegates to the same concrete
+single-chunk validator under the experimental feature; default implementations
+reject. The existing `PrivateWelcomeObservation` export aliases the shared
+`PrivateLinkingWelcomeObservation` type. Decorators forward this operation too.
+This exposes metadata through the product boundary without granting admission.

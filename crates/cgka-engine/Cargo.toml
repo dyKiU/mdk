@@ -8,6 +8,7 @@ description = "OpenMLS-backed CGKA engine implementation."
 
 [features]
 default = []
+experimental-device-sync = ["storage-sqlite/experimental-device-sync", "openmls/experimental-retained-own-commit", "dep:base64"]
 # Explicit escape hatch for engine/session integration tests that need custom
 # settlement or rewind policies. Production/app consumers must not enable it.
 test-policy-overrides = []
@@ -20,6 +21,7 @@ test-crash-hooks = []
 test-conformance-snapshot = []
 
 [dependencies]
+base64 = { workspace = true, optional = true }
 cgka-traits.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true
@@ -38,6 +40,7 @@ nostr.workspace = true
 rand.workspace = true
 sha2.workspace = true
 web-time.workspace = true
+zeroize.workspace = true
 # Pure-Rust secp256k1 used only to validate that a Marmot credential identity
 # is a well-formed BIP-340 x-only public key (foundation/identity.md). Already
 # resolved transitively via openmls_rust_crypto -> hpke-rs-rust-crypto -> k256;

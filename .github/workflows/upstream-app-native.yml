@@ -1,0 +1,728 @@
+name: Upstream app native acceptance preparation
+
+on:
+  push:
+    branches: ["ci/upstream-app-native-*"]
+    paths:
+      - ".github/workflows/upstream-app-native.yml"
+      - "scripts/upstream_apple_ci/**"
+  workflow_dispatch:
+    inputs:
+      native_scope:
+        description: "none=preparation; ios-control=attach-only harness; all=qualified NEW SDK native acceptance"
+        type: choice
+        options: [none, ios-control, all, adapter-macos, adapter-ios, native-factory-macos, native-factory-ios]
+        default: none
+      sdk_source:
+        description: "Exact SDK SHA; verified 3f18 allowed ONLY for attach-only ios-control"
+        type: string
+      sdk_run_id:
+        description: "Existing Apple SDK producer workflow run ID"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: upstream-app-native-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.identity.outputs.scope }}
+      format_platforms: ${{ steps.identity.outputs.format_platforms }}
+      mac_sha: ${{ steps.identity.outputs.mac_sha }}
+      ios_sha: ${{ steps.identity.outputs.ios_sha }}
+      mac_baseline: ${{ steps.identity.outputs.mac_baseline }}
+      ios_baseline: ${{ steps.identity.outputs.ios_baseline }}
+      native_scope: ${{ steps.identity.outputs.native_scope }}
+      sdk_source: ${{ steps.identity.outputs.sdk_source }}
+      sdk_run_id: ${{ steps.identity.outputs.sdk_run_id }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require exact app fixture source identities
+        id: identity
+        env:
+          REQUESTED_NATIVE_SCOPE: ${{ inputs.native_scope }}
+          REQUESTED_SDK_SOURCE: ${{ inputs.sdk_source }}
+          REQUESTED_SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-app-native-')
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['GITHUB_SHA']
+          cohort=json.loads(Path('scripts/upstream_apple_ci/app-native-cohort.json').read_text())
+          keys={'scope','mac_sha','ios_sha','mac_baseline','ios_baseline','format_platforms'}
+          assert set(cohort)==keys and cohort['scope'] in {'app-format','tools-preflight'}
+          platforms=cohort['format_platforms']
+          assert isinstance(platforms,list) and len(platforms)==len(set(platforms))
+          assert all(p in {'macos','ios'} for p in platforms)
+          assert platforms or cohort['scope']=='tools-preflight'
+          native=os.environ.get('REQUESTED_NATIVE_SCOPE') or 'none'
+          sdk=os.environ.get('REQUESTED_SDK_SOURCE') or ''
+          sdk_run=os.environ.get('REQUESTED_SDK_RUN_ID') or ''
+          assert native in {'none','ios-control','all','adapter-macos','adapter-ios','native-factory-macos','native-factory-ios'}
+          if native!='none':
+              assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
+              assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
+              if native!='ios-control':
+                  assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
+              assert cohort['mac_sha']=='047e465f84f1bb36d3edca849cf12855ffe12f90'
+              assert cohort['ios_sha']=='1cff30dab6cf96802085fabc08468ade55e6ac0c'
+          else:
+              assert not sdk and not sdk_run
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f'native_scope={native}\nsdk_source={sdk}\nsdk_run_id={sdk_run}\n')
+              output.write(f"scope={cohort['scope']}\n")
+              output.write('format_platforms='+json.dumps(platforms,separators=(',',':'))+'\n')
+              for key in sorted(keys-{'scope','format_platforms'}):
+                  assert isinstance(cohort[key],str) and re.fullmatch('[0-9a-f]{40}',cohort[key])
+                  output.write(f'{key}={cohort[key]}\n')
+          print(json.dumps(cohort,sort_keys=True))
+          PY
+
+  app-format:
+    needs: identity
+    if: needs.identity.outputs.scope == 'app-format'
+    # Source-only formatting can use the hosted Intel pool during arm64 capacity shortages.
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.identity.outputs.format_platforms) }}
+    env:
+      SOURCE_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac_sha || needs.identity.outputs.ios_sha }}
+      BASELINE_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac_baseline || needs.identity.outputs.ios_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: ${{ matrix.platform == 'macos' && 'dyKiU/whitenoise-mac' || 'dyKiU/whitenoise-ios' }}
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - name: Install the iOS repository's pinned SwiftLint
+        if: matrix.platform == 'ios'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/swiftlint.zip" \
+            https://github.com/realm/SwiftLint/releases/download/0.63.2/portable_swiftlint.zip
+          unzip -o "$RUNNER_TEMP/swiftlint.zip" -d "$RUNNER_TEMP/swiftlint" >/dev/null
+          sudo install "$RUNNER_TEMP/swiftlint/swiftlint" /usr/local/bin/swiftlint
+          test "$(swiftlint version)" = 0.63.2
+      - name: Export exact repository formatting patch without compiling
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert head==os.environ['SOURCE_SHA']
+          baseline=os.environ['BASELINE_SHA']
+          subprocess.run(['git','merge-base','--is-ancestor',baseline,head],check=True)
+          paths=subprocess.check_output(['git','diff','--name-only',baseline,head,'--','*.swift'],text=True).splitlines()
+          assert paths and all(Path(p).is_file() and not Path(p).is_symlink() for p in paths)
+          output=Path(os.environ['RUNNER_TEMP'])/'app-format'
+          output.mkdir(mode=0o700)
+          tree=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          lint_exit=0
+          if Path('.swift-format').is_file():
+              for path in paths:
+                  subprocess.run(['xcrun','swift-format','format','--in-place','--configuration','.swift-format',path],check=True)
+              formatter=subprocess.check_output(['xcrun','swift-format','--version'],text=True).strip()
+          else:
+              assert Path('.swiftlint.yml').is_file()
+              environment=dict(os.environ,SCRIPT_INPUT_FILE_COUNT=str(len(paths)))
+              environment.update({f'SCRIPT_INPUT_FILE_{i}':str(Path(p).resolve()) for i,p in enumerate(paths)})
+              command=['swiftlint','lint','--config','.swiftlint.yml','--use-script-input-files','--force-exclude']
+              fix=subprocess.run(command+['--fix'],env=environment)
+              lint_exit=subprocess.run(command+['--strict'],env=environment).returncode
+              formatter='SwiftLint '+subprocess.check_output(['swiftlint','version'],text=True).strip()
+          patch=subprocess.check_output(['git','diff','--binary','--','*.swift'])
+          (output/'formatting.patch').write_bytes(patch)
+          report={'source_sha':head,'source_tree':tree,'baseline':baseline,'paths':paths,
+                  'patch_bytes':len(patch),'patch_sha256':hashlib.sha256(patch).hexdigest(),
+                  'formatter':formatter,'lint_exit_code':lint_exit,
+                  'product_tests_executed':0}
+          (output/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Require original source formatting
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          report=json.loads((Path(os.environ['RUNNER_TEMP'])/'app-format/result.json').read_text())
+          assert report['patch_bytes']==0 and report['lint_exit_code']==0
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-app-format-${{ matrix.platform }}-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/app-format/
+          if-no-files-found: error
+          retention-days: 7
+
+  tools-preflight:
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check prepared harness syntax without building products
+        run: |
+          python3 -m py_compile \
+            scripts/upstream_apple_ci/acceptance-identity.py \
+            scripts/upstream_apple_ci/sdk_profiles.py \
+            scripts/upstream_apple_ci/hosted-app-fixtures.py \
+            scripts/upstream_apple_ci/hosted-app-unit.py \
+            scripts/upstream_apple_ci/hosted-app-ui.py \
+            scripts/upstream_apple_ci/paired_direct_mutation.py \
+            scripts/upstream_apple_ci/paired-direct-mutations.py \
+            scripts/upstream_apple_ci/hosted-root-mutations.py \
+            scripts/upstream_apple_ci/timestamp-mutations.py \
+            scripts/upstream_apple_ci/sdk-manifest-guards.py \
+            scripts/upstream_apple_ci/run-hosted-app-acceptance.py
+          python3 scripts/upstream_apple_ci/test_summarize.py
+          python3 scripts/upstream_apple_ci/test_current_factory_metadata.py
+          python3 scripts/upstream_apple_ci/test_factory_semantics.py
+          python3 scripts/upstream_apple_ci/test_package_metadata.py --result "$RUNNER_TEMP/tools-preflight/package-metadata-result.json"
+          python3 scripts/upstream_apple_ci/package_metadata_pfp.py --result "$RUNNER_TEMP/tools-preflight/package-metadata-pfp.json"
+          bash -n scripts/upstream_apple_ci/build-hosted-simulator-agent.sh
+          mkdir -p "$RUNNER_TEMP/tools-preflight"
+          python3 - <<'PY'
+          import hashlib,json,os,runpy,subprocess,sys
+          from pathlib import Path
+          helper=Path('scripts/upstream_apple_ci/hosted_history.py').resolve()
+          sys.path.insert(0,str(helper.parent))
+          runpy.run_path(str(helper))['verify_helpers']()
+          native_manifest=json.loads(helper.with_name('native').joinpath('SOURCE.json').read_text())
+          names=['acceptance-identity.py','sdk_profiles.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
+                 'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
+                 'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py',
+                 'summarize.py','test_summarize.py','factory_semantic_oracle.py','factory_semantic_mutation.py',
+                 'factory_xcresult.py','factory_semantic_runner.py','factory-semantic-sources.json','test_factory_semantics.py','package_metadata.py','test_package_metadata.py','package_metadata_pfp.py']
+          paths=[Path('scripts/upstream_apple_ci')/name for name in names]
+          manifest_path=Path('scripts/upstream_apple_ci/HOSTED-SOURCE.json')
+          manifest=json.loads(manifest_path.read_text())
+          wrapper_path=Path('scripts/upstream_apple_ci/run-hosted-app-acceptance.py')
+          assert hashlib.sha256(wrapper_path.read_bytes()).hexdigest()==manifest['files'][wrapper_path.name]['sha256']
+          paths.append(manifest_path)
+          report={'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+                  'syntax_checks_passed':True,'hosted_wrapper_manifest_verified':True,'product_tests_executed':0,
+                  'current_factory_metadata_controls_passed':True,
+                  'actual_native_helper_metadata_verified':True,
+                  'native_workspace_commit':native_manifest['workspace_commit'],
+                  'frozen_native_files_verified':len(native_manifest['files']),
+                  'additional_hosted_files_verified':len(manifest['files']),
+                  'files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}}
+          (Path(os.environ['RUNNER_TEMP'])/'tools-preflight/result.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-app-tools-preflight-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/tools-preflight/result.json
+            ${{ runner.temp }}/tools-preflight/package-metadata-result.json
+            ${{ runner.temp }}/tools-preflight/package-metadata-pfp.json
+          if-no-files-found: error
+          retention-days: 7
+
+  native-sdk:
+    needs: [identity, tools-preflight]
+    if: needs.identity.outputs.native_scope != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Wait for the existing exact SDK artifact without building or publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.identity.outputs.sdk_source }}
+          SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
+        run: python3 scripts/upstream_apple_ci/wait-sdk.py
+
+  native-acceptance:
+    needs: [identity, tools-preflight, native-sdk]
+    if: contains(fromJSON('["ios-control","all"]'), needs.identity.outputs.native_scope)
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      SDK_PROFILE: experimental
+      WN_SDK_PROFILE: experimental
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk_source }}
+      SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
+      MAC_SHA: ${{ needs.identity.outputs.mac_sha }}
+      IOS_SHA: ${{ needs.identity.outputs.ios_sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.identity.outputs.sdk_source }}
+          path: sdk-source
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ env.IOS_SHA }}
+          path: ios
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-mac
+          ref: ${{ env.MAC_SHA }}
+          path: mac
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - name: Enable development automation on this ephemeral hosted runner
+        run: |
+          df -h "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          import os,subprocess
+          from pathlib import Path
+          selected=subprocess.check_output(['xcode-select','-p'],text=True).strip()
+          assert Path(selected).is_absolute() and Path(selected).is_dir()
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+              output.write('DEVELOPER_DIR='+selected+'\n')
+          PY
+          sudo /usr/sbin/DevToolsSecurity -enable
+          sudo /usr/sbin/dseditgroup -o edit -a "$(id -un)" -t user _developer
+      - name: Download and verify exact immutable SDK provenance before native compilation
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/native-evidence"
+          gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
+            --name "upstream-experimental-apple-$SOURCE_SHA" --dir "$RUNNER_TEMP/native-packages"
+          python3 scripts/upstream_apple_ci/install.py --packages "$RUNNER_TEMP/native-packages" \
+            --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform ios --output "$RUNNER_TEMP/native-sdk-verified-ios"
+          python3 scripts/upstream_apple_ci/install.py --packages "$RUNNER_TEMP/native-packages" \
+            --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform macos --output "$RUNNER_TEMP/native-sdk-verified-macos"
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          qpath=Path(os.environ['RUNNER_TEMP'])/'native-packages/qualification.json'
+          q=json.loads(qpath.read_text())
+          assert q['source_sha']==q['builder_sha']==os.environ['SOURCE_SHA']
+          assert str(q['workflow_run_id'])==os.environ['SDK_RUN_ID']
+          assert q['features']==['otlp-export','product-analytics-export','experimental-device-sync']
+          receipt={'source_sha':q['source_sha'],'source_tree':q['source_tree'],
+                   'workflow_run_id':str(q['workflow_run_id']),'features':q['features'],
+                   'qualification_sha256':hashlib.sha256(qpath.read_bytes()).hexdigest(),
+                   'bundles':{k:{'name':v['bundle'],'sha256':v['sha256']} for k,v in q['platforms'].items()},
+                   'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()}
+          (Path(os.environ['RUNNER_TEMP'])/'native-evidence/sdk-identity.json').write_text(json.dumps(receipt,indent=2)+'\n')
+          PY
+      - name: Bind compilation cache to exact source, SDK, Xcode, architecture and build recipe
+        id: native-cache-key
+        run: |
+          python3 - <<'PY'
+          import ast,hashlib,json,os,subprocess
+          from pathlib import Path
+          script=Path('scripts/upstream_apple_ci/hosted-app-ui.py')
+          main=next(n for n in ast.parse(script.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+          recipe=next(n for n in main.body if isinstance(n,ast.If) and ast.unparse(n.test)=="args.stage == 'build'")
+          identity={'ios_sha':os.environ['IOS_SHA'],
+                    'sdk_qualification_sha256':hashlib.sha256((Path(os.environ['RUNNER_TEMP'])/'native-packages/qualification.json').read_bytes()).hexdigest(),
+                    'xcode':subprocess.check_output(['xcodebuild','-version'],text=True).strip(),
+                    'developer_dir':os.environ['DEVELOPER_DIR'],
+                    'arch':subprocess.check_output(['uname','-m'],text=True).strip(),
+                    'build_recipe_sha256':hashlib.sha256(ast.dump(recipe,include_attributes=False).encode()).hexdigest(),
+                    'feature_flags':'WN_EXPERIMENTAL_DEVICE_SYNC=1; ONLY_ACTIVE_ARCH=YES; ad-hoc simulator signing'}
+          key='wn-hosted-ios-build-v1-'+hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('key='+key+'\n')
+          (Path(os.environ['RUNNER_TEMP'])/'native-evidence/compilation-cache.json').write_text(json.dumps(identity,indent=2)+'\n')
+          PY
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: compilation-cache
+        with:
+          key: ${{ steps.native-cache-key.outputs.key }}
+          # Only compilation outputs. Never restore private work, receipts,
+          # test plans with fixture environments, results, logs or simulator data.
+          path: ${{ runner.temp }}/native-compilation-cache/ios-Build
+      - name: Restore compilation files without reusing any receipt or private work
+        if: steps.compilation-cache.outputs.cache-hit == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/hosted-native-compilation/ios/Build"
+          rsync -a --exclude='*.xctestrun' --exclude='*.log' --exclude='*.xcresult/' \
+            "$RUNNER_TEMP/native-compilation-cache/ios-Build/" "$RUNNER_TEMP/hosted-native-compilation/ios/Build/"
+      - name: Build the isolated local relay once
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml \
+            --target-dir "$RUNNER_TEMP/native-relay"
+      - name: Create a fresh available iPhone simulator bound to this job
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json'],text=True))['devices']
+          choices=[(runtime,device['deviceTypeIdentifier']) for runtime,devices in inventory.items()
+                   if 'iOS' in runtime for device in devices
+                   if device.get('isAvailable') and device.get('deviceTypeIdentifier','').split('.')[-1].startswith('iPhone')]
+          assert choices,'No existing available iPhone/runtime pair'
+          runtime,kind=sorted(set(choices))[-1]
+          name='WN-Upstream-UI-'+os.environ['GITHUB_RUN_ID']
+          assert not any(d['name']==name for ds in inventory.values() for d in ds)
+          simulator=subprocess.check_output(['xcrun','simctl','create',name,kind,runtime],text=True).strip()
+          subprocess.run(['xcrun','simctl','boot',simulator],check=True)
+          subprocess.run(['xcrun','simctl','bootstatus',simulator,'-b'],check=True)
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+              output.write('NATIVE_SIMULATOR='+simulator+'\n')
+          PY
+      - name: Require initial attach-only harness control (one unit plus one UI; no protocol qualification)
+        run: |
+          python3 scripts/upstream_apple_ci/run-hosted-app-acceptance.py \
+            --scope ios-control --mac-source "$GITHUB_WORKSPACE/mac" --mac-commit "$MAC_SHA" \
+            --ios-source "$GITHUB_WORKSPACE/ios" --ios-commit "$IOS_SHA" \
+            --packages "$RUNNER_TEMP/native-packages" --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" \
+            --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
+            --ios-products "$RUNNER_TEMP/hosted-native-compilation/ios/Build/Products" \
+            --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
+            --work "$RUNNER_TEMP/hosted-native-work" --output "$RUNNER_TEMP/native-evidence/ios-control.json"
+      - name: Run all native app fixture bodies using the identical successful control and builds
+        if: needs.identity.outputs.native_scope == 'all'
+        run: |
+          python3 scripts/upstream_apple_ci/run-hosted-app-acceptance.py \
+            --scope all --mac-source "$GITHUB_WORKSPACE/mac" --mac-commit "$MAC_SHA" \
+            --ios-source "$GITHUB_WORKSPACE/ios" --ios-commit "$IOS_SHA" \
+            --packages "$RUNNER_TEMP/native-packages" --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" \
+            --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
+            --ios-products "$RUNNER_TEMP/hosted-native-compilation/ios/Build/Products" \
+            --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
+            --work "$RUNNER_TEMP/hosted-native-work" --output "$RUNNER_TEMP/native-evidence/all.json"
+      - name: Require fresh successful compilation and unchanged inputs before caching
+        id: cache-proof
+        if: always() && steps.native-cache-key.outputs.key != ''
+        run: |
+          python3 - <<'PY'
+          import importlib.util,json,os,shutil,subprocess
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          receipt=root/'hosted-native-work/private/ios-build-input.json'
+          proof={'cacheable':False,'product_tests_executed_by_this_step':0}
+          try:
+              spec=importlib.util.spec_from_file_location('hosted_ui',Path('scripts/upstream_apple_ci/hosted-app-ui.py'))
+              ui=importlib.util.module_from_spec(spec);spec.loader.exec_module(ui)
+              ui.CONFIG=ui.CONFIGURATIONS['ios']
+              app=Path('ios').resolve()
+              sdk=ui.freeze_sdk(app/'Packages/MarmotKit',os.environ['SOURCE_SHA'])
+              source=ui.freeze_source(app,os.environ['IOS_SHA'])
+              products=root/'hosted-native-compilation/ios/Build/Products'
+              ui.verify_build(receipt,source,sdk,products)
+              # No restored receipt is accepted: receipt lives in fresh private work.
+              command_state=json.loads((root/'hosted-native-work/state.json').read_text())['steps']['ios-build']
+              assert command_state['exit_code']==0
+              build=products.parent
+              size=sum(p.stat().st_size for p in build.rglob('*') if p.is_file() and not p.is_symlink())
+              # Cache no symlink that could reach source, fixture or simulator data.
+              assert all(not Path(os.readlink(p)).is_absolute() and p.resolve().is_relative_to(build)
+                         for p in build.rglob('*') if p.is_symlink())
+              free=shutil.disk_usage(root).free
+              proof.update(compilation_exit_code=0,inputs_verified=True,compilation_bytes=size,
+                           disk_free_before_staging=free,cacheable=size<=12*1024**3 and free>=size+8*1024**3)
+              if proof['cacheable']:
+                  staged=root/'native-compilation-cache/ios-Build'
+                  staged.mkdir(parents=True,exist_ok=True)
+                  subprocess.run(['rsync','-a','--delete','--exclude=*.xctestrun','--exclude=*.log','--exclude=*.xcresult/',
+                                  str(build)+'/',str(staged)+'/'],check=True)
+                  assert not any(p.suffix in ('.xctestrun','.log','.xcresult') for p in staged.rglob('*'))
+                  proof['private_runtime_outputs_excluded']=True
+          except (OSError,ValueError,KeyError,AssertionError,subprocess.SubprocessError):
+              proof['cacheable']=False
+          (root/'native-evidence/compilation-cache-proof.json').write_text(json.dumps(proof,indent=2)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('cacheable='+str(proof['cacheable']).lower()+'\n')
+          PY
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: always() && steps.cache-proof.outputs.cacheable == 'true' && steps.compilation-cache.outputs.cache-hit != 'true'
+        with:
+          key: ${{ steps.native-cache-key.outputs.key }}
+          path: ${{ runner.temp }}/native-compilation-cache/ios-Build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-app-native-aggregates-${{ github.sha }}-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/native-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  adapter-mutations:
+    needs: [identity, tools-preflight, native-sdk]
+    if: contains(fromJSON('["all","adapter-macos","adapter-ios","native-factory-macos","native-factory-ios"]'), needs.identity.outputs.native_scope)
+    runs-on: macos-26
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.identity.outputs.native_scope == 'all' && '["macos","ios"]' || contains(fromJSON('["adapter-macos","native-factory-macos"]'), needs.identity.outputs.native_scope) && '["macos"]' || '["ios"]') }}
+    env:
+      SDK_PROFILE: experimental
+      WN_SDK_PROFILE: experimental
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk_source }}
+      SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
+      MAC_SHA: ${{ needs.identity.outputs.mac_sha }}
+      IOS_SHA: ${{ needs.identity.outputs.ios_sha }}
+      ADAPTER_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.identity.outputs.sdk_source }}
+          path: sdk-source
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ env.IOS_SHA }}
+          path: ios
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-mac
+          ref: ${{ env.MAC_SHA }}
+          path: mac
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - name: Enable development automation on this ephemeral hosted runner
+        run: |
+          df -h "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          import os,subprocess
+          from pathlib import Path
+          selected=subprocess.check_output(['xcode-select','-p'],text=True).strip()
+          assert Path(selected).is_absolute() and Path(selected).is_dir()
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+              output.write('DEVELOPER_DIR='+selected+'\n')
+          PY
+          sudo /usr/sbin/DevToolsSecurity -enable
+          sudo /usr/sbin/dseditgroup -o edit -a "$(id -un)" -t user _developer
+      - name: Download and verify exact immutable SDK provenance before native compilation
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/native-evidence"
+          gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
+            --name "upstream-experimental-apple-$SOURCE_SHA" --dir "$RUNNER_TEMP/native-packages"
+          python3 scripts/upstream_apple_ci/install.py --packages "$RUNNER_TEMP/native-packages" \
+            --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform ios --output "$RUNNER_TEMP/native-sdk-verified-ios"
+          python3 scripts/upstream_apple_ci/install.py --packages "$RUNNER_TEMP/native-packages" \
+            --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform macos --output "$RUNNER_TEMP/native-sdk-verified-macos"
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          qpath=Path(os.environ['RUNNER_TEMP'])/'native-packages/qualification.json'
+          q=json.loads(qpath.read_text())
+          assert q['source_sha']==q['builder_sha']==os.environ['SOURCE_SHA']
+          assert str(q['workflow_run_id'])==os.environ['SDK_RUN_ID']
+          assert q['features']==['otlp-export','product-analytics-export','experimental-device-sync']
+          receipt={'source_sha':q['source_sha'],'source_tree':q['source_tree'],
+                   'workflow_run_id':str(q['workflow_run_id']),'features':q['features'],
+                   'qualification_sha256':hashlib.sha256(qpath.read_bytes()).hexdigest(),
+                   'bundles':{k:{'name':v['bundle'],'sha256':v['sha256']} for k,v in q['platforms'].items()},
+                   'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()}
+          (Path(os.environ['RUNNER_TEMP'])/'native-evidence/sdk-identity.json').write_text(json.dumps(receipt,indent=2)+'\n')
+          PY
+      - name: Build the isolated local relay once
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml \
+            --target-dir "$RUNNER_TEMP/native-relay"
+      - name: Create a fresh available iPhone simulator bound to this job
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json'],text=True))['devices']
+          choices=[(runtime,device['deviceTypeIdentifier']) for runtime,devices in inventory.items()
+                   if 'iOS' in runtime for device in devices
+                   if device.get('isAvailable') and device.get('deviceTypeIdentifier','').split('.')[-1].startswith('iPhone')]
+          assert choices,'No existing available iPhone/runtime pair'
+          runtime,kind=sorted(set(choices))[-1]
+          name='WN-Upstream-UI-'+os.environ['GITHUB_RUN_ID']
+          assert not any(d['name']==name for ds in inventory.values() for d in ds)
+          simulator=subprocess.check_output(['xcrun','simctl','create',name,kind,runtime],text=True).strip()
+          subprocess.run(['xcrun','simctl','boot',simulator],check=True)
+          subprocess.run(['xcrun','simctl','bootstatus',simulator,'-b'],check=True)
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+              output.write('NATIVE_SIMULATOR='+simulator+'\n')
+          PY
+      - name: Require one whole-old-adapter runtime mutant and exact restored control
+        if: contains(fromJSON('["all","adapter-macos","adapter-ios"]'), needs.identity.outputs.native_scope)
+        run: |
+          python3 scripts/upstream_apple_ci/run-hosted-app-acceptance.py \
+            --scope "adapter-$ADAPTER_PLATFORM" --mac-source "$GITHUB_WORKSPACE/mac" --mac-commit "$MAC_SHA" \
+            --ios-source "$GITHUB_WORKSPACE/ios" --ios-commit "$IOS_SHA" \
+            --packages "$RUNNER_TEMP/native-packages" --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" \
+            --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
+            --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
+            --work "$RUNNER_TEMP/hosted-adapter-work" --output "$RUNNER_TEMP/native-evidence/adapter-$ADAPTER_PLATFORM.json"
+      - name: Require both current factory semantic mutants and exact restored controls
+        if: contains(fromJSON('["all","native-factory-macos","native-factory-ios"]'), needs.identity.outputs.native_scope)
+        run: |
+          python3 scripts/upstream_apple_ci/run-hosted-app-acceptance.py \
+            --scope "native-factory-$ADAPTER_PLATFORM" --mac-source "$GITHUB_WORKSPACE/mac" --mac-commit "$MAC_SHA" \
+            --ios-source "$GITHUB_WORKSPACE/ios" --ios-commit "$IOS_SHA" \
+            --packages "$RUNNER_TEMP/native-packages" --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" \
+            --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
+            --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
+            --work "$RUNNER_TEMP/hosted-adapter-work" --output "$RUNNER_TEMP/native-evidence/native-factory-$ADAPTER_PLATFORM.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-app-adapter-${{ matrix.platform }}-${{ github.sha }}-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/native-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  native-gates:
+    needs: [identity, native-acceptance, adapter-mutations]
+    if: always() && needs.identity.outputs.native_scope == 'all'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk_source }}
+      SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
+      MAC_SHA: ${{ needs.identity.outputs.mac_sha }}
+      IOS_SHA: ${{ needs.identity.outputs.ios_sha }}
+      NATIVE_STATUS: ${{ needs.native-acceptance.result }}
+      MUTATION_STATUS: ${{ needs.adapter-mutations.result }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-app-native-aggregates-${{ github.sha }}-${{ env.SOURCE_SHA }}
+          path: native-proofs
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-app-adapter-macos-${{ github.sha }}-${{ env.SOURCE_SHA }}
+          path: adapter-macos-proofs
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-app-adapter-ios-${{ github.sha }}-${{ env.SOURCE_SHA }}
+          path: adapter-ios-proofs
+      - name: Bind all native bodies and both restored runtime mutants to one immutable cohort
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          assert os.environ['NATIVE_STATUS']==os.environ['MUTATION_STATUS']=='success'
+          def read(path):
+              return json.loads(Path(path).read_text())
+          def same_cohort(proof):
+              cohort=proof['cohort']
+              assert cohort['sdk_source']==os.environ['SOURCE_SHA']
+              assert cohort['sdk_run_id']==os.environ['SDK_RUN_ID']
+              assert cohort['mac_commit']==os.environ['MAC_SHA']
+              assert cohort['ios_commit']==os.environ['IOS_SHA']
+          native=read('native-proofs/all.json')
+          same_cohort(native)
+          assert type(native['passed']) is int and native['passed']==1
+          assert native['expected_app_test_body_count']==native['executed_app_test_body_count']==36
+          assert native['expected_automatic_host_factory_body_count']==native['executed_automatic_host_factory_body_count']==14
+          factory_methods=('testForwardFactoriesShareBothPreviouslyAbsentChats', 'testReverseFactoriesShareBothPreviouslyAbsentChats', 'testActualFactoryCancellationRetiresOriginal', 'testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal', 'testLateBeginFactoryCannotAdoptAcrossAccountReplacement', 'testLateScanFactoryCannotAdoptAcrossAccountReplacement', 'testExistingRosterWNPAIR2RequiresSiblingApprovalAndSharesHistory')
+          expected_factory_cases={platform+'-host-factory-'+method for platform in ('macos','ios') for method in factory_methods}
+          assert {name for name in native['cases'] if '-host-factory-' in name}==expected_factory_cases
+          for name in expected_factory_cases:
+              proof=native['cases'][name]
+              identity=('real-automatic-app-owner-existing-roster-WNPAIR2-v1'
+                  if name.endswith('-testExistingRosterWNPAIR2RequiresSiblingApprovalAndSharesHistory') else 'real-automatic-app-owner-factories-v1')
+              assert proof['passed']==1 and proof['fixture_identity']==identity
+              assert proof['unit']['totalTestCount']==proof['unit']['passedTests']==1
+              assert proof['unit']['failedTests']==proof['unit']['skippedTests']==0
+              assert proof['relay_cleanup']['passed']==1
+          assert native['expected_existing_roster_wnpair2_body_count']==native['executed_existing_roster_wnpair2_body_count']==2
+          assert native['expected_setup_test_count']==native['completed_setup_test_count']==1
+          summaries={}
+          fields=('totalTestCount','passedTests','failedTests','skippedTests')
+          for platform in ('macos','ios'):
+              folder=Path('adapter-'+platform+'-proofs')
+              wrapper=read(folder/('adapter-'+platform+'.json'))
+              same_cohort(wrapper)
+              for key in ('qualification_sha256','sdk_bundle_sha256','tools','app_trees'):
+                  assert wrapper['cohort'][key]==native['cohort'][key]
+              assert type(wrapper['passed']) is int and wrapper['passed']==1
+              assert wrapper['expected_adapter_runtime_mutant_count']==wrapper['completed_adapter_runtime_mutant_count']==1
+              assert wrapper['executed_app_test_body_count']==wrapper['completed_setup_test_count']==0
+              assert set(wrapper['adapter_mutations'])=={platform}
+              path=folder/(platform+'-paired-direct-mutations.json')
+              proof=read(path)
+              assert hashlib.sha256(path.read_bytes()).hexdigest()==wrapper['adapter_mutations'][platform]['proof_sha256']
+              assert proof['passed'] is True and proof['source_restored'] is True and proof['mutant_runtime_detected'] is True
+              assert proof['platform']==platform and proof['sdk_source']==os.environ['SOURCE_SHA']
+              assert str(proof['sdk_run_id'])==os.environ['SDK_RUN_ID']
+              assert proof['app_sha']==os.environ['MAC_SHA' if platform=='macos' else 'IOS_SHA']
+              phases=proof['phases']
+              assert [row['phase'] for row in phases]==['baseline','old-adapter-mutant','restored-control']
+              for index,row in enumerate(phases):
+                  assert all(type(row['counts'][field]) is int for field in fields)
+                  assert tuple(row['counts'][field] for field in fields)==((1,0,1,0) if index==1 else (1,1,0,0))
+                  assert row['fixture_preconditions_proved'] is True and row['source_sdk_product_plan_frozen'] is True
+                  assert row['app_runtime_positive_close'] is True
+                  cleanup=row['native_cleanup']
+                  assert cleanup['workers_created']==cleanup['workers_closed']>0 and cleanup['cleanup_failures']==0
+                  assert row['relay_cleanup']['passed']==1
+                  assert row['runtime_red' if index==1 else 'green'] is True
+              factory=read(folder/('native-factory-'+platform+'.json'))
+              same_cohort(factory)
+              for key in ('qualification_sha256','sdk_bundle_sha256','tools','app_trees'):
+                  assert factory['cohort'][key]==native['cohort'][key]
+              assert factory['passed']==1 and factory['expected_factory_semantic_phase_bodies']==factory['executed_factory_semantic_phase_bodies']==5
+              semantic=factory['factory_semantics']
+              assert semantic['passed'] is True and semantic['source_restored'] is True
+              assert semantic['platform']==platform and semantic['sdk_source']==os.environ['SOURCE_SHA']
+              assert str(semantic['sdk_run_id'])==os.environ['SDK_RUN_ID']
+              assert semantic['app_sha']==os.environ['MAC_SHA' if platform=='macos' else 'IOS_SHA']
+              expected=['baseline','begin-legacy-mutant','begin-legacy-restored','scan-legacy-mutant','scan-legacy-restored']
+              assert [row['phase'] for row in semantic['phases']]==expected
+              for index,row in enumerate(semantic['phases']):
+                  assert tuple(row['counts'][field] for field in fields)==((1,0,1,0) if index in (1,3) else (1,1,0,0))
+                  assert row['source_sdk_product_plan_frozen'] is True and row['fixture_cleanup_completed'] is True
+                  assert row['relay_cleanup']['passed']==1
+                  assert row['compiler_inventory_count']==row['compiler_body_count']==0
+                  assert row['verdict']['runtime_detected'] is (index in (1,3))
+                  assert len(row['complete_actual_failures'])==(1 if index in (1,3) else 0)
+              summaries[platform]={'runtime_mutants_detected':1,'restored':True,'fresh_phase_bodies':3,'factory_semantic_bodies':5,'factory_semantic_mutants':2,
+                                   'proof_sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+          result={'passed':True,'sdk_source':os.environ['SOURCE_SHA'],'sdk_run_id':os.environ['SDK_RUN_ID'],
+                  'mac_sha':os.environ['MAC_SHA'],'ios_sha':os.environ['IOS_SHA'],
+                  'qualification_sha256':native['cohort']['qualification_sha256'],
+                  'sdk_bundle_sha256':native['cohort']['sdk_bundle_sha256'],
+                  'native_app_bodies':36,'retained_existing_native_app_bodies':22,'automatic_host_factory_bodies':14,'retained_initial_host_factory_bodies':12,'existing_roster_wnpair2_bodies':2,'owner_free_setup_bodies':1,'adapter_runtime_mutants':summaries,
+                  'scope':'Final native/cohort evidence only; no full-history or retention/deletion equivalence claim'}
+          Path('native-gates.json').write_text(json.dumps(result,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upstream-native-gates-${{ github.sha }}-${{ env.SOURCE_SHA }}
+          path: native-gates.json
+          if-no-files-found: error
+          retention-days: 7

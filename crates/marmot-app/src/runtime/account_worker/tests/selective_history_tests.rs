@@ -148,8 +148,49 @@ async fn switching_relay(backend: String) -> SwitchingRelay {
     }
 }
 
+// Passive namespace translation only: application receipts name app events;
+// the finalized sender timeline links them to the actual transport publication.
+// An unavailable or unreadable projection leaves the diagnostic mapping unknown.
+#[cfg(feature = "test-policy-overrides")]
+fn mapped_sent_outer_ids(
+    app: &MarmotApp,
+    label: &str,
+    group: &cgka_traits::GroupId,
+    receipt: &crate::SendSummary,
+) -> Vec<String> {
+    if receipt.message_ids.len() != 1 {
+        return Vec::new();
+    }
+    let mapped = (|| {
+        let storage = app.account_storage(label).ok()?;
+        let row = storage
+            .app_storage()
+            .timeline_message(&hex::encode(group.as_slice()), &receipt.message_ids[0])
+            .ok()
+            .flatten()?;
+        row.source_message_id_hex
+    })();
+    mapped
+        .into_iter()
+        .filter(|source| source.len() == 64 && hex::decode(source).is_ok())
+        .map(|source| source.to_ascii_lowercase())
+        .collect()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_commit_700_recovers() {
+    late_commit_700_recovers_case(false).await;
+}
+
+// A separate valid-history scenario, not a claim about the original full-suite
+// failure: the expected application predates one further real profile commit.
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_commit_700_recovers_after_a_real_later_epoch() {
+    late_commit_700_recovers_case(true).await;
+}
+
+async fn late_commit_700_recovers_case(extra_real_epoch: bool) {
     use marmot_account::AccountHome;
     use nostr_relay_builder::prelude::{EventId as RelayEventId, Filter as RelayFilter};
     use nostr_sdk::prelude::Timestamp;
@@ -201,7 +242,7 @@ async fn late_commit_700_recovers() {
     .await
     .expect("Alice joins the real MLS group");
     let old_text = "x".repeat(4_096);
-    runtime
+    let _old_receipt = runtime
         .send_message(&bob.label, &group, old_text.clone().into_bytes())
         .await
         .unwrap();
@@ -221,6 +262,8 @@ async fn late_commit_700_recovers() {
     })
     .await
     .expect("Alice durably receives the old MLS payload");
+    #[cfg(feature = "test-policy-overrides")]
+    let old_outer_ids = mapped_sent_outer_ids(&app, &bob.label, &group, &_old_receipt);
     let old = proxy
         .counts
         .group_events
@@ -243,21 +286,71 @@ async fn late_commit_700_recovers() {
         .await
         .unwrap();
     let start = proxy.counts.group_events.lock().unwrap().len();
-    runtime
+    let _update_receipt = runtime
         .update_group_profile(&bob.label, &group, Some("late commit".into()), None)
         .await
         .unwrap();
     let expected = "new message after paged recovery";
-    runtime
+    let _future_receipt = runtime
         .send_message(&bob.label, &group, expected.as_bytes().to_vec())
         .await
         .unwrap();
+    #[cfg(feature = "test-policy-overrides")]
+    let future_outer_ids = mapped_sent_outer_ids(&app, &bob.label, &group, &_future_receipt);
     let epoch = runtime
         .group_mls_state(&bob.label, &group)
         .await
         .unwrap()
         .epoch;
     let published = proxy.counts.group_events.lock().unwrap().split_off(start);
+    // Freeze the expected application's actual wire before any later commit.
+    // The original variant retains its original positional choice unchanged.
+    let future = if extra_real_epoch {
+        #[cfg(feature = "test-policy-overrides")]
+        {
+            assert_eq!(
+                old_outer_ids.len(),
+                1,
+                "old application must have one actual wire binding"
+            );
+            assert_eq!(
+                old.id.to_hex(),
+                old_outer_ids[0],
+                "old held wire must match the actual submission"
+            );
+            assert_eq!(
+                _update_receipt.message_ids.len(),
+                1,
+                "first profile commit must publish one wire"
+            );
+            assert_eq!(
+                published[0].id.to_hex(),
+                _update_receipt.message_ids[0],
+                "held commit must match the actual profile update"
+            );
+            assert_eq!(
+                future_outer_ids.len(),
+                1,
+                "future application must have one actual wire binding"
+            );
+            let mut matched = published
+                .iter()
+                .filter(|event| event.id.to_hex() == future_outer_ids[0]);
+            let future = matched
+                .next()
+                .expect("actual future application wire must be captured")
+                .clone();
+            assert!(
+                matched.next().is_none(),
+                "future application wire must be unique"
+            );
+            future
+        }
+        #[cfg(not(feature = "test-policy-overrides"))]
+        panic!("extra real epoch fixture requires test policy support");
+    } else {
+        published.last().unwrap().clone()
+    };
 
     // Retained outer copies carry an already-durable MLS payload. Their raw
     // bytes force a cut without adding unknown messages to the engine.
@@ -308,7 +401,6 @@ async fn late_commit_700_recovers() {
         .delete(RelayFilter::new().id(RelayEventId::from_byte_array(commit.id.to_bytes())))
         .await
         .unwrap();
-    let future = published.last().unwrap();
     for index in 0..700 {
         let event = EventBuilder::new(future.kind, future.content.clone())
             .tags(future.tags.iter().cloned())
@@ -320,6 +412,155 @@ async fn late_commit_700_recovers() {
             .await
             .unwrap();
     }
+    #[cfg(feature = "test-policy-overrides")]
+    let extra_epoch_observation = if extra_real_epoch {
+        // Both application bindings and the 700 genuine future wrappers are
+        // frozen before this separate, ordinary SDK-backed profile update.
+        let before = runtime
+            .group_mls_state(&bob.label, &group)
+            .await
+            .unwrap()
+            .epoch;
+        assert_eq!(
+            before, epoch,
+            "Bob must remain at the captured application epoch"
+        );
+        assert_eq!(
+            before, 2,
+            "extra-epoch scenario must start at the actual second epoch"
+        );
+        let original_bindings = [
+            old_outer_ids[0] == old.id.to_hex(),
+            _update_receipt.message_ids[0] == commit.id.to_hex(),
+            future_outer_ids[0] == future.id.to_hex(),
+        ];
+        assert!(
+            original_bindings.into_iter().all(|bound| bound),
+            "original wire bindings must remain frozen before the extra commit"
+        );
+        let captured_start = proxy.counts.group_events.lock().unwrap().len();
+        let receipt = runtime
+            .update_group_profile(&bob.label, &group, Some("later real commit".into()), None)
+            .await
+            .unwrap();
+        let after = runtime
+            .group_mls_state(&bob.label, &group)
+            .await
+            .unwrap()
+            .epoch;
+        assert_eq!(
+            after,
+            before.checked_add(1).unwrap(),
+            "real profile update must advance exactly one epoch"
+        );
+        assert_eq!(
+            receipt.published, 1,
+            "extra real commit must actually publish once"
+        );
+        assert_eq!(
+            receipt.message_ids.len(),
+            1,
+            "extra real commit must name one publication"
+        );
+        let captured = proxy.counts.group_events.lock().unwrap();
+        let unique_publications = captured[captured_start..]
+            .iter()
+            .filter(|event| {
+                receipt
+                    .message_ids
+                    .iter()
+                    .any(|id| *id == event.id.to_hex())
+            })
+            .map(|event| event.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        assert_eq!(
+            unique_publications, 1,
+            "extra commit must match the actual relay publication"
+        );
+        let distinct = receipt.message_ids[0] != old.id.to_hex()
+            && receipt.message_ids[0] != commit.id.to_hex()
+            && receipt.message_ids[0] != future.id.to_hex();
+        assert!(
+            distinct,
+            "extra commit must not replace any original selected wire"
+        );
+        Some((
+            before,
+            after,
+            receipt.published,
+            receipt.message_ids.len(),
+            unique_publications,
+            distinct,
+            original_bindings,
+        ))
+    } else {
+        None
+    };
+    #[cfg(not(feature = "test-policy-overrides"))]
+    let recovery_epoch = epoch;
+    #[cfg(feature = "test-policy-overrides")]
+    let recovery_epoch = extra_epoch_observation.as_ref().map_or(epoch, |row| row.1);
+    #[cfg(feature = "test-policy-overrides")]
+    if let Some(row) = &extra_epoch_observation {
+        crate::test_support::emit_line(format_args!(
+            "selective-history-extra-epoch {}",
+            json!({"stage":0, "epoch_before":row.0, "epoch_after":row.1,
+                "published":row.2, "publication_ids":row.3, "captured_unique":row.4,
+                "distinct_original_wires":row.5, "original_bindings":row.6,
+                "wait_succeeded":null, "expected_message_present":null, "alice_epoch":null,
+                "runtime_closed":false, "relay_shutdown_returned":false})
+        ));
+    }
+    #[cfg(feature = "test-policy-overrides")]
+    let receipt_observations = {
+        // Correlate receipts without changing any original positional selection.
+        let mut captured = proxy.counts.group_events.lock().unwrap().clone();
+        captured.extend(published.iter().cloned());
+        let receipts = [&_old_receipt, &_update_receipt, &_future_receipt];
+        // Group-profile summaries already contain transport report IDs.
+        let outer_ids = [
+            &old_outer_ids,
+            &_update_receipt.message_ids,
+            &future_outer_ids,
+        ];
+        let selected = [&old, commit, &future];
+        let rows: [[usize; 3]; 3] = std::array::from_fn(|index| {
+            let receipt = receipts[index];
+            let unique_matches = captured
+                .iter()
+                .filter(|event| outer_ids[index].iter().any(|id| *id == event.id.to_hex()))
+                .map(|event| event.id)
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            [receipt.published, receipt.message_ids.len(), unique_matches]
+        });
+        let kinds: [u16; 3] = std::array::from_fn(|index| selected[index].kind.as_u16());
+        let bound: [bool; 3] = std::array::from_fn(|index| {
+            outer_ids[index]
+                .iter()
+                .any(|id| *id == selected[index].id.to_hex())
+        });
+        let mapped_counts: [usize; 3] = std::array::from_fn(|index| outer_ids[index].len());
+        (rows, kinds, bound, captured.len(), mapped_counts)
+    };
+    #[cfg(feature = "test-policy-overrides")]
+    crate::test_support::emit_line(format_args!(
+        "selective-history-receipt {}",
+        json!({
+            "stage": 0,
+            "receipts": receipt_observations.0,
+            "selected_kinds": receipt_observations.1,
+            "selected_bound": receipt_observations.2,
+            "mapped_outer_id_counts": receipt_observations.4,
+            "captured_event_count": receipt_observations.3,
+            "wait_succeeded": null,
+            "expected_message_present": null,
+            "local_epoch": null,
+            "target_epoch": epoch,
+            "window_requests": proxy.counts.window_requests.load(Ordering::SeqCst),
+        })
+    ));
     runtime
         .accounts()
         .sign_in_account(&alice.label)
@@ -341,6 +582,13 @@ async fn late_commit_700_recovers() {
                     .unwrap()
                     .epoch
                     >= epoch
+                && (!extra_real_epoch
+                    || runtime
+                        .group_mls_state(&alice.label, &group)
+                        .await
+                        .unwrap()
+                        .epoch
+                        >= recovery_epoch)
             {
                 break;
             }
@@ -348,6 +596,47 @@ async fn late_commit_700_recovers() {
         }
     })
     .await;
+    #[cfg(feature = "test-policy-overrides")]
+    {
+        // Freeze the original timed verdict before these read-only observations.
+        let wait_succeeded = recovered.is_ok();
+        let expected_message_present = app
+            .messages(&alice.label)
+            .unwrap()
+            .iter()
+            .any(|message| message.plaintext == expected);
+        let local_epoch = runtime
+            .group_mls_state(&alice.label, &group)
+            .await
+            .unwrap()
+            .epoch;
+        if let Some(row) = &extra_epoch_observation {
+            crate::test_support::emit_line(format_args!(
+                "selective-history-extra-epoch {}",
+                json!({"stage":1, "epoch_before":row.0, "epoch_after":row.1,
+                    "published":row.2, "publication_ids":row.3, "captured_unique":row.4,
+                    "distinct_original_wires":row.5, "original_bindings":row.6,
+                    "wait_succeeded":wait_succeeded, "expected_message_present":expected_message_present,
+                    "alice_epoch":local_epoch, "runtime_closed":false, "relay_shutdown_returned":false})
+            ));
+        }
+        crate::test_support::emit_line(format_args!(
+            "selective-history-receipt {}",
+            json!({
+                "stage": 1,
+                "receipts": receipt_observations.0,
+                "selected_kinds": receipt_observations.1,
+                "selected_bound": receipt_observations.2,
+                "mapped_outer_id_counts": receipt_observations.4,
+                "captured_event_count": receipt_observations.3,
+                "wait_succeeded": wait_succeeded,
+                "expected_message_present": expected_message_present,
+                "local_epoch": local_epoch,
+                "target_epoch": epoch,
+                "window_requests": proxy.counts.window_requests.load(Ordering::SeqCst),
+            })
+        ));
+    }
     assert!(
         recovered.is_ok(),
         "late commit recovery failed: local_epoch={}, target_epoch={epoch}, window_requests={}",
@@ -364,6 +653,12 @@ async fn late_commit_700_recovers() {
     );
     runtime.shutdown_and_close().await.unwrap();
     backend.shutdown();
+    #[cfg(feature = "test-policy-overrides")]
+    if extra_real_epoch {
+        crate::test_support::emit_line(format_args!(
+            "selective-history-extra-epoch-close runtime_closed=true relay_shutdown_returned=true"
+        ));
+    }
 }
 
 #[derive(Default)]

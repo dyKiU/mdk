@@ -1,0 +1,40 @@
+{
+  "scope": "Public opaque enrollment API boundary only; experimental methods deliberately deny until next implementation slice. Actual two-device bootstrap precedes expected missing-target failure. No working native three-device claim.",
+  "base": "272e515f3aae32c87fe097891e8947e82faeb31f",
+  "gates": [
+    {
+      "head": "272e515f3aae32c87fe097891e8947e82faeb31f",
+      "tracked_inputs": 2390,
+      "exit_code": 101,
+      "seconds": 44.68,
+      "counts": [
+        {
+          "status": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "b451ea7ab827489147b48ee765e6c6d95bcfeff72442ab042d4698bcd8a087a7",
+      "behavioral_fixture_sha256": "dbc5cf4bb7f713dac0547045c30dc1b36dc3d5c21cfaccae7ee34a12f6a0acef",
+      "source_manifest_sha256": "b67b0ddb3d2e876b64c5579d62460a77f1da065b86cb490768f2be3a156c85fb"
+    },
+    {
+      "head": "272e515f3aae32c87fe097891e8947e82faeb31f",
+      "tracked_inputs": 2390,
+      "exit_code": 0,
+      "seconds": 31.35,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "7d90bac4060c00ffb500c45aef858e492ad07e7b91557f91cc2ef1ebc2d1d4fa",
+      "behavioral_fixture_sha256": "2380ede7018155168f12c18c7d1e5df59c5b55a54003400ab96e976600ab0aef",
+      "source_manifest_sha256": "9331f9101593c19a9ddd2d3343b53802ab86557a9c91961e5d37e33fca2a30a2"
+    }
+  ]
+}

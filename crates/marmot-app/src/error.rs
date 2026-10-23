@@ -418,6 +418,8 @@ pub enum AppError {
     ReactionNotFound,
     #[error("transport event stream closed")]
     TransportClosed,
+    #[error("account-wide chat departure prevents sends")]
+    AccountChatDepartureDenied,
 }
 
 /// The directory's errors convert back to the `AppError` they replaced: the
@@ -587,6 +589,7 @@ impl AppError {
             Self::BlobStore(_) => "blob_store",
             Self::MediaUploadTimedOut => "media_upload_timed_out",
             Self::UnsafeMediaFetch(_) => "unsafe_media_fetch",
+            Self::AccountChatDepartureDenied => "account_chat_departure_denied",
             Self::InvalidAppMessagePayload(_) => "invalid_app_message_payload",
             Self::InvalidPushToken(_) => "invalid_push_token",
             Self::InvalidPushServer(_) => "invalid_push_server",
@@ -749,6 +752,9 @@ fn account_error_kind(error: &AccountError) -> &'static str {
         AccountError::KeyPackage(_) => "account_key_package",
         AccountError::ClockSkewBlocked => "account_clock_skew_blocked",
         AccountError::KeyPackageRotationInProgress => "account_key_package_rotation_in_progress",
+        AccountError::PublicKeyPackagePublicationDisabled => {
+            "account_public_key_package_publication_disabled"
+        }
         AccountError::WrongAccountDelivery => "account_wrong_delivery",
         _ => "account_unknown",
     }

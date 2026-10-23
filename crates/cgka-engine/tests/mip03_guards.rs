@@ -763,6 +763,312 @@ async fn inbound_by_reference_update_rejects_account_identity_spoofing() {
     );
 }
 
+// These new fixtures do not change the unchanged spoofed-update regression.
+struct RejectedReferenceGuardFixture {
+    alice: Engine<SqliteAccountStorage>,
+    alice_storage: SqliteAccountStorage,
+    bob: Engine<SqliteAccountStorage>,
+    bob_storage: SqliteAccountStorage,
+    carol: Engine<SqliteAccountStorage>,
+    carol_storage: SqliteAccountStorage,
+    dave: Engine<SqliteAccountStorage>,
+    group: GroupId,
+}
+
+async fn rejected_reference_guard_fixture() -> RejectedReferenceGuardFixture {
+    let (mut alice, alice_storage) = build_with_storage(b"reference-guard-alice");
+    let (mut bob, bob_storage) = build_with_storage(b"reference-guard-bob");
+    let (mut carol, carol_storage) = build_with_storage(b"reference-guard-carol");
+    let (mut dave, _) = build_with_storage(b"reference-guard-dave");
+    let members = vec![
+        bob.fresh_key_package().await.unwrap(),
+        carol.fresh_key_package().await.unwrap(),
+        dave.fresh_key_package().await.unwrap(),
+    ];
+    let (group, created) = alice
+        .create_group(CreateGroupRequest {
+            name: "reference-guard".into(),
+            description: String::new(),
+            members,
+            required_features: vec![],
+            app_components: vec![],
+            initial_admins: vec![],
+        })
+        .await
+        .unwrap();
+    let SendResult::GroupCreated {
+        pending,
+        mut welcomes,
+    } = created
+    else {
+        panic!("actual group creation must return real Welcomes");
+    };
+    alice.confirm_published(pending).await.unwrap();
+    bob.join_welcome(welcomes.remove(0)).await.unwrap();
+    carol.join_welcome(welcomes.remove(0)).await.unwrap();
+    dave.join_welcome(welcomes.remove(0)).await.unwrap();
+    RejectedReferenceGuardFixture {
+        alice,
+        alice_storage,
+        bob,
+        bob_storage,
+        carol,
+        carol_storage,
+        dave,
+        group,
+    }
+}
+
+#[tokio::test]
+async fn unrelated_rejected_reference_does_not_veto_genuine_late_self_remove() {
+    let mut fixture = rejected_reference_guard_fixture().await;
+    let crypto = RustCrypto::default();
+    let spoofed = spoofed_update_proposal(
+        &fixture.bob_storage,
+        &crypto,
+        &fixture.bob.self_id(),
+        &fixture.alice.self_id(),
+        &fixture.group,
+    );
+    let spoofed_id = MessageId::new(sha2::Sha256::digest(&spoofed.payload).to_vec());
+    assert!(matches!(
+        fixture.carol.ingest(spoofed).await.unwrap(),
+        IngestOutcome::Rejected {
+            category: ProposalRejectionCategory::InvalidEncoding
+        }
+    ));
+    assert_eq!(
+        fixture
+            .carol_storage
+            .get_message(&spoofed_id)
+            .unwrap()
+            .state,
+        MessageState::Failed
+    );
+    let SendResult::Proposal { msg: leave } = fixture
+        .dave
+        .send(SendIntent::Leave {
+            group_id: fixture.group.clone(),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!("genuine non-admin leave must return a real SelfRemove proposal");
+    };
+    // The existing low-level committer helper builds a genuinely signed MLS
+    // commit consuming only this actual proposal, not the unrelated refusal.
+    let commit = commit_pending_proposals(
+        &fixture.alice_storage,
+        &crypto,
+        &fixture.alice.self_id(),
+        &fixture.group,
+        &leave,
+    );
+    let commit_id = canonicalization_message_id(&commit);
+    assert!(matches!(
+        fixture.carol.ingest(commit).await.unwrap(),
+        IngestOutcome::Buffered { .. }
+    ));
+    let parked = fixture
+        .carol
+        .converge_stored_openmls_messages_at(&fixture.group, 1_000_000)
+        .unwrap();
+    assert!(parked.accepted_commits.is_empty());
+    assert!(
+        !parked
+            .dropped_messages
+            .iter()
+            .any(|row| row.message_id == commit_id),
+        "unrelated authenticated refusal must not terminally veto a genuine missing dependency"
+    );
+    let canonical_id = MessageId::new(hex::decode(&commit_id).unwrap());
+    assert_eq!(
+        fixture
+            .carol_storage
+            .get_message(&canonical_id)
+            .unwrap()
+            .state,
+        MessageState::ConvergenceDeferred
+    );
+    assert!(
+        fixture
+            .carol
+            .members(&fixture.group)
+            .unwrap()
+            .iter()
+            .any(|member| member.id == fixture.dave.self_id())
+    );
+    assert!(matches!(
+        fixture.carol.ingest(leave).await.unwrap(),
+        IngestOutcome::Processed
+    ));
+    assert_eq!(
+        fixture
+            .carol_storage
+            .get_message(&canonical_id)
+            .unwrap()
+            .state,
+        MessageState::Retryable,
+        "the exact original commit must activate after its own authenticated reference arrives",
+    );
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        fixture
+            .carol
+            .advance_convergence(&fixture.group)
+            .await
+            .unwrap();
+        for outbound in fixture.carol.drain_auto_publish() {
+            fixture
+                .carol
+                .confirm_published(outbound.pending)
+                .await
+                .unwrap();
+        }
+        if !fixture
+            .carol
+            .members(&fixture.group)
+            .unwrap()
+            .iter()
+            .any(|member| member.id == fixture.dave.self_id())
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the same genuine withheld proposal must resolve its commit and remove the actual member"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        fixture
+            .carol_storage
+            .get_message(&spoofed_id)
+            .unwrap()
+            .state,
+        MessageState::Failed
+    );
+    eprintln!("unrelated_rejected_reference_genuine_late_removal=true");
+}
+
+#[tokio::test]
+async fn exact_rejected_reference_after_failed_page_is_terminal_through_normal_advance() {
+    use cgka_traits::message::{MessageRecord, StoredMessagePayload};
+    let mut fixture = rejected_reference_guard_fixture().await;
+    let crypto = RustCrypto::default();
+    let epoch = fixture.carol.epoch(&fixture.group).unwrap();
+    let spoofed = spoofed_update_proposal(
+        &fixture.bob_storage,
+        &crypto,
+        &fixture.bob.self_id(),
+        &fixture.alice.self_id(),
+        &fixture.group,
+    );
+    // Storage-only non-MLS rows force pagination; they contain no authenticated
+    // proposal or permission and must remain Failed throughout the scan.
+    let mut decoys = Vec::new();
+    for index in 0u16..65 {
+        let id =
+            MessageId::new([b"failed-reference-page-".as_slice(), &index.to_be_bytes()].concat());
+        fixture
+            .carol_storage
+            .put_message(&MessageRecord {
+                id: id.clone(),
+                group_id: fixture.group.clone(),
+                epoch,
+                state: MessageState::Failed,
+                payload: StoredMessagePayload::raw_transport(TransportMessage {
+                    id: id.clone(),
+                    ..spoofed.clone()
+                })
+                .encode()
+                .unwrap(),
+                deferred_peel: None,
+            })
+            .unwrap();
+        decoys.push(id);
+    }
+    let rejected_id = MessageId::new(sha2::Sha256::digest(&spoofed.payload).to_vec());
+    assert!(matches!(
+        fixture.carol.ingest(spoofed.clone()).await.unwrap(),
+        IngestOutcome::Rejected {
+            category: ProposalRejectionCategory::InvalidEncoding
+        }
+    ));
+    let failed = fixture
+        .carol_storage
+        .list_messages_in_states(&fixture.group, &[MessageState::Failed], epoch)
+        .unwrap();
+    assert_eq!(failed.len(), 66);
+    assert!(
+        failed[65].id == rejected_id,
+        "the actual rejected dependency must lie beyond the first 64-row page"
+    );
+    let before_epoch = fixture.carol.epoch(&fixture.group).unwrap();
+    let before_members = fixture.carol.members(&fixture.group).unwrap();
+    let commit = commit_pending_proposals(
+        &fixture.alice_storage,
+        &crypto,
+        &fixture.alice.self_id(),
+        &fixture.group,
+        &spoofed,
+    );
+    let commit_id = MessageId::new(hex::decode(canonicalization_message_id(&commit)).unwrap());
+    assert!(matches!(
+        fixture.carol.ingest(commit).await.unwrap(),
+        IngestOutcome::Buffered { .. }
+    ));
+    // Restart the actual observer on its same owned storage. Negative lookup
+    // must reconstruct from retained immutable wire, not an in-memory verdict.
+    drop(fixture.carol);
+    fixture.carol = EngineBuilder::new(fixture.carol_storage.clone())
+        .legacy_compatibility_profile()
+        .identity(pad32(b"reference-guard-carol"))
+        .account_identity_proof_signer(proof_signer(b"reference-guard-carol"))
+        .feature_registry(registry())
+        .peeler(Box::new(MockPeeler))
+        .build()
+        .unwrap();
+    fixture.carol.hydrate_all_stored_groups().unwrap();
+    eprintln!("exact_rejected_reference_tail_same_storage_engine_reopened=true");
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        fixture
+            .carol
+            .advance_convergence(&fixture.group)
+            .await
+            .unwrap();
+        if fixture.carol_storage.get_message(&commit_id).unwrap().state
+            == MessageState::EpochInvalidated
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "bounded normal continuation must find the exact rejected dependency beyond its first page"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(fixture.carol.epoch(&fixture.group).unwrap(), before_epoch);
+    assert!(fixture.carol.members(&fixture.group).unwrap() == before_members);
+    assert!(fixture.carol.drain_auto_publish().is_empty());
+    assert_eq!(
+        fixture
+            .carol_storage
+            .get_message(&rejected_id)
+            .unwrap()
+            .state,
+        MessageState::Failed
+    );
+    for id in decoys {
+        assert_eq!(
+            fixture.carol_storage.get_message(&id).unwrap().state,
+            MessageState::Failed
+        );
+    }
+    eprintln!("exact_rejected_reference_beyond_page_terminal=true inert_failed_rows=65");
+}
+
 #[tokio::test]
 async fn current_by_reference_non_admin_update_is_rejected_at_commit() {
     let (mut alice, alice_storage) = build_current_with_storage(b"alice-by-ref-current");

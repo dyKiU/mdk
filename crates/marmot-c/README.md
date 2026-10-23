@@ -16,6 +16,13 @@ per feature.
 - [Lifecycle and teardown](#lifecycle-and-teardown)
 - [Onboarding relay repair](#onboarding-relay-repair)
 - [NIP-46 accounts](#nip-46-accounts)
+- [Device verification](#device-verification)
+- [Account-wide sharing approval](#account-wide-sharing-approval)
+- [Selected-chat copies](#selected-chat-copies)
+- [Exact-device revocation](#exact-device-revocation)
+- [Original history transfers](#original-history-transfers)
+- [Committed synchronized history](#committed-synchronized-history)
+- [Account chat views](#account-chat-views)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
   [attachment handoff leases](#attachment-handoff-leases), [attachment storage](#attachment-storage),
   [file-backed media upload](#file-backed-media-upload),
@@ -55,6 +62,10 @@ union tag or function requires regenerating `marmot.h`, recompiling consumers an
 
 See [the changelog](CHANGELOG.md) for record-layout changes and upgrade requirements
 for each release.
+
+This private integration retains upstream moderation statuses 96–100 and moves
+experimental sync statuses from 96–120 to 121–145. Older private C clients must
+recompile with this candidate's matching header and library; 101–120 are unused.
 
 ## Rules of the road
 
@@ -546,6 +557,167 @@ The mirror surface is macro-generated, so header generation runs cbindgen
 with macro expansion (`RUSTC_BOOTSTRAP=1` on the stable toolchain). CI
 diff-gates the checked-in header.
 
+
+## Device verification
+
+Use the shared [verification contract](../marmot-uniffi/DEVICE-LINKING.md) for
+packet exchange, displayed SAS revisions and capability selection. C returns
+opaque session/subscription handles; free them before their creating client and
+never free a handle during an active call. For role-neutral one-scan transport,
+use `marmot_begin_automatic_device_linking_session` and
+`marmot_scan_automatic_device_linking_session`, then activate the adopted handle
+with `marmot_device_linking_session_automatic_pairing_code`. Manual packet
+operations remain supported on the lower-level factories. Session free drops its final native
+owner and schedules exact cancellation; prefer awaited/blocking cancel first.
+
+All required outputs are validated and cleared before reservation, mutation or
+subscription dequeue. Packet buffers are borrowed for the call and bounded to
+512 KiB before copying; the App applies stricter codec limits. Acknowledgement
+UTF-8 is bounded to 134 bytes. Returned bytes, snapshots and packet lists are
+owned; release them using their matching deep-free functions, including empty
+NULL/zero lists. No caller enum/Boolean is accepted by this surface.
+
+Session operations block through the callback-safe runtime bridge.
+`marmot_device_linking_subscription_next` uses milliseconds: zero waits, a timeout
+returns TIMEOUT with NULL output and consumes no update. Explicit close wakes the
+wait with DEVICE_LINKING_CLOSED; close does not free the stream. The C statuses
+121–126 map the six typed device-linking errors, including Unsupported, NotReady
+and StaleRevision; existing numeric statuses remain unchanged. Feature builds
+accept revision-bound singleton continuation after genuine verification, using
+the original actor-owned actions. Enrollment capability remains false until the
+matching artifacts and application acceptance qualify. VerificationCompleteEnrollmentPending
+alone does not establish membership or synchronized chat/history.
+
+Singleton binding continuation, close/re-entry and allocation controls are
+qualified separately from the App protected-settlement relay test. See
+[the focused binding evidence](../../docs/device-sync-native-singleton-binding-parity-verification.json);
+this does not establish full three-device enrollment or native chat/history.
+
+
+Device-linking target lists own their selector byte buffers. Pending approval
+lists own the embedded handle entries: each entry is borrowed until its parent
+list is deep-freed. Use `marmot_device_linking_approval_clone` before freeing that
+list when an approval must outlive it; the clone shares the original action and
+must be released with `marmot_device_linking_approval_free`. Explicit cancel is
+preferred before releasing the last handle. Never separately free a borrowed
+list entry. Approval snapshot records have their own deep-free function.
+
+`EnrollmentComplete` appends session phase8 without renumbering0–7. Existing-
+device approvals have a separate phase enum and report `Settled`. The shared
+contract explains revision-bound packet handling and finalization. Positive
+actions close after settlement; historical completion is not chat/history sync.
+
+For one-scan enrollment, `marmot_approve_automatic_device_linking_session`
+accepts bounded UTF-8 bootstrap bytes. After exact host adoption,
+`marmot_device_linking_session_automatic_pairing_code` activates the retained
+original and returns owned UTF-8 bytes, freed with `marmot_device_linking_bytes_free`.
+Only the initiating host displays that bootstrap. The blocking
+`marmot_device_linking_session_continue_automatic_linking` submits the displayed
+revision and explicit sharing choice. Keep visual comparison and sibling approvals;
+see [shared one-scan semantics](../marmot-uniffi/DEVICE-LINKING.md#one-scan-automatic-transport).
+
+
+## Selected-chat copies
+
+The [shared selected-chat contract](../marmot-uniffi/SELECTED-CHAT-COPY.md)
+describes original selection, explicit sibling consent, private packets and
+source confirmation. C forwards the UniFFI opaque actions without constructing
+authority. Default factories return `MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED`;
+selected-chat statuses append values 127–136. Existing values are unchanged.
+
+`MarmotSelectedChatCopy` and `MarmotSelectedChatConsent` are independent opaque
+handles. Use their explicit clone functions when another host scope must retain
+an alias, and free every returned handle once. Freeing one alias leaves other
+aliases alive; freeing the final alias schedules original negative cleanup.
+Prefer awaited blocking `*_cancel` before releasing the final UI/account scope.
+Never free a handle concurrently with another call using it.
+
+Snapshots and `MarmotSelectedChatBytes` are owned results: free them with their
+matching snapshot or bytes free, including binary chat selectors. Input bytes
+are borrowed only for the call and copied after the 16 KiB bound check. Required
+outputs are checked and cleared before effects. Calls block through the
+callback-safe runtime bridge. `InviteConfirmed` has ordinal 4 and describes
+source Add confirmation, not recipient joining or synchronized history.
+
+## Original history transfers
+
+The [shared original-history contract](../marmot-uniffi/HISTORY-TRANSFER.md)
+explains scope, consent, lifetime, retention and completion. C exposes blocking
+`marmot_begin_history_transfer` and `marmot_pending_history_requests` factories,
+original transfer/consent aliases and owned review snapshots. Offload blocking
+calls from UI threads. Required output pointers are cleared before effects;
+recipient inputs must have exactly 32 readable bytes in an experimental build.
+Default factories return `MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED` before
+reading account/group/recipient inputs.
+
+`marmot_history_transfer_recipients` returns an owned
+`MarmotHistoryTransferRecipientList` of current eligible choices. Its embedded
+entries carry a leaf index and public device bytes; they create no transfer or
+consent. Release the list with `marmot_history_transfer_recipient_list_free`,
+which frees the entry array and every device buffer. Entries have no separate
+free. Starting a transfer revalidates the selected identity.
+
+Each `MarmotHistoryConsentList` owns its `MarmotHistoryConsentEntry.handle` aliases.
+Clone a selected handle before freeing the list and free that retained clone
+separately. The matching deep free releases the entry array and every owned
+alias. Free snapshots with `marmot_history_transfer_snapshot_free`, and handles
+with their corresponding `marmot_history_transfer_free` or
+`marmot_history_consent_free`. Frees accept NULL; never free a handle concurrently
+with a call. Explicit cancellation affects the shared original action.
+
+History status values append 137–141. Review records carry source/recipient device
+bytes, opaque MLS chat ID, snapshot bounds and committed-completion observations;
+they contain no private key or resumable consent. They do not replace the
+read-only provenance query or establish installed chat-history presentation.
+
+## Committed synchronized history
+
+The [shared reader contract](../marmot-uniffi/SYNCHRONIZED-HISTORY.md) defines
+local source-attested pages, retention, media verdicts and message-ID cursors.
+`marmot_synchronized_history_page` is synchronous local storage work; offload it
+from the UI thread. The caller owns the returned `MarmotArchivedHistoryPage` and
+releases it with `marmot_archived_history_page_free`; embedded records are owned
+by that page. Required outputs are cleared before input reads or effects. NULL
+cursor starts the first page. Query statuses append142–145; page/cursor records
+never authorize a history transfer or media acquisition.
+
+## Account-wide sharing approval
+
+See the [shared original-approval contract](../marmot-uniffi/ACCOUNT-CHAT-SHARING.md).
+The C factories preflight and clear required outputs before effects; default
+builds refuse before reading foreign inputs. Each approval is an opaque alias
+of the same UniFFI original. Clone entries before freeing a pending-approval list,
+then free retained aliases separately. Snapshot and target roots have matching
+deep frees; their device buffers and target entries belong to those roots.
+Approval calls are blocking and callback-safe. Status values 146–150 append
+account-sharing errors without renumbering existing values. No observation DTO
+or list entry grants approval.
+
+### Account-wide chat departure
+
+Use `marmot_account_chat_departure_state` and `marmot_leave_account_chat` for
+ordinary or paired-only chats, following the shared method contract. Pending
+sources or administrator requirements do not mean remote MLS leaves were
+removed. Results own their optional operation string and have a matching
+state deep-free; inputs remain borrowed. Required outputs are cleared before
+effects. `marmot_leave_group` retains explicitly device-local semantics.
+Status158 appends the typed account-departure send denial without changing
+121–132. Missing sharing/coverage returns an unavailable business state with
+no fallback device leave.
+
+## Account chat views
+
+See the shared [account chat view contract](../marmot-uniffi/ACCOUNT-CHAT-VIEWS.md).
+Pages and window snapshots own every embedded tagged-union payload; release only
+with the root deep-free. Window handles offer blocking timed `next`, a one-time
+initial snapshot, bounded paging and synchronous cancellation. Cancel before
+teardown; free each handle before its client and while no other call uses it.
+These windows do not install callbacks. Inputs and cursors are borrowed for the
+call; default builds refuse before inspecting them.
+
+## Exact-device revocation
+
+The [shared exact-device contract](../marmot-uniffi/DEVICE-REVOCATION.md) applies to the blocking `marmot_begin_device_revocation` factory and opaque original handle. Retain aliases with `marmot_device_revocation_clone`; deep-free review snapshots and free each handle separately. Required outputs precede effects, and default builds refuse before input reads. Status values 151–157 append typed revocation outcomes after account-sharing statuses146–150.
 ## Account attachment history
 
 `marmot_account_attachment_history_page` blocks off the UI thread and borrows its query arrays and cursor. Deep-free the result with `marmot_account_attachment_page_read_free`; its cursor and version are borrowed fields and must not be freed separately. Clone a version baseline with `marmot_account_attachment_version_clone` when it must outlive a page. Query flags use `uint8_t`, and arrays are capped at 100 before decoding. See the [shared contract](../marmot-uniffi/ACCOUNT-ATTACHMENT-HISTORY.md).

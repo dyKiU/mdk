@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "base_commit": "b5b86fb173c3065d1310154f0939c4ad27ed4a00",
+  "milestone": "Public opaque verification-only native session facade over original serial worker SDK/purpose ownership. No enrollment readiness exposed.",
+  "feature": "experimental-device-sync; default off, stable public shape in both cohorts",
+  "ownership": {
+    "public_inputs": "Account reference, bounded original setup/SDK packets, transport acknowledgement and displayed revision only. No scope/context/predecessor/proof-taking DTO.",
+    "worker_route": "Resolved account storage address; original private PurposeAttemptScope authenticates real account/device/generation. Public-key hex is not assumed to locate legacy label-directory accounts.",
+    "confirmation": "Actual stock SDK SAS decimals; stale revision denied before real SDK human confirmation. Both local confirmations and peer MACs demonstrated in actual workers.",
+    "negative": "Native terminal state set before awaiting exact actor cancellation, bypassing positive-operation mutex. Drop schedules exact cleanup, subscription close wakes waiting change/admission.",
+    "observation": "One-second original SDK/purpose checks; no MLS projection sweep or durable permission reconstruction. No-attempt with existing binding is terminal, never new AwaitingSetup."
+  },
+  "behavioral_red_and_preserved_failures": [
+    {
+      "cohort": "red",
+      "runs": [
+        {
+          "name": "factories",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "native_device_linking::tests::actual"
+          ],
+          "exit_code": 101,
+          "seconds": 68.34,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 2,
+              "ignored": 0
+            }
+          ],
+          "sha256": "ce9c12f8aa7b527be671421776ff5d0aa419231d964ad26c768146f61f1c2e05"
+        }
+      ]
+    },
+    {
+      "cohort": "v1",
+      "runs": [
+        {
+          "name": "sessions",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "native_device_linking::tests::actual"
+          ],
+          "exit_code": 101,
+          "seconds": 69.95,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 2,
+              "ignored": 0
+            }
+          ],
+          "sha256": "a7ff4cad2d2acbbc936a75bdedb1023acf32125099fd471201882d7bee8b57a8"
+        }
+      ]
+    },
+    {
+      "cohort": "v2",
+      "runs": [
+        {
+          "name": "sessions",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "native_device_linking::tests::actual"
+          ],
+          "exit_code": 0,
+          "seconds": 25.33,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "9ee9b07975940bbabd8e48f34f2707e4d45ef506e8108e64466d5af18dbabb7d"
+        },
+        {
+          "name": "default-test",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "native_device_linking::tests::default_native"
+          ],
+          "exit_code": 0,
+          "seconds": 77.42,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "0f5546a617b6acffbcc41abf2bfcbcc000bcfbc833ead9e8e1fbdb16477c65bb"
+        },
+        {
+          "name": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 27.08,
+          "counts": [],
+          "sha256": "a2f3ed7dd3f71ca2d2a28b5006d107ab6164cb027348bb3a047222afd1e4efe0"
+        },
+        {
+          "name": "default",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 20.22,
+          "counts": [],
+          "sha256": "75e1e644e1597344b08aebe14d521d957d20d80bfc412e11fbc89b544213329e"
+        },
+        {
+          "name": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 1,
+          "seconds": 4.15,
+          "counts": [],
+          "sha256": "92807b025bb85a7ae0e71d23e20cbe6f9881c3f679a6314155e378b6e009ce18"
+        }
+      ]
+    }
+  ],
+  "final": {
+    "base": "b5b86fb1",
+    "source_paths": 2362,
+    "runs": [
+      {
+        "name": "sessions",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--lib",
+          "native_device_linking::tests::actual"
+        ],
+        "exit_code": 0,
+        "seconds": 28.03,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "c06e0447b707275a525c346ffba4e5dc3f986f8fdbc5b32d0fcbfa2ca784b38c"
+      },
+      {
+        "name": "default-test",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "native_device_linking::tests::default_native"
+        ],
+        "exit_code": 0,
+        "seconds": 17.7,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "sha256": "aba6ffd73a63483ee16b7fcb4f75dd88261a4d7eaa7adb574ca2a507e5bf01c2"
+      },
+      {
+        "name": "clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 13.33,
+        "counts": [],
+        "sha256": "f2e025c9f21e85a280cea0173a6887db2455dbab74863bfe2bcb69ebabe5d2c7"
+      },
+      {
+        "name": "default",
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--all-targets"
+        ],
+        "exit_code": 0,
+        "seconds": 7.75,
+        "counts": [],
+        "sha256": "350042f0e05e2ea730e4c06d97cf1acbb34bd722387b37ed4cdf9d9adc1ee51a"
+      },
+      {
+        "name": "fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 4.19,
+        "counts": [],
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "final_input_manifest": {
+    "artifact": "build/results/native-verification-v3-terminal/native-verification-v3-source.json",
+    "sha256": "9183fc68f614d9d51d10226ef4d53d985bfb1ad8a1226d4b5e1284d782d8f60d",
+    "inputs": 2362,
+    "independent_root_verification": "All 2362 source hashes matched except two appended human docs; final five terminal hashes and counts independently recomputed."
+  },
+  "linker_warning": "macOS ld warns __eh_frame exceeds compact unwind encoding limit. Actual test executables run and pass; warning remains recorded.",
+  "limits": [
+    "verification_supported=true is verification only. enrollment_supported=false; existing-group targets and continue_linking remain NotReady.",
+    "VerificationCompleteEnrollmentPending never claims membership, synchronization or chat/history readiness.",
+    "Cancellation during stalled setup/SDK/queue operations, complete Drop/expiry/account-switch native lifecycle gates and v2 factory positive still require separate qualification.",
+    "No UniFFI/C/native app adoption, matched artifacts, C original-purpose admission, B protected transition, ABC settlement or actual chat/history delivery qualified by this slice.",
+    "Human README/AGENTS added after frozen runtime qualification; no runtime/test source change after final input match."
+  ]
+}

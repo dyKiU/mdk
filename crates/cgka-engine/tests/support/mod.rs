@@ -12,6 +12,11 @@ pub fn proof_signer(seed: &[u8]) -> Arc<dyn AccountIdentityProofSigner> {
     Arc::new(TestAccountIdentityProofSigner(signing_key(seed)))
 }
 
+#[allow(dead_code)] // Each integration target includes its own copy of support.
+pub fn account_identity(seed: &[u8]) -> Vec<u8> {
+    signing_key(seed).verifying_key().to_bytes().to_vec()
+}
+
 fn signing_key(seed: &[u8]) -> SigningKey {
     let mut counter = 0u64;
     loop {

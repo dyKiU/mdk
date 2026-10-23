@@ -1,0 +1,405 @@
+{
+  "base_commit": "b937db939bf6a4c85097f361e8a51b41f2cc2326",
+  "source_paths": 2349,
+  "runs": [
+    {
+      "name": "submission-queue",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "local_submission_queue"
+      ],
+      "exit_code": 0,
+      "seconds": 80.76,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "6664f6644d3a68cf4bdf75c5317d5c8face3ced785c82bcbf75fe33234562756"
+    },
+    {
+      "name": "secondary-fairness",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "secondary_retry_scheduler_tests"
+      ],
+      "exit_code": 0,
+      "seconds": 35.76,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "3cdaa50371ce35191e06da985fb2c668b0eeb058b979ec0b3f8db7bea8e3687d"
+    },
+    {
+      "name": "publication-progress",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "publication_progress"
+      ],
+      "exit_code": 0,
+      "seconds": 44.99,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "0a4787f048f4c40118bee53c333fa888d5ba986f7417596e36cfd85fbcf052a7"
+    },
+    {
+      "name": "queued-schedule",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "queued_outbound_schedule_tests"
+      ],
+      "exit_code": 0,
+      "seconds": 14.18,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "471bfb2d27f9a07189b087b73058c36cf3c71281751d7f48f3dc65af1be8a7cd"
+    },
+    {
+      "name": "startup-recovery",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "integrated_recovery_acceptance_tests"
+      ],
+      "exit_code": 0,
+      "seconds": 27.6,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "7e37232e26d63197a23d75006638c8e60dd0d78405f99805df6fb713c71be2cb"
+    },
+    {
+      "name": "private-sdk-owner",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_sdk_received_proposal_requires_explicit_b_owner"
+      ],
+      "exit_code": 0,
+      "seconds": 5.57,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "fd829dddf6328056fd7c975410ece4086c549a648c38ac68eff22863ee67f6bd"
+    },
+    {
+      "name": "core-private",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "private_roster_settlement_tests"
+      ],
+      "exit_code": 0,
+      "seconds": 21.24,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "7db97e03df5d238590a3f79fac83d3cb51fafed60612ac331e031065e1ed5385",
+      "qualification_error": "Empty test selector"
+    },
+    {
+      "name": "core-private-corrected",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "private_roster_settlement"
+      ],
+      "exit_code": 0,
+      "seconds": 319.83,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 47,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "0ae77893ab5939f8de83aaba117519fc2b03669e71eedbdc081cf1151a23fd68"
+    },
+    {
+      "name": "session-private",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-session",
+        "--features",
+        "experimental-device-sync,test-policy-overrides"
+      ],
+      "exit_code": 0,
+      "seconds": 163.12,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "55b1518d3b9c476f178eba6d56ea24cc7d026f8fc1378da2786e1fe42cf9dbb5"
+    },
+    {
+      "name": "frozen-fanout",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-account",
+        "--features",
+        "experimental-device-sync",
+        "--test",
+        "runtime",
+        "frozen_fanout"
+      ],
+      "exit_code": 0,
+      "seconds": 87.77,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "67e03c9b4e5fb52f676a2edf0c46c5decc753d2bc36686143e64afd758f98685"
+    },
+    {
+      "name": "transport-auth",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "transport-nostr-adapter",
+        "--features",
+        "sdk,experimental-device-sync",
+        "--lib",
+        "sdk_client"
+      ],
+      "exit_code": 0,
+      "seconds": 18.22,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 91,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "b6984b6b2b4bd4f3064a028193d331e7ed0cc22e93efbf202f7a3b597a61eb80"
+    },
+    {
+      "name": "audit",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--test",
+        "audit_log"
+      ],
+      "exit_code": 0,
+      "seconds": 27.26,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "8f0f1eacf01cfc2a72a56ac640714414626b2416ccbf57d570c84cb9ab92c6dc"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "-p",
+        "marmot-account",
+        "-p",
+        "marmot-forensics",
+        "-p",
+        "transport-nostr-adapter",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 48.46,
+      "counts": [],
+      "sha256": "784a84cc865555d33f9bd30a6e6d053760ae82bf871fde92f1a70b9681734a27"
+    },
+    {
+      "name": "default",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "-p",
+        "marmot-account",
+        "-p",
+        "marmot-forensics",
+        "-p",
+        "transport-nostr-adapter",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 35.98,
+      "counts": [],
+      "sha256": "7a9551a85668c19d8424f7699249ca76a16df6f0c471766f0554659473424e71"
+    },
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 4.23,
+      "counts": [],
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "upstream_pr": "https://github.com/marmot-protocol/mdk/pull/2196",
+  "upstream_merge": "016da9245f03a6713f0d44b2eb26e59606f0571b",
+  "integration": "Exact upstream delta applied via three-way, no broad master/Cargo/vendor merge",
+  "independent_verification": "All 2349 local/M5 inputs matched; downloaded terminal log hashes and actual counts independently checked",
+  "limits": [
+    "Initial empty Core selector retained as tooling error; corrected selector47 passes.",
+    "No full App/workspace suite, native adoption or ABC settlement claimed.",
+    "Conversation-window/push/fanout-yield-specific follow-up and production-only feature Clippy remain required before final integration acceptance."
+  ]
+}

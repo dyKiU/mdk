@@ -1,0 +1,751 @@
+{
+  "status": "passing scoped source slice",
+  "qualified_runtime_source": "16fca6cd0a6acc40f34067f6d3d9777ec190c132",
+  "parent": "2587e4e24b6f2d03e80b1c23ea77590d7058afd4",
+  "kind": "Rust App/Core and actual independent encrypted-store relay acceptance; no new Apple SDK or installed-app claim",
+  "changes": [
+    "private23 immutable accepted-source lineage with atomic original before/tail validation and App projection checkpoint",
+    "public creation and explicit incoming acceptance qualify; pending and denied origins never inferred from hydrated MLS/messages",
+    "fresh current membership required for catalog, records and actual-member forwarding",
+    "retained epoch-zero local founding witness restores and checks live state",
+    "skip unaccepted raw Core records source before waiting for catalog delivery; accepted but unsent source still waits"
+  ],
+  "regressions": [
+    {
+      "source": "f0f571c3c590ddd85f0dacc34d3f369974728476",
+      "result": "0 passed / 1 failed",
+      "stage": "unaccepted stranger disclosure after accepted-history prerequisite, real decline/later acceptance and three positive closes",
+      "green_source": "61b33b46cc8f112d83dfd91f10f86ff04c4603cc",
+      "green_result": "1 passed / 0 failed",
+      "fixture_equivalence": "original RED/GREEN fixture byte-identical; later fixture-only lint and diagnostics documented separately"
+    },
+    {
+      "source": "e2cbd9901820900ac040d58281ba77000696d77b",
+      "result": "0 passed / 1 failed",
+      "stage": "actual lower-ID pending Welcome pins records scan before higher-ID accepted source; source raw/timeline present, pending record batches0, recipient catalog present/records0; three positive closes",
+      "green_source": "614ff2acd71d92c0d07c0cb017e6b07581111fa0",
+      "green_result": "1 passed / 0 failed",
+      "fixture_equivalence": "byte-identical; sole source delta11lines records eligibility check/cursor advance"
+    }
+  ],
+  "preserved_failures": [
+    "qualified-v1 catalog renewal roster convergence20s timeout: one catalog test passed/one failed; unchanged isolated v2 renewal passed without deadline or relay-limit changes",
+    "qualified-v2 strict: two test-only cloned_ref_to_slice_refs diagnostics; corrected with slice::from_ref",
+    "qualified-v3/v4/v5 accepted-history prerequisite timeout; not stranger-disclosure RED; v4/v5 diagnostic cleanup verifies three positive closes",
+    "v7 test strict unused Core test import; v8 test strict storage-test cloned_ref_to_slice_refs; v9 format one child line wrap; fixes are test/layout-only, original complete logs retained"
+  ],
+  "source_qualification_prefixes": [
+    "automatic-chat-source-privacy-red-v1",
+    "automatic-chat-source-privacy-green-v1",
+    "automatic-chat-source-qualified-v1",
+    "automatic-chat-source-qualified-v2",
+    "automatic-chat-source-qualified-v3",
+    "automatic-chat-source-qualified-v4",
+    "automatic-chat-source-qualified-v5",
+    "automatic-chat-source-qualified-v6",
+    "automatic-chat-source-qualified-v7",
+    "automatic-chat-source-qualified-v8",
+    "automatic-chat-source-qualified-v9",
+    "automatic-chat-source-qualified-v10"
+  ],
+  "artifact_root_m5": "/Users/pj/project/build/results",
+  "toolchain": "Rust1.97.1 aarch64-apple-darwin",
+  "environment": {
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "RUST_MIN_STACK": "4194304"
+  },
+  "resource_guards": {
+    "before_gate_gib": 18,
+    "hard_reserve_gib": 15,
+    "target": "existing Mdk986ConformanceTargetM5"
+  },
+  "unchanged_apple_sdk": {
+    "source": "de38be1295618728ef541e43bfc00ffb6cdb6a86",
+    "manifest_sha256": "0b5b3d3bb93b47ebc74065e735504ffc928fd06d0424a3ccb5d07fe58ca18bd4",
+    "output_count": 15,
+    "historical_app_binary_sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  },
+  "limits": [
+    "ambiguous pruned legacy existing Member chats require distinct fresh original explicit legacy acceptance; not minted from durable policy/renewal/missing projection",
+    "fresh accepted rejoin after a denied origin still blocked by existing source-terminal mirror fence; no positive rejoin claim",
+    "account-wide principal leave remains distinct from ordinary device SelfRemove; two-legitimate-source and principal intent/rejoin qualification pending",
+    "no regenerated SDK, host adoption, installed-app or final full matrix claim"
+  ],
+  "final_gates": [
+    {
+      "gate": "source-sql",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "account_chat_source::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 21.56,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-source-sql.log",
+      "log_sha256": "9b3ec3f57f86bf8290b9166e96572fbaed37e0b153bfd77bbe59e011c72ede6e",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29105336320,
+      "actual_summaries": [
+        [
+          "5",
+          "0",
+          "0"
+        ]
+      ],
+      "source_commit": "d6784a63e2f6a31def1bcf65642922ebd3447298",
+      "input_count": 2638,
+      "input_manifest_sha256": "61d8944dac9cddda801c0047168046d06bef6cbe127561e1d4c310352a43216b",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-inputs.json"
+    },
+    {
+      "gate": "core-origin",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cgka-engine",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "group_creation_origin::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 22.51,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v8-core-origin.log",
+      "log_sha256": "93b2efe9d044ec60909db414182b8fb447f7d2d4744153b43c09fdbf5175aa2f",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29109678080,
+      "actual_summaries": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ],
+      "source_commit": "34abd0729307e157838dac33f5a17ae70341150b",
+      "input_count": 2638,
+      "input_manifest_sha256": "5c23b5ddcf9bed6c046cc31d27d6560366649fb44221a23399b595e39b4ad4f3",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v8-inputs.json"
+    },
+    {
+      "gate": "app-source",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "client::chat_source_acceptance::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 80.36,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v10-app-source.log",
+      "log_sha256": "1ef9952f8548cfd48d4fe517fd3c4acce05a1f69dabc00e28b51c0fbad20794d",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29070209024,
+      "actual_summaries": [
+        [
+          "2",
+          "0",
+          "0"
+        ]
+      ],
+      "source_commit": "16fca6cd0a6acc40f34067f6d3d9777ec190c132",
+      "input_count": 2638,
+      "input_manifest_sha256": "e6b4abf78cb51151d37f514c5660cc73aa2ede1e9016e35370ab6ff9b8ca8c7a",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v10-inputs.json"
+    },
+    {
+      "gate": "privacy",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "paired_pending_stranger_never_discloses_before_actual_acceptance",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 100.52,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-privacy.log",
+      "log_sha256": "02d7c35585915fa757b316a803710374bcec3aebbdfeb2d45e2bc0fa3bee9024",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29149528064,
+      "actual_summaries": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ],
+      "source_commit": "614ff2acd71d92c0d07c0cb017e6b07581111fa0",
+      "input_count": 2638,
+      "input_manifest_sha256": "881a87844c153ee4044eeda4e79a43ab491eaa25da35da33ea69d00e1945b089",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-inputs.json"
+    },
+    {
+      "gate": "app-records",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "automatic_record",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 96.99,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-app-records.log",
+      "log_sha256": "c0a6ccd1ff4b631462b93391c198966fc03cff3026c0ebfcb8cca89245a90d40",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29117247488,
+      "actual_summaries": [
+        [
+          "3",
+          "0",
+          "0"
+        ]
+      ],
+      "source_commit": "614ff2acd71d92c0d07c0cb017e6b07581111fa0",
+      "input_count": 2638,
+      "input_manifest_sha256": "881a87844c153ee4044eeda4e79a43ab491eaa25da35da33ea69d00e1945b089",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-inputs.json"
+    },
+    {
+      "gate": "app-catalog",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "automatic_catalog",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 169.43,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-app-catalog.log",
+      "log_sha256": "d1fc275bbebccca6555ee41d3d2e42b75e12d00e31bbcdb37672923ed7fd78f2",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29113958400,
+      "actual_summaries": [
+        [
+          "2",
+          "0",
+          "0"
+        ]
+      ],
+      "source_commit": "614ff2acd71d92c0d07c0cb017e6b07581111fa0",
+      "input_count": 2638,
+      "input_manifest_sha256": "881a87844c153ee4044eeda4e79a43ab491eaa25da35da33ea69d00e1945b089",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-inputs.json"
+    },
+    {
+      "gate": "held-abc",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "automatic_held_three_originals",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 68.93,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-held-abc.log",
+      "log_sha256": "144ac95cf6f32598527c9a4d7c4ef3fa2a546ce418bbf1bec8cab33d32104b12",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29114068992,
+      "actual_summaries": [
+        [
+          "2",
+          "0",
+          "0"
+        ]
+      ],
+      "source_commit": "614ff2acd71d92c0d07c0cb017e6b07581111fa0",
+      "input_count": 2638,
+      "input_manifest_sha256": "881a87844c153ee4044eeda4e79a43ab491eaa25da35da33ea69d00e1945b089",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-inputs.json"
+    },
+    {
+      "gate": "test-strict",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "storage-sqlite",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 63.97,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-test-strict.log",
+      "log_sha256": "db447cba9e14bec0ee5bcd3979144f45da0500e7b5ce40ea065ae6efe89abfa2",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29068136448,
+      "actual_summaries": [],
+      "source_commit": "d6784a63e2f6a31def1bcf65642922ebd3447298",
+      "input_count": 2638,
+      "input_manifest_sha256": "61d8944dac9cddda801c0047168046d06bef6cbe127561e1d4c310352a43216b",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-inputs.json"
+    },
+    {
+      "gate": "production-strict",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "storage-sqlite",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 47.82,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-production-strict.log",
+      "log_sha256": "e8d9f57af8612eefd6341c1575508f428d41505d129e1c63b4367d54e187ccbb",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29070913536,
+      "actual_summaries": [],
+      "source_commit": "d6784a63e2f6a31def1bcf65642922ebd3447298",
+      "input_count": 2638,
+      "input_manifest_sha256": "61d8944dac9cddda801c0047168046d06bef6cbe127561e1d4c310352a43216b",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-inputs.json"
+    },
+    {
+      "gate": "default-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "storage-sqlite",
+        "-p",
+        "marmot-app",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "seconds": 42.77,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-default-check.log",
+      "log_sha256": "93227ef6880d2c36727168678c619c228960cc696523bfb6e9fe2478541b21cb",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29069025280,
+      "actual_summaries": [],
+      "source_commit": "d6784a63e2f6a31def1bcf65642922ebd3447298",
+      "input_count": 2638,
+      "input_manifest_sha256": "61d8944dac9cddda801c0047168046d06bef6cbe127561e1d4c310352a43216b",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-inputs.json"
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 4.4,
+      "resource_abort": false,
+      "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v10-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "inputs_unchanged": true,
+      "free_before_bytes": 29066088448,
+      "actual_summaries": [],
+      "source_commit": "16fca6cd0a6acc40f34067f6d3d9777ec190c132",
+      "input_count": 2638,
+      "input_manifest_sha256": "e6b4abf78cb51151d37f514c5660cc73aa2ede1e9016e35370ab6ff9b8ca8c7a",
+      "input_manifest_m5": "/Users/pj/project/build/results/automatic-chat-source-qualified-v10-inputs.json"
+    }
+  ],
+  "source_equivalence": [
+    "v7\u2192v8: remove one unused Core test import; Core getter rerun v8",
+    "v8\u2192v9: singleton storage-test clone becomes slice::from_ref; SQL5 rerun v9",
+    "v9\u2192v10: only chat_source_acceptance.rs line wrap; pinned Rust1.97.1 rustfmt output of v9 blob exactly equals v10, with Appsource2 and fmt rerun"
+  ],
+  "format_equivalence": {
+    "from": "d6784a63e2f6a31def1bcf65642922ebd3447298",
+    "to": "16fca6cd0a6acc40f34067f6d3d9777ec190c132",
+    "changed_paths": [
+      "crates/marmot-app/src/client/chat_source_acceptance.rs"
+    ],
+    "pinned_rustfmt_exact_output": true,
+    "sha256": "7826eb44e3f28292363cf161f930a245f7c27f4c9e5e430cf741dd64cb8e8c5c"
+  },
+  "actual_total_selected_behavior_counts": {
+    "sql": 5,
+    "core": 1,
+    "app_source": 2,
+    "paired_privacy": 1,
+    "records": 3,
+    "catalog": 2,
+    "held_abc": 2,
+    "failures": 0,
+    "ignored": 0
+  },
+  "required_prior_failure_records": {
+    "automatic-chat-source-qualified-v1-results.json": [
+      {
+        "gate": "app-catalog",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_catalog",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 192.6,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v1-app-catalog.log",
+        "log_sha256": "ac12c0919b8af90217f97eb37468a1d085e46d01a607fead80b1b00f4ceb0ea1",
+        "inputs_unchanged": true,
+        "free_before_bytes": 22024425472,
+        "actual_summaries": [
+          [
+            "1",
+            "1",
+            "0"
+          ]
+        ]
+      }
+    ],
+    "automatic-chat-source-qualified-v6-results.json": [
+      {
+        "gate": "privacy",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "paired_pending_stranger_never_discloses_before_actual_acceptance",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 126.62,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v6-privacy.log",
+        "log_sha256": "8d0bad11d7a86b8324d29f400b54c2442c2421a6ce43ae3ac75f58572347f60c",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29170180096,
+        "actual_summaries": [
+          [
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      }
+    ],
+    "automatic-chat-source-qualified-v7-results.json": [
+      {
+        "gate": "test-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "storage-sqlite",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 101,
+        "seconds": 55.88,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v7-test-strict.log",
+        "log_sha256": "10f88b04a46ef1eceb0a57da223eac9d1566594afac0eae611c5b1cd8a508120",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29110820864,
+        "actual_summaries": []
+      }
+    ],
+    "automatic-chat-source-qualified-v2-results.json": [
+      {
+        "gate": "test-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "storage-sqlite",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 101,
+        "seconds": 50.84,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v2-test-strict.log",
+        "log_sha256": "ae797268ab1173757e8057e4955d4e93c2ca87af50d6bd7cbd0bd0c0b6939301",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29331812352,
+        "actual_summaries": []
+      }
+    ],
+    "automatic-chat-source-qualified-v5-results.json": [
+      {
+        "gate": "privacy",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "paired_pending_stranger_never_discloses_before_actual_acceptance",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 126.51,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v5-privacy.log",
+        "log_sha256": "15bc2820530c9f98d1f9f652511cf3a8653b8a237dfee06032fd97effe97db6b",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29161029632,
+        "actual_summaries": [
+          [
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      }
+    ],
+    "automatic-chat-source-qualified-v4-results.json": [
+      {
+        "gate": "privacy",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "paired_pending_stranger_never_discloses_before_actual_acceptance",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 127.67,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v4-privacy.log",
+        "log_sha256": "0da02f9515e39b619175403cb6e1471883ab4632af85e5711cc097cbb0afbb02",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29309267968,
+        "actual_summaries": [
+          [
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      }
+    ],
+    "automatic-chat-source-qualified-v3-results.json": [
+      {
+        "gate": "privacy",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "paired_pending_stranger_never_discloses_before_actual_acceptance",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 52.69,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v3-privacy.log",
+        "log_sha256": "025b4fcf949b164d16b31e8a4f7068043d783a057a6aae50b728f2523d4affa6",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29302022144,
+        "actual_summaries": [
+          [
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      }
+    ],
+    "automatic-chat-source-qualified-v9-results.json": [
+      {
+        "gate": "fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit": 1,
+        "seconds": 4.39,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v9-fmt.log",
+        "log_sha256": "e2b0fb0923c7747c634ccedc7751e9553655755bec2d41ff301a11281e08c03f",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29068353536,
+        "actual_summaries": []
+      }
+    ],
+    "automatic-chat-source-qualified-v8-results.json": [
+      {
+        "gate": "test-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "storage-sqlite",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 101,
+        "seconds": 63.98,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-chat-source-qualified-v8-test-strict.log",
+        "log_sha256": "3281c1584c810ca60cf56b070af63b4254f9f5f2a8c6e47f2fc44fb806386d5e",
+        "inputs_unchanged": true,
+        "free_before_bytes": 29109506048,
+        "actual_summaries": []
+      }
+    ]
+  }
+}

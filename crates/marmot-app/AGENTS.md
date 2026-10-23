@@ -395,11 +395,101 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   job).
 - The shared relay plane is the [`transport-nostr`](../transport-nostr/AGENTS.md) crate; name its items as
   `transport_nostr::`.
+  App-owned encrypted protocol fixtures and authoritative publication observations remain in `src/relay_plane/`;
+  that test-only module does not re-export the generic transport plane.
 - `src/sqlcipher/open_lock.rs`: in-process same-file open exclusion (the root lease covers cross-process).
 - Integration tests in `tests/` (with `tests/support/` and `tests/fixtures/`); media benchmarks in `benches/` (require
   `media-benchmarks`); `examples/usage_diagnostics_staging/`.
 
 ## Features
+
+- `experimental-device-sync`: private stock Matrix SAS adapter in `src/device_linking.rs`
+  and synthetic tests in `src/device_linking/tests.rs`. Default off; no enrollment,
+  history authorization, native enrollment, or adopted Marmot framing. Verified results
+  remain internal and one-shot. `device_linking/owner.rs` couples real SAS with
+  storage 104 restart/terminal fences. Private verifier commands run through the
+  serial account worker; native verification bindings forward opaque App sessions,
+  while native roster enrollment remains gated.
+  Its fixed monotonic deadline starts before reservation storage/setup and bounds
+  every SDK operation; a delayed setup or request/response must never extend it.
+  `lib.rs` successful exclusive local-client open abandons pending durable attempts
+  on startup/reconnect and synchronously retires any exact unjoined purpose bundle.
+  `client/device_linking.rs` attaches its account-owned verifier from actual session
+  identity and stored MLS signer after that cleanup. Both open-account and client
+  fields drop the verifier before the runtime and exclusive session guard.
+  Private client preparation reserves and resolves exact purpose-owned material.
+  Client verifier operations validate actual account/device/generation on every
+  call. New-device setup matches the exact owned package, reference and signer
+  before SDK setup, then durably freezes its context before exposing an offer.
+  Failed context freezing terminally fences and discards the verifier. Taking
+  private one-shot evidence must not arm Welcome admission before approved-roster
+  validation; no native proof/approval flag is exported.
+  `device_linking/wire.rs` bounds versioned offer/frame packets and canonical JSON
+  before allocation or SDK input. Preserve kind separation, exact lengths and
+  acknowledgement-token limits; decoded objects still require live context and
+  SDK validation, and cannot carry permission or reconstruct verifier evidence.
+  `device_linking/predecessor.rs` binds canonical indexed predecessor contents,
+  epoch and authenticator digest into the context. A descriptor copied from a
+  candidate is not an approved anchor. Version 2 binds a nonzero artifact digest only
+  for a nonzero-epoch multi-leaf descriptor in a distinct hash domain. Version 1
+  must omit it and preserve its existing domain. Raw SDK binding is not artifact
+  authentication, protected settlement or all-leaf approval; runtime setup and
+  strict singleton recipient admission remain independent. Reject noncanonical/duplicate indices,
+  duplicate signers, absent approvers, already-present recipients and exhausted
+  leaf/epoch bounds before SDK setup. Welcome validation checks the actual full
+  authenticated tree against exactly predecessor plus recipient at the next epoch;
+  preserve tentative crypto/package/receipt rollback on any mismatch.
+  Cancellation revokes Welcome admission before terminal fencing and exact unjoined
+  package retirement; consumed/joined purpose state is preserved. Failed preparation
+  must clean up before another attempt; cleanup failures take precedence.
+  Scoped cancellation validates actual identity and generation before gate mutation.
+  `runtime/device_linking.rs` routes private prepare/cancel and scoped SDK verifier RPCs
+  through the serial worker. Keep their internal one-shot proof out of native APIs;
+  a successful SDK exchange must not itself arm Welcome admission. Read-only
+  candidate queries remain observations, never approved-roster authority. Original-deadline maintenance prunes only live internal
+  verifier/token state and retries exact unjoined cleanup after transient failure.
+  The feature-only worker tick is independent of optional network recovery; never
+  export its test-only clock helper or enable test-policy-overrides in app artifacts.
+  Failed prepared-result delivery cancels its exact scope in the serial turn.
+  Preserve the first pending terminal-write intent across storage failures;
+  maintenance retries it before expiry, without recreating verifier secrets.
+  The failed-open path must never abandon an active flow.
+  Raw SDK verified evidence has no owner stamp; only the durable owner carries
+  its original reservation deadline through successful verification. Welcome
+  admission must reject unstamped, expired or Approver-role evidence.
+  `device_linking/runtime_gate.rs` holds a per-join phase under the original
+  owned lease: exact SDK-known transport binding precedes actual private-profile
+  and full indexed-tree validation. Only then may it expose the SDK predecessor
+  to Engine or pass the final pre-commit check. Failed revalidation revokes that
+  phase; dropping a failed join preserves only the same still-live token.
+  Artifact hashes are independently authenticated/checked by peeler and Engine;
+  they are not SDK consent or native approval data.
+  `src/tests/device_linking_startup.rs` covers the real deferred-hydration open,
+  session contention, monotonic generation, and per-account isolation.
+  Startup is an authoritative account-runtime action, never another handle open.
+  SDK tracing is suppressed to protect contextual IDs.
+  Private genesis creation runs through the serial worker and delegates atomic
+  creation to Session. Approver pairing setup freshly authenticates either that
+  selected genesis or a sealed completed settled predecessor, actual account/device
+  and exact predecessor before beginning the SDK flow. Settled invite arming must
+  refresh that opaque proof after SDK completion and retain its actual protected
+  origin with the original token. Recipient/sibling handoff remains absent.
+  Generic solo groups cannot substitute for a genesis. This bootstrap check does
+  not establish a settled successor; accepted/confirmed lineage and final consent
+  consumption still require their coordinator. Do not restore verifier approval
+  when a genesis RPC reply is dropped or after account reopen.
+  `device_linking/invite_gate.rs` owns the Approver policy for dedicated Engine
+  preparation. Arm only with non-clone owner-stamped SDK evidence and fresh typed
+  genesis or completed settled-origin evidence; actual storage CAS remains independent. Hold the owned lease
+  across wrapping, use its original deadline, and consume rollback permission
+  after final preparation commit. Cancellation generations are captured before
+  arming and rechecked under the lock. Cancellation/account teardown must revoke
+  even held leases without waiting for their mutex. Account attachment installs
+  the policy; it does not restore consent. The internal client inlet refreshes
+  genuine origin evidence; no native flag/proof or serialized token is exported.
+  `device_linking/invite_gate/tests.rs` combines stock SDK verification with real
+  private MLS input/preparation and isolated 104/108/110 storage. Synthetic wrappers
+  do not prove real relay acceptance, successor settlement or history permission.
 
 - `test-policy-overrides`: test-only convergence timing/rewind overrides. Never enable in app artifacts.
 - `otlp-export`: OTLP protobuf encoding and HTTP push for relay telemetry (the privacy mapping stays in the default
@@ -408,6 +498,16 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
 - `media-benchmarks`: internal surface for the media transport benchmarks.
 
 ## Verification
+
+`src/synchronized_history.rs` owns the experimental read-only logical archive
+page and its source-attested presentation DTOs. Keep default denial before account
+or storage effects, validate bounded opaque MLS group IDs without a Nostr-ID width
+assumption, and resolve the account through AccountHome. Preserve completed-only
+storage selection, live-event precedence, retention fences and payload-free
+tombstones. Use the shared ordered media parser with no fabricated source epoch;
+reads never grant media acquisition, moderation, message authentication or consent.
+Keep record Debug output free of identities and content. Query tests may seed
+isolated archive storage; this does not qualify original transport or native UI.
 
 ```sh
 cargo test -p marmot-app
@@ -421,6 +521,408 @@ Tests that require shortened production policy intervals must use
 `#[cfg(feature = "test-policy-overrides")]`; normal test builds deliberately
 ignore those configuration overrides.
 
+
+### Private invite coordinator map
+
+`client/device_linking.rs` owns the exact Approver attempt and its opaque
+preparation. Retained invite operations match the actual SDK-owned attempt scope
+before owner checks. Historical consumed purpose rows cannot veto that original
+continuation after verifier consumption; unconsumed conflicts and storage errors
+still deny. No caller scope or durable row can construct or restore the token. `runtime/device_linking.rs` exposes only internal scoped preparation
+metadata through serial commands. Copy the original owner-stamped deadline;
+maintenance may revoke early but never extend or restore consent. Preserve the
+attempt on cleanup failure. Lost result delivery cancels the exact attempt even
+when preparation returned an error. The abandoned-response regression must prove
+successful frozen private transport before retirement, not just a failed wrap.
+
+`client/audit_v5_probe.rs::ProbePeeler` decorates the actual product peeler. Forward
+new supported transport operations to its concrete inner implementation; do not
+silently inherit a default-deny method. The complete linking test selection needs
+`experimental-device-sync,test-policy-overrides`; omit test-policy-overrides from
+native artifacts.
+
+
+`device_linking/welcome_collection.rs` is a bounded transient collection helper,
+not a consent issuer. Reopening starts empty. Wire it to exactly one live account
+attempt only after approved-predecessor checks; serial owner cancellation,
+expiry and teardown must clear it. Validate known SDK bindings before buffering,
+use the original deadline for async observation, and revalidate after the await.
+Never derive permission from authenticated metadata, durable facts or complete
+batch shape. Engine must independently authenticate full MLS/tree/receipt state.
+
+Initial recipient arming must validate the live owned singleton context and actual
+purpose before consuming SDK evidence. Reject nonzero-epoch/multi-leaf bootstrap
+without consuming the continuation. Never infer the remote protected genesis from
+a context DTO. Engine/Session chunk observation is authentication metadata only;
+collection and actual join still require the original live gate and full tree.
+
+### Private commit publication map
+
+`runtime/private_commit.rs` owns the bounded publication wait loop and the
+negative-only exact account/device/generation control slot. The account actor
+retains the original opaque preparation and deadline; queued ordinary commands
+use a maximum eight-entry deferred FIFO. Cancellation, reply closure, deadline
+and shutdown independently wake stalled publication. Never rebuild consent from
+rows or retire uncertain MLS pending state. `client/device_linking.rs` publishes
+only the frozen commit through the real relay adapter using authenticated route
+components; it does not add a chat projection or expose the Welcome batch.
+Relay acknowledgment leaves the durable phase Unknown. `client/private_transport.rs`
+maintains one hidden route derived from fresh protected lineage plus actual MLS
+state, independently of AccountState groups. The concrete account adapter private
+commit method withholds ordinary local mirroring; only actual relay intake can
+confirm. Startup reconciliation and both event projection loops must keep private
+events out of chat projections. Classification errors propagate; protected
+historical identifiers supply negative suppression only, never membership or
+consent. Permanent negative privacy fences from actual birth/join SQL now supplement
+selected metadata. Do not treat them as permission or restore them with snapshots.
+Historical cursor retrieval remains a separate required checkpoint.
+
+
+### Private recipient ingress map
+
+The internal scoped singleton arming command delegates approved-predecessor and
+actual-purpose checks to the account client; lost response delivery cancels that
+exact scope. `client/sync.rs` routes actual Welcome deliveries into the account's
+one transient collection only under its original live gate. Bounds precede input
+cloning; complete batch joining remains the configured Session/Engine operation.
+A private observer rejection delegates to ordinary Engine validation, whose
+strict ordinary kind/profile and purpose rules independently reject private
+bypasses. Context/lease/storage failures do not delegate. Incomplete chunks stay
+fetchable and are not marked seen; only the atomic complete join is durable.
+No scoped command, metadata or storage row can construct an approval token.
+
+### Experimental private exact-ID recovery
+
+`client/private_echo.rs` owns one nonserializable acquisition plan derived from
+fresh protected lineage/current MLS route plus the exact uncertain110 commit.
+`sync/comparison_job.rs` records only actual attempted-route scheduling metadata;
+this is not permission or a durable capability. Require the same full private
+scope and route before the fallback starts. `account_worker.rs` keeps at most one
+abort-on-drop acquisition, serialized with ordinary comparison and charged to
+its process recovery credits. Network waits stay off-worker. Revalidate protected
+state and exact signed bytes before each normal recovered-delivery admission;
+never directly confirm or promote the private group into chat state.
+
+Keep the two-second per-request resource deadline separate from startup rotation
+latency, and preserve the original Dispatching/Unknown phase on unavailable/empty/error outcomes. No timestamp
+or observer metadata is consent. Retry state is one ephemeral five-second slot;
+restart must freshly authenticate state and run comparison, never restore SDK
+leases. Tests use actual websocket REQs, real SDK pairing/MLS and ordinary cursor
+advancement; Negentropy rejection and stalled-ID controls must retain their
+actual request evidence. Do not describe frozen earlier supported-relay passes
+as a fallback regression RED.
+
+The bounded exact-ID reconciliation inlet accepts durable Dispatching as well as
+Unknown after restart. This supplies no live publisher or SDK lease and cannot
+redispatch. Genuine intent interruption, encrypted reopen, ordinary cursor
+advancement and real unsupported-Negentropy relay acquisition are regression
+controls; authenticated Engine own-echo processing alone confirms membership.
+
+A typed Engine storage error with a complete recipient batch keeps the original
+live client. The feature tick retries through the configured atomic join under
+the unchanged deadline; cancellation and success release any remaining queue
+pins. Shape alone cannot authorize retry, and reopen still starts empty.
+
+The dedicated private Welcome command uses the same bounded worker publication
+wait loop and exact negative control as commit dispatch. Keep kind separation.
+It forwards the original opaque preparation to Engine, uses authenticated inbox
+routing, and suppresses local mirroring. Frozen publication receipts do not prove
+recipient joins, ACK settlement, native support or history authorization.
+
+Artifact-backed setup is a separate internal serial-worker inlet. Require version
+2, original scope identity, exact authenticated public tree/digest and unchanged
+owner purpose checks before SDK binding. The Approver must independently refresh
+complete protected local lineage/full epoch authenticator and its exact own
+export. Rejected metadata cannot mutate purpose/settlement or burn the reservation.
+Cancel an exact successful setup when its reply is dropped. Keep the old singleton
+recipient inlet strict; portable metadata and SDK setup alone grant no new join,
+sibling approval, settled roster or history authority.
+
+
+### Received enrollment proposal metadata
+
+`client/private_enrollment_proposal.rs` validates only actual crypto-sealed v2
+requests drained through the configured Session. Its no-input serial verifier
+command incrementally fills only available App slots through bounded Core
+drains; never drain into a full App retention queue. Preserve each original observation deadline and
+opaque request, and revalidate fresh Completed actual tree/received artifact on
+retry. Private context parsing rejects unknown/duplicate fields and noncanonical
+JSON/base64. Compare every source/context/package binding before retaining usable
+metadata. V1 cannot become proposal validation input. Cancellation clears memory;
+reopen does not restore observations or ownership. This command returns aggregate
+metadata only: no SDK consent, endorsement, transition, native proof or permission.
+Original selection-generation and artifact-signer policy remain separate approval
+requirements; do not infer them from tree equality or a successful count.
+
+Original SDK proposal production is scope-only inside `runtime/device_linking.rs`.
+`client/device_linking.rs` shares genuine token take/fresh predecessor arming with
+invite preparation, then retains the opaque Core producer under that exact owner.
+`RuntimeInviteGate::Lease::enrollment_proposal_metadata` reads only the live sealed
+SDK token, original deadline and cancellation fence; never accept a host context
+DTO as consent. `PublicationKind::Proposal` uses the existing bounded worker
+negative controls. It publishes private control metadata without an Add, Welcome,
+chat mirror or sibling approval. The genuine regression branches after fresh
+artifact-bound A/C SDK completion over a completed A/B predecessor.
+
+### Explicit received endorsement action
+
+`client/private_enrollment_proposal.rs` separates bounded observation retention and hash selectors from selected-request authentication. The worker's internal `EndorseReceivedEnrollmentProposal` action holds a nonserialized Core continuation in `AccountLinkingOwner`; it accepts no context/artifact/package approval DTO. Preserve the original observed deadline, exact protected origin/generation, abandoned-reply cleanup and bounded cancelled-receipt fence. Do not expose the packet as SDK consent or use count validation to authorize a choice. Publication and A-owned collection remain separate.
+
+`PublishReceivedEnrollmentEndorsement` uses the bounded private dispatcher with
+an exact binding identity distinct from SDK scope identities. Cancellation must
+revoke that exact action before blocked queue admission. `CollectOwnedEnrollmentEndorsements`
+uses only the original local proposal lease and actual receipts, authenticating
+each packet before retaining its occupied leaf. Received requests and receipts
+share the App retention allowance of 128; the independent Core shared queue is
+128, for an aggregate bound of 256. Bounded drains preserve excess original
+proofs and clocks in Core. No collection count constructs Add/C/B authority.
+
+
+### Actor-created setup packets
+
+`client/device_linking/setup.rs` creates request/challenge packets internally
+from the actual reserved purpose and fresh protected genesis or Completed
+predecessor. Preserve canonical bounded decoding and actual signed single-use
+KeyPackage checks before approver reservation. The process-local recipient handle
+retains its original scope and challenge digest; exact retry must recheck the
+actual SDK lifetime instead of restarting it. Never expose these internal
+handles, `LinkingContext`, artifacts or proof-taking as a host approval API.
+The stock SDK starts SAS from NewDevice, with both local confirmations and peer
+MACs required. Setup success is verification only, not membership or history.
+
+
+`runtime/device_linking/setup.rs` routes bounded setup commands through the serial
+worker. `AccountLinkingOwner::native_setup_request` retains the original request;
+never reconstruct it from returned packet metadata or durable facts. Reject
+wrong scopes before taking custody, preserve it after invalid challenge input,
+and clear it before cancellation's durable cleanup. Lost setup replies must
+cancel only their exact newly owned scope; durable cleanup failure remains typed
+negative state for existing maintenance, with no permission restoration.
+
+
+### Original SDK endorsed Add preparation
+
+`PrepareEndorsedEnrollmentInvite` accepts only the original scope and calls Core
+with the same retained local producer and actual opaque sibling receipts. It
+never begins a new SDK verifier or promotes a received request/count. Incomplete
+preparation must keep automatic later collection live; use only Core's negative
+owner-progress observation for raw retries, not a prematurely latched App flag
+or durable-row reconstruction. Carry the earliest original receipt deadline
+into the actor's publication timer without extending any clock. Lost replies
+cancel that exact original scope. SQL/raw retry and cancellation stay on the
+same continuation. This milestone stages exact C Add only; C original-purpose
+admission, B protected transition, real ABC settlement and native enrollment
+adoption remain independently gated.
+
+### Native verification-only facade
+
+`native_device_linking` exports opaque process-local sessions, bounded packets,
+SAS observations, revision-bound human confirmation and closeable subscriptions.
+Keep setup/SDK secrets and original scopes private in the actor. Route through
+the resolved account address and retain exact scope checks; do not assume a
+public-key hex string identifies a legacy label-directory account. Observations
+must not consume proofs or reconstruct authority from durable rows. Preserve
+negative cancellation before positive-operation lock acquisition, terminal state
+against late replies and exact asynchronous Drop cleanup. Subscription close must
+wake both waiting receiver admission and a pending change read.
+
+Keep enrollment capability false and existing-group target selection unavailable
+until the public original-action three-device flow qualifies. Revision-bound
+singleton continuation is qualified through the original A/C actors. Its private
+scheduling intent is ephemeral and never permission: check the original live
+owner, cancel exact scopes on lost replies, publish Welcomes only after the
+authenticated Add echo, and prune on revocation, expiry or cancellation. Never report partial verification/publication as synchronized. Default
+methods remain typed Unsupported before account or worker effects. Future native
+bindings must expose the same shapes in both feature cohorts without exporting
+internal context, proof-taking or raw purpose selection.
+
+Endorsed recipient arming compares the actor's original NewDevice context and
+actual unused purpose before SDK take. Keep singleton arming strict. Retain
+sealed evidence through exact SQL/Welcome retry; clear on exact cancellation
+and collection retirement. Lost replies cancel their original scope. Native
+three-device enrollment stays unavailable until its public opaque B transition
+and actual ABC settlement qualify.
+
+B existing-member transition retry must preserve the original armed action on a
+typed storage error and schedule its exact group's retained convergence input.
+Never reopen a client and rebuild that continuation from private11 or a packet.
+B settlement uses its own original binding/guard, never a fabricated SDK scope.
+
+The original A SDK token retains its settlement continuation before moving into proposal/Add ownership; received observation bounds only shorten its clock. The genuine three-device regression requires A/B/C actual epoch-2 three-leaf Completed rounds, three facts each and validated settled predecessor exports, including B/C SQL rollback retries. Native enrollment/UI/artifact adoption remain separate gates; verification-only native capability does not imply enrollment.
+
+### Opaque native original three-device enrollment
+
+Target selectors and received-approval handles are observations, never grants.
+A/C setup and context role remain actor-owned. Existing-roster A first publishes
+its original SDK-owned proposal; C keeps its original unconsumed verifier and
+purpose until the complete, at-most-16-KiB endorsed packet validates. B approval
+retains the original received action. Export A's packet before transferring its
+lease into Add; admit it on C and the same B handle before explicit A finalize.
+The worker publishes Commit then Welcomes only after actual confirmed echo.
+Repeated B listing must share the same process-local Arc and bounded weak cache;
+last-handle drop/exact cancellation fences that original action. Never recreate a
+handle from a dropped weak entry while its original receipt remains live.
+`EnrollmentComplete`/`Settled` are historical observations cached only after the
+original live guard and fresh actual protected Completed full tree validate;
+they cannot authorize another mutation. Preserve prior phase ordinals. The
+capability remains unadvertised until native onboarding/artifact acceptance.
+Bounds/reclamation are in `docs/marmot-architecture/runtime-state-bounds.md`.
+
+### Native observational response timeout
+
+A typed `AppError::AccountWorkerResponseTimedOut` from the bounded native Observe
+RPC preserves the latest cached snapshot; it must not close a still-owned
+publication or extend its original deadline. No cached phase grants permission.
+Keep TransportClosed and actual owner/SDK failures terminal, preserve exact
+cancellation against late replies, and test the real production wait with an
+original blocked publication rather than advancing consent clocks.
+
+
+Selected ordinary-chat requests retain a separate process-local owner after fresh
+Current/Stable indexed local-leaf/admin and protected Completed roster reads.
+A request snapshot or cached roster is never sibling consent or recipient admission.
+Preserve original monotonic expiry, exact cancellation, generation and account
+teardown fences; create no private package, fanout or transport before explicit
+sibling consent. Keep the real public ABC+A/D ownership regression and default
+Unsupported-before-effects control when extending this path.
+
+### Independent selected-chat sibling consent
+
+Selected-chat packet import creates review metadata plus a new bounded process-local consent owner; approval requires the same original owner, current revision, fixed 600-second monotonic deadline and fresh exact protected roster. Export/collection revalidate original owners and anchors before and after crypto. Reimport shares the exact public handle owner; dropping an alias must not cancel another retained alias. The last public handle, exact cancellation, expiry, account-client Drop and abandoned RPC result retire original intent. Keep the account-lifetime 128-entry receipt/tombstone bound; negative or expired imports cannot restart clocks. Collected device signatures are observations, never package/Add/Welcome/join authority.
+
+Selected-chat offer production must use the original revision-checked approved consent and fixed deadline. Register bounded Weak-owner exact cleanup before replying; lost replies, exact cancellation and last shared handle Drop retire the package without cancelling an independent alias. Reopen abandons pending packages without restoring consent. No ordinary admission/delivery claim from offer metadata.
+
+Original request offer collection retains exact approved response bytes and one
+immutable authenticated package observation per selected indexed sibling. Recheck
+the original request/ordinary/protected anchors before and after authentication;
+propagate storage errors without trying another response. Exact offer retries
+are revision-idempotent; conflicting frames never replace the prior observation.
+Offer counts and snapshots do not grant Add, Welcome publication or joining.
+
+
+Selected-chat private offers carry the intact Core leaf-signed offer plus a genuine unpublished signed30443 event in a bounded canonical private envelope. Verify event signature/account/content/reference/expected tags against the authenticated offer; retain exact wire in the original consent and verified source ID only in its original request offer slot. Register negative package cleanup before signing awaits, recheck the fixed original lease afterward, and interrupt signing on exact cancellation, expiry or abandoned reply. No directory publication or fabricated source ID. Original selected publication retains frozen Commit/Welcomes and the actual ACK report, confirms the exact pending identity before each fresh successor check, and observes ordinary send effects/projection/routes before releasing Welcomes. Do not use the native-only observer for ordinary EpochChanged. Never place selected permission/fanout into generic replay. InviteConfirmed observes source confirmation, not recipient joining/history. See the real public ABC+A/D four-leaf exact-new-message regression and its scoped qualification proof.
+
+Selected recipient expiry acceptance uses a per-fixture lifetime captured only at
+the original consent constructor under test + test-policy-overrides. Keep the
+production 600-second lifetime unchanged; never renew imported/retained owners or
+advance a global clock. The real SQL-rollback control requires original expiry,
+exact Pending-purpose/private-bundle retirement, no same-request restart, and no
+late admission after releasing the fault while other actual copies keep delivering.
+
+Selected publication cancellation acceptance must hold the actual original Commit
+or Welcome before real relay publication. Retain the same public request while
+dropping its RPC receiver to isolate lost-reply custody. Exact cancellation must
+interrupt blocked transport without waiting for it; releasing the gate must never
+publish canceled work. Before Commit confirmation retire only exact pending MLS
+work; after confirmation preserve canonical membership while preventing Welcome
+release. Independent sibling consent is not revoked by source cancellation.
+
+
+Original opt-in history actors must derive authenticated scope and source proof
+from real Core/MLS delivery, freeze whole bounded logical snapshots, and require
+explicit original recipient revision approval. Keep private controls hidden in
+both direct and replay paths; imported archives are source-attested, never live
+MLS projection or recovery authority. No row can restore a consent lease.
+Preserve exact fixed deadlines and original alias custody. Negative staging
+cleanup must survive SQL failure; committed import completion must precede
+fallible receipt publication; source expiry must be filtered before serialization.
+Test fresh-outer same-request replay, not only duplicate ciphertext, before
+claiming cancellation/restart acceptance. Current actor checkpoint explicitly
+leaves these lifecycle/privacy repairs and native presentation unqualified.
+
+History account owners retain a bounded128-entry negative transfer-ID set across
+active and retired actions. Never recycle this process-lifetime budget when an
+entry expires/cancels; a fresh authentic MLS envelope containing the same signed
+Request must not recreate consent or restart a clock. Keep the actual new-ratchet
+replay regression and unchanged normal import positive. Reopen cannot derive
+positive consent from these facts; durable restart denial remains separate.
+
+History export must evaluate persisted source retention against the captured
+source snapshot time before serializing plaintext. An expired-unpruned record
+must contribute only a zero-payload tombstone, not plaintext that a recipient
+later hides. Keep the actual frozen-archive witness and decrypted ordinary MLS
+fixture; no recipient-page absence or fake record is sufficient privacy proof.
+Expiry while publication is delayed remains a separate original-owner control.
+
+History staging maintenance must retain the exact cancelled negative entry when
+SQL cleanup fails; retire channel keys before retry and never reconstruct positive
+consent from staging rows. A committed Imported receipt updates read-only progress
+once before fallible wire sealing. Exact cancellation still prevents publication,
+and completed staging must not be denied as unfinished work. Keep both actual
+SQL-boundary cancellation controls and normal multi-fragment import regression.
+
+History publication must interrupt the actual adapter future on original
+revocation, unchanged deadline or abandoned continuation reply. Register the
+Notify waiter before the live check; cancellation must win a ready transport
+branch. Keep the public owner alive in lost-reply controls, resume the worker
+before releasing the gate, and verify no late recipient chunk/import.
+
+History publisher runtime shutdown must observe the existing lifecycle watch
+while actual transport waits; forced account-worker abort is not responsive
+original-owner retirement. Reopened clients inherit only that terminal negative
+observation. Test expiry with a source-only lifetime consumed at original
+construction under test-policy-overrides; never modify an existing deadline or
+production600-second lifetime. Preserve real gate-release/no-late-chunk controls.
+
+History recipient intake must authenticate the actual received MLS source and exact
+addressed Core request before the private15 negative observation transaction. Never
+construct a new owner for an already-observed request after restart, and never
+restore consent, keys or deadlines from these rows. Only the fresh authenticated
+call can create its original process owner. Retain the genuine encrypted reopen
+control using a new outer MLS frame from the unchanged original source, plus the
+distinct fresh request acceptance control. Capacity is cumulative128 and fails
+closed; this experimental fence is not an unbounded sync journal.
+
+One-group device revocation begins as an opaque original administrator review in `device_revocation`, with serial child RPC/client modules. Target device bytes are a selector only. Keep exact originating account/client identity, fixed original600-second deadline, fresh Core full-tree/epoch/generation checks, cancel/Drop/abandoned-reply retirement and one active original. Snapshot success is not removal, publication, protected-roster revocation or a per-group completion result.
+
+The original one-group revocation review now supports approve(displayed revision), real direct relay ACK, ordinary confirmation and actual sender projection. Account owner retains one exact negative pending identity across cancellation/drop; rows never recreate the action. Qualified actual A/B/C/D regression removes C only and verifies A/B/D messages plus C realized-eviction refusal. Blocked-publication/lost-reply/expiry/reopen controls and full protected/multigroup revocation remain pending; see docs/device-sync-exact-device-leaf-removal-verification.json.
+
+
+### Exact-device captured-scope removal checkpoint
+
+DeviceRevocation retains one original fixed deadline across captured groups, with exact current pending negative cleanup. Completed-group snapshots observe local confirmed commits. Actual protected ABC and two ordinary ABCD removals, peer convergence and survivor messages are qualified; wider lifecycle and native acceptance remain separate.
+
+### Protected Remove successor publication
+
+The actor dispatches only its original in-memory Revoked settlement control through the private publisher, under the same fixed source/receipt deadline; retained SQL facts never construct a control. Actual protected ABC→AB and fresh A→B approved history import pass, while removed C and pre-restart retained Remove permission are refused. Generic received storage failures can still reopen this owner; qualifying same-client transient retry is a separate required follow-up. Existing SDK/native outputs are unchanged by this focused checkpoint.
+
+Typed received Remove storage rollback now retains the same client only when Core observes its exact live receipt and captured intent plus actual unresolved input and Completed predecessor. Schedule retained canonical convergence; never reopen and rebuild positive consent from SQL. The unchanged retry reaches fresh explicit survivor history import; retained encrypted-reopen replay stays negative. Other successor lifecycle/native boundaries remain separate.
+
+### Original pairing-wide sharing approval
+
+Capture explicit sharing intent before taking the genuine verified SDK original. Persist only under its unchanged deadline, matching SDK context and fresh Completed settlement guard, with validation before and at the SQL transaction tail. Public EnrollmentComplete must synchronously finish the durable handoff before an app can close the original. Ordinary continuation and new third-device enrollment cannot create implicit broad policy.
+
+### Existing-pair broad approval originals
+
+`account_chat_sharing` owns the fresh source/recipient action; the worker and client children retain actual Core channels. Authenticate the real protected source proof before constructing recipient review. Bind immutable metadata, fixed600-second original and displayedrevision; do not manufacture approval from stored policy or old SDK context. Durable writes validate the same channel before/tail SQL. Observe private controls identically on direct/replay paths, and keep them hidden from ordinary projection. Retain process-lifetime negative request IDs at the128-owner bound; this checkpoint does not claim restart denial or automatic channel renewal.
+
+Automatic record validation uses Core's exact current chat-source lookup.
+The discovery cursor only schedules scans; another chat appearing before an
+in-flight source must not make that source unavailable. Retain all original,
+Completed roster, privacy, membership and retention checks.
+
+Source-qualified automatic chat presentation lives in
+`account_chat_presentation.rs`, `client/account_chat_sharing/presentation.rs`, and
+`runtime/account_chat_{presentation,windows}.rs` /
+`runtime/account_conversation_windows.rs`. Accept cursors, never caller approval
+scopes. Keep current-policy/Completed checks before and at the worker read tail,
+explicit LocalMls/PairedSource headers, total SQL bounds, ordinary precedence,
+canonical event chronology, unsupported-kind placeholders and ordered media
+outcomes without download authority. Subscribe to wake/reset/shutdown before
+initial reads; exact sequence and owner cancellation fence later replies. Mirror
+wakes follow SQL commit only; protected lifecycle wakes remain observations in
+the hidden-event path. Expired payloads refresh immediately, hidden rows do not
+spin, failed reads retry at a bounded interval. List metadata rows are not another
+visible lane. Keep real fixture tests separate from synthetic storage/scheduling
+controls; native/Records/send integration is not proved by catalog-only success.
+The `src/runtime/` and `src/relay_plane/` unit suites and the `tests/` integration binaries drive whole runtimes and run
+on `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]`, the flavor every production binding uses. Use
+`flavor = "current_thread"` only for a paused clock or an interleaving that needs one thread, with a `//` comment on the
+line above saying why; a bare `#[tokio::test]` there, or an unexplained pin, fails
+`runtime_suites_choose_their_tokio_flavor`. When a multi-thread test waits for an effect, wait for the state it expects
+rather than the next event: other tasks run between your steps, and window subscriptions keep only the latest snapshot.
+`Notify::notify_waiters` reaches only waiters already registered, so a fixture signal either uses `notify_one`'s permit
+or the waiter `enable()`s its `notified()` before announcing it waits.
 Async tests in `src/` and `tests/` default to `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]`, the flavor
 every production binding uses; a test that needs more workers sets its own `worker_threads`. Composed whole-app
 `#[test]`s run through `run_composed_app_runtime_test`, which builds the same two-worker runtime with every thread on an

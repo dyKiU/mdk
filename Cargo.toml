@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-exclude = ["vendor/hpke-rs-libcrux"]
+exclude = [
+    "vendor/openmls-retained-own",
+    "vendor/hpke-rs-libcrux",
+]
 members = [
     "crates/fs-private",
     "crates/media-store",
@@ -45,15 +48,14 @@ publish = false
 [workspace.dependencies]
 # Offline audit-schema validation; never enable remote reference resolution.
 jsonschema = { version = "0.56.0", default-features = false }
-# OpenMLS family — exact-pinned to the draft-10 last-resort KeyPackage fix.
-# Keep every companion crate on the same repository commit to prevent source skew.
-# Migration: once an upstream OpenMLS release contains this fix, replace all five
-# git entries together with one matching upstream release series and remove the fork pin.
-openmls = { git = "https://github.com/erskingardner/openmls.git", rev = "59e7d3b27a7e95237879dd5478de1fd90eff7ada", features = ["extensions-draft"] }
-openmls_basic_credential = { git = "https://github.com/erskingardner/openmls.git", rev = "59e7d3b27a7e95237879dd5478de1fd90eff7ada" }
-openmls_memory_storage = { git = "https://github.com/erskingardner/openmls.git", rev = "59e7d3b27a7e95237879dd5478de1fd90eff7ada", features = ["extensions-draft"] }
-openmls_rust_crypto = { git = "https://github.com/erskingardner/openmls.git", rev = "59e7d3b27a7e95237879dd5478de1fd90eff7ada" }
-openmls_traits = { git = "https://github.com/erskingardner/openmls.git", rev = "59e7d3b27a7e95237879dd5478de1fd90eff7ada", features = ["extensions-draft"] }
+# Reviewed local OpenMLS986 family, vendored as exact source for portable builds.
+# No remote fork publication is implied. Provenance and replacement requirements:
+# docs/device-sync-delivery.md; vendor/openmls-retained-own-source.json.
+openmls = { path = "vendor/openmls-retained-own/openmls", features = ["extensions-draft"] }
+openmls_basic_credential = { path = "vendor/openmls-retained-own/basic_credential" }
+openmls_memory_storage = { path = "vendor/openmls-retained-own/memory_storage", features = ["extensions-draft"] }
+openmls_rust_crypto = { path = "vendor/openmls-retained-own/openmls_rust_crypto" }
+openmls_traits = { path = "vendor/openmls-retained-own/traits", features = ["extensions-draft"] }
 tls_codec = "~0.5"
 
 # async
@@ -115,7 +117,7 @@ zeroize = "1"
 keyring-core = "1"
 quinn = { version = "0.11", default-features = false, features = ["log", "runtime-tokio", "rustls-ring"] }
 rcgen = "0.14"
-rustls = { version = "0.23.45", default-features = false, features = ["ring", "std"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
 # Bundled Mozilla roots for the QUIC preview transports' default trust: the
 # same anchors relay WebSockets and HTTP use (via tokio-tungstenite/reqwest).
 # The OS verifier needs JNI setup on Android that MarmotKit hosts never run.

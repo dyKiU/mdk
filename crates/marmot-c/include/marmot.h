@@ -227,6 +227,44 @@ enum MarmotStatus
    * MDK reads from one list; a follow or unfollow published nothing.
    */
   MARMOT_STATUS_FOLLOW_LIST_TOO_LARGE = 107,
+  MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED = 121,
+  MARMOT_STATUS_DEVICE_LINKING_CLOSED = 122,
+  MARMOT_STATUS_DEVICE_LINKING_INVALID_PACKET = 123,
+  MARMOT_STATUS_DEVICE_LINKING_NOT_READY = 124,
+  MARMOT_STATUS_DEVICE_LINKING_STALE_REVISION = 125,
+  MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE = 126,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED = 127,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_NOT_READY = 128,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_INVALID_SELECTION = 129,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED_GROUP = 130,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_NOT_ADMIN = 131,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_BUSY = 132,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_RUNTIME_UNAVAILABLE = 133,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_INVALID_PACKET = 134,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_STALE_REVISION = 135,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_CLOSED = 136,
+  MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED = 137,
+  MARMOT_STATUS_HISTORY_TRANSFER_NOT_READY = 138,
+  MARMOT_STATUS_HISTORY_TRANSFER_CLOSED = 139,
+  MARMOT_STATUS_HISTORY_TRANSFER_STALE_REVISION = 140,
+  MARMOT_STATUS_HISTORY_TRANSFER_RUNTIME_UNAVAILABLE = 141,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_UNSUPPORTED = 142,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_INVALID_QUERY = 143,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_UNAVAILABLE = 144,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_INVALID_RECORD = 145,
+  MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED = 146,
+  MARMOT_STATUS_ACCOUNT_SHARING_NOT_READY = 147,
+  MARMOT_STATUS_ACCOUNT_SHARING_CLOSED = 148,
+  MARMOT_STATUS_ACCOUNT_SHARING_STALE_REVISION = 149,
+  MARMOT_STATUS_ACCOUNT_SHARING_RUNTIME_UNAVAILABLE = 150,
+  MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED = 151,
+  MARMOT_STATUS_DEVICE_REVOCATION_NOT_READY = 152,
+  MARMOT_STATUS_DEVICE_REVOCATION_CLOSED = 153,
+  MARMOT_STATUS_DEVICE_REVOCATION_INVALID_SELECTION = 154,
+  MARMOT_STATUS_DEVICE_REVOCATION_BUSY = 155,
+  MARMOT_STATUS_DEVICE_REVOCATION_STALE_REVISION = 156,
+  MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE = 157,
+  MARMOT_STATUS_ACCOUNT_CHAT_DEPARTURE_DENIED = 158,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -276,6 +314,77 @@ typedef enum MarmotMediaAttachmentRejectionKind {
    */
   MARMOT_MEDIA_ATTACHMENT_REJECTION_KIND_MALFORMED_FIELD,
 } MarmotMediaAttachmentRejectionKind;
+
+/**
+ * Safety classification of a link/image/autolink destination.
+ */
+typedef enum MarmotMarkdownLinkDestinationKind {
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_WEB,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_CONTACT,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_APP,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_NOSTR,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_RELATIVE,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_UNKNOWN,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_DANGEROUS,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_SENSITIVE,
+} MarmotMarkdownLinkDestinationKind;
+
+/**
+ * Autolink flavor.
+ */
+typedef enum MarmotMarkdownAutolinkKind {
+  MARMOT_MARKDOWN_AUTOLINK_KIND_URI,
+  MARMOT_MARKDOWN_AUTOLINK_KIND_EMAIL,
+  /**
+   * Bare `www.` host/path text. Hosts synthesize `https://`.
+   */
+  MARMOT_MARKDOWN_AUTOLINK_KIND_WWW,
+} MarmotMarkdownAutolinkKind;
+
+/**
+ * Bech32 human-readable prefix of a Nostr entity.
+ */
+typedef enum MarmotMarkdownNostrHrp {
+  MARMOT_MARKDOWN_NOSTR_HRP_NPUB,
+  MARMOT_MARKDOWN_NOSTR_HRP_NOTE,
+  MARMOT_MARKDOWN_NOSTR_HRP_NEVENT,
+  MARMOT_MARKDOWN_NOSTR_HRP_NPROFILE,
+  MARMOT_MARKDOWN_NOSTR_HRP_NADDR,
+  MARMOT_MARKDOWN_NOSTR_HRP_NRELAY,
+} MarmotMarkdownNostrHrp;
+
+/**
+ * Timestamp presentation style; hosts format using the device locale and time zone.
+ */
+typedef enum MarmotMarkdownTimestampStyle {
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME_SECONDS,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_RELATIVE,
+} MarmotMarkdownTimestampStyle;
+
+/**
+ * How a fenced/indented code block was written.
+ */
+typedef enum MarmotMarkdownCodeBlockKind {
+  MARMOT_MARKDOWN_CODE_BLOCK_KIND_INDENTED,
+  MARMOT_MARKDOWN_CODE_BLOCK_KIND_FENCED,
+} MarmotMarkdownCodeBlockKind;
+
+/**
+ * Table column alignment.
+ */
+typedef enum MarmotMarkdownAlignment {
+  MARMOT_MARKDOWN_ALIGNMENT_NONE,
+  MARMOT_MARKDOWN_ALIGNMENT_LEFT,
+  MARMOT_MARKDOWN_ALIGNMENT_CENTER,
+  MARMOT_MARKDOWN_ALIGNMENT_RIGHT,
+} MarmotMarkdownAlignment;
 
 /**
  * Where moving legacy attachment bodies into the media store stands.
@@ -512,6 +621,22 @@ typedef enum MarmotSendMaintenanceDisposition {
   MARMOT_SEND_MAINTENANCE_DISPOSITION_POST_JOIN_ROTATION_PENDING_RETRYABLE,
 } MarmotSendMaintenanceDisposition;
 
+typedef enum MarmotAccountChatDepartureStatus {
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_AVAILABLE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_PENDING,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_NEEDS_ADMINISTRATOR,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_COMPLETED,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_UNAVAILABLE,
+} MarmotAccountChatDepartureStatus;
+
+typedef enum MarmotAccountChatDepartureReason {
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_NONE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_AWAITING_SOURCES,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_AWAITING_ADMINISTRATOR,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_SHARING_UNAVAILABLE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_NO_ACCEPTED_CHAT,
+} MarmotAccountChatDepartureReason;
+
 /**
  * Why recovery parked. Current policy parks only the first five;
  * `KnownEvent` and `MaintenanceBoundary` are reserved.
@@ -599,77 +724,6 @@ typedef enum MarmotGroupSystemEventProvenance {
   MARMOT_GROUP_SYSTEM_EVENT_PROVENANCE_AUTHENTICATED_GROUP_STATE,
   MARMOT_GROUP_SYSTEM_EVENT_PROVENANCE_MEMBER_AUTHORED,
 } MarmotGroupSystemEventProvenance;
-
-/**
- * Safety classification of a link/image/autolink destination.
- */
-typedef enum MarmotMarkdownLinkDestinationKind {
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_WEB,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_CONTACT,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_APP,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_NOSTR,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_RELATIVE,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_UNKNOWN,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_DANGEROUS,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_SENSITIVE,
-} MarmotMarkdownLinkDestinationKind;
-
-/**
- * Autolink flavor.
- */
-typedef enum MarmotMarkdownAutolinkKind {
-  MARMOT_MARKDOWN_AUTOLINK_KIND_URI,
-  MARMOT_MARKDOWN_AUTOLINK_KIND_EMAIL,
-  /**
-   * Bare `www.` host/path text. Hosts synthesize `https://`.
-   */
-  MARMOT_MARKDOWN_AUTOLINK_KIND_WWW,
-} MarmotMarkdownAutolinkKind;
-
-/**
- * Bech32 human-readable prefix of a Nostr entity.
- */
-typedef enum MarmotMarkdownNostrHrp {
-  MARMOT_MARKDOWN_NOSTR_HRP_NPUB,
-  MARMOT_MARKDOWN_NOSTR_HRP_NOTE,
-  MARMOT_MARKDOWN_NOSTR_HRP_NEVENT,
-  MARMOT_MARKDOWN_NOSTR_HRP_NPROFILE,
-  MARMOT_MARKDOWN_NOSTR_HRP_NADDR,
-  MARMOT_MARKDOWN_NOSTR_HRP_NRELAY,
-} MarmotMarkdownNostrHrp;
-
-/**
- * Timestamp presentation style; hosts format using the device locale and time zone.
- */
-typedef enum MarmotMarkdownTimestampStyle {
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME_SECONDS,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_RELATIVE,
-} MarmotMarkdownTimestampStyle;
-
-/**
- * How a fenced/indented code block was written.
- */
-typedef enum MarmotMarkdownCodeBlockKind {
-  MARMOT_MARKDOWN_CODE_BLOCK_KIND_INDENTED,
-  MARMOT_MARKDOWN_CODE_BLOCK_KIND_FENCED,
-} MarmotMarkdownCodeBlockKind;
-
-/**
- * Table column alignment.
- */
-typedef enum MarmotMarkdownAlignment {
-  MARMOT_MARKDOWN_ALIGNMENT_NONE,
-  MARMOT_MARKDOWN_ALIGNMENT_LEFT,
-  MARMOT_MARKDOWN_ALIGNMENT_CENTER,
-  MARMOT_MARKDOWN_ALIGNMENT_RIGHT,
-} MarmotMarkdownAlignment;
 
 /**
  * Accepted deletion origin; meaningful only for deleted rows.
@@ -965,6 +1019,43 @@ typedef enum MarmotNativeStartupOutcome {
   MARMOT_NATIVE_STARTUP_OUTCOME_FAILURE,
   MARMOT_NATIVE_STARTUP_OUTCOME_ABANDONED,
 } MarmotNativeStartupOutcome;
+
+typedef enum MarmotDeviceLinkingPhase {
+  MARMOT_DEVICE_LINKING_PHASE_AWAITING_SETUP,
+  MARMOT_DEVICE_LINKING_PHASE_AWAITING_PEER,
+  MARMOT_DEVICE_LINKING_PHASE_COMPARISON_AVAILABLE,
+  MARMOT_DEVICE_LINKING_PHASE_AWAITING_PEER_VERIFICATION,
+  MARMOT_DEVICE_LINKING_PHASE_VERIFICATION_COMPLETE_ENROLLMENT_PENDING,
+  MARMOT_DEVICE_LINKING_PHASE_CANCELLED,
+  MARMOT_DEVICE_LINKING_PHASE_EXPIRED,
+  MARMOT_DEVICE_LINKING_PHASE_FAILED,
+  MARMOT_DEVICE_LINKING_PHASE_ENROLLMENT_COMPLETE,
+} MarmotDeviceLinkingPhase;
+
+typedef enum MarmotDeviceLinkingApprovalPhase {
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_AWAITING_APPROVAL,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_APPROVED_AWAITING_PACKET,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_AWAITING_SETTLEMENT,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_SETTLED,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_CANCELLED,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_EXPIRED,
+} MarmotDeviceLinkingApprovalPhase;
+
+typedef enum MarmotSelectedChatCopyPhase {
+  MARMOT_SELECTED_CHAT_COPY_PHASE_AWAITING_SIBLING_CONSENT,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_CANCELLED,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_EXPIRED,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_CLOSED,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_INVITE_CONFIRMED,
+} MarmotSelectedChatCopyPhase;
+
+typedef enum MarmotSelectedChatConsentPhase {
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_AWAITING_APPROVAL,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_APPROVED,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_CANCELLED,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_EXPIRED,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_CLOSED,
+} MarmotSelectedChatConsentPhase;
 
 /**
  * Why a timeline delta fired.
@@ -1314,6 +1405,18 @@ typedef struct MarmotAccountAttachmentVersion MarmotAccountAttachmentVersion;
 typedef struct MarmotAccountAttentionSubscription MarmotAccountAttentionSubscription;
 
 /**
+ * Free before its client; commands may run during next, never free during a call.
+ */
+typedef struct MarmotAccountChatListWindowSubscription MarmotAccountChatListWindowSubscription;
+
+/**
+ * Free before its client; commands may run during next, never free during a call.
+ */
+typedef struct MarmotAccountConversationWindowSubscription MarmotAccountConversationWindowSubscription;
+
+typedef struct MarmotAccountSharingApproval MarmotAccountSharingApproval;
+
+/**
  * Single live stream. Free before its creating `MarmotClient`; never free
  * concurrently with an in-flight call on this handle.
  */
@@ -1389,6 +1492,23 @@ typedef struct MarmotConversationWindowSubscription MarmotConversationWindowSubs
 typedef struct MarmotDeployment MarmotDeployment;
 
 /**
+ * An opaque original existing-device action. Clone to retain a list-borrowed handle.
+ */
+typedef struct MarmotDeviceLinkingApproval MarmotDeviceLinkingApproval;
+
+/**
+ * Concurrent methods are supported; never free while a call is active.
+ */
+typedef struct MarmotDeviceLinkingSession MarmotDeviceLinkingSession;
+
+/**
+ * Independent closeable observation stream; free before its client.
+ */
+typedef struct MarmotDeviceLinkingSubscription MarmotDeviceLinkingSubscription;
+
+typedef struct MarmotDeviceRevocation MarmotDeviceRevocation;
+
+/**
  * Opaque handle to the top-level event firehose: one subscription,
  * every account, every event type. Broadcast lag is skipped
  * silently — catch back up via the per-account subscriptions.
@@ -1400,6 +1520,10 @@ typedef struct MarmotEventsSubscription MarmotEventsSubscription;
  * then the full record after each member/profile/roster change.
  */
 typedef struct MarmotGroupStateSubscription MarmotGroupStateSubscription;
+
+typedef struct MarmotHistoryConsent MarmotHistoryConsent;
+
+typedef struct MarmotHistoryTransfer MarmotHistoryTransfer;
 
 /**
  * One operation's control. Query/cancel concurrently; never free during any call on the handle.
@@ -1444,6 +1568,16 @@ typedef struct MarmotPresentedChatListSubscription MarmotPresentedChatListSubscr
  * Where the next page of attachments starts. Borrowed from its page.
  */
 typedef struct MarmotRetainedAttachmentsCursor MarmotRetainedAttachmentsCursor;
+
+/**
+ * Clones share one original consent action; release all handles before their client.
+ */
+typedef struct MarmotSelectedChatConsent MarmotSelectedChatConsent;
+
+/**
+ * Concurrent methods are supported; free only when no call uses this handle.
+ */
+typedef struct MarmotSelectedChatCopy MarmotSelectedChatCopy;
 
 /**
  * Opaque handle to one conversation's materialized timeline window.
@@ -1700,6 +1834,415 @@ typedef struct MarmotAccountAttachmentQuery {
   uint8_t has_max_timeline_at;
   uint64_t max_timeline_at;
 } MarmotAccountAttachmentQuery;
+
+typedef struct MarmotPairedChatSource {
+  char *device_hex;
+  char *policy_digest_hex;
+  uint64_t protected_generation;
+  uint64_t source_epoch;
+  uint64_t source_sequence;
+  char *source_digest_hex;
+} MarmotPairedChatSource;
+
+/**
+ * One referenced Nostr entity.
+ */
+typedef struct MarmotMarkdownNostrEntity {
+  enum MarmotMarkdownNostrHrp hrp;
+  char *bech32;
+} MarmotMarkdownNostrEntity;
+
+/**
+ * One inline Markdown node. Child arrays are owned by the parent; free
+ * only the document root.
+ */
+typedef enum MarmotMarkdownInline_Tag {
+  MARMOT_MARKDOWN_INLINE_TEXT,
+  MARMOT_MARKDOWN_INLINE_SOFT_BREAK,
+  MARMOT_MARKDOWN_INLINE_HARD_BREAK,
+  MARMOT_MARKDOWN_INLINE_CODE,
+  MARMOT_MARKDOWN_INLINE_EMPH,
+  MARMOT_MARKDOWN_INLINE_STRONG,
+  MARMOT_MARKDOWN_INLINE_STRIKETHROUGH,
+  MARMOT_MARKDOWN_INLINE_LINK,
+  MARMOT_MARKDOWN_INLINE_IMAGE,
+  MARMOT_MARKDOWN_INLINE_AUTOLINK,
+  MARMOT_MARKDOWN_INLINE_MATH,
+  MARMOT_MARKDOWN_INLINE_NOSTR_MENTION,
+  MARMOT_MARKDOWN_INLINE_NOSTR_URI,
+  /**
+   * Signed Unix seconds and presentation style, without an allocated label.
+   */
+  MARMOT_MARKDOWN_INLINE_TIMESTAMP,
+} MarmotMarkdownInline_Tag;
+
+typedef struct MarmotMarkdownInline_Text_Body {
+  char *content;
+} MarmotMarkdownInline_Text_Body;
+
+typedef struct MarmotMarkdownInline_Code_Body {
+  char *content;
+} MarmotMarkdownInline_Code_Body;
+
+typedef struct MarmotMarkdownInline_Emph_Body {
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+} MarmotMarkdownInline_Emph_Body;
+
+typedef struct MarmotMarkdownInline_Strong_Body {
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+} MarmotMarkdownInline_Strong_Body;
+
+typedef struct MarmotMarkdownInline_Strikethrough_Body {
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+} MarmotMarkdownInline_Strikethrough_Body;
+
+typedef struct MarmotMarkdownInline_Link_Body {
+  char *dest;
+  /**
+   * Nullable.
+   */
+  char *title;
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+  enum MarmotMarkdownLinkDestinationKind classification;
+} MarmotMarkdownInline_Link_Body;
+
+typedef struct MarmotMarkdownInline_Image_Body {
+  char *dest;
+  /**
+   * Nullable.
+   */
+  char *title;
+  struct MarmotMarkdownInline *alt;
+  uintptr_t alt_len;
+  enum MarmotMarkdownLinkDestinationKind classification;
+} MarmotMarkdownInline_Image_Body;
+
+typedef struct MarmotMarkdownInline_Autolink_Body {
+  char *url;
+  enum MarmotMarkdownAutolinkKind kind;
+  enum MarmotMarkdownLinkDestinationKind classification;
+} MarmotMarkdownInline_Autolink_Body;
+
+typedef struct MarmotMarkdownInline_Math_Body {
+  char *content;
+} MarmotMarkdownInline_Math_Body;
+
+typedef struct MarmotMarkdownInline_NostrMention_Body {
+  struct MarmotMarkdownNostrEntity entity;
+} MarmotMarkdownInline_NostrMention_Body;
+
+typedef struct MarmotMarkdownInline_NostrUri_Body {
+  struct MarmotMarkdownNostrEntity entity;
+} MarmotMarkdownInline_NostrUri_Body;
+
+typedef struct MarmotMarkdownInline_Timestamp_Body {
+  int64_t unix_seconds;
+  enum MarmotMarkdownTimestampStyle style;
+} MarmotMarkdownInline_Timestamp_Body;
+
+typedef struct MarmotMarkdownInline {
+  MarmotMarkdownInline_Tag tag;
+  union {
+    MarmotMarkdownInline_Text_Body TEXT;
+    MarmotMarkdownInline_Code_Body CODE;
+    MarmotMarkdownInline_Emph_Body EMPH;
+    MarmotMarkdownInline_Strong_Body STRONG;
+    MarmotMarkdownInline_Strikethrough_Body STRIKETHROUGH;
+    MarmotMarkdownInline_Link_Body LINK;
+    MarmotMarkdownInline_Image_Body IMAGE;
+    MarmotMarkdownInline_Autolink_Body AUTOLINK;
+    MarmotMarkdownInline_Math_Body MATH;
+    MarmotMarkdownInline_NostrMention_Body NOSTR_MENTION;
+    MarmotMarkdownInline_NostrUri_Body NOSTR_URI;
+    MarmotMarkdownInline_Timestamp_Body TIMESTAMP;
+  };
+} MarmotMarkdownInline;
+
+/**
+ * List flavor (bullet vs ordered).
+ */
+typedef enum MarmotMarkdownListKind_Tag {
+  /**
+   * `marker` is a single-character string: "-", "*", or "+".
+   */
+  MARMOT_MARKDOWN_LIST_KIND_BULLET,
+  /**
+   * `delimiter` is a single-character string: "." or ")".
+   */
+  MARMOT_MARKDOWN_LIST_KIND_ORDERED,
+} MarmotMarkdownListKind_Tag;
+
+typedef struct MarmotMarkdownListKind_Bullet_Body {
+  char *marker;
+} MarmotMarkdownListKind_Bullet_Body;
+
+typedef struct MarmotMarkdownListKind_Ordered_Body {
+  uint32_t start;
+  char *delimiter;
+} MarmotMarkdownListKind_Ordered_Body;
+
+typedef struct MarmotMarkdownListKind {
+  MarmotMarkdownListKind_Tag tag;
+  union {
+    MarmotMarkdownListKind_Bullet_Body BULLET;
+    MarmotMarkdownListKind_Ordered_Body ORDERED;
+  };
+} MarmotMarkdownListKind;
+
+/**
+ * One list item: nested blocks plus an optional task-list checkbox.
+ */
+typedef struct MarmotMarkdownListItem {
+  struct MarmotMarkdownBlock *blocks;
+  uintptr_t blocks_len;
+  /**
+   * Task-list state: unset for plain items.
+   */
+  bool has_checked;
+  bool checked;
+  /**
+   * Blank source lines before each corresponding child block.
+   */
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownListItem;
+
+/**
+ * One table cell.
+ */
+typedef struct MarmotMarkdownTableCell {
+  struct MarmotMarkdownInline *inlines;
+  uintptr_t inlines_len;
+} MarmotMarkdownTableCell;
+
+/**
+ * One table body row.
+ */
+typedef struct MarmotMarkdownTableRow {
+  struct MarmotMarkdownTableCell *cells;
+  uintptr_t cells_len;
+} MarmotMarkdownTableRow;
+
+/**
+ * Owned payload for [`MarmotMarkdownBlock::Details`]. Indirection keeps the
+ * existing tagged-union size and discriminants unchanged.
+ */
+typedef struct MarmotMarkdownDetails {
+  struct MarmotMarkdownInline *summary;
+  uintptr_t summary_len;
+  bool open;
+  struct MarmotMarkdownBlock *body;
+  uintptr_t body_len;
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownDetails;
+
+/**
+ * One block-level Markdown node.
+ */
+typedef enum MarmotMarkdownBlock_Tag {
+  MARMOT_MARKDOWN_BLOCK_PARAGRAPH,
+  MARMOT_MARKDOWN_BLOCK_HEADING,
+  MARMOT_MARKDOWN_BLOCK_THEMATIC_BREAK,
+  MARMOT_MARKDOWN_BLOCK_CODE_BLOCK,
+  MARMOT_MARKDOWN_BLOCK_BLOCK_QUOTE,
+  MARMOT_MARKDOWN_BLOCK_LIST_BLOCK,
+  MARMOT_MARKDOWN_BLOCK_TABLE,
+  MARMOT_MARKDOWN_BLOCK_MATH_BLOCK,
+  MARMOT_MARKDOWN_BLOCK_DETAILS,
+} MarmotMarkdownBlock_Tag;
+
+typedef struct MarmotMarkdownBlock_Paragraph_Body {
+  struct MarmotMarkdownInline *inlines;
+  uintptr_t inlines_len;
+} MarmotMarkdownBlock_Paragraph_Body;
+
+typedef struct MarmotMarkdownBlock_Heading_Body {
+  uint8_t level;
+  struct MarmotMarkdownInline *inlines;
+  uintptr_t inlines_len;
+} MarmotMarkdownBlock_Heading_Body;
+
+typedef struct MarmotMarkdownBlock_CodeBlock_Body {
+  enum MarmotMarkdownCodeBlockKind kind;
+  char *info;
+  char *content;
+} MarmotMarkdownBlock_CodeBlock_Body;
+
+typedef struct MarmotMarkdownBlock_BlockQuote_Body {
+  struct MarmotMarkdownBlock *blocks;
+  uintptr_t blocks_len;
+  /**
+   * Blank source lines before each corresponding child block.
+   */
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownBlock_BlockQuote_Body;
+
+typedef struct MarmotMarkdownBlock_ListBlock_Body {
+  struct MarmotMarkdownListKind kind;
+  bool tight;
+  struct MarmotMarkdownListItem *items;
+  uintptr_t items_len;
+} MarmotMarkdownBlock_ListBlock_Body;
+
+typedef struct MarmotMarkdownBlock_Table_Body {
+  enum MarmotMarkdownAlignment *alignments;
+  uintptr_t alignments_len;
+  struct MarmotMarkdownTableCell *header;
+  uintptr_t header_len;
+  struct MarmotMarkdownTableRow *rows;
+  uintptr_t rows_len;
+} MarmotMarkdownBlock_Table_Body;
+
+typedef struct MarmotMarkdownBlock_MathBlock_Body {
+  char *content;
+} MarmotMarkdownBlock_MathBlock_Body;
+
+typedef struct MarmotMarkdownBlock_Details_Body {
+  struct MarmotMarkdownDetails *details;
+} MarmotMarkdownBlock_Details_Body;
+
+typedef struct MarmotMarkdownBlock {
+  MarmotMarkdownBlock_Tag tag;
+  union {
+    MarmotMarkdownBlock_Paragraph_Body PARAGRAPH;
+    MarmotMarkdownBlock_Heading_Body HEADING;
+    MarmotMarkdownBlock_CodeBlock_Body CODE_BLOCK;
+    MarmotMarkdownBlock_BlockQuote_Body BLOCK_QUOTE;
+    MarmotMarkdownBlock_ListBlock_Body LIST_BLOCK;
+    MarmotMarkdownBlock_Table_Body TABLE;
+    MarmotMarkdownBlock_MathBlock_Body MATH_BLOCK;
+    MarmotMarkdownBlock_Details_Body DETAILS;
+  };
+} MarmotMarkdownBlock;
+
+/**
+ * A parsed Markdown display document.
+ */
+typedef struct MarmotMarkdownDocument {
+  struct MarmotMarkdownBlock *blocks;
+  uintptr_t blocks_len;
+  /**
+   * True when the input exceeded the FFI Markdown safety cap and
+   * `blocks` were parsed from a UTF-8-boundary prefix.
+   */
+  bool truncated;
+  /**
+   * Blank source lines before each corresponding block.
+   */
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownDocument;
+
+/**
+ * One Nostr tag of the inner Marmot app event, as its string values.
+ */
+typedef struct MarmotMessageTag {
+  char **values;
+  uintptr_t values_len;
+} MarmotMessageTag;
+
+/**
+ * Compact accepted-edit metadata on an effective timeline row.
+ */
+typedef struct MarmotTimelineEditSummary {
+  uint64_t edit_count;
+  char *latest_edit_message_id_hex;
+  uint64_t edited_at;
+} MarmotTimelineEditSummary;
+
+typedef struct MarmotPairedChatMessage {
+  uint16_t kind;
+  bool canonical_chat;
+  char *message_id_hex;
+  char *author_hex;
+  uint64_t created_at;
+  bool has_expires_at;
+  /**
+   *Only meaningful when the matching `has_` flag is set.
+   */
+  uint64_t expires_at;
+  bool deleted;
+  char *content;
+  struct MarmotMarkdownDocument content_tokens;
+  struct MarmotMessageTag *tags;
+  uintptr_t tags_len;
+  struct MarmotMediaAttachmentOutcome *media_attachments;
+  uintptr_t media_attachments_len;
+  struct MarmotPairedChatSource source;
+  struct MarmotTimelineEditSummary *edit;
+} MarmotPairedChatMessage;
+
+typedef struct MarmotPairedChatSummary {
+  char *group_id_hex;
+  char *name;
+  char *description;
+  struct MarmotPairedChatSource source;
+  char *direct_peer_account_id_hex;
+  struct MarmotPairedChatMessage *latest_message;
+} MarmotPairedChatSummary;
+
+typedef struct MarmotPairedChatListPage {
+  struct MarmotPairedChatSummary *chats;
+  uintptr_t chats_len;
+  char *next_group_id_hex;
+} MarmotPairedChatListPage;
+
+typedef struct MarmotPairedChatMessageCursor {
+  uint64_t created_at;
+  char *message_id_hex;
+} MarmotPairedChatMessageCursor;
+
+typedef struct MarmotPairedChatMessagePage {
+  struct MarmotPairedChatMessage *messages;
+  uintptr_t messages_len;
+  struct MarmotPairedChatMessageCursor *next;
+} MarmotPairedChatMessagePage;
+
+typedef struct MarmotAccountSharingTarget {
+  uint32_t leaf_index;
+  uint8_t *device;
+  uintptr_t device_len;
+} MarmotAccountSharingTarget;
+
+typedef struct MarmotAccountSharingTargets {
+  char *protected_group_id_hex;
+  uint64_t protected_epoch;
+  struct MarmotAccountSharingTarget *targets;
+  uintptr_t targets_len;
+} MarmotAccountSharingTargets;
+
+/**
+ * Entry owned by its returned list. Clone the handle before freeing that list.
+ */
+typedef struct MarmotAccountSharingApprovalEntry {
+  struct MarmotAccountSharingApproval *handle;
+} MarmotAccountSharingApprovalEntry;
+
+/**
+ * Deep-owned aliases; releasing the last alias cancels unfinished originals.
+ */
+typedef struct MarmotAccountSharingApprovalList {
+  struct MarmotAccountSharingApprovalEntry *items;
+  uintptr_t items_len;
+} MarmotAccountSharingApprovalList;
+
+typedef struct MarmotAccountSharingSnapshot {
+  char *protected_group_id_hex;
+  uint64_t protected_epoch;
+  uint8_t *source_device;
+  uintptr_t source_device_len;
+  uint8_t *recipient_device;
+  uintptr_t recipient_device_len;
+  uint64_t revision;
+  bool approved;
+  bool complete;
+} MarmotAccountSharingSnapshot;
 
 /**
  * NULL reference means unavailable, with byte_count zero. A non-NULL reference
@@ -2530,6 +3073,12 @@ typedef struct MarmotSendSummary {
   enum MarmotSendMaintenanceDisposition maintenance_disposition;
 } MarmotSendSummary;
 
+typedef struct MarmotAccountChatDepartureState {
+  enum MarmotAccountChatDepartureStatus status;
+  enum MarmotAccountChatDepartureReason reason;
+  char *operation_id;
+} MarmotAccountChatDepartureState;
+
 /**
  * Opaque application-owned group state. Empty data is distinct from absence.
  */
@@ -2903,301 +3452,6 @@ typedef struct MarmotGroupSystemEvent {
 } MarmotGroupSystemEvent;
 
 /**
- * One referenced Nostr entity.
- */
-typedef struct MarmotMarkdownNostrEntity {
-  enum MarmotMarkdownNostrHrp hrp;
-  char *bech32;
-} MarmotMarkdownNostrEntity;
-
-/**
- * One inline Markdown node. Child arrays are owned by the parent; free
- * only the document root.
- */
-typedef enum MarmotMarkdownInline_Tag {
-  MARMOT_MARKDOWN_INLINE_TEXT,
-  MARMOT_MARKDOWN_INLINE_SOFT_BREAK,
-  MARMOT_MARKDOWN_INLINE_HARD_BREAK,
-  MARMOT_MARKDOWN_INLINE_CODE,
-  MARMOT_MARKDOWN_INLINE_EMPH,
-  MARMOT_MARKDOWN_INLINE_STRONG,
-  MARMOT_MARKDOWN_INLINE_STRIKETHROUGH,
-  MARMOT_MARKDOWN_INLINE_LINK,
-  MARMOT_MARKDOWN_INLINE_IMAGE,
-  MARMOT_MARKDOWN_INLINE_AUTOLINK,
-  MARMOT_MARKDOWN_INLINE_MATH,
-  MARMOT_MARKDOWN_INLINE_NOSTR_MENTION,
-  MARMOT_MARKDOWN_INLINE_NOSTR_URI,
-  /**
-   * Signed Unix seconds and presentation style, without an allocated label.
-   */
-  MARMOT_MARKDOWN_INLINE_TIMESTAMP,
-} MarmotMarkdownInline_Tag;
-
-typedef struct MarmotMarkdownInline_Text_Body {
-  char *content;
-} MarmotMarkdownInline_Text_Body;
-
-typedef struct MarmotMarkdownInline_Code_Body {
-  char *content;
-} MarmotMarkdownInline_Code_Body;
-
-typedef struct MarmotMarkdownInline_Emph_Body {
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-} MarmotMarkdownInline_Emph_Body;
-
-typedef struct MarmotMarkdownInline_Strong_Body {
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-} MarmotMarkdownInline_Strong_Body;
-
-typedef struct MarmotMarkdownInline_Strikethrough_Body {
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-} MarmotMarkdownInline_Strikethrough_Body;
-
-typedef struct MarmotMarkdownInline_Link_Body {
-  char *dest;
-  /**
-   * Nullable.
-   */
-  char *title;
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-  enum MarmotMarkdownLinkDestinationKind classification;
-} MarmotMarkdownInline_Link_Body;
-
-typedef struct MarmotMarkdownInline_Image_Body {
-  char *dest;
-  /**
-   * Nullable.
-   */
-  char *title;
-  struct MarmotMarkdownInline *alt;
-  uintptr_t alt_len;
-  enum MarmotMarkdownLinkDestinationKind classification;
-} MarmotMarkdownInline_Image_Body;
-
-typedef struct MarmotMarkdownInline_Autolink_Body {
-  char *url;
-  enum MarmotMarkdownAutolinkKind kind;
-  enum MarmotMarkdownLinkDestinationKind classification;
-} MarmotMarkdownInline_Autolink_Body;
-
-typedef struct MarmotMarkdownInline_Math_Body {
-  char *content;
-} MarmotMarkdownInline_Math_Body;
-
-typedef struct MarmotMarkdownInline_NostrMention_Body {
-  struct MarmotMarkdownNostrEntity entity;
-} MarmotMarkdownInline_NostrMention_Body;
-
-typedef struct MarmotMarkdownInline_NostrUri_Body {
-  struct MarmotMarkdownNostrEntity entity;
-} MarmotMarkdownInline_NostrUri_Body;
-
-typedef struct MarmotMarkdownInline_Timestamp_Body {
-  int64_t unix_seconds;
-  enum MarmotMarkdownTimestampStyle style;
-} MarmotMarkdownInline_Timestamp_Body;
-
-typedef struct MarmotMarkdownInline {
-  MarmotMarkdownInline_Tag tag;
-  union {
-    MarmotMarkdownInline_Text_Body TEXT;
-    MarmotMarkdownInline_Code_Body CODE;
-    MarmotMarkdownInline_Emph_Body EMPH;
-    MarmotMarkdownInline_Strong_Body STRONG;
-    MarmotMarkdownInline_Strikethrough_Body STRIKETHROUGH;
-    MarmotMarkdownInline_Link_Body LINK;
-    MarmotMarkdownInline_Image_Body IMAGE;
-    MarmotMarkdownInline_Autolink_Body AUTOLINK;
-    MarmotMarkdownInline_Math_Body MATH;
-    MarmotMarkdownInline_NostrMention_Body NOSTR_MENTION;
-    MarmotMarkdownInline_NostrUri_Body NOSTR_URI;
-    MarmotMarkdownInline_Timestamp_Body TIMESTAMP;
-  };
-} MarmotMarkdownInline;
-
-/**
- * List flavor (bullet vs ordered).
- */
-typedef enum MarmotMarkdownListKind_Tag {
-  /**
-   * `marker` is a single-character string: "-", "*", or "+".
-   */
-  MARMOT_MARKDOWN_LIST_KIND_BULLET,
-  /**
-   * `delimiter` is a single-character string: "." or ")".
-   */
-  MARMOT_MARKDOWN_LIST_KIND_ORDERED,
-} MarmotMarkdownListKind_Tag;
-
-typedef struct MarmotMarkdownListKind_Bullet_Body {
-  char *marker;
-} MarmotMarkdownListKind_Bullet_Body;
-
-typedef struct MarmotMarkdownListKind_Ordered_Body {
-  uint32_t start;
-  char *delimiter;
-} MarmotMarkdownListKind_Ordered_Body;
-
-typedef struct MarmotMarkdownListKind {
-  MarmotMarkdownListKind_Tag tag;
-  union {
-    MarmotMarkdownListKind_Bullet_Body BULLET;
-    MarmotMarkdownListKind_Ordered_Body ORDERED;
-  };
-} MarmotMarkdownListKind;
-
-/**
- * One list item: nested blocks plus an optional task-list checkbox.
- */
-typedef struct MarmotMarkdownListItem {
-  struct MarmotMarkdownBlock *blocks;
-  uintptr_t blocks_len;
-  /**
-   * Task-list state: unset for plain items.
-   */
-  bool has_checked;
-  bool checked;
-  /**
-   * Blank source lines before each corresponding child block.
-   */
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownListItem;
-
-/**
- * One table cell.
- */
-typedef struct MarmotMarkdownTableCell {
-  struct MarmotMarkdownInline *inlines;
-  uintptr_t inlines_len;
-} MarmotMarkdownTableCell;
-
-/**
- * One table body row.
- */
-typedef struct MarmotMarkdownTableRow {
-  struct MarmotMarkdownTableCell *cells;
-  uintptr_t cells_len;
-} MarmotMarkdownTableRow;
-
-/**
- * Owned payload for [`MarmotMarkdownBlock::Details`]. Indirection keeps the
- * existing tagged-union size and discriminants unchanged.
- */
-typedef struct MarmotMarkdownDetails {
-  struct MarmotMarkdownInline *summary;
-  uintptr_t summary_len;
-  bool open;
-  struct MarmotMarkdownBlock *body;
-  uintptr_t body_len;
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownDetails;
-
-/**
- * One block-level Markdown node.
- */
-typedef enum MarmotMarkdownBlock_Tag {
-  MARMOT_MARKDOWN_BLOCK_PARAGRAPH,
-  MARMOT_MARKDOWN_BLOCK_HEADING,
-  MARMOT_MARKDOWN_BLOCK_THEMATIC_BREAK,
-  MARMOT_MARKDOWN_BLOCK_CODE_BLOCK,
-  MARMOT_MARKDOWN_BLOCK_BLOCK_QUOTE,
-  MARMOT_MARKDOWN_BLOCK_LIST_BLOCK,
-  MARMOT_MARKDOWN_BLOCK_TABLE,
-  MARMOT_MARKDOWN_BLOCK_MATH_BLOCK,
-  MARMOT_MARKDOWN_BLOCK_DETAILS,
-} MarmotMarkdownBlock_Tag;
-
-typedef struct MarmotMarkdownBlock_Paragraph_Body {
-  struct MarmotMarkdownInline *inlines;
-  uintptr_t inlines_len;
-} MarmotMarkdownBlock_Paragraph_Body;
-
-typedef struct MarmotMarkdownBlock_Heading_Body {
-  uint8_t level;
-  struct MarmotMarkdownInline *inlines;
-  uintptr_t inlines_len;
-} MarmotMarkdownBlock_Heading_Body;
-
-typedef struct MarmotMarkdownBlock_CodeBlock_Body {
-  enum MarmotMarkdownCodeBlockKind kind;
-  char *info;
-  char *content;
-} MarmotMarkdownBlock_CodeBlock_Body;
-
-typedef struct MarmotMarkdownBlock_BlockQuote_Body {
-  struct MarmotMarkdownBlock *blocks;
-  uintptr_t blocks_len;
-  /**
-   * Blank source lines before each corresponding child block.
-   */
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownBlock_BlockQuote_Body;
-
-typedef struct MarmotMarkdownBlock_ListBlock_Body {
-  struct MarmotMarkdownListKind kind;
-  bool tight;
-  struct MarmotMarkdownListItem *items;
-  uintptr_t items_len;
-} MarmotMarkdownBlock_ListBlock_Body;
-
-typedef struct MarmotMarkdownBlock_Table_Body {
-  enum MarmotMarkdownAlignment *alignments;
-  uintptr_t alignments_len;
-  struct MarmotMarkdownTableCell *header;
-  uintptr_t header_len;
-  struct MarmotMarkdownTableRow *rows;
-  uintptr_t rows_len;
-} MarmotMarkdownBlock_Table_Body;
-
-typedef struct MarmotMarkdownBlock_MathBlock_Body {
-  char *content;
-} MarmotMarkdownBlock_MathBlock_Body;
-
-typedef struct MarmotMarkdownBlock_Details_Body {
-  struct MarmotMarkdownDetails *details;
-} MarmotMarkdownBlock_Details_Body;
-
-typedef struct MarmotMarkdownBlock {
-  MarmotMarkdownBlock_Tag tag;
-  union {
-    MarmotMarkdownBlock_Paragraph_Body PARAGRAPH;
-    MarmotMarkdownBlock_Heading_Body HEADING;
-    MarmotMarkdownBlock_CodeBlock_Body CODE_BLOCK;
-    MarmotMarkdownBlock_BlockQuote_Body BLOCK_QUOTE;
-    MarmotMarkdownBlock_ListBlock_Body LIST_BLOCK;
-    MarmotMarkdownBlock_Table_Body TABLE;
-    MarmotMarkdownBlock_MathBlock_Body MATH_BLOCK;
-    MarmotMarkdownBlock_Details_Body DETAILS;
-  };
-} MarmotMarkdownBlock;
-
-/**
- * A parsed Markdown display document.
- */
-typedef struct MarmotMarkdownDocument {
-  struct MarmotMarkdownBlock *blocks;
-  uintptr_t blocks_len;
-  /**
-   * True when the input exceeded the FFI Markdown safety cap and
-   * `blocks` were parsed from a UTF-8-boundary prefix.
-   */
-  bool truncated;
-  /**
-   * Blank source lines before each corresponding block.
-   */
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownDocument;
-
-/**
  * Preview of a chat row's last message.
  */
 typedef struct MarmotChatListMessagePreview {
@@ -3479,14 +3733,6 @@ typedef struct MarmotChatNotificationSettings {
 } MarmotChatNotificationSettings;
 
 /**
- * One Nostr tag of the inner Marmot app event, as its string values.
- */
-typedef struct MarmotMessageTag {
-  char **values;
-  uintptr_t values_len;
-} MarmotMessageTag;
-
-/**
  * One stored raw app message.
  */
 typedef struct MarmotAppMessageRecord {
@@ -3607,6 +3853,30 @@ typedef struct MarmotExistingDirectConversation {
   bool archived;
   uint64_t activity_sort_at;
 } MarmotExistingDirectConversation;
+
+/**
+ * A deep-owned local MLS result or source-attested paired route.
+ */
+typedef enum MarmotExistingAccountDirectConversation_Tag {
+  MARMOT_EXISTING_ACCOUNT_DIRECT_CONVERSATION_LOCAL_MLS,
+  MARMOT_EXISTING_ACCOUNT_DIRECT_CONVERSATION_PAIRED_SOURCE,
+} MarmotExistingAccountDirectConversation_Tag;
+
+typedef struct MarmotExistingAccountDirectConversation_LocalMls_Body {
+  struct MarmotExistingDirectConversation *conversation;
+} MarmotExistingAccountDirectConversation_LocalMls_Body;
+
+typedef struct MarmotExistingAccountDirectConversation_PairedSource_Body {
+  struct MarmotPairedChatSummary *conversation;
+} MarmotExistingAccountDirectConversation_PairedSource_Body;
+
+typedef struct MarmotExistingAccountDirectConversation {
+  MarmotExistingAccountDirectConversation_Tag tag;
+  union {
+    MarmotExistingAccountDirectConversation_LocalMls_Body LOCAL_MLS;
+    MarmotExistingAccountDirectConversation_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotExistingAccountDirectConversation;
 
 /**
  * One search hit, with typed attribution for why it matched.
@@ -4333,15 +4603,6 @@ typedef struct MarmotTimelineReactionSummary {
 } MarmotTimelineReactionSummary;
 
 /**
- * Compact accepted-edit metadata on an effective timeline row.
- */
-typedef struct MarmotTimelineEditSummary {
-  uint64_t edit_count;
-  char *latest_edit_message_id_hex;
-  uint64_t edited_at;
-} MarmotTimelineEditSummary;
-
-/**
  * One materialized timeline row.
  */
 typedef struct MarmotTimelineMessageRecord {
@@ -4915,6 +5176,100 @@ typedef struct MarmotNativeStartupSnapshot {
   uint64_t dropped_scopes;
 } MarmotNativeStartupSnapshot;
 
+typedef struct MarmotDeviceLinkingCapabilities {
+  bool verification_supported;
+  bool enrollment_supported;
+} MarmotDeviceLinkingCapabilities;
+
+/**
+ * Owned setup bytes. Free with marmot_device_linking_bytes_free.
+ */
+typedef struct MarmotDeviceLinkingBytes {
+  uint8_t *bytes;
+  uintptr_t bytes_len;
+} MarmotDeviceLinkingBytes;
+
+typedef struct MarmotDeviceLinkingOutgoingPacket {
+  char *acknowledgement_id;
+  uint8_t *bytes;
+  uintptr_t bytes_len;
+} MarmotDeviceLinkingOutgoingPacket;
+
+/**
+ *Owned list; free the root with its `_free` function only.
+ */
+typedef struct MarmotDeviceLinkingOutgoingPacketList {
+  struct MarmotDeviceLinkingOutgoingPacket *items;
+  uintptr_t len;
+} MarmotDeviceLinkingOutgoingPacketList;
+
+typedef struct MarmotDeviceLinkingDecimals {
+  uint16_t first;
+  uint16_t second;
+  uint16_t third;
+} MarmotDeviceLinkingDecimals;
+
+typedef struct MarmotDeviceLinkingSnapshot {
+  uint64_t revision;
+  enum MarmotDeviceLinkingPhase phase;
+  struct MarmotDeviceLinkingDecimals *decimals;
+} MarmotDeviceLinkingSnapshot;
+
+typedef struct MarmotDeviceLinkingTarget {
+  uint8_t *selector;
+  uintptr_t selector_len;
+  uint32_t device_count;
+} MarmotDeviceLinkingTarget;
+
+/**
+ *Owned list; free the root with its `_free` function only.
+ */
+typedef struct MarmotDeviceLinkingTargetList {
+  struct MarmotDeviceLinkingTarget *items;
+  uintptr_t len;
+} MarmotDeviceLinkingTargetList;
+
+/**
+ * Embedded borrowed handle, valid until its owning list is freed.
+ */
+typedef struct MarmotDeviceLinkingApprovalEntry {
+  struct MarmotDeviceLinkingApproval *handle;
+} MarmotDeviceLinkingApprovalEntry;
+
+/**
+ * Owned list. Clone selected handles before freeing this list.
+ */
+typedef struct MarmotDeviceLinkingApprovalList {
+  struct MarmotDeviceLinkingApprovalEntry *items;
+  uintptr_t len;
+} MarmotDeviceLinkingApprovalList;
+
+typedef struct MarmotDeviceLinkingApprovalSnapshot {
+  uint64_t revision;
+  enum MarmotDeviceLinkingApprovalPhase phase;
+} MarmotDeviceLinkingApprovalSnapshot;
+
+typedef struct MarmotDeviceLinkingApprovalReviewMetadata {
+  uint64_t revision;
+  uint8_t *source_device_public_key;
+  uintptr_t source_device_public_key_len;
+  uint8_t *joining_device_public_key;
+  uintptr_t joining_device_public_key_len;
+  uint32_t existing_device_count;
+} MarmotDeviceLinkingApprovalReviewMetadata;
+
+typedef struct MarmotDeviceRevocationSnapshot {
+  uint64_t revision;
+  bool complete;
+  char *protected_group_id_hex;
+  char **ordinary_group_ids_hex;
+  uintptr_t ordinary_group_ids_hex_len;
+  char **completed_group_ids_hex;
+  uintptr_t completed_group_ids_hex_len;
+  uint8_t *target_device;
+  uintptr_t target_device_len;
+} MarmotDeviceRevocationSnapshot;
+
 /**
  * Borrowed private input. Its path is local only and is never published.
  */
@@ -4943,6 +5298,50 @@ typedef struct MarmotMediaFileUploadRequest {
   const struct MarmotStringArray *message_tags;
   uintptr_t message_tags_len;
 } MarmotMediaFileUploadRequest;
+
+typedef struct MarmotHistoryTransferRecipient {
+  uint32_t leaf_index;
+  uint8_t *device;
+  uintptr_t device_len;
+} MarmotHistoryTransferRecipient;
+
+/**
+ *Owned list; free the root with its `_free` function only.
+ */
+typedef struct MarmotHistoryTransferRecipientList {
+  struct MarmotHistoryTransferRecipient *items;
+  uintptr_t len;
+} MarmotHistoryTransferRecipientList;
+
+/**
+ * List-owned alias. Clone its handle before releasing the parent list.
+ */
+typedef struct MarmotHistoryConsentEntry {
+  struct MarmotHistoryConsent *handle;
+} MarmotHistoryConsentEntry;
+
+/**
+ * Owned list of original consent aliases. Its deep free releases every alias.
+ */
+typedef struct MarmotHistoryConsentList {
+  struct MarmotHistoryConsentEntry *items;
+  uintptr_t items_len;
+} MarmotHistoryConsentList;
+
+typedef struct MarmotHistoryTransferSnapshot {
+  uint64_t revision;
+  uint32_t imported_records;
+  bool complete;
+  char *group_id_hex;
+  uint8_t *source_device;
+  uintptr_t source_device_len;
+  uint8_t *recipient_device;
+  uintptr_t recipient_device_len;
+  uint64_t snapshot_timestamp_ceiling;
+  uint32_t record_count;
+  uint32_t encoded_bytes;
+  uint32_t fragment_count;
+} MarmotHistoryTransferSnapshot;
 
 /**
  * Stable stream and start-message identifiers.
@@ -4976,6 +5375,29 @@ typedef struct MarmotPublisherOptions {
   uintptr_t server_cert_der_len;
   uint32_t trust;
 } MarmotPublisherOptions;
+
+typedef struct MarmotSelectedChatCopySnapshot {
+  uint64_t revision;
+  enum MarmotSelectedChatCopyPhase phase;
+  uint32_t sibling_count;
+  uint32_t consenting_sibling_count;
+  uint32_t offered_sibling_count;
+} MarmotSelectedChatCopySnapshot;
+
+/**
+ * Owned bounded observation/offer packet. Release with its matching free.
+ */
+typedef struct MarmotSelectedChatBytes {
+  uint8_t *bytes;
+  uintptr_t bytes_len;
+} MarmotSelectedChatBytes;
+
+typedef struct MarmotSelectedChatConsentSnapshot {
+  uint64_t revision;
+  enum MarmotSelectedChatConsentPhase phase;
+  uint8_t *chat_selector;
+  uintptr_t chat_selector_len;
+} MarmotSelectedChatConsentSnapshot;
 
 /**
  * One live-received message.
@@ -5909,6 +6331,128 @@ typedef struct MarmotConversationWindowSnapshot {
   bool has_more_after;
 } MarmotConversationWindowSnapshot;
 
+typedef enum MarmotAccountChatRow_Tag {
+  MARMOT_ACCOUNT_CHAT_ROW_LOCAL_MLS,
+  MARMOT_ACCOUNT_CHAT_ROW_PAIRED_SOURCE,
+} MarmotAccountChatRow_Tag;
+
+typedef struct MarmotAccountChatRow_LocalMls_Body {
+  struct MarmotPresentedChatRow *row;
+} MarmotAccountChatRow_LocalMls_Body;
+
+typedef struct MarmotAccountChatRow_PairedSource_Body {
+  struct MarmotPairedChatSummary *row;
+} MarmotAccountChatRow_PairedSource_Body;
+
+typedef struct MarmotAccountChatRow {
+  MarmotAccountChatRow_Tag tag;
+  union {
+    MarmotAccountChatRow_LocalMls_Body LOCAL_MLS;
+    MarmotAccountChatRow_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotAccountChatRow;
+
+typedef struct MarmotAccountChatListWindowSnapshot {
+  char *generation;
+  uint64_t sequence;
+  struct MarmotChatListWindowSnapshot local;
+  struct MarmotAccountChatRow *rows;
+  uintptr_t rows_len;
+  char *next_paired_group_id_hex;
+} MarmotAccountChatListWindowSnapshot;
+
+typedef struct MarmotLocalAccountConversationHeader {
+  struct MarmotConversationWindowRevision revision;
+  struct MarmotConversationHeader header;
+  struct MarmotConversationIdentity *identities;
+  uintptr_t identities_len;
+  struct MarmotConversationMessageReferences *references;
+  uintptr_t references_len;
+  struct MarmotConversationOpenReadState read_state;
+  struct MarmotSelectedMessageDraft draft;
+  bool pending_confirmation;
+} MarmotLocalAccountConversationHeader;
+
+typedef enum MarmotAccountConversationHeader_Tag {
+  MARMOT_ACCOUNT_CONVERSATION_HEADER_LOCAL_MLS,
+  MARMOT_ACCOUNT_CONVERSATION_HEADER_PAIRED_SOURCE,
+} MarmotAccountConversationHeader_Tag;
+
+typedef struct MarmotAccountConversationHeader_LocalMls_Body {
+  struct MarmotLocalAccountConversationHeader *header;
+} MarmotAccountConversationHeader_LocalMls_Body;
+
+typedef struct MarmotAccountConversationHeader_PairedSource_Body {
+  struct MarmotPairedChatSummary *header;
+} MarmotAccountConversationHeader_PairedSource_Body;
+
+typedef struct MarmotAccountConversationHeader {
+  MarmotAccountConversationHeader_Tag tag;
+  union {
+    MarmotAccountConversationHeader_LocalMls_Body LOCAL_MLS;
+    MarmotAccountConversationHeader_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotAccountConversationHeader;
+
+typedef enum MarmotAccountConversationRow_Tag {
+  MARMOT_ACCOUNT_CONVERSATION_ROW_LOCAL_MLS,
+  MARMOT_ACCOUNT_CONVERSATION_ROW_PAIRED_SOURCE,
+} MarmotAccountConversationRow_Tag;
+
+typedef struct MarmotAccountConversationRow_LocalMls_Body {
+  struct MarmotTimelineMessageRecord *row;
+} MarmotAccountConversationRow_LocalMls_Body;
+
+typedef struct MarmotAccountConversationRow_PairedSource_Body {
+  struct MarmotPairedChatMessage *row;
+} MarmotAccountConversationRow_PairedSource_Body;
+
+typedef struct MarmotAccountConversationRow {
+  MarmotAccountConversationRow_Tag tag;
+  union {
+    MarmotAccountConversationRow_LocalMls_Body LOCAL_MLS;
+    MarmotAccountConversationRow_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotAccountConversationRow;
+
+typedef struct MarmotAccountConversationWindowSnapshot {
+  char *generation;
+  uint64_t sequence;
+  struct MarmotAccountConversationHeader header;
+  struct MarmotAccountConversationRow *rows;
+  uintptr_t rows_len;
+  struct MarmotPairedChatMessageCursor *next_before;
+} MarmotAccountConversationWindowSnapshot;
+
+typedef struct MarmotArchivedHistoryRecord {
+  char *message_id_hex;
+  char *author_pubkey;
+  uint64_t created_at;
+  bool has_expires_at;
+  /**
+   *Only meaningful when the matching `has_` flag is set.
+   */
+  uint64_t expires_at;
+  bool deleted;
+  char *content;
+  struct MarmotMessageTag *tags;
+  uintptr_t tags_len;
+  struct MarmotMediaAttachmentOutcome *media_attachments;
+  uintptr_t media_attachments_len;
+  uint8_t *transfer_id;
+  uintptr_t transfer_id_len;
+  uint8_t *source_device;
+  uintptr_t source_device_len;
+  uint8_t *manifest_digest;
+  uintptr_t manifest_digest_len;
+} MarmotArchivedHistoryRecord;
+
+typedef struct MarmotArchivedHistoryPage {
+  struct MarmotArchivedHistoryRecord *records;
+  uintptr_t records_len;
+  char *next_message_id_hex;
+} MarmotArchivedHistoryPage;
+
 typedef struct MarmotAttachmentDownloadPolicy {
   bool automatic;
   uint64_t retained_bytes;
@@ -6203,6 +6747,104 @@ MarmotStatus marmot_account_attachment_history_version(const struct MarmotClient
 MarmotStatus marmot_account_attachment_version_change_since(const struct MarmotAccountAttachmentVersion *current,
                                                             const struct MarmotAccountAttachmentVersion *previous,
                                                             uint32_t *out);
+
+/**
+ * Read one bounded paired chat catalog page. Nullable after_group starts at the beginning.
+ * # Safety
+ * Live client, readable borrowed strings and writable out; no concurrent free.
+ */
+MarmotStatus marmot_paired_chat_list_page(const struct MarmotClient *client,
+                                          const char *account,
+                                          const char *after_group,
+                                          uint32_t limit,
+                                          struct MarmotPairedChatListPage **out);
+
+/**
+ * Read chronological paired observations. Nullable after starts at the oldest retained record.
+ * A returned cursor can be borrowed here; it remains owned by its page until page_free.
+ * # Safety
+ * Live client; readable borrowed strings/cursor; writable out; no concurrent free.
+ */
+MarmotStatus marmot_paired_chat_message_page(const struct MarmotClient *client,
+                                             const char *account,
+                                             const char *group,
+                                             const struct MarmotPairedChatMessageCursor *after,
+                                             uint32_t limit,
+                                             struct MarmotPairedChatMessagePage **out);
+
+/**
+ * Observe current actual same-account Completed protected peers; never approve.
+ * # Safety
+ * Live client, borrowed account and writable out; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_sharing_targets(const struct MarmotClient *client,
+                                                 const char *account,
+                                                 struct MarmotAccountSharingTargets **out);
+
+/**
+ * Begin one broad original review with an exact32-byte current protected peer.
+ * # Safety
+ * Live client, borrowed account/recipient and writable out; no concurrent free.
+ */
+MarmotStatus marmot_begin_account_chat_sharing(const struct MarmotClient *client,
+                                               const char *account,
+                                               const uint8_t *recipient,
+                                               uintptr_t recipient_len,
+                                               struct MarmotAccountSharingApproval **out);
+
+/**
+ * Observe addressed authenticated originals; polling never approves.
+ * # Safety
+ * Live client, borrowed account and writable out; no concurrent free.
+ */
+MarmotStatus marmot_pending_account_chat_sharing(const struct MarmotClient *client,
+                                                 const char *account,
+                                                 struct MarmotAccountSharingApprovalList **out);
+
+/**
+ * Retain the same original owner; this does not create new consent.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_clone(const struct MarmotAccountSharingApproval *handle,
+                                                   struct MarmotAccountSharingApproval **out);
+
+/**
+ * Release one alias. NULL is a no-op; the last alias cancels unfinished work.
+ * # Safety
+ * NULL or a library-owned handle freed exactly once; no concurrent calls.
+ */
+void marmot_account_sharing_approval_free(struct MarmotAccountSharingApproval *handle);
+
+/**
+ * Release the deep-owned list and its aliases. Clone retained entries first.
+ * # Safety
+ * NULL or a library-owned list freed exactly once; no concurrent calls.
+ */
+void marmot_account_sharing_approval_list_free(struct MarmotAccountSharingApprovalList *list);
+
+/**
+ * Observe this held original's authenticated review and completion.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_snapshot(const struct MarmotAccountSharingApproval *handle,
+                                                      struct MarmotAccountSharingSnapshot **out);
+
+/**
+ * Explicitly approve this exact original's displayed revision, callback-safe.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_approve(const struct MarmotAccountSharingApproval *handle,
+                                                     uint64_t displayed_revision);
+
+/**
+ * Cancel the unfinished original; completed broad policy requires revocation.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_cancel(const struct MarmotAccountSharingApproval *handle);
 
 /**
  * Free a list returned by this library. NULL is a no-op.
@@ -7121,6 +7763,36 @@ MarmotStatus marmot_leave_group(const struct MarmotClient *client,
                                 const char *account_ref,
                                 const char *group_id_hex,
                                 struct MarmotSendSummary **out);
+
+/**
+ * Account-wide local/paired departure readiness; no synthetic MLS management.
+ * Free with marmot_account_chat_departure_state_free.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_account_chat_departure_state(const struct MarmotClient *client,
+                                                 const char *account_ref,
+                                                 const char *group_id_hex,
+                                                 struct MarmotAccountChatDepartureState **out);
+
+/**
+ * Explicit account-wide negative intent. Pending does not mean remote MLS removal.
+ * Free with marmot_account_chat_departure_state_free.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_leave_account_chat(const struct MarmotClient *client,
+                                       const char *account_ref,
+                                       const char *group_id_hex,
+                                       struct MarmotAccountChatDepartureState **out);
 
 /**
  * Delete this group's local app data without an MLS leave. Cancel
@@ -8704,6 +9376,21 @@ MarmotStatus marmot_existing_direct_conversation(const struct MarmotClient *clie
                                                  const char *account_ref,
                                                  const char *peer_account_id,
                                                  struct MarmotExistingDirectConversation **out);
+
+/**
+ * Resolve an existing contact chat with local or paired-source provenance.
+ * Free the optional owned result with `marmot_existing_account_direct_conversation_free`.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_existing_account_direct_conversation(const struct MarmotClient *client,
+                                                         const char *account_ref,
+                                                         const char *peer_account_id,
+                                                         struct MarmotExistingAccountDirectConversation **out);
 
 /**
  * Search public identities cached through any connected account. Follow
@@ -10295,6 +10982,377 @@ MarmotStatus marmot_deployment_set_keychain_service(struct MarmotDeployment *dep
                                                     const char *name);
 
 /**
+ * Read actual runtime capabilities; enrollment support remains false.
+ * # Safety
+ * client must be live and out writable; release the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_capabilities(const struct MarmotClient *client,
+                                                struct MarmotDeviceLinkingCapabilities **out);
+
+/**
+ * Reserve an opaque new-device verification session. Default builds return Unsupported.
+ * # Safety
+ * client/account must remain valid for the call and out must be writable.
+ */
+MarmotStatus marmot_begin_device_linking_session(const struct MarmotClient *client,
+                                                 const char *account,
+                                                 struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Begin a role-neutral one-scan session; activate after host-scope adoption. Default builds return Unsupported.
+ * # Safety
+ * client/account must remain valid for the call and out must be writable.
+ */
+MarmotStatus marmot_begin_automatic_device_linking_session(const struct MarmotClient *client,
+                                                           const char *account,
+                                                           struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Approve bounded setup metadata. NULL/zero target means singleton; selected rosters are actor-validated.
+ * # Safety
+ * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+ */
+MarmotStatus marmot_approve_device_linking_session(const struct MarmotClient *client,
+                                                   const char *account,
+                                                   const uint8_t *request,
+                                                   uintptr_t request_len,
+                                                   const uint8_t *target,
+                                                   uintptr_t target_len,
+                                                   struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Scan a bounded UTF-8 one-scan bootstrap. NULL/zero target means singleton.
+ * The returned original remains paused until automatic_pairing_code after exact host adoption.
+ * # Safety
+ * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+ */
+MarmotStatus marmot_approve_automatic_device_linking_session(const struct MarmotClient *client,
+                                                             const char *account,
+                                                             const uint8_t *code,
+                                                             uintptr_t code_len,
+                                                             const uint8_t *target,
+                                                             uintptr_t target_len,
+                                                             struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Scan a bounded role-neutral bootstrap; fresh Core state selects the SDK role.
+ * The returned original remains paused until automatic_pairing_code after exact host adoption.
+ * # Safety
+ * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+ */
+MarmotStatus marmot_scan_automatic_device_linking_session(const struct MarmotClient *client,
+                                                          const char *account,
+                                                          const uint8_t *code,
+                                                          uintptr_t code_len,
+                                                          struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Read verification setup packet; no proof or permission is exported.
+ * # Safety
+ * handle must be live, out writable; free the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_session_setup_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                        struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Activate this adopted original and return its UTF-8 bootstrap as owned bytes.
+ * Display only on the initiating device; the scanner activates without a response QR.
+ * # Safety
+ * Handle must be live and out writable; free with marmot_device_linking_bytes_free.
+ */
+MarmotStatus marmot_device_linking_session_automatic_pairing_code(const struct MarmotDeviceLinkingSession *handle,
+                                                                  struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Explicit comparison-complete enrollment choice; nonzero share_chats approves chat sharing.
+ * Automatic processing receipts never replace comparison or existing-device approval.
+ * # Safety
+ * Handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_continue_automatic_linking(const struct MarmotDeviceLinkingSession *handle,
+                                                                      uint64_t displayed_revision,
+                                                                      uint8_t share_chats);
+
+/**
+ * Read verification outgoing packets; no proof or permission is exported.
+ * # Safety
+ * handle must be live, out writable; free the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_session_outgoing_packets(const struct MarmotDeviceLinkingSession *handle,
+                                                            struct MarmotDeviceLinkingOutgoingPacketList **out);
+
+/**
+ * Read verification snapshot; no proof or permission is exported.
+ * # Safety
+ * handle must be live, out writable; free the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_session_snapshot(const struct MarmotDeviceLinkingSession *handle,
+                                                    struct MarmotDeviceLinkingSnapshot **out);
+
+/**
+ * Deliver bounded original receive setup packet bytes; App authenticates its codec/binding.
+ * # Safety
+ * handle must be live and bytes valid for len; bytes are copied, never retained or freed.
+ */
+MarmotStatus marmot_device_linking_session_receive_setup_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                                const uint8_t *bytes,
+                                                                uintptr_t len);
+
+/**
+ * Deliver bounded original receive packet bytes; App authenticates its codec/binding.
+ * # Safety
+ * handle must be live and bytes valid for len; bytes are copied, never retained or freed.
+ */
+MarmotStatus marmot_device_linking_session_receive_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                          const uint8_t *bytes,
+                                                          uintptr_t len);
+
+/**
+ * Apply confirm comparison to the displayed revision; enrollment continuation remains gated.
+ * # Safety
+ * handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_confirm_comparison(const struct MarmotDeviceLinkingSession *handle,
+                                                              uint64_t displayed_revision);
+
+/**
+ * Apply continue linking to the displayed revision; enrollment continuation remains gated.
+ * # Safety
+ * handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_continue_linking(const struct MarmotDeviceLinkingSession *handle,
+                                                            uint64_t displayed_revision);
+
+/**
+ * Approve existing/future chats, history and messaging through this original pairing action.
+ * Retained metadata and ordinary enrollment completion do not imply this approval.
+ * # Safety
+ * handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_continue_linking_and_share_chats(const struct MarmotDeviceLinkingSession *handle,
+                                                                            uint64_t displayed_revision);
+
+/**
+ * Acknowledge bounded UTF-8 transport metadata only; never approves enrollment.
+ * # Safety
+ * handle must be live and id valid for id_len; bytes are borrowed for this call.
+ */
+MarmotStatus marmot_device_linking_session_acknowledge_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                              const uint8_t *id,
+                                                              uintptr_t id_len);
+
+/**
+ * Create an independent observation stream. Close wakes concurrent next calls.
+ * # Safety
+ * handle must be live and out writable; free the stream before its client.
+ */
+MarmotStatus marmot_device_linking_session_subscribe(const struct MarmotDeviceLinkingSession *handle,
+                                                     struct MarmotDeviceLinkingSubscription **out);
+
+/**
+ * Exact cancellation bypasses positive native operation locks; errors never restore permission.
+ * # Safety
+ * handle must remain live for this call.
+ */
+MarmotStatus marmot_device_linking_session_cancel(const struct MarmotDeviceLinkingSession *handle);
+
+/**
+ * Receive a coalesced observation. timeout_ms=0 waits until update/close; timeout consumes no update.
+ * # Safety
+ * handle must remain live, out writable. One receiver per stream; concurrent close is allowed.
+ */
+MarmotStatus marmot_device_linking_subscription_next(const struct MarmotDeviceLinkingSubscription *handle,
+                                                     uint32_t timeout_ms,
+                                                     struct MarmotDeviceLinkingSnapshot **out);
+
+/**
+ * Close this observation stream without freeing it or granting any permission.
+ * # Safety
+ * handle must remain live; concurrent next is allowed.
+ */
+MarmotStatus marmot_device_linking_subscription_close(const struct MarmotDeviceLinkingSubscription *handle);
+
+/**
+ * Free the opaque session; NULL is a no-op. Session destruction schedules exact cancellation.
+ * # Safety
+ * handle must be NULL or library-owned with no active calls; free before its creating client.
+ */
+void marmot_device_linking_session_free(struct MarmotDeviceLinkingSession *handle);
+
+/**
+ * Free the opaque subscription; NULL is a no-op. Session destruction schedules exact cancellation.
+ * # Safety
+ * handle must be NULL or library-owned with no active calls; free before its creating client.
+ */
+void marmot_device_linking_subscription_free(struct MarmotDeviceLinkingSubscription *handle);
+
+/**
+ * Observe protected roster selectors; selection is revalidated by the actor.
+ * # Safety
+ * client/account must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_targets(const struct MarmotClient *client,
+                                           const char *account,
+                                           struct MarmotDeviceLinkingTargetList **out);
+
+/**
+ * Return opaque handles sharing original existing-device actions.
+ * # Safety
+ * client/account must remain valid and out writable. List entries are borrowed.
+ */
+MarmotStatus marmot_pending_device_linking_approvals(const struct MarmotClient *client,
+                                                     const char *account,
+                                                     struct MarmotDeviceLinkingApprovalList **out);
+
+/**
+ * Retain a handle independently of its original list; no new approval action is created.
+ * # Safety
+ * handle must remain valid and out writable; free the returned clone separately.
+ */
+MarmotStatus marmot_device_linking_approval_clone(const struct MarmotDeviceLinkingApproval *handle,
+                                                  struct MarmotDeviceLinkingApproval **out);
+
+/**
+ * Read finite observation of the same original action, never enrollment permission.
+ * # Safety
+ * handle must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_approval_snapshot(const struct MarmotDeviceLinkingApproval *handle,
+                                                     struct MarmotDeviceLinkingApprovalSnapshot **out);
+
+/**
+ * Read authenticated display metadata for one original pending approval.
+ * # Safety
+ * handle must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_approval_review_metadata(const struct MarmotDeviceLinkingApproval *handle,
+                                                            uint64_t displayed_revision,
+                                                            struct MarmotDeviceLinkingApprovalReviewMetadata **out);
+
+/**
+ * Explicit human approval bound to the displayed revision.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_approve(const struct MarmotDeviceLinkingApproval *handle,
+                                                    uint64_t displayed_revision);
+
+/**
+ * Approve original enrollment and sharing existing and future chats with its joining device.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_approve_and_share_chats(const struct MarmotDeviceLinkingApproval *handle,
+                                                                    uint64_t displayed_revision);
+
+/**
+ * Validate the complete packet through the same original existing-device action.
+ * # Safety
+ * handle and borrowed bytes must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_receive_enrollment_packet(const struct MarmotDeviceLinkingApproval *handle,
+                                                                      uint64_t displayed_revision,
+                                                                      const uint8_t *bytes,
+                                                                      uintptr_t len);
+
+/**
+ * Revoke the exact original action; late packets cannot restore it.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_cancel(const struct MarmotDeviceLinkingApproval *handle);
+
+/**
+ * Export complete all-leaf bytes before the original approver lease transfers.
+ * # Safety
+ * handle must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_session_enrollment_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                             uint64_t displayed_revision,
+                                                             struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Validate the complete packet under the original recipient purpose.
+ * # Safety
+ * handle and borrowed bytes must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_session_receive_enrollment_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                                     uint64_t displayed_revision,
+                                                                     const uint8_t *bytes,
+                                                                     uintptr_t len);
+
+/**
+ * Finalize original Add publication after explicit recipient packet handling.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_session_finalize_linking(const struct MarmotDeviceLinkingSession *handle,
+                                                            uint64_t displayed_revision);
+
+/**
+ * Free a standalone or cloned approval handle; never free a list-borrowed entry.
+ * # Safety
+ * handle must be NULL or library-owned, with no active calls; free before its client.
+ */
+void marmot_device_linking_approval_free(struct MarmotDeviceLinkingApproval *handle);
+
+/**
+ * Deep-free the list and every borrowed entry; retained clones stay valid.
+ * # Safety
+ * list must be NULL or a live library-owned list, released exactly once.
+ */
+void marmot_device_linking_approval_list_free(struct MarmotDeviceLinkingApprovalList *list);
+
+/**
+ * Capture an exact device's fresh groups. No removal occurs before explicit approval.
+ * # Safety
+ * Live client, borrowed account, target readable for len and writable out; no concurrent free.
+ */
+MarmotStatus marmot_begin_device_revocation(const struct MarmotClient *client,
+                                            const char *account,
+                                            const uint8_t *target,
+                                            uintptr_t target_len,
+                                            struct MarmotDeviceRevocation **out);
+
+/**
+ * Retain an alias of the exact original; dropping one alias does not cancel the others.
+ * # Safety
+ * Live original and writable out; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_clone(const struct MarmotDeviceRevocation *handle,
+                                            struct MarmotDeviceRevocation **out);
+
+/**
+ * Release one alias; the last alias retires the original App action.
+ * # Safety
+ * NULL or owned handle; no concurrent use/free.
+ */
+void marmot_device_revocation_free(struct MarmotDeviceRevocation *handle);
+
+/**
+ * Observe the exact original captured groups and confirmed progress.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_snapshot(const struct MarmotDeviceRevocation *handle,
+                                               struct MarmotDeviceRevocationSnapshot **out);
+
+/**
+ * Approve only this original action at the exact displayed revision.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_approve(const struct MarmotDeviceRevocation *handle,
+                                              uint64_t revision);
+
+/**
+ * Permanently cancel the exact original across all aliases.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_cancel(const struct MarmotDeviceRevocation *handle);
+
+/**
  * Create a control; free it with marmot_media_file_transfer_control_free after upload returns.
  * # Safety
  * out must be writable.
@@ -10362,6 +11420,120 @@ MarmotStatus marmot_upload_media_files_with_client_token(const struct MarmotClie
                                                          const struct MarmotMediaFileTransferControl *control,
                                                          const char *client_token,
                                                          struct MarmotMediaUploadSubmission **out);
+
+/**
+ * Observe current linked-recipient choices; creates no transfer or consent.
+ * # Safety
+ * Live client, borrowed NUL-terminated strings and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_recipients(const struct MarmotClient *client,
+                                                const char *account,
+                                                const char *group,
+                                                struct MarmotHistoryTransferRecipientList **out);
+
+/**
+ * Begin a bounded history action. Recipient is an exact 32-byte device identity.
+ * # Safety
+ * Live client, borrowed NUL-terminated strings, recipient readable for len and writable out; no concurrent free.
+ */
+MarmotStatus marmot_begin_history_transfer(const struct MarmotClient *client,
+                                           const char *account,
+                                           const char *group,
+                                           const uint8_t *recipient,
+                                           uintptr_t recipient_len,
+                                           struct MarmotHistoryTransfer **out);
+
+/**
+ * Poll authenticated original requests. It never approves any returned action.
+ * # Safety
+ * Live client, borrowed NUL-terminated account and writable out; no concurrent free.
+ */
+MarmotStatus marmot_pending_history_requests(const struct MarmotClient *client,
+                                             const char *account,
+                                             struct MarmotHistoryConsentList **out);
+
+/**
+ * Deep-free the list and all original aliases. NULL is a no-op.
+ * # Safety
+ * NULL or a library-owned result released exactly once with no concurrent calls.
+ */
+void marmot_history_consent_list_free(struct MarmotHistoryConsentList *list);
+
+/**
+ * Retain the same original action; releasing one alias does not cancel other aliases.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_clone(const struct MarmotHistoryTransfer *handle,
+                                           struct MarmotHistoryTransfer **out);
+
+/**
+ * Release an alias. Last original-owner release cancels unfinished work.
+ * # Safety
+ * NULL or a library-owned handle released exactly once with no concurrent calls.
+ */
+void marmot_history_transfer_free(struct MarmotHistoryTransfer *handle);
+
+/**
+ * Read the original authenticated review and committed completion observation.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_snapshot(const struct MarmotHistoryTransfer *handle,
+                                              struct MarmotHistoryTransferSnapshot **out);
+
+/**
+ * Forward the displayed revision to the original action; no new authority is created.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_continue_transfer(const struct MarmotHistoryTransfer *handle,
+                                                       uint64_t revision);
+
+/**
+ * Cancel the original action. Completed imported history is retained.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_cancel(const struct MarmotHistoryTransfer *handle);
+
+/**
+ * Retain the same original action; releasing one alias does not cancel other aliases.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_clone(const struct MarmotHistoryConsent *handle,
+                                          struct MarmotHistoryConsent **out);
+
+/**
+ * Release an alias. Last original-owner release cancels unfinished work.
+ * # Safety
+ * NULL or a library-owned handle released exactly once with no concurrent calls.
+ */
+void marmot_history_consent_free(struct MarmotHistoryConsent *handle);
+
+/**
+ * Read the original authenticated review and committed completion observation.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_snapshot(const struct MarmotHistoryConsent *handle,
+                                             struct MarmotHistoryTransferSnapshot **out);
+
+/**
+ * Forward the displayed revision to the original action; no new authority is created.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_approve(const struct MarmotHistoryConsent *handle,
+                                            uint64_t revision);
+
+/**
+ * Cancel the original action. Completed imported history is retained.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_cancel(const struct MarmotHistoryConsent *handle);
 
 /**
  * Create an offline session from a bunker URI, client pairing config, or durable
@@ -10537,6 +11709,152 @@ MarmotStatus marmot_agent_publisher_cancel(const struct MarmotAgentPublisher *pu
  * concurrent call using it. Free before the creating client.
  */
 void marmot_agent_publisher_free(struct MarmotAgentPublisher *publisher);
+
+/**
+ * Request one ordinary chat under a fresh protected-roster selector; no sibling consent is implied.
+ * # Safety
+ * client/account/group must be live; selector readable for len; out writable.
+ */
+MarmotStatus marmot_begin_selected_chat_copy(const struct MarmotClient *client,
+                                             const char *account,
+                                             const char *group_id_hex,
+                                             const uint8_t *selector,
+                                             uintptr_t selector_len,
+                                             struct MarmotSelectedChatCopy **out);
+
+/**
+ * Import bounded metadata into an opaque original consent action; importing is not approval.
+ * # Safety
+ * client/account live; packet readable for len; out writable.
+ */
+MarmotStatus marmot_receive_selected_chat_copy_request(const struct MarmotClient *client,
+                                                       const char *account,
+                                                       const uint8_t *bytes,
+                                                       uintptr_t len,
+                                                       struct MarmotSelectedChatConsent **out);
+
+/**
+ * Retain an alias of the same original action. Releasing one alias does not cancel others.
+ * # Safety
+ * handle must be live and out writable; never free concurrently with a call.
+ */
+MarmotStatus marmot_selected_chat_copy_clone(const struct MarmotSelectedChatCopy *handle,
+                                             struct MarmotSelectedChatCopy **out);
+
+/**
+ * Release an opaque alias. The last alias drops the original action; NULL is a no-op.
+ * # Safety
+ * handle must be NULL or a live library-owned handle released exactly once; no concurrent calls.
+ */
+void marmot_selected_chat_copy_free(struct MarmotSelectedChatCopy *handle);
+
+/**
+ * Perform snapshot on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_snapshot(const struct MarmotSelectedChatCopy *handle,
+                                                struct MarmotSelectedChatCopySnapshot **out);
+
+/**
+ * Perform request packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_request_packet(const struct MarmotSelectedChatCopy *handle,
+                                                      uint64_t revision,
+                                                      struct MarmotSelectedChatBytes **out);
+
+/**
+ * Perform receive consent packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_receive_consent_packet(const struct MarmotSelectedChatCopy *handle,
+                                                              uint64_t revision,
+                                                              const uint8_t *bytes,
+                                                              uintptr_t len);
+
+/**
+ * Perform receive offer packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_receive_offer_packet(const struct MarmotSelectedChatCopy *handle,
+                                                            uint64_t revision,
+                                                            const uint8_t *bytes,
+                                                            uintptr_t len);
+
+/**
+ * Perform continue on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_continue(const struct MarmotSelectedChatCopy *handle,
+                                                uint64_t revision);
+
+/**
+ * Perform cancel on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_cancel(const struct MarmotSelectedChatCopy *handle);
+
+/**
+ * Retain an alias of the same original action. Releasing one alias does not cancel others.
+ * # Safety
+ * handle must be live and out writable; never free concurrently with a call.
+ */
+MarmotStatus marmot_selected_chat_consent_clone(const struct MarmotSelectedChatConsent *handle,
+                                                struct MarmotSelectedChatConsent **out);
+
+/**
+ * Release an opaque alias. The last alias drops the original action; NULL is a no-op.
+ * # Safety
+ * handle must be NULL or a live library-owned handle released exactly once; no concurrent calls.
+ */
+void marmot_selected_chat_consent_free(struct MarmotSelectedChatConsent *handle);
+
+/**
+ * Perform snapshot on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_snapshot(const struct MarmotSelectedChatConsent *handle,
+                                                   struct MarmotSelectedChatConsentSnapshot **out);
+
+/**
+ * Perform approve on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_approve(const struct MarmotSelectedChatConsent *handle,
+                                                  uint64_t revision);
+
+/**
+ * Perform response packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_response_packet(const struct MarmotSelectedChatConsent *handle,
+                                                          uint64_t revision,
+                                                          struct MarmotSelectedChatBytes **out);
+
+/**
+ * Perform offer packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_offer_packet(const struct MarmotSelectedChatConsent *handle,
+                                                       uint64_t revision,
+                                                       struct MarmotSelectedChatBytes **out);
+
+/**
+ * Perform cancel on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_cancel(const struct MarmotSelectedChatConsent *handle);
 
 /**
  *Block until the next item, the timeout, or stream close. `timeout_ms == 0` waits indefinitely. Returns `MARMOT_STATUS_OK` (out set; free with `marmot_event_free`), `MARMOT_STATUS_TIMEOUT`, or `MARMOT_STATUS_CLOSED` (out NULL for both).
@@ -11742,6 +13060,126 @@ MarmotStatus marmot_send_message_draft_with_client_token(const struct MarmotClie
                                                          struct MarmotLocalSendAcceptance **out);
 
 /**
+ * Take the initial complete replacement once. A second call returns Closed.
+ * # Safety
+ * Live handle and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_snapshot(const struct MarmotAccountChatListWindowSubscription *sub,
+                                                                   struct MarmotAccountChatListWindowSnapshot **out);
+
+/**
+ * Receive one replacement. Zero timeout waits indefinitely; timeout consumes no update.
+ * # Safety
+ * Live handle and writable output; one receiver and no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_next(const struct MarmotAccountChatListWindowSubscription *sub,
+                                                               uint32_t timeout_ms,
+                                                               struct MarmotAccountChatListWindowSnapshot **out);
+
+/**
+ * Synchronously cancel the original owner and wake a pending receiver. Idempotent.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_cancel(const struct MarmotAccountChatListWindowSubscription *sub);
+
+/**
+ * Cancel and free. NULL is a no-op; previously returned snapshots remain owned by caller.
+ * # Safety
+ * Library-owned handle with no active calls, or NULL.
+ */
+void marmot_account_chat_list_window_subscription_free(struct MarmotAccountChatListWindowSubscription *sub);
+
+/**
+ * Open an account-owned source-qualified view. Take snapshot once, then receive replacements.
+ * Default cohorts return Unsupported after output preflight, before reading borrowed inputs.
+ * # Safety
+ * Live client, readable borrowed strings and writable output; no concurrent free.
+ */
+MarmotStatus marmot_open_account_chat_list_window(const struct MarmotClient *client,
+                                                  const char *account_ref,
+                                                  uint32_t initial_rows,
+                                                  struct MarmotAccountChatListWindowSubscription **out);
+
+/**
+ * Take the initial complete replacement once. A second call returns Closed.
+ * # Safety
+ * Live handle and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_snapshot(const struct MarmotAccountConversationWindowSubscription *sub,
+                                                                      struct MarmotAccountConversationWindowSnapshot **out);
+
+/**
+ * Receive one replacement. Zero timeout waits indefinitely; timeout consumes no update.
+ * # Safety
+ * Live handle and writable output; one receiver and no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_next(const struct MarmotAccountConversationWindowSubscription *sub,
+                                                                  uint32_t timeout_ms,
+                                                                  struct MarmotAccountConversationWindowSnapshot **out);
+
+/**
+ * Synchronously cancel the original owner and wake a pending receiver. Idempotent.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_cancel(const struct MarmotAccountConversationWindowSubscription *sub);
+
+/**
+ * Cancel and free. NULL is a no-op; previously returned snapshots remain owned by caller.
+ * # Safety
+ * Library-owned handle with no active calls, or NULL.
+ */
+void marmot_account_conversation_window_subscription_free(struct MarmotAccountConversationWindowSubscription *sub);
+
+/**
+ * Open an account-owned source-qualified view. Take snapshot once, then receive replacements.
+ * Default cohorts return Unsupported after output preflight, before reading borrowed inputs.
+ * # Safety
+ * Live client, readable borrowed strings and writable output; no concurrent free.
+ */
+MarmotStatus marmot_open_account_conversation_window(const struct MarmotClient *client,
+                                                     const char *account_ref,
+                                                     const char *group_id_hex,
+                                                     uint32_t initial_rows,
+                                                     struct MarmotAccountConversationWindowSubscription **out);
+
+/**
+ * Read a bounded paired catalog page, conditional on the installed sequence.
+ * # Safety
+ * Live handle, readable nullable cursor string and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_paired_page(const struct MarmotAccountChatListWindowSubscription *sub,
+                                                                      uint64_t sequence,
+                                                                      const char *after_group_id_hex,
+                                                                      struct MarmotAccountChatListWindowSnapshot **out);
+
+/**
+ * Read bounded older observations, conditional on the installed sequence.
+ * # Safety
+ * Live handle, readable nullable borrowed cursor and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_older_page(const struct MarmotAccountConversationWindowSubscription *sub,
+                                                                        uint64_t sequence,
+                                                                        const struct MarmotPairedChatMessageCursor *before,
+                                                                        struct MarmotAccountConversationWindowSnapshot **out);
+
+/**
+ * Read a bounded committed archive page in message-ID keyset order.
+ * Default builds refuse before reading inputs. Results attest the source,
+ * not independent original-author MLS authentication. No media is acquired.
+ * # Safety
+ * Live client, borrowed NUL-terminated account/group and optional cursor;
+ * writable output. Do not free the client concurrently with this call.
+ */
+MarmotStatus marmot_synchronized_history_page(const struct MarmotClient *client,
+                                              const char *account,
+                                              const char *group,
+                                              const char *after_message_id,
+                                              uint32_t limit,
+                                              struct MarmotArchivedHistoryPage **out);
+
+/**
  * Free a value of this type returned by this library. NULL
  * is a no-op.
  *
@@ -12893,7 +14331,215 @@ void marmot_public_event_preview_list_free(struct MarmotPublicEventPreviewList *
  * The pointer must be NULL or an unfreed pointer returned by
  * this library.
  */
+void marmot_device_linking_capabilities_free(struct MarmotDeviceLinkingCapabilities *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_linking_snapshot_free(struct MarmotDeviceLinkingSnapshot *ptr);
+
+/**
+ * Free a list returned by this library. NULL is a no-op.
+ *
+ * # Safety
+ * `list` must be NULL or an unfreed pointer returned by this
+ * library.
+ */
+void marmot_device_linking_outgoing_packet_list_free(struct MarmotDeviceLinkingOutgoingPacketList *list);
+
+/**
+ * Release owned setup bytes. NULL is a no-op.
+ * # Safety
+ * ptr must be NULL or a live library-owned result, released exactly once.
+ */
+void marmot_device_linking_bytes_free(struct MarmotDeviceLinkingBytes *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_linking_approval_snapshot_free(struct MarmotDeviceLinkingApprovalSnapshot *ptr);
+
+/**
+ * Free a list returned by this library. NULL is a no-op.
+ *
+ * # Safety
+ * `list` must be NULL or an unfreed pointer returned by this
+ * library.
+ */
+void marmot_device_linking_target_list_free(struct MarmotDeviceLinkingTargetList *list);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_linking_approval_review_metadata_free(struct MarmotDeviceLinkingApprovalReviewMetadata *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_history_transfer_snapshot_free(struct MarmotHistoryTransferSnapshot *ptr);
+
+/**
+ * Free a list returned by this library. NULL is a no-op.
+ *
+ * # Safety
+ * `list` must be NULL or an unfreed pointer returned by this
+ * library.
+ */
+void marmot_history_transfer_recipient_list_free(struct MarmotHistoryTransferRecipientList *list);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_selected_chat_copy_snapshot_free(struct MarmotSelectedChatCopySnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_selected_chat_consent_snapshot_free(struct MarmotSelectedChatConsentSnapshot *ptr);
+
+/**
+ * Release an owned selected-chat packet. NULL is a no-op.
+ * # Safety
+ * ptr must be NULL or a library-owned result released exactly once.
+ */
+void marmot_selected_chat_bytes_free(struct MarmotSelectedChatBytes *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_archived_history_page_free(struct MarmotArchivedHistoryPage *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
 void marmot_native_startup_snapshot_free(struct MarmotNativeStartupSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_sharing_snapshot_free(struct MarmotAccountSharingSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_sharing_targets_free(struct MarmotAccountSharingTargets *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_paired_chat_list_page_free(struct MarmotPairedChatListPage *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_paired_chat_message_page_free(struct MarmotPairedChatMessagePage *ptr);
+
+/**
+ * Release an optional existing account direct-conversation result, including its payload.
+ * # Safety
+ * `value` is NULL or an unfreed value returned by this library, with no concurrent access.
+ */
+void marmot_existing_account_direct_conversation_free(struct MarmotExistingAccountDirectConversation *value);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_chat_list_window_snapshot_free(struct MarmotAccountChatListWindowSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_conversation_window_snapshot_free(struct MarmotAccountConversationWindowSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_revocation_snapshot_free(struct MarmotDeviceRevocationSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_chat_departure_state_free(struct MarmotAccountChatDepartureState *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

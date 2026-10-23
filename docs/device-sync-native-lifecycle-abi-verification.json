@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "base_commit": "0d4c5213f3ed000d21dfcaab24bd2e9d7d71249c",
+  "milestone": "Host native lifecycle and actual C/Swift ABI acceptance; no enrollment or Apple application adoption claim.",
+  "host": "macbook.m5 Apple Silicon / Xcode27 / Rust1.97.1",
+  "source_paths": 2379,
+  "manifest_sha256": "53c044fa8eddcb14ec2fecf1a0552ea5e24789071e3af891af0adeed3a20875a",
+  "verified_source": "All frozen bytes match; only three named human documentation files appended after terminal checks.",
+  "post_check_docs": [
+    "crates/marmot-app/AGENTS.md",
+    "crates/marmot-uniffi/AGENTS.md",
+    "crates/marmot-uniffi/DEVICE-LINKING.md"
+  ],
+  "terminal_runs": [
+    {
+      "name": "native-lifecycle",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "native_device_linking::tests::actual"
+      ],
+      "exit_code": 0,
+      "seconds": 104.85,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "e0027179d9f8021e406591a607d9a6128eeb4871629495573f9ea8f4f5947239"
+    },
+    {
+      "name": "uniffi-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi"
+      ],
+      "exit_code": 0,
+      "seconds": 145.53,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 198,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 29,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "c06319800a0e2892e10d3c2ddcb35348113d584e9c6601406975b70831ce5297"
+    },
+    {
+      "name": "c-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--features",
+        "alloc-audit"
+      ],
+      "exit_code": 0,
+      "seconds": 44.58,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 82,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "f6534947ae649fb8e9426e72ef3599025b28242ccbb2b57a08cfd63a4dfcabe8"
+    },
+    {
+      "name": "c-smoke",
+      "command": [
+        "bash",
+        "crates/marmot-c/c-smoke.sh",
+        "--debug"
+      ],
+      "exit_code": 0,
+      "seconds": 14.01,
+      "counts": [],
+      "sha256": "7fdbc020658e5ef51b20d235de0554a73c7f08fa2554855b728f0f7f0336151c"
+    },
+    {
+      "name": "swift-default",
+      "command": [
+        "bash",
+        "crates/marmot-uniffi/device-linking-smoke.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 59.56,
+      "counts": [],
+      "sha256": "f906f4bb278564ff319510bdade982d592703547a408b63618ceff10f46a9bc3"
+    },
+    {
+      "name": "swift-experimental",
+      "command": [
+        "env",
+        "EXPERIMENTAL_DEVICE_SYNC=1",
+        "bash",
+        "crates/marmot-uniffi/device-linking-smoke.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 77.45,
+      "counts": [],
+      "sha256": "54cdb217e5d9a074ccbeb98558f7f56ca92037f88fe35e26dc95f5acbc736fed"
+    },
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.44,
+      "counts": [],
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "behavior": {
+    "native": "Actual workers and original purposes: Drop\u2192Cancelled/new original setup; same-worker expiry terminal/fresh attempt; shutdown cannot reopen; subscription close wakes both change and receiver admission. Six tests include the existing real SDK comparison and explicit cancellation regressions. Expiry/shutdown assert terminal denial, not exact terminal cause labeling.",
+    "full_uniffi": "229 pass,2 deliberate ignores,0fail; includes integration tests and doctests.",
+    "full_c": "93 pass,0ignored,0fail with alloc-audit.",
+    "external_c": "Two compiled/running clients (shared/static),272 assertions,0keystore skips; new capability/Unsupported symbols exercised.",
+    "swift": "Matched generator/library in each default and experimental cohort;16 phase/optional-decimal snapshot roundtrips plus binary packet, actual capabilities, typed Unsupported/NotReady factory gates and shutdown. No actual Swift SDK session exchange claim."
+  },
+  "remaining": [
+    "Original-action B protected transition and real A/B/C settlement.",
+    "Native continuation must observe original actor custody after legitimate SDK-token handoff.",
+    "Matched release Apple artifacts, application adoption and real Mac/Mac/iOS simulator chat/offline delivery.",
+    "Generated Kotlin and broader public stalled SDK/capacity/account-switch controls; physical iPhone install remains deferred."
+  ]
+}

@@ -1,0 +1,306 @@
+{
+  "qualified_runtime_source": "4e55d08d5e7db56a929d54b7d0a908d11bc4fd0c",
+  "integration_base": "943666c1837cd94d2e94571920b0934eb9c5dd53",
+  "repair": "Known original nonce Requests stay on their retained channel. A fresh Request after full recipient handoff passes to the independent automatic dispatcher; completion is routing metadata, never permission. Existing live policy/Core checks authorize the separate automatic flow.",
+  "genuine_red": "Accepted A canonical history reaches B/C; actual B ordinary genesis, published canonical send and materialized timeline succeed, but C receives no B paired event when B initiates. Opposite C-initiated control passes. All completed original observations and four positive closes occur before delivery assertion.",
+  "scope": "Actual public opaque Rust App/Core originals, fully broad AB and ABC, real signer-selected BC directions, genuine AB canonical ACK before C, no fabricated rows/roles/permissions. B solo ordinary chat is a valid new source; independent public recipient/native ABI acceptance is separate.",
+  "qualification": [
+    {
+      "cohort": "red-v2",
+      "source_commit": "06bf0c4137167c07b2b580067870530a9631fa3e",
+      "inputs_manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-red-v2-inputs.json",
+      "manifest_sha256": "b862bcb7649f75f0505d6e12e0dd69d85932680efdaf2c3793d463ab02470e25",
+      "input_count": 2631,
+      "protected_count": 16,
+      "gates": [
+        {
+          "gate": "held-originals",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_held_three_originals_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 101,
+          "seconds": 164.07,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-red-v2-held-originals.log",
+          "log_sha256": "1a86dc250298971c9d637d9638974bd0d44a9a3dd9133eb458f34fcc7cfdf093",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22531870720,
+          "test_summaries": [
+            "test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 2150 filtered out; finished in 110.94s"
+          ],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-red-v2-held-originals.log"
+        }
+      ]
+    },
+    {
+      "cohort": "green-v1",
+      "source_commit": "4e55d08d5e7db56a929d54b7d0a908d11bc4fd0c",
+      "inputs_manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-green-v1-inputs.json",
+      "manifest_sha256": "d0a3f7cb4ef1be483eb294c5c5865f7814b39d3eefa0a780ae6e711f303b53fc",
+      "input_count": 2631,
+      "protected_count": 16,
+      "gates": [
+        {
+          "gate": "held-originals",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_held_three_originals_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 118.6,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-green-v1-held-originals.log",
+          "log_sha256": "2c6afe722ffb21c72835ce47ff0b34b001965aedcfd436ad5e68a3ef340b1688",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22509019136,
+          "test_summaries": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 2150 filtered out; finished in 65.13s"
+          ],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-green-v1-held-originals.log"
+        }
+      ]
+    },
+    {
+      "cohort": "affected-v1",
+      "source_commit": "4e55d08d5e7db56a929d54b7d0a908d11bc4fd0c",
+      "inputs_manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-inputs.json",
+      "manifest_sha256": "d0a3f7cb4ef1be483eb294c5c5865f7814b39d3eefa0a780ae6e711f303b53fc",
+      "input_count": 2631,
+      "protected_count": 16,
+      "gates": [
+        {
+          "gate": "held-ab-originals",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_held_originals_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 30.54,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-held-ab-originals.log",
+          "log_sha256": "cb0fcfd29553668d08c65edeb36227691ddee3b352f27f88515b0a852802a4d0",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22373580800,
+          "test_summaries": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 2150 filtered out; finished in 29.65s"
+          ],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-held-ab-originals.log"
+        },
+        {
+          "gate": "sibling-originals",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "sibling_sharing",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 70.87,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-sibling-originals.log",
+          "log_sha256": "670022ca4789f6a9836b68bf42512d301f39a93ba64339677bf6aaae27eb29a9",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22373289984,
+          "test_summaries": [
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 2141 filtered out; finished in 69.58s"
+          ],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-sibling-originals.log"
+        },
+        {
+          "gate": "app-catalog",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_catalog_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 166.39,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-app-catalog.log",
+          "log_sha256": "6b7c258caf7535fc33e64c3ddf8b05aa05dd1dde5849a20a085d6e619ad3a21b",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22370353152,
+          "test_summaries": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 2150 filtered out; finished in 164.90s"
+          ],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-app-catalog.log"
+        },
+        {
+          "gate": "app-records",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_records_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 101.04,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-app-records.log",
+          "log_sha256": "d17995b20dfff537a71fb15567ebb40935c20240457954296a214a61ecf3aadb",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22377295872,
+          "test_summaries": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 2149 filtered out; finished in 99.61s"
+          ],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-app-records.log"
+        },
+        {
+          "gate": "test-strict",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--tests",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit": 0,
+          "seconds": 50.83,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-test-strict.log",
+          "log_sha256": "2a7e96442aa2784e4ca127cfa1a2e1723854b4bbd61dad5c7a5426f4e835b50b",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22379057152,
+          "test_summaries": [],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-test-strict.log"
+        },
+        {
+          "gate": "production-strict",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit": 0,
+          "seconds": 36.67,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-production-strict.log",
+          "log_sha256": "a039b82b1afdb3fd5c559af2876e9e1870db246b4957715e27bf38e2c1be50b2",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22378246144,
+          "test_summaries": [],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-production-strict.log"
+        },
+        {
+          "gate": "default-check",
+          "command": [
+            "cargo",
+            "check",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--locked"
+          ],
+          "exit": 0,
+          "seconds": 34.69,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-default-check.log",
+          "log_sha256": "7b106feb2b08aa08f10a05fcdad64749c853b6b7f8539a78be388551b12b5fea",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22378999808,
+          "test_summaries": [],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-default-check.log"
+        },
+        {
+          "gate": "format",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 4.38,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-held-three-original-affected-v1-format.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "inputs_unchanged": true,
+          "free_before_bytes": 22376603648,
+          "test_summaries": [],
+          "local_raw_log": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-held-three-original-affected-v1-format.log"
+        }
+      ]
+    }
+  ],
+  "initial_control": {
+    "source": "72565a95230261fb54bd1a1ef7869905db9fedd0",
+    "result": "2/0/0 held ABC source-A history. Not a behavioral RED and not ordinary B-source coverage; strengthened before the repair."
+  },
+  "limits": [
+    "No updated Apple SDK, real native ABI, installed UI or physical-phone qualification claim.",
+    "Pending invitation lineage, reliable legacy eligibility, principal-wide departure/rejoin and full final SDK/backend/platform integration remain separate.",
+    "Default standalone/published SDK and all16 frozen protected artifacts remain unchanged."
+  ]
+}

@@ -26,6 +26,8 @@ pub mod daemon;
 mod error;
 mod secret;
 mod terminal;
+#[cfg(feature = "test-policy-overrides")]
+mod test_support;
 pub mod tui;
 
 pub(crate) use terminal::{terminal_safe_json_display, terminal_safe_text};
@@ -543,7 +545,8 @@ async fn execute(
     import_nsec: Option<ImportNsec>,
 ) -> Result<(bool, CommandOutput), (bool, WnError)> {
     let json_output = cli.json;
-    execute_inner(cli, import_nsec)
+    // Bound the library dispatcher layout without erasing the future's auto traits.
+    Box::pin(execute_inner(cli, import_nsec))
         .await
         .map(|output| (json_output, output))
         .map_err(|err| (json_output, err))

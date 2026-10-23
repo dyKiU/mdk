@@ -229,8 +229,9 @@ pub struct DisbandTombstone {
 
 /// One member of a group, as storage sees it.
 ///
-/// `id` is the stable cross-epoch identifier (signature public key). The MLS
-/// leaf index is **not** stored here — it changes as the tree mutates.
+/// `id` is the account credential identity; `credential` contains the MLS
+/// leaf signature public key. The actual MLS leaf index is not stored here.
+/// This account view does not constitute an authoritative settled device roster.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Member {
     pub id: MemberId,

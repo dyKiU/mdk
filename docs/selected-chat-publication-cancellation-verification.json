@@ -1,0 +1,148 @@
+{
+  "head": "7d27c26053c2a7237555c2ed8b9ad116a47d66b0",
+  "input_count": 2447,
+  "source_manifest_sha256": "0fdb0d9049dbc812c73f1c09a4ad31e3758e05a48d0bd01f24b2cd7eae659299",
+  "gates": [
+    {
+      "gate": "blocked-publication",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "selected_chat_blocked_"
+      ],
+      "exit_code": 0,
+      "seconds": 102.51,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "4f2ea009f97ea53814376e11a96c7e8032958081746dbdfe6487d291467f330b"
+    },
+    {
+      "gate": "selected-family",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "selected_chat_copy::tests"
+      ],
+      "exit_code": 0,
+      "seconds": 101.12,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "162e909d4ba7136f4a8f958d231f33cbc1460c077a1ee07d37430a4b12191efa"
+    },
+    {
+      "gate": "default-refusal",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "default_selected_chat_copy_is_unsupported_before_account_or_worker_effects"
+      ],
+      "exit_code": 0,
+      "seconds": 50.1,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "0096d8af72fc2b9c3e5f25637c4fb8e7188d1a88c4b9717479bc92b1b10483d8"
+    },
+    {
+      "gate": "production-feature-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 29.98,
+      "counts": [],
+      "log_sha256": "5367574c6d3cf5fb14ba92a146fb09246d81d2cd4cc921fa97dcb51255024251"
+    },
+    {
+      "gate": "default-all-target-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 20.36,
+      "counts": [],
+      "log_sha256": "fbdf1846a6c89fdcc0b0f26fe3ac3ffa0b9475bad1e87aeb71b0a843f9c0e78b"
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.46,
+      "counts": [],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "classification": "Passing genuine cancellation/lost-reply acceptance controls against existing behavior; no semantic RED and no production behavior fix.",
+  "candidate_git_stash": "abc5a501eff56132b60dc9df988aee752758ddb3",
+  "verified_behavior": [
+    "Actual public ABC linking and Current ordinary A/D chat precede original selected request, consent, private offers and publication.",
+    "Exact cancellation and aborted RPC reply while holding the original public request both interrupt actual Commit publication before confirmation; pending MLS work is retired without advancing canonical epoch.",
+    "Exact cancellation and aborted RPC reply during actual Welcome publication preserve the already confirmed four-leaf source MLS state, clear pending state, and prevent late recipient joining.",
+    "After releasing the original transport gate, the exact held event remains absent from the real relay; B/C ordinary MLS/projections remain absent while their independently live consent packages remain Pending.",
+    "Late continuation is Closed. Fixture teardown aborts spawned continuation and releases the transport gate without manufacturing authority."
+  ],
+  "independent_verification": {
+    "candidate_input_bytes_matched": 2447,
+    "complete_raw_log_hashes_matched": 6
+  },
+  "artifacts": "backups/mdk-sync-delivery-20261009 in the parent workspace; prefix mdk-selected-publication-controls-v1",
+  "post_freeze_changes": "Qualification document and agent guidance only; two tested source paths remain byte-identical.",
+  "remaining_acceptance": [
+    "Native multi-host selected chat delivery.",
+    "Historical message retrieval/transfer and unfinished-onboarding admission."
+  ]
+}

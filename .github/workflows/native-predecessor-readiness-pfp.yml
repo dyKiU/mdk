@@ -1,0 +1,109 @@
+name: Exact predecessor waiting gate PFP
+on:
+  push:
+    branches: [ci/upstream-native-predecessor-readiness-pfp-20261019]
+  workflow_dispatch:
+    inputs:
+      final_source:
+        description: Optional explicit reviewed final source F (full 40-hex commit)
+        type: string
+        required: false
+        default: ''
+      scope:
+        type: choice
+        options: [preflight, runtime]
+        default: preflight
+      expected:
+        type: choice
+        options: [green, pfp]
+        default: pfp
+permissions:
+  contents: read
+concurrency:
+  group: native-predecessor-readiness-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: (github.ref == 'refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_dispatch' && inputs.final_source && startsWith(github.ref, 'refs/heads/ci/upstream-develop-dy-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UPSTREAM_NATIVE_PREDECESSOR_READINESS_BASELINE: 68c93c7b147fdce1911bb857f1b5b2982477ece9
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Whole source and closed parser controls; zero bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+          FINAL_SOURCE: ${{ inputs.final_source }}
+        run: |
+          args=(--preflight)
+          if [[ -n "$FINAL_SOURCE" ]]; then args+=(--final-source "$FINAL_SOURCE"); fi
+          python3 scripts/qualify_upstream_native_predecessor_readiness.py "${args[@]}"
+      - name: Hosted formatting; exact patch on failure
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" cargo fmt --all
+          git diff --binary > "$RUNNER_TEMP/native-predecessor-readiness-format.patch"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-predecessor-readiness-preflight
+          path: |
+            ${{ runner.temp }}/native-predecessor-readiness-evidence/result.json
+            ${{ runner.temp }}/native-predecessor-readiness-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  runtime:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && ((github.ref == 'refs/heads/ci/upstream-native-predecessor-readiness-pfp-20261019' && !inputs.final_source) || (inputs.final_source && startsWith(github.ref, 'refs/heads/ci/upstream-develop-dy-')))
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.expected == 'pfp' && 240 || 90 }}
+    env:
+      UPSTREAM_NATIVE_PREDECESSOR_READINESS_BASELINE: 68c93c7b147fdce1911bb857f1b5b2982477ece9
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: Real predecessor wait GREEN / exact waiting-return omission RED / restored GREEN; no retries
+        env:
+          CARGO_INCREMENTAL: '1'
+          CASE_EXPECTED: ${{ inputs.expected }}
+          FINAL_SOURCE: ${{ inputs.final_source }}
+        run: |
+          args=(--expected "$CASE_EXPECTED")
+          if [[ -n "$FINAL_SOURCE" ]]; then args+=(--final-source "$FINAL_SOURCE"); fi
+          python3 scripts/qualify_upstream_native_predecessor_readiness.py "${args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-predecessor-readiness-${{ inputs.expected }}
+          path: ${{ runner.temp }}/native-predecessor-readiness-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7

@@ -157,6 +157,12 @@ async fn upload_endpoint() -> (
     let task = tokio::spawn(async move {
         loop {
             let (mut socket, _) = listener.accept().await.unwrap();
+            // A connected socket closed before any HTTP bytes is not a request.
+            // Keep all existing header/body and unexpected-acquisition assertions.
+            let mut first_byte = [0u8; 1];
+            if socket.peek(&mut first_byte).await.unwrap() == 0 {
+                continue;
+            }
             let mut request = Vec::new();
             let mut buffer = [0u8; 4096];
             let end = loop {
@@ -192,6 +198,44 @@ async fn upload_endpoint() -> (
         }
     });
     (url, puts, task)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn outgoing_publication_ignores_empty_tcp_probes_and_rejects_truncation() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (url, puts, server) = upload_endpoint().await;
+    let address = url.strip_prefix("http://").unwrap();
+    drop(tokio::net::TcpStream::connect(address).await.unwrap());
+    let mut upload = tokio::net::TcpStream::connect(address).await.unwrap();
+    upload
+        .write_all(b"PUT /upload HTTP/1.1\r\nContent-Length: 4\r\n\r\ndata")
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        (&mut upload).take(4096).read_to_end(&mut response),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 201 Created\r\n"));
+    assert_eq!(puts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let mut truncated = tokio::net::TcpStream::connect(address).await.unwrap();
+    truncated
+        .write_all(b"PUT /upload HTTP/1.1\r\nContent-Length: 8\r\n\r\nshort")
+        .await
+        .unwrap();
+    drop(truncated);
+    let failure = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(
+        failure.is_panic(),
+        "a truncated HTTP body must still be rejected"
+    );
+    assert_eq!(puts.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 /// File-backed direct and durable-token sends stage the body in the media
@@ -517,6 +561,8 @@ async fn outgoing_sends_ignore_the_budget_and_refuse_what_they_cannot_stage() {
                 blossom_server: Some(url.clone()),
                 message_tags: Vec::new(),
             };
+            let probe_address = url.strip_prefix("http://").unwrap();
+            drop(tokio::net::TcpStream::connect(probe_address).await.unwrap());
             // Retain an actual first send; later refusal must leave it readable.
             let initial = client.upload_media(&group, request()).await.unwrap();
             let initial_id = &initial.sent.unwrap().message_ids[0];

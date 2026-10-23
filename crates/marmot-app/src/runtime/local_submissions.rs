@@ -12,6 +12,19 @@ fn validate_client_token(client_token: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+#[cfg(feature = "experimental-device-sync")]
+enum LocalSubmissionAdmission {
+    Local(crate::LocalSendAcceptance),
+    Forwarded(Box<ForwardedLocalSubmission>),
+}
+
+#[cfg(feature = "experimental-device-sync")]
+struct ForwardedLocalSubmission {
+    group: GroupId,
+    token: String,
+    request: LocalMessageRequest,
+}
+
 impl MarmotAppRuntime {
     /// Upload first, then durably admit the resulting message when `send` is set.
     /// Cancellation does not abandon an upload already handed to this task.
@@ -157,6 +170,13 @@ impl MarmotAppRuntime {
             .account_storage(&account.label)?
             .app_storage()
             .local_submission(&hex::encode(group.as_slice()), token)?;
+        #[cfg(feature = "experimental-device-sync")]
+        if submission.is_none() {
+            return self
+                .accounts
+                .app
+                .forwarded_local_send_status(&account.label, group, token);
+        }
         submission
             .map(|s| {
                 Ok(if let Some(json) = s.outcome_json {
@@ -333,56 +353,126 @@ impl MarmotAppRuntime {
     ) -> Result<crate::LocalSendAcceptance, AppError> {
         self.accounts.worker_commands(account).await?;
         let account = self.accounts.resolve(account)?;
+        #[cfg(feature = "experimental-device-sync")]
+        let forwarding = (self.accounts.clone(), account.label.clone());
         let app = self.accounts.app.clone();
         let shared = self.accounts.shared.clone();
         let events = self.accounts.events.clone();
         let group = group.clone();
-        // The task outlives cancellation of the host's wait. Wakeup and
-        // projection publication belong inside the same owned task.
-        blocking_app_task(move || {
-            // This blocking task owns only its account's admission gate. The
-            // worker cannot select a commit before timing registration; other
-            // accounts never wait for this database. Global map locks stay short.
-            let gate = shared.local_submission_gate(&account.account_id_hex);
-            let admission = gate.blocking_lock();
-            shared.lifecycle().ensure_running()?;
-            let (accepted, update) = app.admit_local_message_with_draft_policy_at(
-                &account.label,
-                &group,
-                token,
-                request,
-                draft,
-                edit_of_client_token,
-                crate::unix_now_seconds(),
-            )?;
-            if update.is_some() {
-                let mut queue = shared
-                    .local_submission_queue
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                // Shutdown sets stopping before clearing under this same map
-                // lock. Recheck here so no admission can register after clear.
-                if !shared.lifecycle().is_stopping() {
-                    queue.admitted(
+        // Classification and its continuation belong to one owned task, so
+        // cancelling the host's wait cannot abandon a forwarded submission.
+        let admission = async move {
+            let outcome = blocking_app_task(move || {
+                // This blocking task owns only its account's admission gate. The
+                // worker cannot select a commit before timing registration; other
+                // accounts never wait for this database. Global map locks stay short.
+                let gate = shared.local_submission_gate(&account.account_id_hex);
+                let admission = gate.blocking_lock();
+                shared.lifecycle().ensure_running()?;
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                shared.observe_submission_classification_for_test(&account.account_id_hex, &token);
+                #[cfg(feature = "experimental-device-sync")]
+                {
+                    use cgka_traits::storage::GroupStorage;
+                    match app.account_storage(&account.label)?.get_group(&group) {
+                        Err(cgka_traits::storage::StorageError::NotFound) => {
+                            if draft.is_some() || edit_of_client_token.is_some() {
+                                return Err(crate::AppError::InvalidAppMessagePayload(
+                                    "forwarded draft correlation is unavailable".into(),
+                                ));
+                            }
+                            return Ok(LocalSubmissionAdmission::Forwarded(Box::new(
+                                ForwardedLocalSubmission {
+                                    group,
+                                    token,
+                                    request,
+                                },
+                            )));
+                        }
+                        Err(error) => return Err(error.into()),
+                        Ok(_) => {}
+                    }
+                }
+                let (accepted, update) = app.admit_local_message_with_draft_policy_at(
+                    &account.label,
+                    &group,
+                    token,
+                    request,
+                    draft,
+                    edit_of_client_token,
+                    crate::unix_now_seconds(),
+                )?;
+                if update.is_some() {
+                    let mut queue = shared
+                        .local_submission_queue
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    // Shutdown sets stopping before clearing under this same map
+                    // lock. Recheck here so no admission can register after clear.
+                    if !shared.lifecycle().is_stopping() {
+                        queue.admitted(
+                            &account.account_id_hex,
+                            &hex::encode(group.as_slice()),
+                            &accepted.message_id_hex,
+                            &shared.app_performance_telemetry(),
+                        );
+                    }
+                }
+                drop(admission);
+                if let Some(update) = update {
+                    account_worker::publish_app_runtime_projection_update(
+                        &events,
                         &account.account_id_hex,
-                        &hex::encode(group.as_slice()),
-                        &accepted.message_id_hex,
-                        &shared.app_performance_telemetry(),
+                        &account.label,
+                        update,
                     );
                 }
+                shared.local_submission_wakeups.send_replace(());
+                #[cfg(feature = "experimental-device-sync")]
+                {
+                    Ok(LocalSubmissionAdmission::Local(accepted))
+                }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                {
+                    Ok(accepted)
+                }
+            })
+            .await?;
+            #[cfg(feature = "experimental-device-sync")]
+            {
+                match outcome {
+                    LocalSubmissionAdmission::Local(accepted) => Ok(accepted),
+                    LocalSubmissionAdmission::Forwarded(submission) => {
+                        let (accounts, label) = forwarding;
+                        let ForwardedLocalSubmission {
+                            group,
+                            token,
+                            request,
+                        } = *submission;
+                        accounts
+                            .admit_forwarded_chat(&label, group, token, request)
+                            .await
+                    }
+                }
             }
-            drop(admission);
-            if let Some(update) = update {
-                account_worker::publish_app_runtime_projection_update(
-                    &events,
-                    &account.account_id_hex,
-                    &account.label,
-                    update,
-                );
+            #[cfg(not(feature = "experimental-device-sync"))]
+            {
+                Ok(outcome)
             }
-            shared.local_submission_wakeups.send_replace(());
-            Ok(accepted)
-        })
-        .await
+        };
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            tokio::spawn(admission)
+                .await
+                .map_err(|_| crate::AppError::TransportClosed)?
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            admission.await
+        }
     }
 }

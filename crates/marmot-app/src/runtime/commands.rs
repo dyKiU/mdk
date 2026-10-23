@@ -31,6 +31,51 @@ use crate::{
 };
 
 impl AccountManager {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn live_revocation_settlement_binding_for_test(
+        &self,
+        account_ref: &str,
+        group: &GroupId,
+    ) -> crate::client::device_linking::RevocationBindingObservationForTest {
+        let commands = self.worker_commands(account_ref).await?;
+        let (respond, response) = oneshot::channel();
+        commands
+            .send(
+                AccountWorkerCommand::LiveRevocationSettlementBindingForTest {
+                    group: group.clone(),
+                    respond,
+                },
+            )
+            .await
+            .map_err(|_| AppError::TransportClosed)?;
+        account_worker_response(response).await
+    }
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn refresh_revocation_receive_route_for_test(
+        &self,
+        account_ref: &str,
+        group: &GroupId,
+    ) -> Result<(bool, bool, bool), AppError> {
+        let commands = self.worker_commands(account_ref).await?;
+        let (respond, response) = oneshot::channel();
+        commands
+            .send(AccountWorkerCommand::RefreshRevocationReceiveRouteForTest {
+                group: group.clone(),
+                respond,
+            })
+            .await
+            .map_err(|_| AppError::TransportClosed)?;
+        account_worker_response(response).await
+    }
+
     #[cfg(test)]
     pub(super) async fn unhydrated_group_count_for_test(
         &self,
@@ -2326,6 +2371,10 @@ mod tests {
         manager.workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     super::super::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2406,6 +2455,10 @@ mod tests {
         runtime.accounts().workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     super::super::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2488,6 +2541,10 @@ mod tests {
         manager.workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     super::super::MEDIA_COMMAND_QUEUE_LIMIT,

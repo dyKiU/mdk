@@ -1062,10 +1062,16 @@ impl AccountManager {
         let home = self.app.account_home();
         // A later legacy sign-in may have started after completion was
         // persisted. Never clear its unfinished setup as housekeeping.
-        if home
-            .account_setup_state(&checkpoint.snapshot.account_id_hex)?
-            .is_none_or(|s| s.phase == AccountSetupPhase::KeyPackagePublicationConfirmed)
-        {
+        let id = &checkpoint.snapshot.account_id_hex;
+        let setup = home.account_setup_state(id)?;
+        let cleanup_allowed = match setup.map(|s| s.phase) {
+            None | Some(AccountSetupPhase::KeyPackagePublicationConfirmed) => true,
+            Some(AccountSetupPhase::CompanionReady) => {
+                checkpoint.snapshot.ready && home.public_key_package_publication_disabled(id)?
+            }
+            _ => false,
+        };
+        if cleanup_allowed {
             home.complete_account_setup(&checkpoint.snapshot.account_id_hex)?;
         }
         checkpoint.setup_cleanup_pending = false;
@@ -1454,7 +1460,11 @@ impl AccountManager {
                     .is_some_and(|s| {
                         s.kind != AccountSetupKind::InteractiveIdentity
                             && !(existing.setup_cleanup_pending
-                                && s.phase == AccountSetupPhase::KeyPackagePublicationConfirmed)
+                                && matches!(
+                                    s.phase,
+                                    AccountSetupPhase::KeyPackagePublicationConfirmed
+                                        | AccountSetupPhase::CompanionReady
+                                ))
                     })
             {
                 return Err(onboarding_error());
@@ -1698,7 +1708,13 @@ impl AccountManager {
                 self.require_live_onboarding_attempt(c)?;
             } else if step == OnboardingStep::KeyPackage {
                 let account = self.resolve(&c.snapshot.account_id_hex)?;
-                if account.external_signing
+                if self
+                    .app
+                    .account_home()
+                    .public_key_package_publication_disabled(&account.label)?
+                {
+                    self.complete_companion_key_package_step(c, &account)?;
+                } else if account.external_signing
                     && !self.app.has_external_signer(&account.account_id_hex)
                 {
                     c.set(
@@ -1800,7 +1816,10 @@ impl AccountManager {
                 c.setup_cleanup_pending = true;
             }
             self.save_onboarding(c)?;
-            if c.snapshot.steps[index].status != OnboardingStatus::Passed {
+            if !matches!(
+                c.snapshot.steps[index].status,
+                OnboardingStatus::Passed | OnboardingStatus::Skipped
+            ) {
                 self.reconcile_for_account(&c.snapshot.account_id_hex)
                     .await?;
                 return Ok(());

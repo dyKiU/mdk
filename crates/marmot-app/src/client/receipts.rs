@@ -40,6 +40,13 @@ impl SeenEventIndex {
 }
 
 impl AppClient {
+    /// Opt-in fixture peek only; does not consume release evidence or repair the cache.
+    /// Membership does not establish that a transport event changed Core state.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn cached_transport_receipt_contains_for_test(&self, event_id: &str) -> bool {
+        self.seen_events_index.0.contains(event_id)
+    }
+
     pub(crate) fn remember_seen_event(&mut self, event_id: String) {
         if remember_seen_event(&mut self.seen_events_index.0, &mut self.state, event_id) {
             self.pending_seen_event_count = self

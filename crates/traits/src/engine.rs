@@ -620,6 +620,11 @@ pub enum GroupEvent {
         message_id: MessageId,
         sender: MemberId,
         epoch: EpochId,
+        /// Optional exact authenticated source leaf. Experimental capture only;
+        /// absent on synthetic/archive paths and unresolved historical trees.
+        /// This evidence never grants enrollment or history access.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_leaf: Option<crate::source_leaf::SourceLeafProof>,
         payload: Vec<u8>,
         /// Retention policy resolved from the authenticated MLS source epoch.
         /// `None` is a safe legacy/recovery result when that historical policy

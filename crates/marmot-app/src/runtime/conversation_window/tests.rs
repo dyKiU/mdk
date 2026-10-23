@@ -113,6 +113,10 @@ impl Fixture {
         runtime.accounts.workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 handle,
                 commands,
@@ -1737,6 +1741,10 @@ async fn closing_window_cannot_abandon_reconcile_worker_teardown() {
     f.runtime.accounts.workers.lock().await.insert(
         "stale account".into(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands,
@@ -2464,9 +2472,11 @@ async fn assert_hot_checkpoints_do_not_postpone_refresh(prior_not_ready: bool) {
     }
     let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let produced = Arc::new(AtomicUsize::new(0));
+    let (hot, hot_checkpoints) = oneshot::channel();
     let producer_stop = stopping.clone();
     let producer_count = produced.clone();
     let producer = tokio::spawn(async move {
+        let mut hot = Some(hot);
         while !producer_stop.load(Ordering::SeqCst) {
             // Follow the real producer's bounded replacement and generation
             // contract; authority/account rows came from one production read.
@@ -2477,41 +2487,63 @@ async fn assert_hot_checkpoints_do_not_postpone_refresh(prior_not_ready: bool) {
                 state.latest = None;
             }
             capture.changed.send_replace(());
-            producer_count.fetch_add(1, Ordering::SeqCst);
+            let count = producer_count.fetch_add(1, Ordering::SeqCst) + 1;
+            if count > 100
+                && let Some(hot) = hot.take()
+            {
+                let _ = hot.send(());
+            }
             tokio::task::yield_now().await;
         }
     });
-    // On a multi-thread runtime the refresh can land within a few checkpoints,
-    // so make the watch hot before observing rather than counting afterwards.
-    timeout(Duration::from_secs(2), async {
-        while produced.load(Ordering::SeqCst) <= 100 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the checkpoint watch is hot before the refresh is observed");
+    let mut hot_observed = false;
     let observed = timeout(Duration::from_millis(250), async {
-        loop {
-            changes.changed().await.unwrap();
-            let snapshot = changes.borrow_and_update().clone().unwrap();
-            if snapshot
-                .page
-                .page()
-                .messages
-                .iter()
-                .any(|row| row.message_id_hex == id(99))
-            {
-                break snapshot;
-            }
-        }
+        // A fast valid refresh must not end observation before the producer
+        // qualifies the hot-watch scenario. Both conditions share the original
+        // deadline, and the producer keeps running until both are observed.
+        // The one-shot retains its value if production wins before this await.
+        let (snapshot, hot) = tokio::join!(
+            async {
+                loop {
+                    changes.changed().await.unwrap();
+                    let snapshot = changes.borrow_and_update().clone().unwrap();
+                    if snapshot
+                        .page
+                        .page()
+                        .messages
+                        .iter()
+                        .any(|row| row.message_id_hex == id(99))
+                    {
+                        break snapshot;
+                    }
+                }
+            },
+            async {
+                let hot = hot_checkpoints.await;
+                hot_observed = hot.is_ok();
+                hot
+            },
+        );
+        hot.expect("the producer must qualify the hot checkpoint scenario");
+        snapshot
     })
     .await;
+    let produced_before_stop = produced.load(Ordering::SeqCst);
     stopping.store(true, Ordering::SeqCst);
     producer.await.unwrap();
     drop(commands);
     drop(changes);
     actor.await.unwrap();
     f.close().await;
+    assert!(
+        produced_before_stop > 100,
+        "the checkpoint watch stayed hot throughout the observation: produced={produced_before_stop}, ready_and_hot_observed={}",
+        observed.is_ok()
+    );
+    assert!(
+        hot_observed,
+        "hot checkpoint production must qualify within the original observation"
+    );
     let observed = observed
         .expect("a continuing checkpoint producer must not postpone a ready refresh until quiet");
     assert!(observed.presentation.header.epoch.is_some());

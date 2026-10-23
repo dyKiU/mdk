@@ -1,0 +1,596 @@
+# Account-wide departure source checkpoint
+
+
+## Typed Records cut-refusal checkpoint (2026-10-13)
+
+Component-qualified product source `c4c32b25f19563d0e7efabbff3074ddb418b1487`
+is retained in frozen tested source `d8855cd82306d6076b730d25478d5d221d0b7da8`.
+A real authenticated Records batch refused by an account-wide departure cut had
+remained at the projection retry head, preventing a later genuine B Consent from
+binding. The precise baseline reached the actual typed SQL denial and timed out;
+the same functional oracle passes with the narrow negative disposition. Explicit
+peer/channel-nonce joins strengthen the passing fixture's captured-input proof.
+
+The SQL transaction checks the original, approved scope and configured owner
+before testing each incoming origin against the actual cut. Its typed denial
+creates no message, progress or import receipt. App revalidates the same original
+at the negative tail, clears only the completed Records assembly and finishes the
+hidden event without a RecordReceipt or presentation wake. Missing catalog,
+other invalid observations and storage/original failures retain their existing
+retry behavior. No metadata creates permission or membership.
+
+All prefixes are under `/Users/pj/project/build/results/`:
+
+- `records-cut-6c0027ba-red-v2`: actual0/1, with complete authenticated input,
+  public cut, peer Consent ACK, exact retained event/nonce/batch, unexpired probe
+  and typed negative SQL refusal established before the unchanged30-second oracle.
+- `records-cut-c4c32b25-green-v3`: actual1/0, with hardened peer/nonce binding,
+  the same negative cut, no committed record receipt and real later Consent bind.
+- `records-cut-d8855cd8-affected-v5`: actual24/0/0 selected executions: SQL19,
+  real Records regression1, original offline departure1, both fresh accepted
+  sources/old-intent replay/new operation1, ordinary Records1 and retained
+  same-original authentication1. Traits/SQLite/App default and experimental
+  all-target Clippy `-D warnings` and whole-workspace fmt exited0, no exemptions.
+- `records-cut-d8855cd8-native-v6`: matched App/C build exited0 (zero runtime
+  tests); actual C→UniFFI→App consumer1 and independent same-root producer1
+  passed with unchanged binaries and positive closures. This uses the existing
+  4 MiB minimum test stack/8 MiB composed thread, not a shipping-stack claim.
+
+The initial Records v1 timeout lacked an exact SQL-branch observation and remains
+nonqualifying. Affected v4 selected zero SQL tests because its feature was absent;
+the driver rejected it, and no passing gate is claimed. Prior failed full cohorts
+remain preserved. Final unchanged-source fast-ci, backend and SDK gates are still
+required before host adoption and Dev deployment; Production remains untouched.
+
+
+## Exact rejected-reference security checkpoint (2026-10-13)
+
+Component-qualified Core source `8a114134feee73e9fbc0269f940ffbc3c4e880ac`
+restores the unchanged identity-spoofing refusal regression. Frozen b3 full
+fast-ci passed, but its default backend reported this actual security-guard
+failure; the run was intentionally interrupted and remains incomplete and
+unqualified. Its unchanged exact test reproduced 0/1 on the retained full-default
+artifact. No subsequent backend or SDK gate ran on that failed cohort.
+
+OpenMLS now carries the exact missing reference from its authenticated lookup
+with redacted diagnostics. Core re-authenticates only retained public proposal
+wire against the actual candidate, pins group/epoch/content digest, matches the
+actual queued reference, and requires current authorization refusal before
+terminally rejecting the referencing commit. Failed metadata alone, unrelated
+wire and unavailable dependencies cannot authorize this rejection. Refused
+proposals are never queued or admitted. Legitimate late dependency recovery stays
+fully validated.
+
+Negative lookup visits at most64 rows/500 ms per candidate page. The existing
+resumable search retains its exact candidate-path cursor after crypto/SQL
+restoration; changed prefixes reset it. Every page consumes the existing
+anti-amplification replay budget, and capacity/error is not an absence verdict.
+Restart reconstructs scratch work from immutable rows, without new durable
+permission, schema or public wire.
+
+M5 prefixes under `/Users/pj/project/build/results/`:
+
+- `rejected-reference-02f83c5e-controls-v4`: default20+experimental20 identity
+  guards, genuine late/direct4 and existing rollback/refusal3 passed (47 selected
+  executions). Its strict/fmt failures are retained separately.
+- `rejected-reference-8a114134-affected-v5`: Core18 and original App1 passed;
+  Core strict default/experimental plus workspace fmt exited0 without exemptions.
+  The additional fresh-both App test failed the initial common departure timeout
+  before its rejoin body. B remained Available with no intent journal while C
+  retained pending intents; this is not a late-reference or rejoin success claim.
+
+The new controls prove exact rejected dependency discovery beyond65 inert Failed
+rows after same-storage restart, unrelated real rejection cannot veto a genuine
+late commit, authorized wire mislabeled Failed remains nonterminal, and scan
+unwind restores the opaque live state, complete ledger and uncommitted cursor.
+The App delivery failure remains unresolved; final matrix, SDK and host deployment
+are still blocked. Production apps and prior qualified SDKs remain untouched.
+
+## Combined component/native checkpoint (2026-10-13)
+
+Frozen tested source `3c527fc999f6df4350e94b61991011c73d793492` adds only
+exact injected-item authentication-route diagnostics to the qualified component
+below. The existing same-original retained-retry assertion and deadlines remain
+unchanged. Its isolated test passed 1/0/0 and observed the captured actual Consent
+through genuine retained Core authentication (normal0, retained1). This does not
+establish the cause or universal resolution of the earlier full-cohort failure.
+
+All prefixes are under `/Users/pj/project/build/results/`:
+
+| Scope | Actual result | Prefix |
+|---|---|---|
+| Exact same-original retained-auth control |1 passed,0 failed/ignored|`sibling-3c527fc9-exact-auth-route-v22`|
+| App experimental/default all-target Clippy `-D warnings`; whole-workspace fmt |all exit0; zero tests; no exemptions|`sibling-3c527fc9-auth-route-statics-v23`|
+| Matched App/C test artifact build |exit0; zero runtime tests|`account-wide-departure-3c527fc9-native-ffi-v24`|
+| Genuine C→UniFFI→App consumer and independent same-root producer |consumer1+producer1 passed,0 failed/ignored; both binaries unchanged|`account-wide-departure-3c527fc9-native-ffi-v24`|
+
+The native journey proves actual public ordinary removals, receipt completion,
+same-root reopen and explicit client/producer closure under its existing test
+profile (minimum test stack4 MiB; composed App thread8 MiB). It is not a shipping
+default-stack or SDK/deployment claim. No authentication assertion was relaxed.
+Full fast-ci, the unchanged-candidate six-gate backend matrix and ten SDK gates
+must pass before host adoption/build/deployment. Earlier failed full e070 evidence
+is preserved; Dev apps remain stopped and Production apps remain untouched.
+
+## Core late required-proposal recovery (2026-10-13)
+
+Component-qualified source `33d2cc44a49e714bf66598206b12e0c39869ecee`
+retains only actual MissingProposal candidate failures as deferred work. An
+actual authenticated standalone proposal can wake a parked commit only after
+rollback replay proves that exact proposal reference is consumed by the fully
+validated commit. Invalid references, authorization and structural failures
+remain strict; no global Deferred/EpochInvalidated pass-opening rule changed.
+
+Bounded wake jobs live in the existing durable convergence-pass JSON record.
+Each maintenance command scans at most 64 rows/500 ms and persists its cursor;
+restart reconstructs the immutable proposal wire and repeats full validation.
+Jobs survive pass replacement without changing frozen membership or cutoffs.
+The final row transition pins group, source epoch, state and payload, and only
+a successful transition schedules canonical work. No public wire, SQL migration,
+binding declaration or production stack setting changed.
+
+The genuine late-arrival baseline `0e4ed5dd` completed a pass with MissingProposal,
+then authenticated the exact required packet but left its real commit ineligible
+(0/1). The unchanged functional fixture passed on prototype `407b8ca2`; the
+bounded/restart candidate below preserves that eligibility/removal oracle.
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Frozen scope | Actual result | Prefix |
+|---|---|---|
+| Genuine late arrival; target beyond 65 inert pagination decoys and same-storage Engine reopen |2 passed,0 failed/ignored|`core-19145d60-late-proposal-continuation-v16`|
+| SQLite cursor state/epoch/group/limit/early-stop/missing-cursor controls |4 passed,0 failed/ignored|`core-19145d60-late-proposal-controls-v17`|
+| Consumed/by-reference, Frozen, dedup, retained-anchor, reference/authentication, cutoff/cap controls and both actual departure journeys |15 passed,0 failed/ignored|`core-19145d60-late-proposal-affected-v18`|
+| Actual Collecting and already-Processed dependency positives |2 passed,0 failed/ignored|`core-19145d60-required-proposal-positive-v20`|
+| Genuine unrelated/rejected/unwind rollback controls, stale proposal and pass JSON roundtrip |5 passed,0 failed/ignored|`core-33d2cc44-late-proposal-negative-controls-v21`|
+
+These are 28 selected executions, not a distinct-case or whole-suite count.
+Core/App experimental/default all-target Clippy passed with `-D warnings` in
+v18; traits/SQLite default/experimental strict passed in
+`core-19145d60-wake-storage-statics-v19`. After the sole test-fixture registry
+correction (191→33), Core strict default/experimental and whole-workspace fmt
+passed again in v21. No warning exemptions were used; static gates execute zero
+tests. Rust 1.97.1, jobs1/debug0/incremental0, minimum test stack4 MiB and one
+thread were used; the composed App fixture owns its existing 8 MiB thread.
+
+Earlier prototype budget gaps, the corrupt-decoy prerequisite failure and the
+negative-fixture missing-SelfRemove setup failures remain nonqualifying attempts.
+The latest two App journeys reached their actual removal/receipt and fresh-both
+origin/replay/new-operation assertions, but do not establish universal scheduling
+recovery. Retained sibling-auth retry, final full backend/fast-ci, SDK and Dev
+build/deployment remain open; there is no shipping promotion claim.
+
+## Core collecting-pass dependency repair (2026-10-13)
+
+Qualified Core runtime source `6b369606c787ea65d1b5a567752b0934471b36fc`
+admits an already-retained, authenticated and authorized standalone proposal into
+an existing Collecting pass. The normal admission owner, immutable cutoff,
+bounds, digest verification and quarantine handling remain authoritative.
+Existing same-group graph inputs retain their original state/payload; terminal
+and foreign-group rows remain excluded. Pass-opening states were not widened.
+No MLS validation, wire, schema, binding or production stack setting changed.
+
+The unchanged genuine public-ingest fixture privately binds the exact SelfRemove
+packet to the actual committer's authenticated queued ProposalRef and confirmed
+consumed reference. Baseline `b23baf3a1c7efd1c21f03aaff7972a26d8affe97`
+proved direct authentication but omitted that dependency from Collecting
+membership; the completed pass rejected the real commit as MissingProposal.
+The same fixture on 6b admits the dependency and proves rival eligibility and
+actual ordinary-member removal. No pass, proposal, membership or winner is forged.
+
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Frozen scope | Actual result | Prefix |
+|---|---|---|
+| Baseline direct authenticated collecting intake |0 passed,1 failed; processed-before-rival control 1 passed|`core-b23baf3a-required-proposal-direct-red-v6`|
+| Identical fixture after repair |2 passed,0 failed/ignored|`core-6b369606-required-proposal-direct-green-v7`|
+| Core consumed/by-reference winner+loser, dedup, frozen integrity, retained anchors, strict reference/authentication controls, default consumed-record |11 passed,0 failed/ignored|`core-6b369606-required-proposal-affected-v8`|
+| Effective cutoff, absolute cap, stale unconsumed proposal |3 passed,0 failed/ignored|`core-6b369606-required-proposal-cutoff-v9`|
+
+Core experimental/default all-target Clippy passed with `-D warnings` and no
+exemptions in `core-6b369606-required-proposal-statics-v8b`. App strict initially
+found one test-only provenance tuple type-complexity lint. The only later source
+delta, `306288ed6a97046d4389eb4aa1685e357189fe12`, names that tuple; all runtime
+and test bodies remain byte-identical. App experimental/default all-target
+Clippy and whole-workspace formatting passed in
+`core-306288ed-required-proposal-statics-v10`. Compilation/static gates execute
+zero tests. Focused tests used Rust 1.97.1, jobs 1, debug 0, incremental 0, 4 MiB minimum
+test stack and one test thread; the composed App fixture owns its 8 MiB thread.
+
+The real original account-wide departure also passed 1/0 on 6b. The second
+fresh-both-source case failed its INITIAL departure, before any fresh Welcome
+or replay body: B/D canonical epoch 3 authenticator/head matched, but B remained
+Available with no departure journal/leave request while C's intent outboxes
+remained pending. Historical MissingProposal observations do not establish its
+current cause. Full final backend, the sibling retained-authentication retry,
+SDK and Dev deployment remain open. Earlier compile/prerequisite failures and
+the insufficient existing-row-only attempt are retained, not qualifying REDs.
+
+## Account-owned submission repair (2026-10-13)
+
+Signed runtime/test source `a750af7e27ed8af14cd55d24c9ae7bb53f7a6b68`
+moves experimental local-versus-forwarded group classification into the existing
+account-gated blocking admission. An owned continuation survives host cancellation
+through forwarding; the default path still awaits directly. Queue timing,
+projection updates, lifecycle checks and normal forwarding authority are preserved.
+No wire, schema, binding declaration or production thread-stack setting changed.
+
+The frozen `e07071ab` backend passed default tests (4,240 passed) but failed
+experimental tests (4,889 passed,4 failed). Its four subsequent static gates and
+all SDK gates were not executed. Two initial departure failures retain an active B
+leaf on a different epoch3 branch from D; the sibling retained-authentication retry
+assertion also remains unresolved. This submission component does not fix them.
+
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Scope | Actual result | Prefix |
+|---|---|---|
+| Existing unchanged admission fixture against preserved e070 executable |0 passed,1 failed,0 ignored; fixed2s gate timeout|`account-submission-e07071ab-blocking-admission-red-v1`|
+| Same admission fixture on a750 |1 passed,0 failed/ignored|`account-submission-a750af7e-focused-v5`|
+| Real forwarded send after host waiter cancellation |1 passed,0 failed/ignored; actual caller held before SQL, host aborted before release, source publication1 and exact canonical mirrored record|same v5 prefix|
+| Experimental queue/removal timing controls |2 passed,0 failed/ignored|same v5 prefix|
+| Forwarded reply, offline/reopen, recipient SQL rollback controls |3 passed,0 failed/ignored|`account-submission-a750af7e-affected-v6`|
+| Default queue controls |2 passed,0 failed/ignored|same v6 prefix|
+| App all-targets Clippy default and experimental, including test-policy/exports |both exit0, `-D warnings`, no exemptions|same v6 prefix|
+| Whole-workspace formatting |exit0|same v6 prefix|
+
+The original admission fixture is byte-identical to e070. Focused tests use one
+libtest thread versus the full cohort's two, the same App experimental/OTLP/analytics/
+test-policy features, Rust1.97.1, debug0, incremental0, jobs1 and4MiB test stack.
+The new cancellation fixture uses a bounded cfg-test-only caller hold with RAII
+release; it is not a database-blocking regression. Its genuine source/canonical
+record assertions and body marker executed. The composed fixture checks normal
+ABC shutdown results, without additional storage-closed flags. All frozen inputs
+remained unchanged; the original executable is separately hash-preserved.
+
+Earlier v1 missing-import compilation, v2 zero forwarding selection and v3
+single-thread fixture database starvation are retained nonqualifying attempts.
+The corrected cancellation hold changes only test behavior. Final full fast-ci,
+six-package backend qualification, generated SDK and installed-host acceptance
+remain required; this component authorizes no SDK/app promotion or fork publication.
+
+## Current component checkpoint (2026-10-12)
+
+Signed component source `430be45ea43045f7115fac9c52d657d04cda2255` includes
+`9158365351319d8c0f0e672cf933e6af5f89ec98`: an authenticated, byte-identical
+already-committed departure retries its durable receipt without retiring the
+receipt channel again. Fresh cuts still invalidate/renew; the existing Core,
+policy, roster and SQL before/tail checks remain unchanged. No wire, schema or
+binding declaration changed.
+
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Scope | Actual result | Immutable source / prefix |
+|---|---|---|
+| Authenticated identical intent while actual complete receipt is held |0 passed,1 failed; actual removals complete,8 held contexts/6 queued retries/5 authenticated duplicate SQL applies, completion misses fixed30s|e9b6c208 / `account-wide-departure-e9b6c208-duplicate-receipt-commit-diagnostic-v36`|
+| Same fixture and deadlines after inserted-only renewal guard |1 passed,0 failed/ignored; actual held/queued/applied counts1/1/1, actual ordinary removals and all participant completion/denials/closures|42aaa99c / `account-wide-departure-42aaa99c-commit-rejection-diagnostic-v41`|
+| Ordinary offline departure, both fresh accepted sources and old intent replay, actual administrator/source winning branches |4 passed,0 failed/ignored|42aaa99c / `account-wide-departure-42aaa99c-duplicate-receipt-affected-v38`|
+| App default strict |exit0, no exemptions|42aaa99c / `account-wide-departure-42aaa99c-duplicate-receipt-strict-v39`|
+| App experimental strict |exit0, no exemptions; manual aggregate Debug only corrects diagnostic dead-code lint|430be45e / `account-wide-departure-430be45e-duplicate-receipt-strict-v42`|
+| Actual C→UniFFI→App boundary |consumer1+producer1 passed,0 failed/ignored; real two-source removals/receipts, same-root durable completion and positive owner closures|430be45e / `account-wide-departure-430be45e-native-ffi-v43`|
+
+Receipt SQL20, storage strict2, no-policy default/experimental2, original SDK
+approval/cancellation controls and delayed Request evidence in the historical
+records below are retained
+against unchanged relevant inputs. The current guard does not fix public MLS
+convergence: attempts35/37 failed before the receipt body (no held or applied
+duplicate), with an active B leaf and an exact rival commit rejected against
+candidate state. They remain unresolved prerequisite failures, not receipt REDs
+or GREENs. Earlier33/34 similarly failed forced-fork prerequisites. The
+experimental strict attempt39 failed diagnostic dead-code checks and is retained;
+42 fixes only the aggregate formatter. Source430 otherwise preserves the tested
+42 runtime and fixture predicates.
+
+Native43 uses the existing4MiB test-thread/8MiB composed-producer profiles;
+shipping default-stack, full final CI, generated SDK and installed-app acceptance
+remain required. Whole-workspace `cargo fmt --all -- --check` passed at430
+(empty log SHA256e3b0c442…). Component results authorize no SDK or app promotion by
+themselves. The docs-only205 integration ancestry is preserved.
+
+Full workspace fast-ci at009b0862 stopped in `check-default` with a missing
+exhaustive simulator error arm (0 Rust tests; retained raw SHA256cf62c5df…).
+Signed4b88bf8b adds only the conformance adapter's permanent ExpectedRefusal,
+nonretryable, static-label mapping for AccountChatDepartureDenied. Its existing
+privacy/error-classification test passed1 default +1 experimental,0 failed or
+ignored, under `automatic-final-4b88bf8b-simulator-classifier-v2`; whole-workspace
+fmt passed. App, Core, native declarations and the component runtime remain
+unchanged. Full CI restarts on this documented source, followed sequentially by
+six-package backend and Apple SDK qualification.
+
+## Historical receipt-snapshot checkpoint (76f7e9e6)
+
+Runtime source: `76f7e9e60ef25195521e45acc980808022e9d22f`; its only change from
+`8e108b30460f0fdb1c13cfb2f5ca1723c68aba2e` is borrowing existing SQL test scopes
+instead of cloning them. Full final integration CI, SDK generation and shipping
+native/installed-app qualification remain required. No deployment or fork
+publication is implied by these component results.
+
+All evidence prefixes below are under `/Users/pj/project/build/results/`.
+
+| Scope | Actual result | Immutable source / prefix |
+|---|---|---|
+| Published receipt snapshot regression |0 passed,1 failed: stale incomplete publication erased newer completion receipt|7240b815 / `account-wide-departure-7240b815-stale-receipt-red-v17`|
+| Receipt flags/phase fencing, guard rollback, negative journal and25→26 migration controls |20 passed,0 failed/ignored|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-sql-v22`|
+| Latest real C→UniFFI→App departure |consumer1+producer1 passed,0 failed/ignored; actual two removals, completion receipts, durable same-root reopen and all checked closures|8e108b30 / `account-wide-departure-8e108b30-native-ffi-v19`|
+| Storage/App strict default and experimental |4 passed, no warning exemptions|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-strict-v23`|
+| Initial departure before fresh-rejoin/replay |0 passed,1 failed: B still active, same epoch but different B/D branch, real B proposal retained/received|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-affected-v24`|
+| Ordered branch/reopen |0 passed,1 failed after real branch switch/reopen and both removals: coordinator still awaited one peer receipt|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-controls-v25`|
+| No-policy refusal default/experimental |2 passed,0 failed/ignored|76f7e9e6 / `account-wide-departure-76f7e9e6-no-policy-v27`|
+| Genuine pending-handshake restart functional regression |matched0/1→1/0; identical source-scoped exact-record predicate, only37 actor lines differ|a5005561→4935e208 / `pending-scoped-baseline-v9` and `pending-scoped-green-v10` (account-wide-departure prefixes)|
+| Actual delayed higher Request after real Consent, original broad/plain/cancel/authentication retry, fresh-rejoin/replay and branch-equal device-only survivor |7 passed,0 failed/ignored; required body markers independently audited|26214d0b / `account-wide-departure-26214d0b-required-residual-v11`|
+
+Publication now retains the actually serialized reply kind and progress flags.
+The owner-checked before/tail SQL transaction clears pending work only if those
+flags and the coordinator phase are still current. A stale snapshot is a
+successful no-op; it does not erase newer work or assert remote commitment.
+This fences changed payload/phase, not arbitrary ABA revisions. The earlier
+nativec102 completion timeout and all invalid fixture-oracle/compiler attempts
+remain retained; the SQL regression proves the receipt race independently,
+while the latest native journey establishes the repaired source's boundary.
+
+Earlier setup-only collision/restart passes did not execute their intended bodies.
+Nonce-change requirements and unified-view private-arrival requirements were
+invalid oracles; their failures do not establish private-delivery regressions.
+Current tests require actual authenticated current Core channels and exact
+source-scoped private catalog/record delivery. The device-only survivor requires
+bounded actual branch convergence before its ordinary send; this establishes
+that steady-state case, not a fix for every historical convergence timeout.
+
+Binding parity400, UniFFI413/C618 callable references and all17 binding-doc
+regressions pass on unchanged exported API/header inputs. Native v19 used the
+existing4MiB test-thread and8MiB composed-producer profiles; shipping default
+thread stacks remain a final SDK/host gate. Jobs1/debug0/incremental0 and the
+20GiB pre-gate disk floor were preserved. Final formatting is pending.
+
+The component is not ready for promotion: the native receipt journey passed,
+but the current composed App failures above remain unresolved. The natural
+21cd diagnostic run passed1/0 and establishes no causal repair. Diagnostic
+captureae22 failed compilation (tuple Debug limit,0 tests); the real source-
+preferred fixture6f failed its own Sent-only commit lookup before branch
+selection. Confirmed own commits intentionally become Processed, so that lookup
+and Sent-only absence observations are invalid ownership oracles. Both attempts
+and positive cleanup evidence remain retained. No shipping behavior changed in
+these diagnostic/fixture captures. A removed leaf's epoch authenticator cannot
+establish post-removal disagreement with the administrator; v25 is a receipt
+failure, not proof of a new post-removal convergence defect.
+
+## Historical scoped qualification (c7b0150a)
+
+At this checkpoint, signed local candidate:
+c7b0150a (signed source-only diagnostic follow-up to 8a597c57). Passing private25 parent is
+78a8b58d43407299c9913ae87fb1253ebe736cfb. This is an unfinished departure
+slice: genuine account-wide departure→fresh accepted rejoin/late-negative
+lifecycle controls, final required full CI, SDK/language/host promotion and the
+installed three-device demo remain pending. No fork or SDK passing publication
+is implied. The preparation sections below describe historical captures.
+
+Actual scope and immutable evidence (all prefixes under
+`/Users/pj/project/build/results/`):
+
+| Scope | Actual results | Source / artifact prefix |
+|---|---|---|
+| Source26 SQL, raw OR REPLACE/UPSERT guards, origin observation, strict25→26 fingerprint |18 passed,0 failed/ignored|66dd2720 / `account-wide-departure-66dd2720-sql-v3`|
+| Real proposal dependencies and branch-relative evidence; durable failed reanchor rollback/restart |2+1 passed|388b6735 / `account-wide-departure-388b6735-core-guards-green-v1`|
+| Affected Core replay default/experimental |14+14 passed; two opt-in measurements explicitly excluded|05b707e6 / `account-wide-departure-05b707e6-core-affected-v1`|
+| Full named atomicity default/experimental |23+26 passed,0 ignored|05b707e6 / previous prefix and `account-wide-departure-05b707e6-core-atomicity-exp-v2`|
+| Genuine ordered departure |1 passed: actual losing same-epoch branch, checked B close before retry, fresh same-root reopen, D actual A+B removals, ABC receipts and denial|388b6735 / `account-wide-departure-388b6735-ordered-v11`|
+| Original offline departure and device-only survivor |1+1 passed; prior intermittent survivor timeout remains unresolved|05b707e6 / `account-wide-departure-05b707e6-survivor-diagnostic-v1`|
+| No-policy refusal default/experimental; ordinary creation and separate device-only leave unchanged |1+1 passed|48a78851 / `account-wide-departure-48a78851-no-policy-green-v2`|
+| Genuine C→UniFFI→App boundary on real A/B sources,C mirror,D admin |consumer1+producer1 passed,all owners checked-closed,artifact bytes unchanged|5dbba5a0 / `account-wide-departure-5dbba5a0-native-ffi-v6`|
+| Status mappings default/experimental |3+3 passed;133 appended,older values preserved|8a597c57 / `account-wide-departure-8a597c57-native-status-v1`|
+
+The native journey proves real ordinary sends from both reopened native source
+clients, mirrored initiator readiness, offline B Pending, both actual independent
+D removals, completion receipts, typed A/B/C token-send refusal, and durable same
+operation/fence after C closes and reopens its original root. No live databases
+were copied and no native original or ordinary membership was created from
+metadata. The producer and consumer use a bounded private0700/0600 Unix socket.
+
+Strict Core/App and UniFFI/C default+experimental `--all-targets -D warnings`
+gates passed without `dead_code` or `linker_messages` exemptions. Their raw
+source receipts are in `66dd2720-core-app-strict-v3`, `bdb1d400-app-strict-v5`,
+`48a78851-app-strict-v7`, `0b14d649-native-strict-v1` and
+`8a597c57-native-strict-v2` (all with the `account-wide-departure-` prefix).
+Only unchanged relevant inputs retain earlier passing scope; genuine failures
+and intermediate static/fixture failures are preserved separately.
+
+The C header was generated by actual M5 cbindgen, then authored contracts and
+all source/header anchors were refreshed: parity400 exports, UniFFI413/C618
+callables and all17 binding-document regression tests pass. Exact generated
+header/log are `account-wide-departure-5dbba5a0-native-ffi-v6-marmot.generated.h`
+and `account-wide-departure-5dbba5a0-header-generation.log`.
+
+Rust1.97.1, jobs1, debug0, incremental0, minimum20GiB free and test-thread
+stack4MiB were used. Composed App producer tests use their existing8MiB runner.
+These are fixture-profile results, not shipping default-stack qualification.
+
+Causal runtime failures are retained: an unrelated B proposal's membership tag
+rejected D's competing commit before materialization; after selection, a durable
+same-epoch marker suppressed leave reproposal; another unrelated proposal then
+vetoed a commit with its real referenced dependency. Only branch-relative
+InvalidMembershipTag is ignored after an actual authenticated replayed commit
+established this proposal epoch. Ignoring supplies no proposal/reference or
+permission; missing/wrong consumed refs, proposal-only replay, malformed input,
+authorization, all other validation and storage errors remain strict.
+
+The first affected default count prediction25 was wrong: the full harness
+actually ran and passed23. Its count-mismatch driver result remains preserved;
+it is not a Rust/runtime failure. Outer Nostr wrapper retirement is not missing
+intake; exact canonical-content lookup corrected that earlier inference. Native
+feature-selection/nonce-export/private-mode/nonblocking fixture prerequisites
+are not SDK behavioral REDs or acceptance. The former device-only survivor
+failure waiting for D decryption remains a specific intermittent concern even
+though the later diagnostic and genuine native ordinary-send controls passed.
+
+## Historical both-source departure/rejoin failures
+
+The new genuine fixture selects each actual A/B lifecycle-owned acknowledged
+package through its exact authored relay event and normal parser, uses D's
+ordinary Invite, holds both new Welcomes before explicit acceptance/recovery
+confirmation, and checks each local accepted origin has a distinct ID and a
+higher source-local order. Managed owners close before standalone same-root
+owners; all owners positively close on failure. No database or original is
+copied or synthesized.
+
+Actual lifecycle sources2ce46164 and3b08094a failed0/1 after the original
+account departure completed, D removed both old leaves, both fresh Welcomes
+were genuinely accepted, and D decrypted a fresh ordinary send. C still
+retained both old origins and had no live mirrored event. This rules out a
+mere unified-timeline source choice as the current cause. Raw prefixes are
+`account-wide-departure-2ce46164-fresh-both-rejoin-v1` (SHA256
+b1ceaed101162f972c5909bb49fcfbf4804ebdc6a703a2ddaec0ed3cab46526a) and
+`account-wide-departure-3b08094a-fresh-both-rejoin-v2` (SHA256
+5aa63ea579e7cf0a356170f5287c61813b610557b02ac320aff93ced94d65c03).
+
+Existing bounded catalog traces at921dd763 also failed0/1. A/B established
+fresh automatic channels and exchanged new Active catalogs between themselves;
+C retained its old channels and received no new catalog. This is a restart
+handoff diagnosis, not yet a proven initiator-order defect or repaired runtime.
+Raw `account-wide-departure-921dd763-fresh-both-rejoin-v4` hash is
+da3661cc57d9e861a94bf1dfbf05c76b38f2461bbf318607038add0a6d81f025.
+All checked closures succeeded. Sourcec7b0150a adds only a failure-observation
+boolean for actual automatic initiator ordering; its run is pending.
+
+The intermediate35df563e capture failed compilation with a temporary-path
+lifetime error in the test trace guard (0 tests);921dd763 keeps those owned
+paths alive. Neither is a product behavioral RED. The pinned full formatting
+check on2ce46164 passed. Runtime test linking emits the Apple unwind-table-size
+warning; no warning exemption is used by the earlier strict compile gates.
+
+Fresh C visibility, current Available/no old operation, a distinct new departure,
+and retained authenticated old-intent replay remain unqualified. The latter must
+requeue exact captured original outgoing fragments on a genuinely fresh validated
+automatic channel; repeating an old Nostr wrapper or rebuilding an Intent from
+SQL is not equivalent. No production behavior changed in these lifecycle captures.
+
+## Historical source preparation
+
+This is an unqualified source capture on the qualified legacy source parent
+160f34641df79c660022cc86bad7caaef273e05e and shared origin-reader capture
+4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21. It is not a passing delivery,
+SDK promotion, installed app, or interoperability claim.
+
+Authored scope: public AppRuntime, UniFFI and C account-wide departure APIs;
+explicit pending/completed/readiness DTOs and C denial status 133; private26
+negative intents, exact source-origin cuts and durable transport receipts;
+automatic actor dispatch and maintenance; standard public device SelfRemove
+reuse; local and mirrored send denial; genuine A/B ordinary-source, mirrored-C
+caller, independent-D administrator/offline acceptance fixture; storage
+rollback, scope, offline-receipt and encrypted-reopen controls. Existing
+device-only leave behavior is preserved.
+
+Checks performed: changed Rust sources formatted with rustfmt edition 2024
+(skip_children enabled), and git diff --check. No compilation or runtime tests
+have been run for this source capture.
+
+Missing coordinated inputs before coherent compilation:
+
+- Passing private25 accepted-origin catalog/record fields and migration.
+- Retained-origin observation reader
+  current_mirrored_chat_origin_observation(account, local, source, group),
+  returning only configured-owner checked id/order metadata, independent of
+  live-view filtering; it does not grant policy or MLS membership.
+- Private26 migration registration after the real private25 migration, and
+  connection-only negative-cut checks in the rejoin-owned SQL read/append paths.
+- Separate agent-owned genuine FFI producer/consumer child modules. The additive
+  registrations are captured here, but those child source files are not yet
+  present.
+
+Remaining qualification: genuine runtime RED/GREEN, authenticated replay and
+rollback controls, affected default/experimental tests and strict checks,
+native bindings tests, authored API guidance/parity and generated C header.
+No compiler/cache lane was used; private25 diagnostics currently own 986.
+
+## Subsequent source-only audit
+
+The retained-origin metadata reader was added as separate signed source capture
+ca6078800afbfe8d8c952c8bb998dc6a8762adbd after the private25 owner supplied
+its exact schema and explicitly loaned the new module. It remains uncompiled
+until the real private25 migration is adopted.
+
+The follow-up state audit prevents an active ordinary leaf with incomplete
+origin discovery from inheriting an old Completed API state. Fresh observed
+origins already take precedence over old group-ID-only operation progress. A
+removed local leaf's old tree is deliberately not treated as a current census
+of other ordinary sources: it cannot decrypt their subsequent removals.
+
+Publishing a leave clears actionable local administrator/source-discovery
+refusals without marking local removal complete. Added storage test source
+requires actual local-complete progress before global finalization and checks
+that a fresh accepted lineage can create a distinct operation after an older
+one completed. The genuine two-source fixture now waits for all participant
+completion notices as well as independent D's canonical A/B leaf absence.
+
+New fixture originals are cancelled before workers are closed/reopened;
+behavioral assertions unwind through checked closure of every registered owner,
+including reopened B, before the original failure is resumed. The C fixture
+uses the existing fs-private workspace dependency only in dev dependencies.
+
+All these are source-only corrections. No compiler or test lane was used;
+formatting and whitespace checks do not establish behavioral qualification.
+
+## Origin-correlated progress audit
+
+Progress no longer selects the newest row merely by canonical group ID. The
+bounded journal scan compares each exact source's retained private25/local23
+current id/order with the operation's negative targets, independently of
+cut-filtered live rows. Entirely superseded operations are excluded; missing
+or inconsistent observations return unavailable progress. Pending operations
+for a current lineage take precedence over completed concurrent operations,
+with stable action identity only as a tie-break. Counters from different
+sources are never compared to determine freshness. Pending/denied local
+metadata is used only to exclude stale progress, never as positive permission.
+
+Added storage regression source covers a delayed old completed intent arriving
+after fresh pending work, concurrent same-lineage pending/completed operations,
+missing metadata, fresh origins without an operation, and unrelated sources
+with different local origin counters. These checks remain uncompiled and
+unrun pending the actual private25 schema and a coordinated compiler loan.
+
+## Separate candidate integration
+
+Branch `codex/account-wide-departure-candidate-eae759` combines exact source
+eae759e966a3050e98689d9afeb6ec5122ee7a06 with the preserved 0da8 departure
+checkpoint. The original departure branch remains unchanged. Merge conflicts
+were confined to additive automatic actor module/maintenance hooks and native
+test child registrations; both rejoin and departure behavior was retained.
+The genuine FFI child source8c953e36086be2459524dd13e98bd4c064137549 is adopted
+as861a5e91 on this candidate.
+
+The real private25 migration now precedes private26. Private26 extends the
+shared live-catalog SQL view with exact account/local/group/source negative
+cuts, so existing locked list/header/history reads and message lineage triggers
+all honor departure. Explicit connection-only checks also refuse cut Active
+catalog writes and message appends, without recursively acquiring a SQL lock.
+Added synthetic storage acceptance source checks existing disclosure removal,
+late-record refusal, retained-origin observations, and fresh-lineage reopening
+without disclosing old records. This is not transport or membership evidence.
+
+Catalog origin/count and every canonical record origin use the exact adopted
+optional serde contracts; no private25 live worktree or compiler/cache lane was
+changed. Candidate integration remains unqualified: no compilation, native ABI
+acceptance, SDK generation/promotion or fork passing publication has occurred.
+
+## Immutable SQL replacement audit
+
+Private26 now refuses duplicate identity inserts for intents, cuts and routes
+with BEFORE INSERT guards, including OR REPLACE when recursive triggers are
+disabled. Newly inserted route progress must start unconfirmed; route identity,
+acknowledgement, completion and final acknowledgement cannot regress or be
+deleted. Existing exact App retries read rows before insertion and remain
+idempotent. Intent global completion cannot be downgraded.
+
+Raw SQL regression source exercises OR REPLACE and UPSERT under default, off
+and on recursive-trigger settings, checks exact retained payload/cut/confirmed
+route values, rejects initially forged-complete routes, and retries the real
+journal API. These are unrun storage controls, not authenticated peer evidence.
+
+The private migration fingerprint implementation is unchanged. Its existing
+per-revision reference snapshots validate the old25 view before upgrade and
+the exact26 view afterward. Added upgrade test source requires25→26 success
+then rejects restoration of the old view under a26 ledger, retaining strict
+schema validation without exclusions.
+
+The exact private25 snapshot-test correction was adopted from file blob
+401ffa62b23ef96e4ac959df4cd48d76fea1106a as signed one-file commit
+d534f4c244bf4eeb8d8dc14c95b7f32ec58f5675. No other inputs from that capture
+were imported. No compiler or qualification lane was used for these changes.

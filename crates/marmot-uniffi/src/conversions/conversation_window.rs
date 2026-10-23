@@ -398,7 +398,10 @@ fn presented_custom_tags(row: &app::TimelineMessageRecord) -> Cow<'_, [Vec<Strin
     )
 }
 
-fn presented_timeline(row: &app::TimelineMessageRecord, trusted: bool) -> TimelineMessageRecordFfi {
+pub(super) fn presented_timeline(
+    row: &app::TimelineMessageRecord,
+    trusted: bool,
+) -> TimelineMessageRecordFfi {
     presented_timeline_with_tokens(
         row,
         trusted,
@@ -841,6 +844,17 @@ mod tests {
             .insert("👍".into(), vec!["aa".repeat(32); 5000]);
         let untrusted = presented_timeline(&record, false);
         let trusted = presented_timeline(&record, true);
+        // The merged view has no authenticated-system-content proof. It must
+        // preserve ordinary display bounds without upgrading persisted metadata.
+        let merged = super::super::AccountConversationRowFfi::from(
+            app::AccountConversationRow::LocalMls(Box::new(record.clone())),
+        );
+        let super::super::AccountConversationRowFfi::LocalMls { row } = merged else {
+            panic!("ordinary row must remain the ordinary lane");
+        };
+        assert!(row.group_system.is_none());
+        assert!(row.tags.is_empty());
+        assert!(row.reactions.by_emoji.is_empty());
         assert!(untrusted.group_system.is_none());
         assert_eq!(trusted.group_system.unwrap().system_type, "member_removed");
         assert!(untrusted.tags.is_empty());

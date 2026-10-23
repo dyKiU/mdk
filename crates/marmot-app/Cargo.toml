@@ -7,11 +7,15 @@ publish.workspace = true
 
 [features]
 default = []
+# Private experimental SAS/linking adapter; no adopted Marmot wire identifiers.
+experimental-device-sync = ["marmot-account/experimental-device-sync", "dep:matrix-sdk-crypto", "dep:ruma", "storage-sqlite/experimental-device-sync", "cgka-session/experimental-device-sync", "transport-nostr-peeler/experimental-device-sync", "transport-nostr-adapter/experimental-device-sync", "transport-nostr/experimental-device-sync"]
 product-analytics-export = []
 # Test-only convergence timing/rewind overrides. Never enable in app artifacts.
 test-policy-overrides = [
     "cgka-engine/test-policy-overrides",
     "cgka-session/test-policy-overrides",
+    "transport-nostr-adapter/test-policy-overrides",
+    "transport-nostr/test-policy-overrides",
 ]
 # Opt-in relay-telemetry OTLP exporter wire encoding and HTTP push. The
 # privacy-critical mapping and opt-in gate stay in the default build; this
@@ -21,6 +25,8 @@ otlp-export = ["dep:opentelemetry-proto", "dep:prost"]
 media-benchmarks = []
 
 [dependencies]
+matrix-sdk-crypto = { version = "=0.19.1", default-features = false, optional = true }
+ruma = { version = "=0.17.0", features = ["client-api-c"], optional = true }
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
@@ -52,7 +58,7 @@ reqwest.workspace = true
 rusqlite.workspace = true
 secp256k1 = "0.30"
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 media-store.workspace = true
 storage-sqlite.workspace = true
@@ -71,6 +77,11 @@ url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+openmls.workspace = true
+openmls_basic_credential.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
+tls_codec.workspace = true
 transport-nostr = { workspace = true, features = ["test-support"] }
 criterion.workspace = true
 media-store = { workspace = true, features = ["catalog-conformance", "test-support"] }
@@ -80,11 +91,7 @@ tokio-tungstenite.workspace = true
 keyring-core.workspace = true
 marmot-forensics.workspace = true
 nostr-relay-builder.workspace = true
-openmls.workspace = true
-openmls_basic_credential.workspace = true
-openmls_rust_crypto.workspace = true
 parking_lot = "0.12"
-tls_codec.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

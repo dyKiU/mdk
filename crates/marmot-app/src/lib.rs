@@ -96,6 +96,49 @@ pub use deployment::{
 };
 pub mod conversation_presentation;
 mod conversions;
+#[cfg(feature = "experimental-device-sync")]
+#[allow(
+    dead_code,
+    reason = "Experimental adapter awaits account-worker enrollment integration"
+)]
+mod device_linking;
+mod device_revocation;
+pub use device_revocation::{
+    DeviceRevocation, DeviceRevocationSnapshot, GroupDeviceRevocation, GroupDeviceRevocationError,
+    GroupDeviceRevocationSnapshot,
+};
+mod account_chat_presentation;
+pub use account_chat_presentation::{
+    AccountChatReadError, AccountConversationPage, AccountConversationRow,
+    ExistingAccountDirectConversation, PairedChatContent, PairedChatListPage, PairedChatMessage,
+    PairedChatMessageCursor, PairedChatMessagePage, PairedChatSource, PairedChatSummary,
+};
+mod account_chat_departure;
+pub use account_chat_departure::{
+    AccountChatDepartureReason, AccountChatDepartureState, AccountChatDepartureStatus,
+};
+mod account_chat_sharing;
+pub use account_chat_sharing::{
+    AccountSharingApproval, AccountSharingError, AccountSharingSnapshot, AccountSharingTarget,
+    AccountSharingTargets,
+};
+mod history_transfer;
+mod native_device_linking;
+mod selected_chat_copy;
+pub use history_transfer::{
+    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferRecipient,
+    HistoryTransferSnapshot,
+};
+pub use native_device_linking::{
+    AutomaticDeviceLinkingSession, DeviceLinkingApproval, DeviceLinkingApprovalPhase,
+    DeviceLinkingApprovalReviewMetadata, DeviceLinkingApprovalSnapshot, DeviceLinkingCapabilities,
+    DeviceLinkingDecimals, DeviceLinkingError, DeviceLinkingOutgoingPacket, DeviceLinkingPhase,
+    DeviceLinkingSession, DeviceLinkingSnapshot, DeviceLinkingSubscription, DeviceLinkingTarget,
+};
+pub use selected_chat_copy::{
+    SelectedChatConsent, SelectedChatConsentPhase, SelectedChatConsentSnapshot, SelectedChatCopy,
+    SelectedChatCopyError, SelectedChatCopyPhase, SelectedChatCopySnapshot,
+};
 mod directory_resources;
 #[cfg(test)]
 mod directory_tests;
@@ -107,6 +150,10 @@ mod external_signer;
 mod groups;
 mod history_notices;
 pub use history_notices::{HistoryNotice, HistoryNoticeCause};
+mod synchronized_history;
+pub use synchronized_history::{
+    ArchivedHistoryPage, ArchivedHistoryRecord, SynchronizedHistoryReadError,
+};
 mod ids;
 mod key_package_records;
 #[cfg(test)]
@@ -131,6 +178,8 @@ mod notifications;
 mod profile_publication;
 mod projection;
 mod publisher_sequences;
+#[cfg(test)]
+mod relay_plane;
 mod relay_telemetry_export;
 mod root_closers;
 mod root_runtime_lease;
@@ -174,6 +223,14 @@ pub use runtime::{
     RuntimeNotificationsSubscription, RuntimeProjectionUpdate, RuntimeSharedServices,
     RuntimeTimelineMessageUpdate, RuntimeTimelineMessagesSubscription, SignOutOptions,
     SignOutOutcome, StreamStartView, TimelineWindowHandle, WipeOutcome,
+};
+pub use runtime::{
+    AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
+    RuntimeAccountChatListWindowSubscription,
+};
+pub use runtime::{
+    AccountConversationHeader, AccountConversationWindowHandle, AccountConversationWindowSnapshot,
+    LocalAccountConversationHeader, RuntimeAccountConversationWindowSubscription,
 };
 pub use runtime::{
     CHAT_LIST_WINDOW_INITIAL_ROWS, CHAT_LIST_WINDOW_MAX_ROWS, ChatListAnchorOutcome,
@@ -574,6 +631,14 @@ pub struct MarmotApp {
     inventory_snapshot_between_reads: Arc<Mutex<Option<LegacyProjectionOpenHook>>>,
     #[cfg(test)]
     test_relay_client: Option<Arc<dyn NostrRelayClient>>,
+    #[cfg(all(
+        test,
+        feature = "test-policy-overrides",
+        feature = "experimental-device-sync"
+    ))]
+    // Set on the isolated fixture before runtime construction; never changes
+    // an existing original consent or its negative receipt-history deadline.
+    selected_chat_consent_test_lifetime: Option<std::time::Duration>,
     #[cfg(test)]
     audit_v5_peel_slot: Option<(String, Arc<Mutex<client::audit_v5_probe::PeelSlot>>)>,
     shared_storage: Arc<Mutex<Option<SqliteSharedStorage>>>,
@@ -1386,7 +1451,11 @@ struct KeyPackageRecord {
 }
 
 struct OpenAppAccount {
+    #[cfg(feature = "experimental-device-sync")]
+    linking_owner: client::device_linking::AccountLinkingOwner,
     runtime: AppRuntime,
+    #[cfg(feature = "experimental-device-sync")]
+    selected_welcome_provenance: Arc<Mutex<client::welcome_peeler::SelectedWelcomeProvenance>>,
     audit_v5_peel_slot: Arc<Mutex<client::audit_v5_probe::PeelSlot>>,
     session_guard: AppAccountSessionGuard,
     adapter: MarmotRelayPlaneAccountAdapter,
@@ -1633,6 +1702,12 @@ impl MarmotApp {
             inventory_snapshot_between_reads: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             test_relay_client: None,
+            #[cfg(all(
+                test,
+                feature = "test-policy-overrides",
+                feature = "experimental-device-sync"
+            ))]
+            selected_chat_consent_test_lifetime: None,
             #[cfg(test)]
             audit_v5_peel_slot: None,
             shared_storage: Arc::new(Mutex::new(None)),
@@ -1730,6 +1805,12 @@ impl MarmotApp {
             inventory_snapshot_between_reads: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             test_relay_client: None,
+            #[cfg(all(
+                test,
+                feature = "test-policy-overrides",
+                feature = "experimental-device-sync"
+            ))]
+            selected_chat_consent_test_lifetime: None,
             #[cfg(test)]
             audit_v5_peel_slot: None,
             shared_storage: Arc::new(Mutex::new(None)),
@@ -1993,6 +2074,18 @@ impl MarmotApp {
             send_telemetry: None,
             app: self.clone(),
             maintenance_observation_generation: self.product_analytics.permit(),
+            #[cfg(feature = "experimental-device-sync")]
+            linking_owner: open.linking_owner,
+            #[cfg(feature = "experimental-device-sync")]
+            selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            history_owner: crate::history_transfer::enabled::AccountHistoryOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            account_sharing_owner: crate::account_chat_sharing::enabled::AccountSharingOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            device_revocation_owner: crate::device_revocation::enabled::AccountRevocationOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            selected_welcome_provenance: open.selected_welcome_provenance,
             runtime: open.runtime,
             _session_guard: open.session_guard,
             adapter: open.adapter,
@@ -2006,6 +2099,8 @@ impl MarmotApp {
             seen_events_index,
             pending_seen_event_count: 0,
             pending_group_projection_updates: std::collections::HashSet::new(),
+            #[cfg(feature = "experimental-device-sync")]
+            pending_chat_source_changes: Vec::new(),
             pending_recovery_status_updates: std::collections::HashSet::new(),
             history_notice_baseline: None,
             cursor_audit_placements,
@@ -4542,6 +4637,9 @@ impl MarmotApp {
         // Account refs may be labels, hex pubkeys, or npubs. Ownership is keyed
         // by the canonical stored label so aliases cannot open a second engine.
         let label = account.label.as_str();
+        let public_key_package_publication_disabled = self
+            .account_home
+            .public_key_package_publication_disabled(label)?;
         let session_guard = self.acquire_account_session(label)?;
         let state = self.load_state(label)?;
         let recovery_storage = self.account_storage(label)?;
@@ -4577,6 +4675,18 @@ impl MarmotApp {
             .unwrap_or_else(|| Arc::new(Mutex::new(client::audit_v5_probe::PeelSlot::default())));
         #[cfg(not(test))]
         let audit_v5_peel_slot = Arc::new(Mutex::new(client::audit_v5_probe::PeelSlot::default()));
+        #[cfg(feature = "experimental-device-sync")]
+        let selected_welcome_provenance = Arc::new(Mutex::new(
+            client::welcome_peeler::SelectedWelcomeProvenance::default(),
+        ));
+        #[cfg(feature = "experimental-device-sync")]
+        let peeler: Box<dyn client::welcome_peeler::WelcomePeeler> =
+            Box::new(client::welcome_peeler::SelectedWelcomePeeler {
+                inner: peeler,
+                slot: selected_welcome_provenance.clone(),
+            });
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let peeler: Box<dyn client::welcome_peeler::WelcomePeeler> = Box::new(peeler);
         let peeler: Box<dyn cgka_traits::peeler::TransportPeeler> =
             Box::new(client::audit_v5_probe::ProbePeeler {
                 inner: peeler,
@@ -4726,12 +4836,52 @@ impl MarmotApp {
         let routing = self.routing_for(&state)?;
         let mut runtime =
             AccountDeviceRuntime::new(session, adapter.clone(), routing.clone(), key_packages);
+        if public_key_package_publication_disabled {
+            runtime = runtime.with_public_key_package_publication_disabled();
+        }
         if let Some(timing) = dev_maintenance_timing(&self.config) {
             runtime = runtime.with_maintenance_timing(timing);
         }
+        #[cfg(feature = "experimental-device-sync")]
+        let linking_owner = {
+            // This successful construction holds the exclusive account-session
+            // guard. Competing or earlier failed opens never clear a live flow.
+            let storage = Arc::new(self.account_storage(label)?);
+            storage.app_storage().abandon_device_linking_on_startup()?;
+            // Exclusive account opening abandons unfinished local settlement
+            // admission; completed facts remain subject to fresh MLS validation.
+            if let Some(settlement) =
+                cgka_traits::StorageProvider::private_roster_settlement_storage(storage.as_ref())
+            {
+                settlement.abandon_pending_on_startup()?;
+            }
+            runtime
+                .session_mut()
+                .cleanup_unjoined_linking_key_package_on_startup()
+                .map_err(cgka_session::SessionError::from)?;
+            runtime
+                .session()
+                .cleanup_selected_chat_packages_on_startup()
+                .map_err(cgka_session::SessionError::from)?;
+            let owner = client::device_linking::AccountLinkingOwner::attach(
+                storage,
+                &runtime.session().self_id(),
+            )?;
+            runtime
+                .session_mut()
+                .install_trusted_linking_welcome_policy(owner.welcome_policy());
+            runtime
+                .session_mut()
+                .install_trusted_private_invite_policy(owner.invite_policy());
+            owner
+        };
         Ok(OpenAppAccount {
+            #[cfg(feature = "experimental-device-sync")]
+            linking_owner,
             runtime,
             audit_v5_peel_slot,
+            #[cfg(feature = "experimental-device-sync")]
+            selected_welcome_provenance,
             session_guard,
             adapter,
             routing,

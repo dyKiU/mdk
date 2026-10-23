@@ -2169,6 +2169,271 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     use marmot_account::AccountSetupPhase;
     use nostr::prelude::ToBech32;
 
+    // Numeric metadata only. Existing private tokens are used to pair adjacent
+    // retained entries in RAM; no token or raw observation leaves this helper.
+    fn native_summary(snapshot: &marmot_app::NativeStartupSnapshot) -> serde_json::Value {
+        use marmot_app::NativeStartupStage as Stage;
+        let stages = [
+            (Stage::AttachmentTaskQueued, "attachment_task_queued"),
+            (Stage::AccountResolution, "account_resolution"),
+            (Stage::AccountStorageCache, "account_storage_cache"),
+            (Stage::StorageAdmission, "storage_admission"),
+            (Stage::DatabaseOpenLock, "database_open_lock"),
+            (Stage::SigningKeys, "signing_keys"),
+            (Stage::ExternalDatabaseSecret, "external_database_secret"),
+            (Stage::KeyDerivation, "key_derivation"),
+            (Stage::SaltRead, "salt_read"),
+            (Stage::RecoveryProbe, "recovery_probe"),
+            (Stage::RecoveryRekey, "recovery_rekey"),
+            (Stage::EncryptedStoreOpen, "encrypted_store_open"),
+            (Stage::CipherConfiguration, "cipher_configuration"),
+            (Stage::CipherKeyApplication, "cipher_key_application"),
+            (Stage::OperationalPragmas, "operational_pragmas"),
+            (Stage::MigrationInspection, "migration_inspection"),
+            (Stage::MigrationApply, "migration_apply"),
+            (Stage::AttachmentLocalRead, "attachment_local_read"),
+            (Stage::AttachmentFutureWait, "attachment_future_wait"),
+            (
+                Stage::ProductAnalyticsAdmission,
+                "product_analytics_admission",
+            ),
+        ];
+        let mut interval_ms = [0u64; 20];
+        let mut previous =
+            std::collections::BTreeMap::<u64, &marmot_app::NativeStartupObservation>::new();
+        let unknown_stages = snapshot
+            .events
+            .iter()
+            .chain(snapshot.active.iter())
+            .filter(|row| !stages.iter().any(|(stage, _)| *stage == row.stage))
+            .count();
+        let mut duplicates = 0u64;
+        let mut monotonic = true;
+        let mut overflow = false;
+        let mut unattributed_prefix_ms = 0u64;
+        let bounded = snapshot.events.len() <= 96 && snapshot.active.len() <= 16;
+        if bounded {
+            for row in snapshot.events.iter().chain(snapshot.active.iter()) {
+                if row.stage_elapsed_ms > row.elapsed_ms {
+                    monotonic = false;
+                    continue;
+                }
+                let credits = if let Some(before) = previous.insert(row.token, row) {
+                    if row == before {
+                        duplicates += 1;
+                        continue;
+                    }
+                    if row.stage == before.stage {
+                        let Some(delta) = row.elapsed_ms.checked_sub(before.elapsed_ms) else {
+                            monotonic = false;
+                            continue;
+                        };
+                        [Some((before.stage, delta)), None]
+                    } else {
+                        // Deferred history includes the current phase's elapsed
+                        // time, not just its entry. Split it at the inferred
+                        // transition; impossible/rounding-overlap is partial.
+                        let transition = row.elapsed_ms - row.stage_elapsed_ms;
+                        let Some(prior) = transition.checked_sub(before.elapsed_ms) else {
+                            monotonic = false;
+                            continue;
+                        };
+                        [
+                            Some((before.stage, prior)),
+                            Some((row.stage, row.stage_elapsed_ms)),
+                        ]
+                    }
+                } else {
+                    let prefix = row.elapsed_ms - row.stage_elapsed_ms;
+                    if let Some(sum) = unattributed_prefix_ms.checked_add(prefix) {
+                        unattributed_prefix_ms = sum;
+                    } else {
+                        overflow = true;
+                    }
+                    [Some((row.stage, row.stage_elapsed_ms)), None]
+                };
+                for (stage, delta) in credits.into_iter().flatten() {
+                    if let Some(index) = stages.iter().position(|(known, _)| *known == stage) {
+                        if let Some(sum) = interval_ms[index].checked_add(delta) {
+                            interval_ms[index] = sum;
+                        } else {
+                            overflow = true;
+                        }
+                    }
+                }
+            }
+        }
+        let rows = stages.iter().enumerate().map(|(index, (stage, name))| {
+            let active = snapshot.active.iter().filter(|row| row.stage == *stage).collect::<Vec<_>>();
+            ((*name).to_owned(), serde_json::json!({
+                "events": snapshot.events.iter().filter(|row| row.stage == *stage).count(),
+                "active": active.len(),
+                "observed_interval_ms": interval_ms[index],
+                "max_active_stage_ms": active.iter().map(|row| row.stage_elapsed_ms).max().unwrap_or(0),
+            }))
+        }).collect::<serde_json::Map<String, serde_json::Value>>();
+        let present = !snapshot.events.is_empty() || !snapshot.active.is_empty();
+        let usable = bounded && monotonic && !overflow && unknown_stages == 0;
+        let complete = snapshot.enabled
+            && usable
+            && present
+            && duplicates == 0
+            && unattributed_prefix_ms == 0
+            && snapshot.dropped_events == 0
+            && snapshot.dropped_scopes == 0;
+        serde_json::json!({
+            "enabled": snapshot.enabled,
+            "bounded": bounded,
+            "observations_present": present,
+            "history_events": snapshot.events.len(),
+            "active_scopes": snapshot.active.len(),
+            "dropped_events": snapshot.dropped_events,
+            "dropped_scopes": snapshot.dropped_scopes,
+            "duplicate_entries": duplicates,
+            "monotonic": monotonic,
+            "overflow": overflow,
+            "unattributed_prefix_ms": unattributed_prefix_ms,
+            "unknown_stages": unknown_stages,
+            "observed_intervals_usable": usable,
+            "retained_intervals_complete": complete,
+            "metadata_controls_passed": 11,
+            "stages": rows,
+        })
+    }
+    // Pure observer-grammar controls, not protocol fixtures or behavioral RED.
+    {
+        use marmot_app::{
+            NativeStartupObservation as Row, NativeStartupOutcome as Outcome,
+            NativeStartupSnapshot as Snapshot, NativeStartupStage as Stage,
+        };
+        let row = |stage, elapsed| Row {
+            token: 1,
+            stage,
+            elapsed_ms: elapsed,
+            stage_elapsed_ms: 0,
+            migration_version: None,
+            migrations_completed: 0,
+            outcome: Outcome::Active,
+        };
+        let sample = Snapshot {
+            enabled: true,
+            events: vec![
+                row(Stage::KeyDerivation, 0),
+                row(Stage::CipherKeyApplication, 7),
+            ],
+            active: vec![row(Stage::CipherKeyApplication, 12)],
+            dropped_events: 0,
+            dropped_scopes: 0,
+        };
+        let summary = native_summary(&sample);
+        assert_eq!(
+            summary["stages"]["key_derivation"]["observed_interval_ms"],
+            7
+        );
+        assert_eq!(
+            summary["stages"]["cipher_key_application"]["observed_interval_ms"],
+            5
+        );
+        assert_eq!(summary["retained_intervals_complete"], true);
+        let mut reverse = sample.clone();
+        reverse.active[0].elapsed_ms = 6;
+        assert_eq!(native_summary(&reverse)["monotonic"], false);
+        assert_eq!(
+            native_summary(&reverse)["retained_intervals_complete"],
+            false
+        );
+        let mut duplicate = sample.clone();
+        duplicate.events.push(duplicate.events[1].clone());
+        assert_eq!(native_summary(&duplicate)["duplicate_entries"], 1);
+        assert_eq!(
+            native_summary(&duplicate)["retained_intervals_complete"],
+            false
+        );
+        let mut dropped = sample.clone();
+        dropped.dropped_events = 1;
+        assert_eq!(
+            native_summary(&dropped)["retained_intervals_complete"],
+            false
+        );
+        let mut missing = sample.clone();
+        missing.events.remove(0);
+        assert_eq!(native_summary(&missing)["unattributed_prefix_ms"], 7);
+        assert_eq!(
+            native_summary(&missing)["retained_intervals_complete"],
+            false
+        );
+        let mut oversized = sample.clone();
+        oversized.active = vec![sample.active[0].clone(); 17];
+        assert_eq!(native_summary(&oversized)["bounded"], false);
+        assert_eq!(
+            native_summary(&oversized)["retained_intervals_complete"],
+            false
+        );
+        let mut overflow = sample.clone();
+        overflow.events = vec![
+            row(Stage::KeyDerivation, 0),
+            row(Stage::CipherKeyApplication, u64::MAX),
+            Row {
+                token: 2,
+                ..row(Stage::KeyDerivation, 0)
+            },
+            Row {
+                token: 2,
+                ..row(Stage::CipherKeyApplication, 1)
+            },
+        ];
+        overflow.active.clear();
+        assert_eq!(native_summary(&overflow)["overflow"], true);
+        assert_eq!(
+            native_summary(&overflow)["observed_intervals_usable"],
+            false
+        );
+        let mut disabled = sample.clone();
+        disabled.enabled = false;
+        assert_eq!(
+            native_summary(&disabled)["retained_intervals_complete"],
+            false
+        );
+        // record_history preserves a deferred initial row then a current
+        // cache-miss snapshot: elapsed7 includes3ms already in that phase.
+        let deferred = Snapshot {
+            enabled: true,
+            events: vec![
+                row(Stage::ProductAnalyticsAdmission, 0),
+                Row {
+                    stage_elapsed_ms: 3,
+                    ..row(Stage::AccountStorageCache, 7)
+                },
+            ],
+            active: vec![Row {
+                stage_elapsed_ms: 8,
+                ..row(Stage::AccountStorageCache, 12)
+            }],
+            dropped_events: 0,
+            dropped_scopes: 0,
+        };
+        let split = native_summary(&deferred);
+        assert_eq!(
+            split["stages"]["product_analytics_admission"]["observed_interval_ms"],
+            4
+        );
+        assert_eq!(
+            split["stages"]["account_storage_cache"]["observed_interval_ms"],
+            8
+        );
+        assert_eq!(split["retained_intervals_complete"], true);
+        let mut invalid_age = sample.clone();
+        invalid_age.active[0].stage_elapsed_ms = 13;
+        assert_eq!(
+            native_summary(&invalid_age)["observed_intervals_usable"],
+            false
+        );
+        let mut overlap = sample.clone();
+        overlap.active[0].stage = Stage::RecoveryProbe;
+        overlap.active[0].stage_elapsed_ms = 6;
+        assert_eq!(native_summary(&overlap)["observed_intervals_usable"], false);
+    }
+
     let dir = tempfile::tempdir().unwrap();
     let armed = Arc::new(AtomicBool::new(true));
     let entered = Arc::new(Notify::new());
@@ -2196,14 +2461,154 @@ async fn cancelled_key_package_setup_resumes_exact_pending_attempt_after_restart
     };
 
     let first_app = MarmotApp::with_relay_and_config(dir.path(), url.clone(), config.clone());
+    first_app.set_startup_diagnostics_enabled(true);
     let first_runtime = MarmotAppRuntime::new(first_app.clone());
     let attempt_runtime = first_runtime.clone();
     let first_setup = setup(&secret);
     let attempt =
         tokio::spawn(async move { attempt_runtime.create_or_import_account(first_setup).await });
-    timeout(Duration::from_secs(10), entered.notified())
-        .await
-        .expect("KeyPackage publication must reach the blocking relay");
+    let gate_started = std::time::Instant::now();
+    // Freeze the original absolute ten-second deadline before scheduling an
+    // independent memory-only observer. The observer never touches SQL.
+    let gate_wait = timeout(Duration::from_secs(10), entered.notified());
+    struct EarlyNativeSampler(
+        tokio::task::JoinHandle<(
+            std::time::Instant,
+            std::time::Instant,
+            marmot_app::NativeStartupSnapshot,
+        )>,
+    );
+    impl Drop for EarlyNativeSampler {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let sample_app = first_app.clone();
+    let sample_target = gate_started + Duration::from_secs(5);
+    let mut early_sampler = EarlyNativeSampler(tokio::spawn(async move {
+        tokio::time::sleep_until(tokio::time::Instant::from_std(sample_target)).await;
+        let started = std::time::Instant::now();
+        let snapshot = sample_app.startup_diagnostics_snapshot();
+        (started, std::time::Instant::now(), snapshot)
+    }));
+    let gate_result = gate_wait.await;
+    let gate_finished = std::time::Instant::now();
+    let gate_elapsed_ms =
+        u64::try_from(gate_finished.duration_since(gate_started).as_millis()).ok();
+    let setup_finished = attempt.is_finished();
+    // Abort and join only after the frozen verdict, including a failed attempt.
+    // Drop also aborts on unwind. Cancellation makes the capture unavailable; it
+    // never proves whether snapshot work raced abort or result publication.
+    if !early_sampler.0.is_finished() {
+        early_sampler.0.abort();
+    }
+    let native_early = match (&mut early_sampler.0).await {
+        Ok((started, finished, snapshot)) => serde_json::json!({
+            "requested_offset_ms": 5000,
+            "status": "sampled",
+            "sample_started_ms": u64::try_from(started.duration_since(gate_started).as_millis()).ok(),
+            "sample_completed_ms": u64::try_from(finished.duration_since(gate_started).as_millis()).ok(),
+            "sample_delay_ms": u64::try_from(started.saturating_duration_since(sample_target).as_millis()).ok(),
+            "before_verdict": finished <= gate_finished,
+            "late_for_verdict": finished > gate_finished,
+            "native": native_summary(&snapshot),
+        }),
+        Err(error) => serde_json::json!({
+            "requested_offset_ms": 5000,
+            "status": if error.is_cancelled() { "cancelled_unavailable" } else { "unavailable" },
+            "sample_started_ms": null,
+            "sample_completed_ms": null,
+            "sample_delay_ms": null,
+            "before_verdict": null,
+            "late_for_verdict": null,
+            "native": null,
+        }),
+    };
+    // One read-only process-wide snapshot after the frozen verdict. Rows are
+    // sampled sequentially; none identifies the exact stage at the deadline.
+    let telemetry = first_runtime.app_performance_snapshot();
+    let runtime_row = |operation: marmot_app::RuntimePerformanceOperation| {
+        telemetry
+            .runtime_operations
+            .iter()
+            .find(|row| row.operation == operation)
+            .map(|row| {
+                serde_json::json!({
+                    "started": row.started,
+                    "completed": row.completed,
+                    "in_flight": row.in_flight,
+                    "oldest_tracked_in_flight_ms": row.oldest_tracked_in_flight_ms,
+                    "untracked_in_flight": row.untracked_in_flight,
+                    "sum_ms": row.duration_ms.sum_ms,
+                })
+            })
+    };
+    use marmot_app::RuntimePerformanceOperation as RuntimeOp;
+    let setup_telemetry = serde_json::json!({
+        "runtime_operations": {
+            "worker_acquire": runtime_row(RuntimeOp::WorkerAcquire),
+            "lifecycle_lock_wait": runtime_row(RuntimeOp::LifecycleLockWait),
+            "account_startup_open_queued": runtime_row(RuntimeOp::AccountStartupOpenQueued),
+            "account_startup_account_state": runtime_row(RuntimeOp::AccountStartupAccountState),
+            "account_startup_session_open": runtime_row(RuntimeOp::AccountStartupSessionOpen),
+            "account_startup_client_restore": runtime_row(RuntimeOp::AccountStartupClientRestore),
+            "account_startup_ready_handoff": runtime_row(RuntimeOp::AccountStartupReadyHandoff),
+            "worker_hydration": runtime_row(RuntimeOp::WorkerHydration),
+        },
+        "account_worker_readiness": {
+            "attempts": telemetry.account_worker_readiness.attempts,
+            "successes": telemetry.account_worker_readiness.successes,
+            "failures": telemetry.account_worker_readiness.failures,
+            "sum_ms": telemetry.account_worker_readiness.duration_ms.sum_ms,
+        },
+        "account_initial_key_package_publish": {
+            "attempts": telemetry.account_initial_key_package_publish.attempts,
+            "successes": telemetry.account_initial_key_package_publish.successes,
+            "failures": telemetry.account_initial_key_package_publish.failures,
+            "sum_ms": telemetry.account_initial_key_package_publish.duration_ms.sum_ms,
+        },
+    });
+    let native = native_summary(&first_app.startup_diagnostics_snapshot());
+    // Observe only after the original verdict. A later journal snapshot cannot
+    // identify the setup phase at the deadline, and never changes that verdict.
+    let (journal_read_ok, journal_phase) = match AccountHome::open(dir.path())
+        .account_setup_state(&account_id)
+    {
+        Ok(Some(state)) => (
+            true,
+            Some(match state.phase {
+                AccountSetupPhase::LocalStateCreated => "local_state_created",
+                AccountSetupPhase::LocalReady => "local_ready",
+                AccountSetupPhase::BootstrapPublicationStarted => "bootstrap_publication_started",
+                AccountSetupPhase::BootstrapPublicationConfirmed => {
+                    "bootstrap_publication_confirmed"
+                }
+                AccountSetupPhase::KeyPackagePublicationStarted => {
+                    "key_package_publication_started"
+                }
+                AccountSetupPhase::KeyPackagePublicationConfirmed => {
+                    "key_package_publication_confirmed"
+                }
+                AccountSetupPhase::CompanionReady => "companion_ready",
+            }),
+        ),
+        Ok(None) => (true, None),
+        Err(_) => (false, None),
+    };
+    eprintln!(
+        "key-package-cancel-control {}",
+        serde_json::json!({
+            "observed": gate_result.is_ok(),
+            "elapsed_ms": gate_elapsed_ms,
+            "setup_finished": setup_finished,
+            "journal_read_ok": journal_read_ok,
+            "journal_phase": journal_phase,
+            "telemetry": setup_telemetry,
+            "native": native,
+            "native_early": native_early,
+        })
+    );
+    gate_result.expect("KeyPackage publication must reach the blocking relay");
     attempt.abort();
     assert!(attempt.await.unwrap_err().is_cancelled());
 
@@ -15417,14 +15822,15 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
         second.durably_owned_key_packages(&id).await,
         Err(AppError::OnboardingRequired)
     ));
-    assert_eq!(
-        first_app
-            .account_key_package_records(&id, vec![endpoint(&url)], Vec::new())
-            .await
-            .unwrap()
-            .len(),
-        2
-    );
+    let original_packages = first_app
+        .account_key_package_records(&id, vec![endpoint(&url)], Vec::new())
+        .await
+        .unwrap();
+    let original_slots = original_packages
+        .iter()
+        .map(|p| (p.key_package_id.clone(), p.key_package_ref_hex.clone()))
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(original_slots.len(), 2);
     // Cancel means the host leaves this pause; simply resuming cannot publish.
     let resumed = second.accounts().run_onboarding(&id).await.unwrap();
     assert_eq!(resumed.single_device_notice, snapshot.single_device_notice);
@@ -15445,6 +15851,24 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
     ));
     let completed = acknowledge_single_device_notice(&second, snapshot).await;
     assert!(completed.ready);
+    assert_eq!(completed.steps[5].step, OnboardingStep::KeyPackage);
+    assert_eq!(
+        completed.steps[5].status,
+        marmot_app::OnboardingStatus::Skipped,
+        "companion continuation must not publish another invitation receiver"
+    );
+    assert!(
+        AccountHome::open(second_directory.path())
+            .public_key_package_publication_disabled(&id)
+            .unwrap()
+    );
+    assert!(
+        second
+            .durably_owned_key_packages(&id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         completed
             .single_device_notice
@@ -15459,7 +15883,21 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
         second.accounts().run_onboarding(&id).await.unwrap(),
         completed
     );
-    // Continue never deletes the other installation's slots.
+    assert!(
+        AccountHome::open(second_directory.path())
+            .public_key_package_publication_disabled(&id)
+            .unwrap(),
+        "the receiver-preservation hold must survive restart"
+    );
+    assert!(
+        second
+            .durably_owned_key_packages(&id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // Continue preserves the exact other installation's slots and references;
+    // it must neither delete them nor publish another public receiver.
     let packages = first_app
         .account_key_package_records(&id, vec![endpoint(&url)], Vec::new())
         .await
@@ -15469,13 +15907,13 @@ async fn onboarding_single_device_detects_other_installation_and_retains_notice_
             .iter()
             .any(|p| p.key_package_id == "older-installation-slot")
     );
+    let preserved_slots = packages
+        .iter()
+        .map(|p| (p.key_package_id.clone(), p.key_package_ref_hex.clone()))
+        .collect::<std::collections::HashSet<_>>();
     assert!(
-        packages
-            .iter()
-            .map(|p| &p.key_package_id)
-            .collect::<std::collections::HashSet<_>>()
-            .len()
-            >= 3
+        preserved_slots == original_slots,
+        "companion continuation must preserve every original slot and package reference"
     );
     second
         .sign_out(

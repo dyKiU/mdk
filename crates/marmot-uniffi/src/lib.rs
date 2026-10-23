@@ -64,6 +64,7 @@ pub use markdown::{
 };
 pub use secret_store::SecretStore;
 pub use subscriptions::ConversationWindowSubscription;
+pub use subscriptions::{AccountChatListWindowSubscription, AccountConversationWindowSubscription};
 
 uniffi::setup_scaffolding!();
 
@@ -220,6 +221,9 @@ pub struct MarmotOptions {
     /// reports why.
     #[uniffi(default = None)]
     pub moderation_report_config: Option<ModerationReportConfigFfi>,
+    /// Dedicated encrypted pairing transport; omitted uses operational relays.
+    #[uniffi(default = None)]
+    pub pairing_relay_urls: Option<Vec<String>>,
     /// Deployment services: recovery relays, discovery indexers, media and
     /// image servers, Open Ranking, KeyPackage client preference, moderation
     /// label namespace and keychain service. Required, with no default, so a
@@ -238,6 +242,7 @@ impl MarmotOptions {
             secret_store: None,
             attachment_acquisition_mode: None,
             moderation_report_config: None,
+            pairing_relay_urls: None,
             deployment,
         }
     }
@@ -263,6 +268,7 @@ impl MarmotOptions {
             )
             .with_key_package_client_name(self.client_name.clone())
             .with_moderation_report_config(self.moderation_report_config.clone().map(Into::into))
+            .with_pairing_relay_urls(self.pairing_relay_urls.clone().unwrap_or_default())
             .with_deployment(self.deployment.clone().into())
     }
 }
@@ -555,6 +561,32 @@ pub use commands::moderation::*;
 
 pub use commands::AttachmentTransferSubscription;
 
+pub use commands::{DeviceLinkingApproval, DeviceLinkingSession, DeviceLinkingSubscription};
+pub use conversions::{
+    DeviceLinkingApprovalPhaseFfi, DeviceLinkingApprovalReviewMetadataFfi,
+    DeviceLinkingApprovalSnapshotFfi, DeviceLinkingCapabilitiesFfi, DeviceLinkingDecimalsFfi,
+    DeviceLinkingOutgoingPacketFfi, DeviceLinkingPhaseFfi, DeviceLinkingSnapshotFfi,
+    DeviceLinkingTargetFfi,
+};
+
+pub use commands::{SelectedChatConsent, SelectedChatCopy};
+pub use conversions::{
+    SelectedChatConsentPhaseFfi, SelectedChatConsentSnapshotFfi, SelectedChatCopyPhaseFfi,
+    SelectedChatCopySnapshotFfi,
+};
+
+pub use commands::AccountSharingApproval;
+pub use commands::{HistoryConsent, HistoryTransfer};
+pub use conversions::{
+    AccountSharingSnapshotFfi, AccountSharingTargetFfi, AccountSharingTargetsFfi,
+};
+
+pub use commands::DeviceRevocation;
+pub use conversions::DeviceRevocationSnapshotFfi;
+pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
+
+pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,6 +601,16 @@ mod tests {
             marmot_app::CursorPersistence::Advance
         );
         assert_eq!(defaults.key_package_client_name, None);
+        assert!(defaults.pairing_relay_urls.is_empty());
+        assert_eq!(
+            MarmotOptions {
+                pairing_relay_urls: Some(vec!["wss://relay.example.com".into()]),
+                ..MarmotOptions::for_deployment(marmot_deployment_neutral())
+            }
+            .app_config()
+            .pairing_relay_urls,
+            vec!["wss://relay.example.com"]
+        );
         assert_eq!(
             defaults.attachment_acquisition_mode,
             marmot_app::AttachmentAcquisitionMode::NativeAutomatic
@@ -627,6 +669,53 @@ mod tests {
                 ..marmot_app::MarmotDeployment::neutral()
             }
         );
+    }
+
+    // The merge must compose these independently configured routing domains:
+    // passing a deployment must not replace the already-built pairing config.
+    #[test]
+    fn runtime_options_compose_deployment_and_dedicated_pairing_routes() {
+        let pairing = vec!["wss://pairing.options.example".to_owned()];
+        let directory = vec!["wss://directory.options.example".to_owned()];
+        let config = MarmotOptions {
+            pairing_relay_urls: Some(pairing.clone()),
+            deployment: MarmotDeploymentFfi {
+                recovery_operated_relays: vec![
+                    " wss://recovery.options.example ".into(),
+                    "".into(),
+                    "wss://recovery.options.example".into(),
+                ],
+                discovery_indexer_relays: vec![" wss://index.options.example ".into()],
+                new_group_media_endpoints: vec![" https://media.options.example ".into()],
+                keychain_service: " org.example.composed-options ".into(),
+                ..marmot_deployment_neutral()
+            },
+            ..MarmotOptions::for_deployment(marmot_deployment_neutral())
+        }
+        .app_config()
+        .with_directory_relay_urls(directory.clone());
+        assert!(
+            config.pairing_relay_urls == pairing,
+            "combined_deployment_must_preserve_explicit_pairing_routes"
+        );
+        assert_eq!(config.directory_relay_urls, directory);
+        assert_eq!(
+            config.deployment.recovery_operated_relays,
+            vec!["wss://recovery.options.example"]
+        );
+        assert_eq!(
+            config.deployment.discovery_indexer_relays,
+            vec!["wss://index.options.example"]
+        );
+        assert_eq!(
+            config.deployment.new_group_media_endpoints,
+            vec!["https://media.options.example"]
+        );
+        assert_eq!(
+            config.deployment.keychain_service,
+            "org.example.composed-options"
+        );
+        assert!(config.deployment.open_ranking.is_none());
     }
 
     #[test]

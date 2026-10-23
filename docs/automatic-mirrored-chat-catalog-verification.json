@@ -1,0 +1,110 @@
+{
+  "scope": "Source-attested paired chat catalog persistence only; no automatic transport, approval restore, MLS membership, normal UI integration or deployment claim",
+  "base": "4d6b63d1e099847107f8cb4391dd3087f4c8c3ac",
+  "component_inputs": {
+    "count": 740,
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog-v3-inputs.json",
+    "sha256": "dbb6dc36fad7f518f732adc40485dc7d838bb15908b6093ca6b40ef82855923e",
+    "M1_M5_hash_match": true,
+    "scope": "traits/storage-sqlite/fs-private/OpenMLS dependency Rust/Cargo source and snapshot inputs"
+  },
+  "runner": {
+    "host": "macbook.m5",
+    "toolchain": "1.97.1-aarch64-apple-darwin",
+    "target": "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+    "incremental": false,
+    "cargo_jobs": 2
+  },
+  "gates": {
+    "initial_focused": {
+      "passed": 5,
+      "failed": 0,
+      "filtered": 1104,
+      "log": "automatic-mirrored-catalog-v1.log"
+    },
+    "final_backend": {
+      "passed": 1104,
+      "failed": 0,
+      "skipped": 7,
+      "seconds": 205.999,
+      "command": "cargo nextest run -p storage-sqlite --features experimental-device-sync --locked --profile default --retries 0 --no-fail-fast -j 8",
+      "log": "automatic-mirrored-catalog-backend-v3.log"
+    },
+    "traits": {
+      "passed": 168,
+      "failed": 0,
+      "ignored": 0,
+      "doctests_executed": 0,
+      "command": "cargo test -p cgka-traits --locked",
+      "log": "automatic-mirrored-catalog-traits-v3.log"
+    },
+    "default_all_targets": {
+      "result": "Passed",
+      "command": "cargo check -p storage-sqlite --all-targets --locked",
+      "log": "automatic-mirrored-catalog-default-v3.log"
+    },
+    "strict_clippy": {
+      "result": "Passed",
+      "command": "cargo clippy -p storage-sqlite -p cgka-traits --all-targets --features storage-sqlite/experimental-device-sync --locked -- -D warnings",
+      "log": "automatic-mirrored-catalog-clippy-v3.log"
+    },
+    "format": {
+      "result": "Passed",
+      "command": "cargo fmt --all -- --check"
+    },
+    "diff": {
+      "result": "Passed",
+      "command": "git diff --check"
+    }
+  },
+  "preserved_failure": {
+    "passed": 622,
+    "failed": 1,
+    "skipped": 7,
+    "not_run": 480,
+    "log": "automatic-mirrored-catalog-backend-v2.log",
+    "cause": "Revision14-prefix fixture expected one remaining private migration; registry now contains three. Updated exact registry count, preserving original fourteen receipts/timestamps, terminal archive state, core102 and idempotent reopen assertions. Final full suite passes."
+  },
+  "coverage": [
+    "Seven catalog acceptance cases in the full backend suite: exact retries, same-title canonical-ID paging, conflicting content, multirow rollback, before/tail original validation, configured owner/signer mismatch, SQL delete/replace fences, encrypted reopen/terminal close, and cross-policy/roster terminal fences.",
+    "No synthetic membership is created; actual engine Group rows remain empty in isolated store tests.",
+    "Different actual member sources retain independent observations; source leave does not fabricate global disband."
+  ],
+  "limits": [
+    "Persistence tests use synthetic observations; authentication remains Core/App owned.",
+    "Seven backend tests remain ignored; no skipped acceptance is claimed.",
+    "Broader native/relay/installed automatic sharing qualification remains pending.",
+    "Terminal source/account/group fences survive policy/roster changes. Genuine source rejoin needs a separate qualified lifecycle operation; no metadata-only reactivation exists.",
+    "Stable policy identity excludes ephemeral channel transcripts. Reads cannot restore an original action or consent."
+  ],
+  "logs": {
+    "automatic-mirrored-catalog-snapshot-v2.log": {
+      "local": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog/automatic-mirrored-catalog-snapshot-v2.log",
+      "sha256": "0ab60b8fb9095c4ab7f3da45e80cdc400e76579b2229b1fc3bc0ba84248b7198"
+    },
+    "automatic-mirrored-catalog-v1.log": {
+      "local": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog/automatic-mirrored-catalog-v1.log",
+      "sha256": "fc24593649814d93a199591252f7672196792da75bcec1be4759edb4fbdecb89"
+    },
+    "automatic-mirrored-catalog-traits-v3.log": {
+      "local": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog/automatic-mirrored-catalog-traits-v3.log",
+      "sha256": "2b37e4ee4792f5071b75d92b757a69e547648d895637e77fd8578b157c356dca"
+    },
+    "automatic-mirrored-catalog-default-v3.log": {
+      "local": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog/automatic-mirrored-catalog-default-v3.log",
+      "sha256": "cc1a3e754683590ded5a9ce447833e0610626258e6afdb5b9de9442aa4a10bf7"
+    },
+    "automatic-mirrored-catalog-backend-v3.log": {
+      "local": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog/automatic-mirrored-catalog-backend-v3.log",
+      "sha256": "7abc121def8230bf20b08db59c437b10ebdaf7b1a826eb2b1328612253738a35"
+    },
+    "automatic-mirrored-catalog-backend-v2.log": {
+      "local": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog/automatic-mirrored-catalog-backend-v2.log",
+      "sha256": "106ad7765a988aaf41b1a4efaa89b44138910f0ffee4c55fb758d25f98452f5d"
+    },
+    "automatic-mirrored-catalog-clippy-v3.log": {
+      "local": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-catalog/automatic-mirrored-catalog-clippy-v3.log",
+      "sha256": "d7035c3c0c0ad69c18d815155bd0b54ce36e60aebf14c9c771d85cd5e45a7192"
+    }
+  }
+}

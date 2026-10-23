@@ -434,6 +434,7 @@ pub struct AccountDeviceRuntime<A, R = StaticTransportRouting, K = NoopKeyPackag
     maintenance_random: Arc<dyn MaintenanceRandom>,
     maintenance_timing: MaintenanceTiming,
     maintenance_paused: bool,
+    public_key_package_publication_disabled: bool,
     maintenance_activity: std::sync::Mutex<MaintenanceActivity>,
     maintenance_quiet_monotonic: HashMap<cgka_traits::MessageId, Duration>,
     /// Monotonic time each group's own-leaf currency was last read from the
@@ -473,6 +474,7 @@ where
             maintenance_random: Arc::new(OsMaintenanceRandom),
             maintenance_timing: MaintenanceTiming::default(),
             maintenance_paused: false,
+            public_key_package_publication_disabled: false,
             maintenance_activity: std::sync::Mutex::new(MaintenanceActivity::default()),
             maintenance_quiet_monotonic: HashMap::new(),
             component_migration_checked_at: HashMap::new(),
@@ -716,6 +718,9 @@ where
     /// When no usable current package or signed artifact exists, this falls back to
     /// [`Self::publish_fresh_key_package`].
     pub async fn republish_key_package(&mut self) -> AccountResult<KeyPackage> {
+        if self.public_key_package_publication_disabled {
+            return Err(AccountError::PublicKeyPackagePublicationDisabled);
+        }
         let Some(mut lifecycle) = self.session.key_package_lifecycle()? else {
             tracing::debug!(
                 target: TRACE_TARGET,
@@ -987,6 +992,9 @@ where
     }
 
     pub async fn publish_fresh_key_package(&mut self) -> AccountResult<KeyPackage> {
+        if self.public_key_package_publication_disabled {
+            return Err(AccountError::PublicKeyPackagePublicationDisabled);
+        }
         tracing::debug!(
             target: TRACE_TARGET,
             method = "publish_fresh_key_package",
@@ -1157,6 +1165,9 @@ where
     /// replacement owns the work until ACK; its revision prevents regenerating
     /// on every retry while the acknowledged current revision is still old.
     pub fn key_package_generation_upgrade_due(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         Ok(self
             .session
             .key_package_lifecycle()?
@@ -1172,6 +1183,9 @@ where
     }
 
     pub fn key_package_network_maintenance_due(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         let now = self.wall_clock.now();
         Ok(match self.session.key_package_lifecycle()? {
             None => true,
@@ -1197,6 +1211,9 @@ where
     }
 
     pub fn key_package_has_pending_fanout(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         Ok(self
             .session
             .key_package_lifecycle()?
@@ -1287,6 +1304,9 @@ where
     }
 
     pub fn key_package_maintenance_requires_catch_up(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         let now = self.wall_clock.now();
         Ok(match self.session.key_package_lifecycle()? {
             None => true,
@@ -1394,6 +1414,14 @@ where
         policy: PeriodicMaintenancePolicy,
     ) -> AccountResult<()> {
         Ok(self.session.put_periodic_maintenance_policy(policy)?)
+    }
+
+    /// A companion may use its own private MLS state without advertising a
+    /// competing public invitation receiver. This gate also fences retained
+    /// publication fanout; pausing periodic maintenance alone does not.
+    pub fn with_public_key_package_publication_disabled(mut self) -> Self {
+        self.public_key_package_publication_disabled = true;
+        self
     }
 
     pub fn pause_maintenance(&mut self) {
@@ -3155,13 +3183,46 @@ where
     pub async fn ingest_delivery_with_observer(
         &mut self,
         delivery: &TransportDelivery,
+        observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
+    ) -> AccountResult<AccountIngestEffects> {
+        self.ingest_delivery_observed(delivery, None, observe).await
+    }
+
+    /// Share observer and effect ordering while limiting ephemeral acquisition lifetime.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn ingest_private_enrollment_delivery_with_observer_until(
+        &mut self,
+        delivery: &TransportDelivery,
+        deadline: web_time::Instant,
+        observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
+    ) -> AccountResult<AccountIngestEffects> {
+        self.ingest_delivery_observed(delivery, Some(deadline), observe)
+            .await
+    }
+
+    async fn ingest_delivery_observed(
+        &mut self,
+        delivery: &TransportDelivery,
+        deadline: Option<web_time::Instant>,
         mut observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
     ) -> AccountResult<AccountIngestEffects> {
         if delivery.account_id != self.session.self_id() {
             return Err(AccountError::WrongAccountDelivery);
         }
         let started = Instant::now();
-        let ingested = self.session.ingest_delivery(delivery).await;
+        #[cfg(feature = "experimental-device-sync")]
+        let ingested = if let Some(deadline) = deadline {
+            self.session
+                .ingest_private_enrollment_delivery_until(delivery, deadline)
+                .await
+        } else {
+            self.session.ingest_delivery(delivery).await
+        };
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let ingested = {
+            let _ = deadline;
+            self.session.ingest_delivery(delivery).await
+        };
         observe(
             AccountIngestPhase::Engine,
             started.elapsed(),

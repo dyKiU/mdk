@@ -1,0 +1,471 @@
+name: Upstream isolated backend controls
+
+on:
+  push:
+    branches: ["ci/upstream-acceptance-*"]
+    paths: [".github/workflows/upstream-backend-probes.yml"]
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Run remaining unchanged convergence/withdrawal controls or the default backend controls
+        type: choice
+        options: [experimental, default, all, current-source, replay-controls, upstream-offline-control]
+        default: experimental
+      current_case:
+        description: Exact reviewed current-source default-CI diagnostic
+        type: choice
+        options: [key-package, avatar]
+        default: key-package
+      replay_stage:
+        description: Exact positive/PFP, or bounded experimental sibling failure sample
+        type: choice
+        options: [positive, pfp, sample]
+        default: positive
+      replay_case:
+        description: One exact replay or terminal-storage control
+        type: choice
+        options: [native-mutation-admission-contract, native-four-device-mutations, engine-private-maintenance-hydration, engine-private-maintenance-pending-order, engine-private-maintenance-recovery, engine-private-send-admission, native-automatic-negotiation-cohort, native-automatic-scan-expiry, native-automatic-scan-expiry-red, sdk-private-family-partial, sdk-private-role-transition, sdk-private-configuration-aba, sdk-private-family-refresh-pfp, sdk-private-family-ordinary-pfp, sdk-private-missing-route, sdk-private-family-stability, sdk-scoped-reporting, live-seal-spill-default, live-seal-spill-experimental, fresh-rejoin-observation, sibling-send-default, sibling-send-experimental, pending-restart-request-observation, request-cleanup-experimental, priority-cleanup-experimental, recipient-admission-experimental, cursor-promotion-observation, cursor-promotion-experimental, peer-leave-observation, private-classifier-authentication, private-classifier-kinds, offline-experimental, uniffi-conversation, uniffi-list, uniffi-conversation-stale, wrong-recipient-routing, command-owned-cleanup, late-commit-default, late-commit-extra-epoch, sdk-private-capture-control, offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, command-backlog-held, adapter-thousand, adapter-thousand-default, adapter-clamped, adapter-clamped-default, adapter-quiet-pending-contract, adapter-quiet-pending-contract-default, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
+        default: offline
+      reviewed_baseline:
+        description: Explicit reviewed full source SHA including passive test observations
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  archived-regression:
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'default' || inputs.scope == 'all')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 3090a323ae823de6b213eb60561aec7031f276bc
+          persist-credentials: false
+      - name: Verify existing archive source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir probe
+          gh api repos/dyKiU/mdk/actions/runs/38681649534 > probe/producer.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('probe/producer.json').read_text())
+          assert data['head_sha']=='3090a323ae823de6b213eb60561aec7031f276bc'
+          assert data['path']=='.github/workflows/ci.yml'
+          PY
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38681649534
+          name: rust-test
+      - name: Run unchanged strict regression and healthy startup control in isolation
+        run: |
+          set -euo pipefail
+          df -h .
+          sha256sum tests.tar.zst > probe/archive.sha256
+          filter='package(marmot-app) & (test(=runtime::tests::stuck_worker_reap_does_not_block_a_healthy_account) | test(=runtime::tests::a_ready_worker_completes_one_span_per_startup_stage))'
+          set +e
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
+            --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --test-threads 1 \
+            --no-fail-fast --success-output immediate -E "$filter" 2>&1 | tee probe/execution.log
+          result=${PIPESTATUS[0]}
+          set -e
+          export PROBE_EXIT_CODE="$result"
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          log=re.sub(r'\x1b\[[0-9;]*m','',Path('probe/execution.log').read_text())
+          summaries=re.findall(r'Summary\s+\[[^\]]*\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)',log)
+          summary=summaries[-1] if summaries else None
+          def count(label):
+              match=re.search(r'(\d+) '+label,summary[1]) if summary else None
+              return int(match[1]) if match else (0 if summary else None)
+          passed,failed=count('passed'),count('failed')
+          code=int(os.environ['PROBE_EXIT_CODE'])
+          qualified=code==0 and passed==2 and failed==0
+          Path('probe/result.json').write_text(json.dumps({'source':'3090a323ae823de6b213eb60561aec7031f276bc','passed':passed,'failed':failed,'executed_tests':int(summary[0]) if summary else None,'reported_skipped':count('skipped'),'expected_tests':2,'exit_code':code,'qualified':qualified,'automatic_retries':0,'scheduler_slots':1,'rust_min_stack_bytes':int(os.environ.get('RUST_MIN_STACK','0')),'scope':'Same compiled archive, original assertions and deadlines; isolated control does not qualify the failed full shard.'},indent=2)+'\n')
+          if not qualified:
+              raise SystemExit('Both real runtime controls must execute and pass')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: unchanged-worker-startup-probe
+          path: probe/
+          if-no-files-found: error
+          retention-days: 7
+
+  experimental-control:
+    if: github.event_name == 'push' || inputs.scope == 'experimental' || inputs.scope == 'all'
+    name: Unchanged experimental control (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Match the full experimental runner stack budget; earlier scoped
+          # controls lacked it and remain distinct configuration evidence.
+          - case: profile-edits
+            package: cgka-conformance-simulator
+            binary: app_runtime_interaction_journeys
+            test: public_app_08_concurrent_admin_profile_edits_are_never_lost
+          - case: absolute-cap
+            package: cgka-engine
+            binary: distributed_convergence
+            test: convergence_pass_freezes_at_absolute_cap_under_continuous_selection_input
+          - case: nonadmin-withdrawal
+            package: marmot-app
+            binary: marmot_app
+            test: native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 3090a323ae823de6b213eb60561aec7031f276bc
+          persist-credentials: false
+      - name: Verify exact existing experimental archive and producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir probe
+          test "$(git rev-parse HEAD)" = 3090a323ae823de6b213eb60561aec7031f276bc
+          gh api repos/dyKiU/mdk/actions/runs/38681649626 > probe/producer.json
+          gh api repos/dyKiU/mdk/actions/artifacts/11949746329 > probe/artifact.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          run=json.loads(Path('probe/producer.json').read_text())
+          artifact=json.loads(Path('probe/artifact.json').read_text())
+          source='3090a323ae823de6b213eb60561aec7031f276bc'
+          assert run['id']==38681649626 and run['head_sha']==source
+          assert run['path']=='.github/workflows/experimental-sync-ci.yml'
+          assert artifact['id']==11949746329 and not artifact['expired']
+          assert artifact['name']=='experimental-sync-tests'
+          assert artifact['workflow_run']['id']==run['id']
+          assert artifact['workflow_run']['head_sha']==source
+          PY
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38681649626
+          artifact-ids: 11949746329
+          merge-multiple: true
+      - name: Run one unchanged experimental body in isolation
+        env:
+          EXPECTED_TEST: ${{ matrix.test }}
+          EXPECTED_PACKAGE: ${{ matrix.package }}
+          EXPECTED_BINARY: ${{ matrix.binary }}
+          PROBE_CASE: ${{ matrix.case }}
+          RUST_BACKTRACE: "1"
+          RUST_MIN_STACK: "4194304"
+          CARGO_TERM_COLOR: never
+        run: |
+          set -euo pipefail
+          df -h .
+          sha256sum experimental-tests.tar.zst > probe/archive.sha256
+          filter="package($EXPECTED_PACKAGE) & binary(=$EXPECTED_BINARY) & test(=$EXPECTED_TEST)"
+          cargo nextest list --archive-file experimental-tests.tar.zst \
+            --workspace-remap "$GITHUB_WORKSPACE" --message-format json -E "$filter" > probe/inventory.json
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          inventory=json.loads(Path('probe/inventory.json').read_text())
+          selected=[name for suite in inventory['rust-suites'].values() for name,case in suite['testcases'].items()
+                    if case['filter-match']['status']=='matches' and not case['ignored']]
+          assert selected==[os.environ['EXPECTED_TEST']], 'Exactly one intended nonignored test must be selected'
+          PY
+          export MDK_APP_JOURNEY_ARTIFACTS="$RUNNER_TEMP/isolated-experimental-private"
+          set +e
+          cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
+            --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --retries 0 --test-threads 1 \
+            --no-fail-fast --success-output immediate -E "$filter" 2>&1 | tee probe/execution.log
+          result=${PIPESTATUS[0]}
+          set -e
+          export PROBE_EXIT_CODE="$result"
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          log=re.sub(r'\x1b\[[0-9;]*m','',Path('probe/execution.log').read_text())
+          summaries=re.findall(r'Summary\s+\[[^\]]*\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)',log)
+          summary=summaries[-1] if summaries else None
+          def count(label):
+              match=re.search(r'(\d+) '+label,summary[1]) if summary else None
+              return int(match[1]) if match else (0 if summary else None)
+          passed,failed=count('passed'),count('failed')
+          code=int(os.environ['PROBE_EXIT_CODE'])
+          report={'source':'3090a323ae823de6b213eb60561aec7031f276bc','producer_run':38681649626,
+                  'artifact_id':11949746329,'case':os.environ['PROBE_CASE'],'test':os.environ['EXPECTED_TEST'],
+                  'expected_tests':1,'passed':passed,'failed':failed,'exit_code':code,
+                  'executed_tests':int(summary[0]) if summary else None,'reported_skipped':count('skipped'),
+                  'automatic_retries':0,'scheduler_slots':1,'rust_min_stack_bytes':int(os.environ.get('RUST_MIN_STACK','0')),'qualified':code==0 and passed==1 and failed==0,
+                  'scope':'Unchanged compiled experimental body with original assertions and deadlines; isolated control does not qualify the failed full shard.'}
+          Path('probe/result.json').write_text(json.dumps(report,indent=2)+'\n')
+          # Whitelist aggregate oracle outcomes; never upload private stores,
+          # complete observations, protocol records or arbitrary error payloads.
+          private=Path(os.environ['MDK_APP_JOURNEY_ARTIFACTS'])
+          allowed={'alice:name','bob:description'}
+          evidence=[]
+          for path in private.glob('*/after-race.json'):
+              value=json.loads(path.read_text())
+              settled=value['settled_edits']
+              dropped=value['dropped_accepted_edits']
+              if not set(settled+dropped)<=allowed:
+                  raise ValueError('Unexpected profile edit oracle fields')
+              row={'settled_edits':settled,'dropped_accepted_edits':dropped}
+              race=path.with_name('race-report.json')
+              if race.is_file():
+                  outcomes=json.loads(race.read_text())['outcomes']
+                  row['accepted_outcomes']=sum(item['accepted'] is True for item in outcomes)
+                  row['total_outcomes']=len(outcomes)
+              evidence.append(row)
+          report['aggregate_profile_oracles']=evidence
+          Path('probe/result.json').write_text(json.dumps(report,indent=2)+'\n')
+          if not report['qualified']:
+              raise SystemExit('The intended unchanged test must execute and pass')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: unchanged-experimental-${{ matrix.case }}-3090a323
+          path: probe/
+          if-no-files-found: error
+          retention-days: 7
+
+  current-source-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'current-source'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify current source and closed parser controls
+        env:
+          REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
+          CURRENT_CASE: ${{ inputs.current_case }}
+        run: >-
+          python3 scripts/upstream_current_backend_probe.py --mode preflight
+          --case "$CURRENT_CASE" --baseline "$REVIEWED_BASELINE"
+          --output current-probe/preflight.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: current-source-preflight-${{ inputs.current_case }}-${{ github.sha }}
+          path: current-probe/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  current-source-body:
+    needs: current-source-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: ${{ inputs.current_case == 'avatar' && 'cli-e2e' || 'relay-runtime' }}
+          cache-on-failure: true
+      - name: Read-only build capacity guard
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label current-default-backend
+          --output "$RUNNER_TEMP/current-backend-capacity.json"
+      - name: Run one exact current-source body with original assertions
+        env:
+          CARGO_INCREMENTAL: "1"
+          REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
+          CURRENT_CASE: ${{ inputs.current_case }}
+        run: >-
+          python3 scripts/upstream_current_backend_probe.py --mode run
+          --case "$CURRENT_CASE" --baseline "$REVIEWED_BASELINE"
+          --output current-probe/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: current-source-body-${{ inputs.current_case }}-${{ github.sha }}
+          path: |
+            current-probe/*.json
+            ${{ runner.temp }}/current-backend-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+
+  replay-controls-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'replay-controls'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact replay source and synthetic closed parser controls
+        env:
+          REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
+          REPLAY_CASE: ${{ inputs.replay_case }}
+          REPLAY_STAGE: ${{ inputs.replay_stage }}
+        run: >-
+          python3 scripts/upstream_replay_controls.py --mode preflight
+          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE"
+          --output replay-probe/preflight.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: replay-preflight-${{ inputs.replay_stage }}-${{ inputs.replay_case }}-${{ github.sha }}
+          path: replay-probe/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  replay-controls-body:
+    needs: replay-controls-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.replay_stage == 'pfp' && 105 || 45 }}
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: ${{ contains(fromJSON('["offline","offline-experimental"]'), inputs.replay_case) && 'relay-runtime' || 'upstream-default-app' }}
+          cache-on-failure: true
+      - name: Read-only post-cache capacity guard
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label default-replay-controls
+          --output "$RUNNER_TEMP/replay-capacity.json"
+      - name: Match the bounded stack for explicit reviewed replay cases
+        if: contains(fromJSON('["native-mutation-admission-contract","native-four-device-mutations","native-automatic-negotiation-cohort","native-automatic-scan-expiry","native-automatic-scan-expiry-red","sdk-private-family-partial","sdk-private-role-transition","sdk-private-configuration-aba","sdk-private-family-refresh-pfp","sdk-private-family-ordinary-pfp","sdk-private-missing-route","sdk-private-family-stability","sdk-scoped-reporting","live-seal-spill-experimental","cursor-promotion-experimental","fresh-rejoin-observation","sibling-send-experimental","pending-restart-request-observation","request-cleanup-experimental","priority-cleanup-experimental","recipient-admission-experimental","offline-experimental","uniffi-conversation","uniffi-list","uniffi-conversation-stale","wrong-recipient-routing","command-owned-cleanup","sdk-private-capture-control","revoked-anchor","sharing-policy","late-consent","spill-experimental","watch-pressure","higher-source","mirrored-catalog","mirrored-messages","adapter-cancelled","adapter-failed-route","existing-anchor","command-backlog","command-backlog-held","adapter-thousand","adapter-thousand-default","adapter-clamped","adapter-clamped-default","adapter-quiet-pending-contract","adapter-quiet-pending-contract-default","hidden-echo","departure-native","worker-input-offer","worker-input-replay-first","worker-input-pending","worker-input-disabled"]'), inputs.replay_case)
+        run: echo 'RUST_MIN_STACK=4194304' >> "$GITHUB_ENV"
+      - name: Run exact scoped replay controls with original assertions
+        env:
+          CARGO_INCREMENTAL: "1"
+          REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
+          REPLAY_CASE: ${{ inputs.replay_case }}
+          REPLAY_STAGE: ${{ inputs.replay_stage }}
+        run: >-
+          python3 scripts/upstream_replay_controls.py --mode run
+          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE"
+          --output replay-probe/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: replay-body-${{ inputs.replay_stage }}-${{ inputs.replay_case }}-${{ github.sha }}
+          path: |
+            replay-probe/*.json
+            ${{ runner.temp }}/replay-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+
+  trusted-upstream-offline-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'upstream-offline-control'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_TERM_COLOR: never
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact trusted source objects and closed metadata controls
+        run: >-
+          python3 scripts/upstream_trusted_offline_control.py --mode preflight
+          --case "${{ inputs.replay_case }}"
+          --output trusted-upstream-probe/preflight.json
+      - name: Create pristine fixed upstream source worktree on the disposable runner
+        run: |
+          set -euo pipefail
+          source=d274dd228a3ac8d624073d8f5835e06c7cd7b30d
+          git worktree add --detach "$RUNNER_TEMP/trusted-upstream-offline-source" "$source"
+          test "$(git -C "$RUNNER_TEMP/trusted-upstream-offline-source" rev-parse HEAD)" = "$source"
+      - name: Install exact original source Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: relay-runtime
+          cache-on-failure: true
+      - name: Read-only post-cache capacity guard
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label trusted-d274-offline-control
+          --output "$RUNNER_TEMP/trusted-upstream-capacity.json"
+      - name: Run one pristine upstream body without changing its original verdict
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/upstream_trusted_offline_control.py --mode run
+          --case "${{ inputs.replay_case }}"
+          --output trusted-upstream-probe/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: trusted-d274-offline-${{ github.sha }}
+          path: |
+            trusted-upstream-probe/*.json
+            ${{ runner.temp }}/trusted-upstream-capacity.json
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,261 @@
+{
+  "baseline": "ccbc1985d8f26e54ccac1f9905dcc3eac1a19db9",
+  "scope": "Original B action bridges the exact actual C Add and new settlement selection; default-off. This is not final ABC settlement or native enrollment acceptance.",
+  "red": {
+    "cohort": "mdk-b-existing-transition-red-v1",
+    "actual_failed": 1,
+    "reason": "original B action could not arm existing-member transition"
+  },
+  "recovery_defect": "Failed atomic storage apply used to recreate AppClient, cancelling original B ownership; replay storage category and exact-group retry scheduling now preserve that same live action.",
+  "source": {
+    "input_count": 2385,
+    "final_source_manifest_sha256": "9f8bc1444d4642144183d6d424cf634486727b3bc31de94f73293346087a08fc",
+    "functional_source_manifest_sha256": "c16ef1fb67ba8f062964c907cba95f3a43519c896c925fe086e274f9a51cca0a",
+    "qualification_source_manifest_sha256": "74a3148e7ab71541fa87481cba7e3a0e9681891fcc14f57fabad60c295e8c80c",
+    "post_qualification_change": "Only storage-sqlite/lib.rs module ordering changed before successful fmt; later README/AGENTS/proof additions are documentation only."
+  },
+  "checks": [
+    {
+      "name": "actual-original-B-and-C-rollback-retry",
+      "passed": 1,
+      "failed": 0,
+      "log_sha256": "0bf8331949f15b70aa208da05147ce6a1bf3a0624acf6d18ce90bbba004b1d95",
+      "behavioral_fixture_sha256": "ee593e3efbf509c2c7d0e725f3d1279c51e830138d77cb09154869347fcfc0da"
+    },
+    {
+      "cohort": "final-v1",
+      "name": "sdk",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_sdk",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 59.57,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "91f3f39f33595eaf5ded3a4259e73a66bfb1f5cffd44c90b5c870ee758072761"
+    },
+    {
+      "cohort": "final-v1",
+      "name": "storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "existing_anchor",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 33.57,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "25caf59fd11127610ef4754b48af77b6fa9385165e4d9ec1f298b54774b9f50a"
+    },
+    {
+      "cohort": "final-v1",
+      "name": "ledger",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "private_ledger",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 32.62,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "9e84e06e645039148264f96c9d345de0fbbb4208f67aa0326a797c0d2fd52970"
+    },
+    {
+      "cohort": "final-v2",
+      "name": "private-upgrade",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "private_settlement_revision10",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 4.29,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "21ed0e38865aa6c578ad97aa24ca24aea657939aafb5d2e63d79aae2d53b75e4"
+    },
+    {
+      "cohort": "final-v2",
+      "name": "origin-snapshot",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-traits",
+        "--test",
+        "snapshots",
+        "private_device_invite_scope_origins",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 3.65,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "f6a7290f8568d7fe768988f7950aff6705c9e7ba4b8f3f07c3204c65e72bd498"
+    },
+    {
+      "cohort": "final-v2",
+      "name": "default-ledger",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "private_ledger_default",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 22.1,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "e1e512aa1b594c51439be65597a805a0c699e31cdfa6919cac4e823a65cc6d91"
+    },
+    {
+      "cohort": "final-v2",
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "-p",
+        "storage-sqlite",
+        "-p",
+        "cgka-traits",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 47.36,
+      "counts": [],
+      "log_sha256": "f64c705df17247c5a01dca2a58a89effa2e7af728942416b87bf56c59882e032"
+    },
+    {
+      "cohort": "final-v2",
+      "name": "default",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "-p",
+        "storage-sqlite",
+        "-p",
+        "cgka-traits",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 34.31,
+      "counts": [],
+      "log_sha256": "698268a75337922c6afd9f4f58fce5f6179fa35fffa015264521fa80ed6aa8a8"
+    },
+    {
+      "name": "fmt-after-module-order-only-fix",
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "preserved_failures": [
+    "actual B RED-v1; SQL fault/retry diagnostics v1-v7",
+    "diagnostic-v8 invalidated by source transfer during frozen run; not qualification",
+    "revision9 upgrade actual one failure expecting1 rather than2; corrected to PRIVATE_MIGRATIONS.len()-9 with prefix/receipt assertions unchanged",
+    "final-v2 fmt failed module ordering only"
+  ],
+  "remaining": [
+    "A original SDK guard retention across proposal/Add handoff, original earliest clocks",
+    "real A/B/C occupied-leaf settlement and message/history delivery",
+    "native enrollment continuation/UI and final-source artifact adoption"
+  ],
+  "evidence_directory": "/Users/pjaeckel/project/whitenoisechat-openclaw/backups/mdk-sync-delivery-20261009"
+}

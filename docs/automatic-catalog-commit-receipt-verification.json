@@ -1,0 +1,327 @@
+{
+  "scope": "Experimental committed-recipient catalog receipts and whole-entry retry after real recipient SQL rollback; no automatic message/forwarding or native deployment claim",
+  "source_base": "51061d777288b51a6a0b0e33ba775d9e4e9d0ee9",
+  "candidate_stash": "96f044105897c2b1f4bcb39295b48e454c641f7b",
+  "owned_paths_sha256": {
+    "crates/cgka-engine/src/account_chat_sharing.rs": "ff9e14136809c396d8a7fef8f441d38d76e0f36928a2a45a79d0078b3b6096a2",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "d2139bcb1df58a58a409953da3b7d2144ab149e52c5da73036d366a55b813187",
+    "crates/marmot-app/src/native_device_linking/tests.rs": "263e1dc6c30ea2904aa7bc6ac3be7f5e4bc0c66147dc82336b18dbe661934f2b"
+  },
+  "acceptance": [
+    "Actual independent ABC account stores and LocalRelay, original explicitly approved A/C policy, received encrypted catalog transaction fault with typed runtime-error witness and empty receiver rows. Removing fault must import same existing and later source groups automatically under the same original approval, without another per-chat or pair action.",
+    "Only a committed recipient SQL import emits exact CatalogReceipt; sender matches canonical group/sequence/source_digest/encoded_digest before cursor/sent progress. Relay ACK is not committed delivery. No receipt causes the same durable source sequence to be retried under fresh policy-authorized cryptographic channel, never renewal of an old owner or key.",
+    "Bounded indexed fragment assembly accepts duplicate and reordered slots but refuses conflicting slot bytes/counts; complete canonical bytes remain retained until SQL success. This behavior is not yet separately network-fault-qualified.",
+    "Real22-entry renewal fixture retains original180-second discovery bound. Its burst causes actual RetryableUnavailable/RateLimited on later revocation publish. Final acceptance permits bounded30-second retry of the same held revocation original and displayed revision, preserving actual two-survivor roster and removed-peer denial checks. Relay limits and revocation runtime are unchanged."
+  ],
+  "failures_retained": {
+    "red-v1": "Actual recipient SQL rollback followed by discovery timeout0/1",
+    "final-v1": "Catalog SQLretry1/0; renewal discovery reached all entries but later real revocation publication failed1/1 overall",
+    "diagnostic-v1": "Projection label never fired; actual0/1",
+    "diagnostic-v2": "Actual adapter publication boundary failed before confirmation0/1",
+    "diagnostic-v3": "Actual typed endpoint RetryableUnavailable/RateLimited0/1",
+    "final-v2": "Compile-only missing fully qualified Duration; no runtime tests",
+    "final-v3": "1/1; new unsupported staged snapshot equality failed InvalidSelection; recipient SQLretry passed"
+  },
+  "remaining": [
+    "Two-sided catalog receipt fairness, packet loss/reorder/offline replay controls and source leave/delete withdrawals remain separate acceptance.",
+    "Automatic source-attested Records/RecordReceipt, unified presentation/window invalidation and authenticated durable normal-send forwarding are not implemented by this checkpoint.",
+    "PairPolicyCommitted is an additive typed body kind for separately owned B/C handoff; its presence does not prove bilateral durable policy completion.",
+    "No shipping SDK regeneration, app installation, ordinary stranger autoaccept or invented MLS membership."
+  ],
+  "verification": {
+    "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+    "cohorts": [
+      {
+        "prefix": "automatic-catalog-receipt-red-v1",
+        "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+        "stash": "613b39a0ab168c2cf95babb9a56ccf36c1f3b8f8",
+        "verified_inputs": 2576,
+        "manifest_sha256": "8e5fd87f6f94e3957136a3094e44118d01ba818799eaab2ae47428ab23ee93c2",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 130.66008377075195,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-red-v1-catalog.log",
+            "log_sha256": "fefc8e0c45b2a91cf97d85c36aeb6c23ebdf934b3d366f5d632dec1f9856957b"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-green-v1",
+        "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+        "stash": "75349e9d5bfd4b4980a295e0adf0c1acec0bbac2",
+        "verified_inputs": 2576,
+        "manifest_sha256": "d255e5faeca2ddcc4a93168cd493489a1dcfcbbda273945b27ee874d84284bdc",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 0,
+            "seconds": 101.72864198684692,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-green-v1-catalog.log",
+            "log_sha256": "8a50d43030c6815027663fdf9582564f918d201fc6a1914e8ca63c70b68bdeb1"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-final-v1",
+        "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+        "stash": "75349e9d5bfd4b4980a295e0adf0c1acec0bbac2",
+        "verified_inputs": 2576,
+        "manifest_sha256": "d255e5faeca2ddcc4a93168cd493489a1dcfcbbda273945b27ee874d84284bdc",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog-family",
+            "exit": 101,
+            "seconds": 189.44003105163574,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v1-catalog-family.log",
+            "log_sha256": "97ccad4d5ef30c31feb53f45d38de74df787440a55ce8eafade2f0f7b92e7bcc"
+          }
+        ],
+        "counts": {
+          "catalog-family": [
+            [
+              "1",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-diagnostic-v1",
+        "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+        "stash": "2ba87bb3482006b50545a3062b8c550c47668e27",
+        "verified_inputs": 2576,
+        "manifest_sha256": "6af6762454871a2720f29875d5e1193b7a4a9c337b688ced859dc9ef5a18d100",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 224.35806274414062,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-diagnostic-v1-catalog.log",
+            "log_sha256": "514f1123b928e3d5b1ec238d63644bf5578af0de3ba1eb7958fef3f65a37154a"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-diagnostic-v2",
+        "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+        "stash": "bce3dac9728d7fe810b45300c0cfe5637096d165",
+        "verified_inputs": 2576,
+        "manifest_sha256": "1a8083ec23d1b5833512027f2816cd1033cfa9b251337748dfae100e6a75ccdd",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 224.19144701957703,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-diagnostic-v2-catalog.log",
+            "log_sha256": "1a2e574f36429a2fbb9a15479180288223e8cbdeba35269bb0e2b4bb0ba08e90"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-diagnostic-v3",
+        "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+        "stash": "5112211d9b6779c8901ef69ed66e68b58f32dcbb",
+        "verified_inputs": 2576,
+        "manifest_sha256": "00473ceff71bb8af2a945014ed188c7b84fa7dc2adccbe9e3fcd48dd0f06336b",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 217.77436709403992,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-diagnostic-v3-catalog.log",
+            "log_sha256": "1be47ecbf2baf7ff656354d0eb1529059a471c4678a62425a5e22bbf764a5da3"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-final-v2",
+        "base": "51061d777288b51a6a0b0e33ba775d9e4e9d0ee9",
+        "stash": "52ee24244e9e5795a8f43d1683046ca17374faab",
+        "verified_inputs": 2577,
+        "manifest_sha256": "e7d86c7203bbec23a070ea324411bc128474f52dbe2bee5c240d9adf0f604846",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog-family",
+            "exit": 101,
+            "seconds": 48.26315212249756,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v2-catalog-family.log",
+            "log_sha256": "9b1027cc35bf06fd6450d769e2e42f6350141ede4fda00ac7a02b4ec0c01b657"
+          }
+        ],
+        "counts": {
+          "catalog-family": []
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-final-v3",
+        "base": "51061d777288b51a6a0b0e33ba775d9e4e9d0ee9",
+        "stash": "1ff973597e9f71c27903ad1089bc76dbf8c20679",
+        "verified_inputs": 2577,
+        "manifest_sha256": "d364863da0bcc4de74df5a2b8f24879d8da746d6d358421a99fdc4268f7674cc",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog-family",
+            "exit": 101,
+            "seconds": 243.39744472503662,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v3-catalog-family.log",
+            "log_sha256": "fad6fec77c48d5408eb577c2ef89326a65dab6b8a7fce7a92aa34a1097dde333"
+          }
+        ],
+        "counts": {
+          "catalog-family": [
+            [
+              "1",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-receipt-final-v4",
+        "base": "51061d777288b51a6a0b0e33ba775d9e4e9d0ee9",
+        "stash": "96f044105897c2b1f4bcb39295b48e454c641f7b",
+        "verified_inputs": 2577,
+        "manifest_sha256": "08e858732444f11253d842a2fe33b3ffd862aef614fb5d2320e28c6ab4a12ab7",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog-family",
+            "exit": 0,
+            "seconds": 244.0104010105133,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v4-catalog-family.log",
+            "log_sha256": "88509058a47cee0ea987045beb3c5d840d8ee0d72be9cb974bc63b6f86342efb"
+          },
+          {
+            "gate": "race",
+            "exit": 0,
+            "seconds": 22.951488733291626,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v4-race.log",
+            "log_sha256": "bf1e5539f3af8ba295abab0f476e6452d5de81dca19986ad79ba8ae2769182fb"
+          },
+          {
+            "gate": "default",
+            "exit": 0,
+            "seconds": 71.57320404052734,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v4-default.log",
+            "log_sha256": "d9a17d565de7642276f800275c1d1de2fe5235fb867615b04cfce0b53e2fa92f"
+          },
+          {
+            "gate": "production-clippy",
+            "exit": 0,
+            "seconds": 69.2817587852478,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v4-production-clippy.log",
+            "log_sha256": "449130b89e77a383ba379836955dcfd1efd5782b20e987b03ea65b72cd9cfb72"
+          },
+          {
+            "gate": "default-check",
+            "exit": 0,
+            "seconds": 44.85826110839844,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v4-default-check.log",
+            "log_sha256": "d766c4f847db89a57712fdd66529097a226ce6f95325006fd1f63a579240aeec"
+          },
+          {
+            "gate": "fmt",
+            "exit": 0,
+            "seconds": 3.8177757263183594,
+            "log": "/Users/pj/project/build/automatic-catalog-receipt-final-v4-fmt.log",
+            "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "counts": {
+          "catalog-family": [
+            [
+              "2",
+              "0",
+              "0"
+            ]
+          ],
+          "race": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "default": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "production-clippy": [],
+          "default-check": [],
+          "fmt": []
+        }
+      }
+    ],
+    "total_input_hashes_verified": 23187
+  },
+  "final_gates": {
+    "prefix": "automatic-catalog-receipt-final-v4",
+    "counts": "catalog2/0/0; original policy SQLrace1/0/0; default1/0/0; strict3-packagealltargets/default3-packagealltargets/fmt exit0",
+    "source_still_frozen": true,
+    "historical_default_binary_sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  },
+  "commit_parent": "5e0b52432b583cb492ed8ea9dc6a6dbaf62ccca2",
+  "post_freeze_parent_delta": "Signed parent storage presentation/blocked-author read-only changes were independently qualified by their owners; this receipt whole-input cohort remains pinned to signed510+explicit three-path overlay. No claim the later parent full tree was compiled by these gates.",
+  "post_freeze_authored_delta": "This verification document only; the three owned Rust paths match final-v4 exactly.",
+  "local_complete_raw_evidence": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-catalog-receipt"
+}

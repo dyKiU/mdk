@@ -1,3 +1,11 @@
+// COMPLETION_TEST_BEGIN
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod test_linking_periodic_gate;
+// COMPLETION_TEST_END
 use zeroize::Zeroizing;
 
 use crate::RuntimePerformanceOperation as RuntimeOp;
@@ -115,7 +123,36 @@ pub use attachment_history::{
 };
 mod avatar_access;
 pub use avatar_access::{LocalAvatarRead, MAX_AVATAR_BATCH_BYTES, MAX_AVATAR_BATCH_ITEMS};
+mod account_chat_presentation;
+mod account_conversation_windows;
+pub use account_conversation_windows::{
+    AccountConversationHeader, AccountConversationWindowHandle, AccountConversationWindowSnapshot,
+    LocalAccountConversationHeader, RuntimeAccountConversationWindowSubscription,
+};
+mod account_chat_windows;
+pub use account_chat_windows::{
+    AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
+    RuntimeAccountChatListWindowSubscription,
+};
+mod account_chat_departure;
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_sharing;
 mod commands;
+#[cfg(feature = "experimental-device-sync")]
+#[allow(
+    dead_code,
+    reason = "private worker lifecycle before native pairing integration"
+)]
+mod device_linking;
+#[cfg(feature = "experimental-device-sync")]
+mod device_revocation;
+#[cfg(feature = "experimental-device-sync")]
+mod history_transfer;
+#[cfg(feature = "experimental-device-sync")]
+mod private_commit;
+#[cfg(feature = "experimental-device-sync")]
+mod selected_chat_copy;
+
 mod event_routing;
 mod local_submission_queue;
 mod local_submissions;
@@ -255,6 +292,9 @@ pub struct AccountManager {
     worker_transactions: Arc<Mutex<()>>,
     startup_retries: Arc<StdMutex<worker_startup::WorkerStartupRetries>>,
     generated_setup_local_transaction: Arc<Mutex<()>>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) native_approval_handles:
+        Arc<StdMutex<crate::native_device_linking::ApprovalRegistry>>,
     onboarding_transactions: Arc<StdMutex<HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     onboarding_state: Arc<StdMutex<HashMap<String, std::sync::Weak<StdMutex<()>>>>>,
     onboarding_updates: Arc<StdMutex<HashMap<String, watch::Sender<OnboardingSnapshot>>>>,
@@ -349,8 +389,79 @@ pub(crate) struct RecoverySelectionWitnessTarget {
     pub(crate) sink: Arc<StdMutex<Vec<crate::client::TestRecoverySelection>>>,
 }
 
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+struct SubmissionClassificationProbe {
+    account: String,
+    token: String,
+    entered: Arc<std::sync::atomic::AtomicBool>,
+    release: Option<std::sync::mpsc::Receiver<()>>,
+}
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) struct SubmissionClassificationHold {
+    entered: Arc<std::sync::atomic::AtomicBool>,
+    release: Option<std::sync::mpsc::Sender<()>>,
+}
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+impl SubmissionClassificationHold {
+    pub(crate) fn entered(&self) -> bool {
+        self.entered.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub(crate) fn release(mut self) {
+        self.release
+            .take()
+            .unwrap()
+            .send(())
+            .expect("actual caller hold must still be waiting");
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+impl Drop for SubmissionClassificationHold {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            let _ = release.send(());
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RuntimeSharedServices {
+    // COMPLETION_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    linking_periodic_test_gates:
+        Arc<StdMutex<HashMap<String, Arc<test_linking_periodic_gate::PeriodicGate>>>>,
+    // SOURCE_READINESS_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    sibling_periodic_only_test_gates:
+        Arc<StdMutex<HashMap<String, Arc<test_linking_periodic_gate::PeriodicGate>>>>,
+    // SOURCE_READINESS_TEST_END
+    // COMPLETION_TEST_END
     /// Every production runtime points at the same process capacity. The
     /// indirection permits explicit isolation of capacity-sensitive fixtures.
     recovery_credits: Arc<StdMutex<Arc<account_worker::recovery_credits::RecoveryCreditPool>>>,
@@ -372,6 +483,12 @@ pub struct RuntimeSharedServices {
     // Private bounded observations and weak per-account gate lookup. This
     // global mutex is never held during storage, engine, or network work.
     local_submission_queue: Arc<StdMutex<local_submission_queue::LocalSubmissionQueue>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    submission_classification_probe: Arc<StdMutex<Option<SubmissionClassificationProbe>>>,
     attachment_transfer: Arc<tokio::sync::Semaphore>,
     attachment_updates: watch::Sender<()>,
     attachment_cancellations: watch::Sender<()>,
@@ -485,9 +602,31 @@ impl Default for RuntimeSharedServices {
             ordinary_drop_witness: Arc::new(StdMutex::new(None)),
             #[cfg(test)]
             ordinary_delivery_dropped: Arc::new(Notify::new()),
+            // COMPLETION_TEST_BEGIN
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_BEGIN
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            sibling_periodic_only_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_END
+            // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             local_submission_wakeups: watch::channel(()).0,
             local_submission_queue: Arc::new(StdMutex::new(Default::default())),
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            submission_classification_probe: Arc::new(StdMutex::new(None)),
             attachment_updates: watch::channel(()).0,
             attachment_cancellations: watch::channel(()).0,
             attachment_permissions: attachment_permission::Permissions::default(),
@@ -518,6 +657,68 @@ impl Default for RuntimeSharedServices {
 }
 
 impl RuntimeSharedServices {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn arm_submission_classification_for_test(
+        &self,
+        account: &str,
+        token: &str,
+    ) -> SubmissionClassificationHold {
+        let mut slot = self
+            .submission_classification_probe
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(
+            slot.is_none(),
+            "only one caller classification probe may be armed"
+        );
+        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (release, wait) = std::sync::mpsc::channel();
+        *slot = Some(SubmissionClassificationProbe {
+            account: account.to_owned(),
+            token: token.to_owned(),
+            entered: entered.clone(),
+            release: Some(wait),
+        });
+        SubmissionClassificationHold {
+            entered,
+            release: Some(release),
+        }
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn observe_submission_classification_for_test(&self, account: &str, token: &str) {
+        let held = {
+            let mut slot = self
+                .submission_classification_probe
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(probe) = slot.as_mut()
+                && probe.account == account
+                && probe.token == token
+            {
+                probe
+                    .release
+                    .take()
+                    .map(|wait| (probe.entered.clone(), wait))
+            } else {
+                None
+            }
+        };
+        if let Some((entered, wait)) = held {
+            entered.store(true, std::sync::atomic::Ordering::Release);
+            wait.recv_timeout(std::time::Duration::from_secs(10))
+                .expect("fixture must release the exact caller classification hold");
+        }
+    }
+
     fn local_submission_gate(&self, account: &str) -> Arc<Mutex<()>> {
         self.local_submission_queue
             .lock()
@@ -583,10 +784,32 @@ impl RuntimeSharedServices {
             ordinary_drop_witness: Arc::new(StdMutex::new(None)),
             #[cfg(test)]
             ordinary_delivery_dropped: Arc::new(Notify::new()),
+            // COMPLETION_TEST_BEGIN
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_BEGIN
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            sibling_periodic_only_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_END
+            // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             attachment_updates: watch::channel(()).0,
             local_submission_wakeups: watch::channel(()).0,
             local_submission_queue: Arc::new(StdMutex::new(Default::default())),
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            submission_classification_probe: Arc::new(StdMutex::new(None)),
             attachment_cancellations: watch::channel(()).0,
             attachment_permissions: attachment_permission::Permissions::default(),
             relay_plane: app.relay_plane.clone(),
@@ -1612,6 +1835,15 @@ impl MarmotAppRuntime {
             .app
             .directory()
             .cached_identity_projections_for_account_ids(account_id_hexes)?)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn relay_plane_for_test(&self) -> &MarmotRelayPlane {
+        self.shared.relay_plane()
     }
 
     pub fn accounts(&self) -> AccountManager {
@@ -5559,6 +5791,18 @@ impl MarmotAppRuntime {
         Ok(match state.phase {
             AccountSetupPhase::LocalStateCreated => AccountSetupReadiness::Initializing,
             AccountSetupPhase::LocalReady => AccountSetupReadiness::LocalReady,
+            AccountSetupPhase::CompanionReady => {
+                if self
+                    .accounts
+                    .app
+                    .account_home()
+                    .public_key_package_publication_disabled(&account.label)?
+                {
+                    AccountSetupReadiness::NetworkReady
+                } else {
+                    AccountSetupReadiness::RecoveryRequired
+                }
+            }
             AccountSetupPhase::BootstrapPublicationStarted
             | AccountSetupPhase::BootstrapPublicationConfirmed
             | AccountSetupPhase::KeyPackagePublicationStarted
@@ -6352,6 +6596,8 @@ impl AccountManager {
                 worker_startup::WorkerStartupRetries::default(),
             )),
             generated_setup_local_transaction: Arc::new(Mutex::new(())),
+            #[cfg(feature = "experimental-device-sync")]
+            native_approval_handles: Arc::new(StdMutex::new(HashMap::new())),
             onboarding_transactions: Arc::new(StdMutex::new(HashMap::new())),
             onboarding_state: Arc::new(StdMutex::new(HashMap::new())),
             onboarding_updates: Arc::new(StdMutex::new(HashMap::new())),
@@ -7056,6 +7302,9 @@ impl AccountManager {
             let pending = accounts
                 .into_iter()
                 .filter(|account| !existing_account_ids.contains(&account.account_id_hex))
+                .filter(|account| {
+                    target_account_id.is_none_or(|target| account.account_id_hex == target)
+                })
                 .collect::<Vec<_>>();
 
             let mut ready_receivers = Vec::new();
@@ -7102,6 +7351,9 @@ impl AccountManager {
                         AccountStartupProgress::new(self.shared.app_performance_telemetry());
                     let (shutdown_tx, shutdown_rx) = oneshot::channel();
                     let (command_tx, command_rx) = mpsc::channel(8);
+                    #[cfg(feature = "experimental-device-sync")]
+                    let publication_control =
+                        Arc::new(private_commit::PublicationControl::default());
                     let handle = spawn_app_runtime_account_worker(
                         AccountWorkerRuntime {
                             app: self.app.clone(),
@@ -7111,6 +7363,8 @@ impl AccountManager {
                             events: self.events.clone(),
                             lifecycle: self.shared.lifecycle(),
                             shared: self.shared.clone(),
+                            #[cfg(feature = "experimental-device-sync")]
+                            publication_control: publication_control.clone(),
                         },
                         command_tx.clone(),
                         command_rx,
@@ -7126,6 +7380,8 @@ impl AccountManager {
                             commands: command_tx,
                             media_admission: Arc::new(Semaphore::new(MEDIA_COMMAND_QUEUE_LIMIT)),
                             shutdown: shutdown_tx,
+                            #[cfg(feature = "experimental-device-sync")]
+                            publication_control,
                         },
                     );
                     ready_receivers.push((account_id, Instant::now(), ready_rx, startup_progress));
@@ -7521,6 +7777,33 @@ impl AccountManager {
             .await
     }
 
+    // COMMAND_BACKLOG_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn enqueue_command_backlog_reads_for_test(
+        &self,
+        account_ref: &str,
+    ) -> Result<Vec<oneshot::Receiver<Result<Vec<crate::HistoryNotice>, AppError>>>, AppError> {
+        let commands = self
+            .existing_worker_commands(account_ref)
+            .await?
+            .ok_or_else(|| AppError::BlockingTask("existing bounded test worker missing".into()))?;
+        let mut replies = Vec::with_capacity(8);
+        for _ in 0..8 {
+            let (respond, reply) = oneshot::channel();
+            commands
+                .try_send(AccountWorkerCommand::HistoryNotices { respond })
+                .map_err(|_| {
+                    AppError::BlockingTask("bounded test command enqueue failed".into())
+                })?;
+            replies.push(reply);
+        }
+        Ok(replies)
+    }
+    // COMMAND_BACKLOG_TEST_END
     async fn worker_commands(
         &self,
         account_ref: &str,

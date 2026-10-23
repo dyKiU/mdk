@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Opaque device-verification sessions expose standard SAS decimals, revision-bound
+  confirmation, bounded transport and closeable observations. The default build
+  returns typed Unsupported; experimental builds support verification only and
+  keep enrollment gated. Regenerate Swift/Kotlin alongside the matching library.
 ### Breaking changes
 
 - `OnboardingFindingFfi` adds `context`, `purpose`, `outcome`,
@@ -126,6 +130,7 @@ Regenerate Swift/Kotlin bindings with the matching native library. See the
   and `GroupMemberLeavesRemoved`. Update exhaustive Swift/Kotlin event handling
   and regenerate bindings with the matching native library. Restoration describes
   retained-history repair, not automatic scheduler restoration of removed copies.
+
 - The optional opaque `ChatListDraftVersionFfi` object in
   `PresentedChatRowFfi.draft_version` correlates the presented row's draft
   metadata with a captured composer revision through

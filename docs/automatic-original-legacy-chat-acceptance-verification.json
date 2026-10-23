@@ -1,0 +1,559 @@
+{
+  "status": "passing scoped source slice",
+  "qualified_source": "028aec5478f02585d04851f9f1a3a83e6328d462",
+  "source_parent": "1a3c1a386725e27ec25a2e4aae3d3755d3c14423",
+  "integrated_native_test_dependency": "dd69ac04e5c70e0e33129a4a5c11a8ee3246155f",
+  "kind": "Fresh original-bound legacy acceptance, private SQLite24 and genuine independent-store App relay tests; no regenerated SDK or installed-app claim",
+  "behavior": [
+    "Only a fresh human broad-sharing action at its displayed revision captures existing nonpending Member groups whose reliable creation/incoming lineage is absent.",
+    "Captured observations contain no original owner or permission; policy plus ExplicitLegacyAcceptance source origins and original-policy evidence commit atomically under actual original and fresh account/membership checks before and tail.",
+    "Source23 current origin receives verdict Accepted and immutable origin_id/origin_order. Private24 stores immutable original approval evidence; this is not a fabricated Created lineage.",
+    "Known Pending/Denied source lineage cannot be promoted; durable policy, renewals, missing projection and incoming messages never capture legacy acceptance.",
+    "Existing-pair original, native primary/recipient and genuine B signed broad endorsement capture their own account-device chats; no transitive A/C grant.",
+    "Retained epoch-zero founding and real accepted Welcome continue through existing reliable source23 bootstrap; legacy capture itself is observational.",
+    "Private24 evidence and source origins are bounded cumulatively to8192, batch128, with immutable update/delete/replace fences and atomic rollback."
+  ],
+  "new_acceptance": [
+    "SQL4: generic reducer cannot mint Legacy; actual API retries and immutable evidence; Pending/Denied exclusion; original before/tail rollback; actual8192 lifetime capacity/8193 rollback.",
+    "App3: genuine old-writer Core creation with normal routing/media/agent components, actual epoch advance and retained-anchor pruning, no source ledger before approval; fresh native broad original and existing-pair original deliver canonical catalog.",
+    "Actual existing original cancel/drop/expired/stale controls mint neither acceptance nor policy evidence; lifetime override occurs only before original construction.",
+    "B own genuine pruned chat is captured by B signed broad endorsement and reaches C after fully completed enrollment; all three actual runtimes positively close.",
+    "Accepted hidden chat remains eligible across encrypted own-store reopen; independent stores and MLS signers, no database/key cloning."
+  ],
+  "reused_sql4": {
+    "source": "45971c84e4b72079bf4f6c132a0a68c388d00303",
+    "input_count": 2644,
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-original-legacy-acceptance/automatic-original-legacy-acceptance-v3-inputs.json",
+    "manifest_sha256": "d86a14e0d1c3daf31c172f98fbb7cc6604c79f8683bbb85481ad345d054ad66b",
+    "results_sha256": "95583cc19f19c0281ccf4c9ec76ef65a303aa52dbe9bc62ce0c602eda58ff92f",
+    "gates": [
+      {
+        "gate": "sql-legacy",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "storage-sqlite",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync",
+          "account_chat_legacy_acceptance::tests",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 24.59,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-v3-sql-legacy.log",
+        "log_sha256": "c5806306df56bbba3c77b0dd8cf245af7cb7f1f93513a10dcca85cae3c32bc1b",
+        "inputs_unchanged": true,
+        "free_before_bytes": 31679492096,
+        "actual_test_summaries": [
+          {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      }
+    ]
+  },
+  "reused_app3": {
+    "source": "770900aafdb7da51daa9d30cd56b2bd71ab8901b",
+    "input_count": 2644,
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-original-legacy-acceptance/automatic-original-legacy-acceptance-v5-inputs.json",
+    "manifest_sha256": "78b2be43d2ab2d35ad8c58c9d251114c09f0cde6e9b15a16a14d3abe1559493d",
+    "results_sha256": "7510307a22d87de47fbb7fab43fb7cedf7dd2ea7a8ba7f31ebe01877098a1b82",
+    "gates": [
+      {
+        "gate": "app-legacy",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "client::legacy_chat_acceptance::tests",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 108.44,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-v5-app-legacy.log",
+        "log_sha256": "3a5a09f9a0eb0fe1dea898cbbd2a97ce1b3a7ce1a06e5be3f35453934a2e2aa0",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30903193600,
+        "actual_test_summaries": [
+          {
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      }
+    ]
+  },
+  "reuse_checks": [
+    "All SQL, traits, Core, Session, Cargo and vendor bytes unchanged from45971 to028; v3 App compile failure does not invalidate SQL4.",
+    "All legacy App runtime/fixture, SQL/Core/Session/dependency bytes unchanged from770900 to028; merge adds only qualified native bindings, separate two-source native fixture and documentation.",
+    "All three frozen source manifests independently matched signed Git archive bytes, symlink targets dereferenced:2644/2644/2652.",
+    "Final qualification runner verifies all tracked inputs and16 protected SDK/historical artifacts before and after every gate."
+  ],
+  "affected_static": {
+    "source": "028aec5478f02585d04851f9f1a3a83e6328d462",
+    "input_count": 2652,
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-original-legacy-acceptance/automatic-original-legacy-acceptance-affected-v1-inputs.json",
+    "manifest_sha256": "e303fa4940fedcc89305fceb9e55208c31bafc85530999a4a73db35948934eed",
+    "results_sha256": "dd322ae375b65f71646279fe667a917ed11786a0de21faaea6d88a5ca32ed364",
+    "gates": [
+      {
+        "gate": "sql-source",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "storage-sqlite",
+          "--lib",
+          "--features",
+          "experimental-device-sync",
+          "account_chat_source::tests",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 22.55,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-sql-source.log",
+        "log_sha256": "36ab5f431c4224954309831bd51c87384c8d0c7b1dd3fc5e06ec3d8562fe0e7b",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30683435008,
+        "actual_test_summaries": [
+          {
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "sql-original-policy",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "storage-sqlite",
+          "--lib",
+          "--features",
+          "experimental-device-sync",
+          "approved_account_sharing_policy::tests",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 6.38,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-sql-original-policy.log",
+        "log_sha256": "0e42ec87563cc98e041c1a6b1f6ccbbabe99389cca880ab74e65b50a9e4dade0",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30666268672,
+        "actual_test_summaries": [
+          {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "private-ledger",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "storage-sqlite",
+          "--lib",
+          "--features",
+          "experimental-device-sync",
+          "private_migration_ledger_tests",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 15.5,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-private-ledger.log",
+        "log_sha256": "afc1943ca0bcfb36f4b3aa052a466ab4e3763b806576c62985fe9e8e650b9d22",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30668201984,
+        "actual_test_summaries": [
+          {
+            "passed": 17,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "app-privacy",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "paired_pending_stranger_never_discloses_before_actual_acceptance",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 100.44,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-app-privacy.log",
+        "log_sha256": "a7b452e96346cd1e5e9b69250916542d4199e541c7abdb29be4b910202f22ad5",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30668681216,
+        "actual_test_summaries": [
+          {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "app-source",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "client::chat_source_acceptance::tests",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 5.4,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-app-source.log",
+        "log_sha256": "6e7bde651e6eed00e7736f9b19658e3e679d5f53731b4b14a51390aa5bf23595",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30667051008,
+        "actual_test_summaries": [
+          {
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "app-catalog",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_catalog",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 169.46,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-app-catalog.log",
+        "log_sha256": "eab799216483e5f6490b039fb20e257ba7cfa2da69b06769134ba3a9513cb22f",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30665863168,
+        "actual_test_summaries": [
+          {
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "app-records",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_record",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 101.02,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-app-records.log",
+        "log_sha256": "9c04db76267a38e358e9adb24547dc045d60695156c17e18215222028a0916ba",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30663364608,
+        "actual_test_summaries": [
+          {
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "sibling-originals",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "sibling_sharing",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 67.86,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-sibling-originals.log",
+        "log_sha256": "24895dc35492fc1ee1e474158eebe5635fd57cfdee8ccce39275f87c787fda0b",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30660702208,
+        "actual_test_summaries": [
+          {
+            "passed": 11,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "held-abc",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_held_three_originals",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 67.84,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-held-abc.log",
+        "log_sha256": "7e0707d3e9021eaa498e1c2251cf98ad1cc11518b79ab4ea64148b0236f8fe75",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30658002944,
+        "actual_test_summaries": [
+          {
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "test-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "--keep-going",
+          "--locked",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "storage-sqlite",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 80.08,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-test-strict.log",
+        "log_sha256": "51d32265fdc4aec391006e28b22766b64438fe840e10aeae6ba3cc0fc999aae5",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30655787008,
+        "actual_test_summaries": []
+      },
+      {
+        "gate": "production-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "--keep-going",
+          "--locked",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "storage-sqlite",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 47.72,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-production-strict.log",
+        "log_sha256": "358aea53fa6b1b5e0629bc73ea10463fc64673b4aa0f230a0a8c60555f84c8c2",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30650277888,
+        "actual_test_summaries": []
+      },
+      {
+        "gate": "default-check",
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "storage-sqlite",
+          "-p",
+          "marmot-app",
+          "--all-targets"
+        ],
+        "exit": 0,
+        "seconds": 47.77,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-default-check.log",
+        "log_sha256": "f11b87f3139c30c6940838ce9e506dc86a605b73617810d0bf413d82d838de92",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30648852480,
+        "actual_test_summaries": []
+      },
+      {
+        "gate": "fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit": 0,
+        "seconds": 4.38,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-original-legacy-acceptance-affected-v1-fmt.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "inputs_unchanged": true,
+        "free_before_bytes": 30644867072,
+        "actual_test_summaries": []
+      }
+    ]
+  },
+  "scope_totals": {
+    "new_retained_tests": 7,
+    "affected_tests": 51,
+    "failed": 0,
+    "ignored": 0,
+    "static_gates": 4
+  },
+  "preserved_attempts": [
+    {
+      "prefix": "automatic-original-legacy-acceptance-v1",
+      "classification": "launcher guard before compile: own driver log matched fresh output prefix; relocated log and used fresh prefix"
+    },
+    {
+      "prefix": "automatic-original-legacy-acceptance-v2",
+      "classification": "SQL compile-only missing policy trait import and incorrect StorageProvider callback arity; no tests/authorization RED"
+    },
+    {
+      "prefix": "automatic-original-legacy-acceptance-v3",
+      "classification": "SQL4 passed; App compile-only borrowed Arc enum match corrected with as_ref"
+    },
+    {
+      "prefix": "automatic-original-legacy-acceptance-v4",
+      "classification": "App0/3 failed genuine old-writer seed missing standard Nostr routing before any approval; fixture prerequisite, not authorization RED"
+    },
+    {
+      "prefix": "automatic-original-legacy-acceptance-v5",
+      "classification": "same production with corrected real ordinary seed; App3 passed"
+    }
+  ],
+  "artifacts_m5": "/Users/pj/project/build/results",
+  "toolchain": "Rust1.97.1 aarch64-apple-darwin",
+  "environment": {
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "RUST_MIN_STACK": "4194304"
+  },
+  "capacity_guards": {
+    "pre_gate_gib": 20,
+    "hard_reserve_gib": 15,
+    "target": "existing Mdk986ConformanceTargetM5"
+  },
+  "unchanged_sdk": {
+    "source": "de38be1295618728ef541e43bfc00ffb6cdb6a86",
+    "manifest_sha256": "0b5b3d3bb93b47ebc74065e735504ffc928fd06d0424a3ccb5d07fe58ca18bd4",
+    "outputs": 15,
+    "historical_binary_sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  },
+  "limits": [
+    "New feature positive acceptance, no artificial behavioral RED label.",
+    "Legacy-specific record/history/send/media and Apple/native installed journey not independently established by the catalog-focused App3; affected existing Records/heldABC controls pass.",
+    "Already-approved ambiguous legacy groups require fresh genuine original action; stored approval is not a new original.",
+    "Fresh accepted rejoin and principal-wide leave remain separate runtime work; ordinary device SelfRemove remains device-only.",
+    "No SDK regeneration, app adoption/install, full fast-ci/workspace or final platform matrix claim; scoped13 gates explicitly delegated for this slice.",
+    "No older-Core rollback after private24 database upgrade."
+  ]
+}

@@ -165,6 +165,45 @@ pub enum MarmotStatus {
     /// The current kind-3 contact list has at least 2,048 follows, more than
     /// MDK reads from one list; a follow or unfollow published nothing.
     FollowListTooLarge = 107,
+    // Private experimental ABI: upstream owns statuses through 107.
+    DeviceLinkingUnsupported = 121,
+    DeviceLinkingClosed = 122,
+    DeviceLinkingInvalidPacket = 123,
+    DeviceLinkingNotReady = 124,
+    DeviceLinkingStaleRevision = 125,
+    DeviceLinkingRuntimeUnavailable = 126,
+    SelectedChatCopyUnsupported = 127,
+    SelectedChatCopyNotReady = 128,
+    SelectedChatCopyInvalidSelection = 129,
+    SelectedChatCopyUnsupportedGroup = 130,
+    SelectedChatCopyNotAdmin = 131,
+    SelectedChatCopyBusy = 132,
+    SelectedChatCopyRuntimeUnavailable = 133,
+    SelectedChatCopyInvalidPacket = 134,
+    SelectedChatCopyStaleRevision = 135,
+    SelectedChatCopyClosed = 136,
+    HistoryTransferUnsupported = 137,
+    HistoryTransferNotReady = 138,
+    HistoryTransferClosed = 139,
+    HistoryTransferStaleRevision = 140,
+    HistoryTransferRuntimeUnavailable = 141,
+    SynchronizedHistoryUnsupported = 142,
+    SynchronizedHistoryInvalidQuery = 143,
+    SynchronizedHistoryUnavailable = 144,
+    SynchronizedHistoryInvalidRecord = 145,
+    AccountSharingUnsupported = 146,
+    AccountSharingNotReady = 147,
+    AccountSharingClosed = 148,
+    AccountSharingStaleRevision = 149,
+    AccountSharingRuntimeUnavailable = 150,
+    DeviceRevocationUnsupported = 151,
+    DeviceRevocationNotReady = 152,
+    DeviceRevocationClosed = 153,
+    DeviceRevocationInvalidSelection = 154,
+    DeviceRevocationBusy = 155,
+    DeviceRevocationStaleRevision = 156,
+    DeviceRevocationRuntimeUnavailable = 157,
+    AccountChatDepartureDenied = 158,
 }
 
 thread_local! {
@@ -185,6 +224,7 @@ pub(crate) fn take_last_error() -> Option<String> {
 pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
     set_last_error(err.to_string());
     match err {
+        MarmotKitError::AccountChatDepartureDenied => MarmotStatus::AccountChatDepartureDenied,
         MarmotKitError::ConversationWindowMessageNotRetained => {
             MarmotStatus::ConversationWindowMessageNotRetained
         }
@@ -259,6 +299,74 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         MarmotKitError::EncryptionFailed { .. } => MarmotStatus::EncryptionFailed,
         MarmotKitError::Io { .. } => MarmotStatus::Io,
         MarmotKitError::Runtime { .. } => MarmotStatus::Runtime,
+        MarmotKitError::SelectedChatCopyUnsupported => MarmotStatus::SelectedChatCopyUnsupported,
+        MarmotKitError::SelectedChatCopyNotReady => MarmotStatus::SelectedChatCopyNotReady,
+        MarmotKitError::SelectedChatCopyInvalidSelection => {
+            MarmotStatus::SelectedChatCopyInvalidSelection
+        }
+        MarmotKitError::SelectedChatCopyUnsupportedGroup => {
+            MarmotStatus::SelectedChatCopyUnsupportedGroup
+        }
+        MarmotKitError::SelectedChatCopyNotAdmin => MarmotStatus::SelectedChatCopyNotAdmin,
+        MarmotKitError::SelectedChatCopyBusy => MarmotStatus::SelectedChatCopyBusy,
+        MarmotKitError::SelectedChatCopyRuntimeUnavailable => {
+            MarmotStatus::SelectedChatCopyRuntimeUnavailable
+        }
+        MarmotKitError::SelectedChatCopyInvalidPacket => {
+            MarmotStatus::SelectedChatCopyInvalidPacket
+        }
+        MarmotKitError::SelectedChatCopyStaleRevision => {
+            MarmotStatus::SelectedChatCopyStaleRevision
+        }
+        MarmotKitError::SelectedChatCopyClosed => MarmotStatus::SelectedChatCopyClosed,
+        MarmotKitError::SynchronizedHistoryUnsupported => {
+            MarmotStatus::SynchronizedHistoryUnsupported
+        }
+        MarmotKitError::SynchronizedHistoryInvalidQuery => {
+            MarmotStatus::SynchronizedHistoryInvalidQuery
+        }
+        MarmotKitError::SynchronizedHistoryUnavailable => {
+            MarmotStatus::SynchronizedHistoryUnavailable
+        }
+        MarmotKitError::SynchronizedHistoryInvalidRecord => {
+            MarmotStatus::SynchronizedHistoryInvalidRecord
+        }
+        MarmotKitError::AccountSharingUnsupported => MarmotStatus::AccountSharingUnsupported,
+        MarmotKitError::AccountSharingNotReady => MarmotStatus::AccountSharingNotReady,
+        MarmotKitError::AccountSharingClosed => MarmotStatus::AccountSharingClosed,
+        MarmotKitError::AccountSharingStaleRevision => MarmotStatus::AccountSharingStaleRevision,
+        MarmotKitError::AccountSharingRuntimeUnavailable => {
+            MarmotStatus::AccountSharingRuntimeUnavailable
+        }
+        MarmotKitError::DeviceRevocationUnsupported => MarmotStatus::DeviceRevocationUnsupported,
+        MarmotKitError::DeviceRevocationNotReady => MarmotStatus::DeviceRevocationNotReady,
+        MarmotKitError::DeviceRevocationClosed => MarmotStatus::DeviceRevocationClosed,
+        MarmotKitError::DeviceRevocationInvalidSelection => {
+            MarmotStatus::DeviceRevocationInvalidSelection
+        }
+        MarmotKitError::DeviceRevocationBusy => MarmotStatus::DeviceRevocationBusy,
+        MarmotKitError::DeviceRevocationStaleRevision => {
+            MarmotStatus::DeviceRevocationStaleRevision
+        }
+        MarmotKitError::DeviceRevocationRuntimeUnavailable => {
+            MarmotStatus::DeviceRevocationRuntimeUnavailable
+        }
+        MarmotKitError::HistoryTransferUnsupported => MarmotStatus::HistoryTransferUnsupported,
+        MarmotKitError::HistoryTransferNotReady => MarmotStatus::HistoryTransferNotReady,
+        MarmotKitError::HistoryTransferClosed => MarmotStatus::HistoryTransferClosed,
+        MarmotKitError::HistoryTransferStaleRevision => MarmotStatus::HistoryTransferStaleRevision,
+        MarmotKitError::HistoryTransferRuntimeUnavailable => {
+            MarmotStatus::HistoryTransferRuntimeUnavailable
+        }
+        MarmotKitError::DeviceLinkingUnsupported => MarmotStatus::DeviceLinkingUnsupported,
+        MarmotKitError::DeviceLinkingClosed => MarmotStatus::DeviceLinkingClosed,
+        MarmotKitError::DeviceLinkingInvalidPacket => MarmotStatus::DeviceLinkingInvalidPacket,
+        MarmotKitError::DeviceLinkingNotReady => MarmotStatus::DeviceLinkingNotReady,
+        MarmotKitError::DeviceLinkingStaleRevision => MarmotStatus::DeviceLinkingStaleRevision,
+        MarmotKitError::DeviceLinkingRuntimeUnavailable => {
+            MarmotStatus::DeviceLinkingRuntimeUnavailable
+        }
+
         MarmotKitError::ExternalSignerUnavailable { .. } => MarmotStatus::ExternalSignerUnavailable,
         MarmotKitError::ExternalSignerMismatch => MarmotStatus::ExternalSignerMismatch,
         MarmotKitError::ExternalSignerRejected => MarmotStatus::ExternalSignerRejected,
@@ -346,9 +454,77 @@ mod tests {
     }
 
     #[test]
+    fn upstream_moderation_and_private_sync_errors_keep_separate_abi_ranges() {
+        assert_eq!(
+            status_from_error(&MarmotKitError::GroupCatchingUp {
+                group_id_hex: "aa".into()
+            }) as i32,
+            101
+        );
+        let moderation = [
+            (MarmotKitError::ModerationReportingNotConfigured, 96),
+            (
+                MarmotKitError::InvalidModerationReportConfig {
+                    details: "synthetic".into(),
+                },
+                97,
+            ),
+            (MarmotKitError::InvalidReportedPublicKey, 98),
+            (MarmotKitError::CannotReportSelf, 99),
+            (MarmotKitError::ModerationReportRateLimited, 100),
+        ];
+        let private = [
+            MarmotKitError::DeviceLinkingUnsupported,
+            MarmotKitError::DeviceLinkingClosed,
+            MarmotKitError::DeviceLinkingInvalidPacket,
+            MarmotKitError::DeviceLinkingNotReady,
+            MarmotKitError::DeviceLinkingStaleRevision,
+            MarmotKitError::DeviceLinkingRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyUnsupported,
+            MarmotKitError::SelectedChatCopyNotReady,
+            MarmotKitError::SelectedChatCopyInvalidSelection,
+            MarmotKitError::SelectedChatCopyUnsupportedGroup,
+            MarmotKitError::SelectedChatCopyNotAdmin,
+            MarmotKitError::SelectedChatCopyBusy,
+            MarmotKitError::SelectedChatCopyRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyInvalidPacket,
+            MarmotKitError::SelectedChatCopyStaleRevision,
+            MarmotKitError::SelectedChatCopyClosed,
+            MarmotKitError::HistoryTransferUnsupported,
+            MarmotKitError::HistoryTransferNotReady,
+            MarmotKitError::HistoryTransferClosed,
+            MarmotKitError::HistoryTransferStaleRevision,
+            MarmotKitError::HistoryTransferRuntimeUnavailable,
+            MarmotKitError::SynchronizedHistoryUnsupported,
+            MarmotKitError::SynchronizedHistoryInvalidQuery,
+            MarmotKitError::SynchronizedHistoryUnavailable,
+            MarmotKitError::SynchronizedHistoryInvalidRecord,
+            MarmotKitError::AccountSharingUnsupported,
+            MarmotKitError::AccountSharingNotReady,
+            MarmotKitError::AccountSharingClosed,
+            MarmotKitError::AccountSharingStaleRevision,
+            MarmotKitError::AccountSharingRuntimeUnavailable,
+            MarmotKitError::DeviceRevocationUnsupported,
+            MarmotKitError::DeviceRevocationNotReady,
+            MarmotKitError::DeviceRevocationClosed,
+            MarmotKitError::DeviceRevocationInvalidSelection,
+            MarmotKitError::DeviceRevocationBusy,
+            MarmotKitError::DeviceRevocationStaleRevision,
+            MarmotKitError::DeviceRevocationRuntimeUnavailable,
+            MarmotKitError::AccountChatDepartureDenied,
+        ];
+        for (error, expected) in moderation {
+            assert_eq!(status_from_error(&error) as i32, expected);
+        }
+        for (index, error) in private.iter().enumerate() {
+            assert_eq!(status_from_error(error) as i32, 121 + index as i32);
+        }
+    }
+
+    #[test]
     fn every_runtime_error_variant_maps_to_a_distinct_status() {
         let _guard = crate::memory::audit::test_lock();
-        // Every `MarmotKitError` variant, in declaration order. `status_from_error`'s
+        // Every `MarmotKitError` variant. `status_from_error`'s
         // exhaustive match forces a new arm for a new variant; add the variant
         // here too so a duplicated or renumbered stable status cannot pass.
         let variants: Vec<MarmotKitError> = vec![
@@ -552,12 +728,56 @@ mod tests {
             },
             MarmotKitError::AccountWorkerBusy,
             MarmotKitError::AccountWorkerResponseTimedOut,
+            MarmotKitError::AccountChatDepartureDenied,
+            MarmotKitError::AccountSharingUnsupported,
+            MarmotKitError::AccountSharingNotReady,
+            MarmotKitError::AccountSharingClosed,
+            MarmotKitError::AccountSharingStaleRevision,
+            MarmotKitError::AccountSharingRuntimeUnavailable,
+            MarmotKitError::DeviceLinkingUnsupported,
+            MarmotKitError::DeviceLinkingClosed,
+            MarmotKitError::DeviceLinkingInvalidPacket,
+            MarmotKitError::DeviceLinkingNotReady,
+            MarmotKitError::DeviceLinkingStaleRevision,
+            MarmotKitError::DeviceLinkingRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyUnsupported,
+            MarmotKitError::SelectedChatCopyNotReady,
+            MarmotKitError::SelectedChatCopyInvalidSelection,
+            MarmotKitError::SelectedChatCopyUnsupportedGroup,
+            MarmotKitError::SelectedChatCopyNotAdmin,
+            MarmotKitError::SelectedChatCopyBusy,
+            MarmotKitError::SelectedChatCopyRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyInvalidPacket,
+            MarmotKitError::SelectedChatCopyStaleRevision,
+            MarmotKitError::SelectedChatCopyClosed,
+            MarmotKitError::HistoryTransferUnsupported,
+            MarmotKitError::HistoryTransferNotReady,
+            MarmotKitError::HistoryTransferClosed,
+            MarmotKitError::HistoryTransferStaleRevision,
+            MarmotKitError::HistoryTransferRuntimeUnavailable,
+            MarmotKitError::SynchronizedHistoryUnsupported,
+            MarmotKitError::SynchronizedHistoryInvalidQuery,
+            MarmotKitError::SynchronizedHistoryUnavailable,
+            MarmotKitError::SynchronizedHistoryInvalidRecord,
+            MarmotKitError::DeviceRevocationUnsupported,
+            MarmotKitError::DeviceRevocationNotReady,
+            MarmotKitError::DeviceRevocationClosed,
+            MarmotKitError::DeviceRevocationInvalidSelection,
+            MarmotKitError::DeviceRevocationBusy,
+            MarmotKitError::DeviceRevocationStaleRevision,
+            MarmotKitError::DeviceRevocationRuntimeUnavailable,
         ];
         assert_eq!(
             variants.len(),
-            98,
+            136,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
+        assert_eq!(
+            status_from_error(&MarmotKitError::AccountChatDepartureDenied) as i32,
+            158
+        );
+        assert_eq!(MarmotStatus::AccountSharingUnsupported as i32, 146);
+        assert_eq!(MarmotStatus::DeviceRevocationRuntimeUnavailable as i32, 157);
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);
         assert_eq!(
             status_from_error(&MarmotKitError::ModerationReportingNotConfigured) as i32,

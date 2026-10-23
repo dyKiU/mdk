@@ -507,3 +507,8 @@ pub use chat_window::{AccountAttentionSubscription, ChatListWindowSubscription};
 
 pub(crate) mod conversation_window;
 pub use conversation_window::ConversationWindowSubscription;
+
+mod account_chat_windows;
+pub use account_chat_windows::{
+    AccountChatListWindowSubscription, AccountConversationWindowSubscription,
+};

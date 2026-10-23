@@ -19,12 +19,17 @@ what lives here is in [`README.md`](README.md#what-lives-in-here).
 | `src/engine.rs` | Public engine trait, send/create requests, outputs, group events. |
 | `src/storage.rs` | Storage traits, the `StorageProvider` aggregate (`type Mls` / `mls_storage()`), and the snapshot/rollback contract. |
 | `src/engine_state.rs` | Epoch and welcome state machines. |
+| `src/source_leaf.rs` | Optional authenticated source-leaf fact, legacy absence/serialization compatibility, redacted Debug; never authorization. |
+| `src/mirrored_chat_catalog.rs` | Optional bounded paired-source chat observations, exact account/device/policy scope and terminal fences; no Debug, approval restore or membership grant. |
+| `src/device_linking_key_package.rs` | Experimental purpose scope/context/public metadata and optional atomic storage contract; typed privacy-safe policy denials, never permission. |
+| `src/accepted_device_group_anchor.rs` | Optional trusted-core accepted-successor persistence contract; canonical predecessor/successor metadata and local selection scope, no Debug, SDK consent or settlement grants. |
+| `src/accepted_welcome.rs` | Experimental accepted-join fact; no Debug of identity bindings or authorization. Optional storage capability defaults unavailable. |
 | `src/welcome.rs` | `PendingWelcome` pending-welcome persistence record. |
 | `src/error.rs` | `EngineError` and `PeelerError` — the engine/peeler error vocabulary. |
 | `src/types.rs` | Core id newtypes (`GroupId`/`MemberId`/`MessageId`), `EpochId`, and the `Backend` enum. |
 | `src/group.rs` | `Group` and `Member` storage records. |
 | `src/message.rs` | `MessageRecord`, `MessageState`, and the `StoredMessagePayload` envelope. |
-| `src/peeler.rs` | The `TransportPeeler` crypto-boundary trait (wasm32 builds drop the `Send` bound). |
+| `src/peeler.rs` | The `TransportPeeler` crypto-boundary trait (wasm32 builds drop the `Send` bound), including default-deny private Welcome wrapping, single-chunk observation, complete-batch reassembly and exact non-authorizing metadata. |
 | `src/transport.rs` | Transport-facing message envelope types. |
 | `src/transport_adapter.rs` | Account-aware adapter trait, publish targets, delivery metadata. |
 | `src/ingest.rs` | Peeled-message content and ingest outcomes. |
@@ -63,3 +68,53 @@ After deliberate snapshot changes:
 ```sh
 cargo insta review
 ```
+
+`src/private_group_privacy.rs` is an optional permanent negative chat-presentation
+store. It has no serialized grant DTO; owner mismatch errors and default accessor
+unavailability apply only to the experimental private profile.
+
+`src/private_roster_settlement.rs` defines optional bounded anchored round/fact
+persistence metadata. It has no Debug identifiers, live admission, deadline or
+permission. The default StorageProvider accessor is unavailable.
+
+`src/existing_device_group_anchor.rs` defines the distinct existing-member
+successor metadata contract and optional default-unavailable storage accessor.
+`PrivateInviteOrigin::Existing` is a separate local generation, never an SDK
+scope or accepted-recipient/confirmed-publication fact. Serialized drafts and
+retained rows cannot recreate the original action or a settlement guard.
+
+Private settlement deferred ACKs are bounded authenticated receipt metadata, never counted facts, coordinator nonce binding, clocks or live authorization. The JSON state field defaults empty for legacy records; no public host grant inlet is added.
+
+`selected_chat_key_package.rs` defines optional bounded per-chat recipient facts
+with no Debug or grant DTO. The accessor defaults unavailable. Pending retry,
+terminal retention and negative cleanup cannot restore original action ownership.
+
+`revoked_device_group_anchor.rs` retains authenticated single-Remove successor
+metadata under a distinct local Revoked generation. No Debug, stored deadline,
+consent or live guard is supplied. Bounded all-facts observation is solely for
+negative historical privacy checks; positive Core admission still requires the
+original authenticated transition and actual indexed successor tree.
+
+`approved_account_sharing_policy.rs` defines symmetric approval identities and
+optional private persistence. No Debug, stored keys/deadline or permission restore.
+Original before/tail callbacks guard writes; the retained protected epoch is only
+negative revocation metadata. Source sequences retry only the current exact digest.
+
+`mirrored_chat_messages.rs` adds optional bounded logical observation persistence,
+not Group membership or native send permission. No Debug. Unknown content hashes
+are allowed only for empty terminal records; never invent a hash from an event ID.
+Expiry only tightens; purge retains source sequence and identity. Read retention
+views are not original attestations and must never be exported as a new source.
+
+`account_chat_send_queue` retains exact original inner events, independent approved
+routes and genuine ordinary-ID receipts. No Debug, live permission or queue-ID
+alias. Retry observations retain original time/digest after terminal payload erase.
+Fair intent/route and receipt-digest cursors are separate from message chronology.
+Optional storage defaults unavailable; Core still validates original authority.
+
+`account_chat_record_stream` defines separate logical-record sequence, canonical
+batch outbox and committed-receipt metadata. No Debug, channel keys, persisted
+deadline or restored grant. Stable policy/group/digest identifies receipts across
+fresh scope generations; source chronology and catalog counters are independent.
+Original validation guards writes. Denial erases bytes permanently and never
+claims acknowledgment. Optional storage defaults unavailable.

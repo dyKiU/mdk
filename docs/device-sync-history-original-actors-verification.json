@@ -1,0 +1,147 @@
+{
+  "scope": "Original App recipient-consented bounded logical archive transport and committed receipt; not full lifecycle/native history acceptance",
+  "base": "68bec4bf",
+  "core_session_commit": "643261a70002a0153d3300ea83f1207dcc71900c",
+  "app_commit": "fc43b1f7d83b62809ee9d118ad6dc5c9793fa0e6",
+  "original_red_stash": "df2c393c7add7d79b1cfc0246a7ba98cf5605a15",
+  "final_candidate_stash": "80b90d6f948e5d47ee64cc878ed17c5865d9a509",
+  "family_candidate_stash": "119f6a7f0d79bb4a8d7f407059932ef379617480",
+  "source_manifest_sha256": "c3ca76f63673e0d59ce44914dd777612c82d0f647ea701d78534b6192bf6dbb3",
+  "input_count": 2469,
+  "source_manifest_format": "Relative path to dereferenced SHA256; cached plus untracked source",
+  "all_final_frozen_inputs_match_signed_runtime": true,
+  "genuine_red": {
+    "passed": 0,
+    "failed": 1,
+    "log_sha256": "c29767f1c5ac6581019aae71f6580a7ed74dd90fb6b36a4046059873e6460083",
+    "reason": "Actual public ABC/Current AD/four-leaf fixture reaches missing begin_history_transfer NotReady"
+  },
+  "family_gates": [
+    {
+      "gate": "core-family",
+      "exit": 0,
+      "seconds": 38.693830251693726,
+      "log": "/Users/pj/project/build/history-original-actors-final-v4-core-family.log",
+      "log_sha256": "f513bebe3faed1f943b10d72888f3d8bbe72494a8400c156781742c1582f8c17"
+    },
+    {
+      "gate": "app-family",
+      "exit": 0,
+      "seconds": 157.6001217365265,
+      "log": "/Users/pj/project/build/history-original-actors-final-v4-app-family.log",
+      "log_sha256": "b596271f1c8cbae85e8067012ebae4b4ea6108ad62b59985c1e82842daf70693"
+    },
+    {
+      "gate": "default-history",
+      "exit": 0,
+      "seconds": 43.21601676940918,
+      "log": "/Users/pj/project/build/history-original-actors-final-v4-default-history.log",
+      "log_sha256": "f92b4157258b4a4bdc2ec63e0284c747bd96cf42562b4ec59afd98e79fb1089e"
+    }
+  ],
+  "family_counts": {
+    "core": {
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    "app_selected_history": {
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0
+    },
+    "default_history": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "final_gates": [
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 31.301793813705444,
+      "log": "/Users/pj/project/build/history-original-actors-final-v5-production-clippy.log",
+      "log_sha256": "6cb058d6fa7a059bb634728c594ef8f44ed0a479744c4758b5190c660232d74b"
+    },
+    {
+      "gate": "app-history",
+      "exit": 0,
+      "seconds": 80.06786799430847,
+      "log": "/Users/pj/project/build/history-original-actors-final-v5-app-history.log",
+      "log_sha256": "9277c8e83fbe525ea75225ecedebd6f0e808c95b5c1fa0f5c2f5f7e565c56a6e"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 22.80645203590393,
+      "log": "/Users/pj/project/build/history-original-actors-final-v5-default-check.log",
+      "log_sha256": "ab2f8e26377df5aac7cd98fd07785a5ababca94e6b2963ecb370b18c1a9130ce"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.524592161178589,
+      "log": "/Users/pj/project/build/history-original-actors-final-v5-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "final_history_counts": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0
+  },
+  "qualification_delta": "After family passes, equivalent App let-chain syntax and matching test-policy cfg for observations; genuine history rerun plus full production/default/fmt on final bytes. Core unchanged.",
+  "coverage": [
+    "Actual original protected A/B/C with ordinary A/D; selected four-leaf independent device MLS state",
+    "Immutable signed review scope/count/byte/fragment/digest metadata before explicit recipient revision approval",
+    "Actual prejoin record imported; actual8192B ordinary record spans multiple1536B frames and remains live-shadowed",
+    "Actual production signed/encrypted Nostr payloads checked<=16KiB before publication",
+    "Committed staged import receipts validated and source completion acknowledged; no MLS epoch/ratchet/live projection copy",
+    "C authenticates actual outer Chunk and refuses actual B request; no original recipient action/archive. Literal C wrong-key inner open is not proved by this actor fixture.",
+    "Bounded201-record whole-source query refuses >200 and whole encoded archive >196608; no truncation",
+    "Valid current-leaf signed descriptor/chunk substitutions refuse without masking via invalid signature; unchanged genuine controls pass",
+    "Direct and replay event seams both install actual source-proof observation before private projection suppression"
+  ],
+  "limits": {
+    "original_lifetime_seconds": 600,
+    "owners_per_account": 128,
+    "logical_records_per_archive": 200,
+    "archive_bytes": 196608,
+    "fragment_bytes": 1536,
+    "fragments": 128,
+    "incoming_frames_per_owner": 128,
+    "frame_wire_bytes": 16384
+  },
+  "known_open_bugs": [
+    "Fresh outer MLS replay of same signed Request after recipient cancellation/expiry can create a new process owner; terminal-ID fence follow-up required",
+    "Source materialization does not yet exclude expired-unpruned plaintext before transport",
+    "Transient SQL failure during canceled staging cleanup can lose the removed negative cleanup identity",
+    "Final Imported SQL receipt is marked complete after fallible receipt seal; postcommit cancellation/seal failure handling needs regression/fix",
+    "Blocked publication is not yet proven interrupted by exact cancellation/deadline/shutdown; original checks before/after awaits alone are insufficient"
+  ],
+  "remaining_acceptance": [
+    "No native binding/artifact adoption or user-visible history query qualification",
+    "Full App/storage backend suites, history alias/drop/restart/SQL-fault recovery controls pending",
+    "Source-attested archives never establish independently verified MLS provenance, membership, moderation, recovery cursors or debt clearance"
+  ],
+  "preserved_prior_failures": [
+    {
+      "prefix": "history-original-actors-final-v1",
+      "kind": "Compile-only snapshot test fixture incorrect signing call; zero runtime tests"
+    },
+    {
+      "prefix": "history-original-actors-final-v2",
+      "kind": "Actual10pass/1fail: legacy archive/ack metadata classification omitted; corrected without relaxing source proof/signature/full-tree fences"
+    },
+    {
+      "prefix": "history-original-actors-final-v3",
+      "kind": "Core11/App13/default1 pass; production Core style lint fail"
+    },
+    {
+      "prefix": "history-original-actors-final-v4",
+      "kind": "Core11/App13/default1 pass; App style/test-cohort cfg lint fail"
+    }
+  ],
+  "post_freeze_changes": "Only this proof, human plan/resource bounds and applicable AGENTS guidance"
+}

@@ -1,0 +1,580 @@
+{
+  "base": "d1108931569bed1402b16f1f2d0c7af4b2cafa8f",
+  "source_dependency": "66479e91fc36326f5d11cd64e5a63c48408dacd7",
+  "raw_evidence_directory": "build/results/account-chat-presentation",
+  "stages": {
+    "v1": {
+      "candidate": "06565a9badf87ac2d201cbdb4c14022ab3ce585a",
+      "classification": "Compile-only type errors; zero tests.",
+      "input_manifest": "account-chat-presentation-app-window-v1-inputs.json",
+      "input_manifest_sha256": "68c2bc248081af4369b713c7750edc7529f0e1213e62781794db642aca9c7244",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "app",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "paired_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 101,
+          "seconds": 41.08,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v1-app.log",
+          "sha256": "6e5457f520cb9cc8559fd53a1db30b21ad11dba078218f7b8681b0f6ee4c8157",
+          "test_summary": []
+        }
+      ]
+    },
+    "v2": {
+      "candidate": "704fd317dd2dea312a5118b1ffdc5abef6f77e09",
+      "classification": "Behavioral shutdown RED: actual original fixture failed on Closed instead of terminal None; decoder passed.",
+      "input_manifest": "account-chat-presentation-app-window-v2-inputs.json",
+      "input_manifest_sha256": "56062a6508c4e9b94cb618512e2c2e76eb596cde22e6d376b63adff4816ac1d1",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "app",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "paired_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 101,
+          "seconds": 66.226,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v2-app.log",
+          "sha256": "01f1e0b3c53ad9862d0b0450fd5957b3e62c0616174a7921cac380bfd325bf13",
+          "test_summary": [
+            "test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 2125 filtered out; finished in 6.85s"
+          ]
+        }
+      ]
+    },
+    "v3": {
+      "candidate": "8b5b6910e07f08c854d0252859f353a9c278897a",
+      "classification": "LLVM disk exhaustion before tests; incremental accidentally enabled.",
+      "input_manifest": "account-chat-presentation-app-window-v3-inputs.json",
+      "input_manifest_sha256": "44b3206148ae260844b0137d960d687b6fed35025f2cf25c32cab6668fa229c7",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "app",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "paired_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 101,
+          "seconds": 16.633,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v3-app.log",
+          "sha256": "05da4b367fb1346b836b721551abba99f2abebfd96f70c192179691638f261e4",
+          "test_summary": []
+        }
+      ]
+    },
+    "v4": {
+      "candidate": "d1b2a906690a86d5a50476db0fe44ebe8095610d",
+      "classification": "Behavioral overdue-retention RED: 86400s instead of immediate refresh; original fixture and decoder passed.",
+      "input_manifest": "account-chat-presentation-app-window-v4-inputs.json",
+      "input_manifest_sha256": "c2e16ce6d0edf8e526a274422becf745430c18f708b06ce09e4a897f50d8f77f",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "app",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "paired_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 101,
+          "seconds": 91.111,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v4-app.log",
+          "sha256": "9b525203d7418e94f050546db71fc110ff4f9694b925d09a50e7e3e5b9b37b87",
+          "test_summary": [
+            "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 2125 filtered out; finished in 6.81s"
+          ]
+        }
+      ]
+    },
+    "v5": {
+      "candidate": "bbfd550f5774b26469159bd7f883a8566f0c8c9f",
+      "classification": "All focused tests pass; strict lint finds large enum variant.",
+      "input_manifest": "account-chat-presentation-app-window-v5-inputs.json",
+      "input_manifest_sha256": "ae00433bfdeaf39ef496a2ec2fefd639fba16e7f6a7baa0b123badb30265305d",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "app",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "paired_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 84.88,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v5-app.log",
+          "sha256": "733278739d2a23af3a9d5a6526a95b200ed02d671ef02fc1cf7647d7711f1def",
+          "test_summary": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 2125 filtered out; finished in 5.78s"
+          ]
+        },
+        {
+          "gate": "storage",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "paired_ordinary_timeline_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 20.136,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v5-storage.log",
+          "sha256": "3fc80c08a86a7fa66d8e5a61eccc34c39b75c56d9135dfdfc4a1d27ea314663d",
+          "test_summary": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1152 filtered out; finished in 2.61s"
+          ]
+        },
+        {
+          "gate": "storage-mirror",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "mirrored_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 9.968,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v5-storage-mirror.log",
+          "sha256": "bb25fcb0144fcc3e5f1e417b1396917040ac77da222be71147374cc302cb132a",
+          "test_summary": [
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1145 filtered out; finished in 9.84s"
+          ]
+        },
+        {
+          "gate": "default",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "paired_presentation_default_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 85.13,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v5-default.log",
+          "sha256": "879d99b426d5ab49ba51891f4138712c7b3bec309e333e543e1055052cc991f9",
+          "test_summary": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1875 filtered out; finished in 0.01s"
+          ]
+        },
+        {
+          "gate": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 101,
+          "seconds": 11.862,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v5-clippy.log",
+          "sha256": "8e7ab4296e91f5cfe72aa14e6979d5218d81e1713860f959f6e02e74b85ca8e7",
+          "test_summary": []
+        }
+      ]
+    },
+    "v6": {
+      "candidate": "cf732ab1b32f57d75dae4c1653c9af07a56e2653",
+      "classification": "Strict lint finds remaining large paired variant; zero tests.",
+      "input_manifest": "account-chat-presentation-app-window-v6-inputs.json",
+      "input_manifest_sha256": "7ad0084ee2e6a88d7cefe9038fb8494eede6069e26b189c7dfc930469f92e0b5",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 101,
+          "seconds": 7.563,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v6-clippy.log",
+          "sha256": "002a7c774650b2bb6fc77954e3848375115a56d84973838258e83742908142d2",
+          "test_summary": []
+        }
+      ]
+    },
+    "v7": {
+      "candidate": "remote:e133b531116c1b314d93667287a9f2c52ba59849",
+      "classification": "Shared stash selector race contaminated source; compile-only missing helper, unqualified. Exact contaminated source retained remotely.",
+      "input_manifest": "account-chat-presentation-app-window-v7-inputs.json",
+      "input_manifest_sha256": "f480736018280d56c2347b6a33dcec964c6aca84b5f6c375595ba1accac93dc4",
+      "input_count": 2593,
+      "gates": [
+        {
+          "gate": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 101,
+          "seconds": 6.563,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v7-clippy.log",
+          "sha256": "a81bbd20c2a9a6d0bae6a37d6c6a345789fb8699b9e1098185784917de68340a",
+          "test_summary": []
+        }
+      ]
+    },
+    "v8": {
+      "candidate": "d9519dbf75475e1abe31ed3248d0f01f7efeb09b",
+      "classification": "Presentation strict compilation proceeds; existing test-only AutomaticKick helpers unused without test-policy-overrides.",
+      "input_manifest": "account-chat-presentation-app-window-v8-inputs.json",
+      "input_manifest_sha256": "43ded5b8442833121bfbea5fc86998d6d1a3b457c047a8d7f421da49f849e4c5",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 101,
+          "seconds": 62.334,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v8-clippy.log",
+          "sha256": "48cb5675f5e46c10838b41dbc23a43488c12e793bd096078c0de3deb5d961215",
+          "test_summary": []
+        }
+      ]
+    },
+    "v9": {
+      "candidate": "d9519dbf75475e1abe31ed3248d0f01f7efeb09b",
+      "classification": "Final boxed source: all eight focused/affected/strict/default/fmt gates pass.",
+      "input_manifest": "account-chat-presentation-app-window-v9-inputs.json",
+      "input_manifest_sha256": "43ded5b8442833121bfbea5fc86998d6d1a3b457c047a8d7f421da49f849e4c5",
+      "input_count": 2588,
+      "gates": [
+        {
+          "gate": "app",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "paired_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 83.225,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-app.log",
+          "sha256": "ceae46b8f862c73448915b306e66124b03273e9de962c03d61f1990956278757",
+          "test_summary": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 2125 filtered out; finished in 5.77s"
+          ]
+        },
+        {
+          "gate": "storage",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "paired_ordinary_timeline_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 19.735,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-storage.log",
+          "sha256": "718b448979ed8593c4d84e992a17cd4c416b7535a455945ea16841225d9f1d4c",
+          "test_summary": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1152 filtered out; finished in 2.73s"
+          ]
+        },
+        {
+          "gate": "storage-mirror",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "mirrored_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 9.84,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-storage-mirror.log",
+          "sha256": "2b01fd86fd9c73ae481bb78fcce5432dd66d78e77e5b1dd8bf07ac459e6414d4",
+          "test_summary": [
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1145 filtered out; finished in 9.72s"
+          ]
+        },
+        {
+          "gate": "default",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "paired_presentation_default_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 65.144,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-default.log",
+          "sha256": "55987b99d25c761b62c7036bf0ca8e644f7b51877c30a71d1a91934d08f1061b",
+          "test_summary": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1875 filtered out; finished in 0.02s"
+          ]
+        },
+        {
+          "gate": "test-clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 54.674,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-test-clippy.log",
+          "sha256": "41e030472953f0ee3f3eebaf8d5947deeb01c45116ad0ce3a81cd9ae6ad1d28c",
+          "test_summary": []
+        },
+        {
+          "gate": "production-clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 32.884,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-production-clippy.log",
+          "sha256": "d2b41bd8d78e51282b2def118f6d825104e9f0aae5fbcbf7e56d2fb68989ee8f",
+          "test_summary": []
+        },
+        {
+          "gate": "default-check",
+          "command": [
+            "cargo",
+            "check",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked"
+          ],
+          "exit_code": 0,
+          "seconds": 45.239,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-default-check.log",
+          "sha256": "e711036cb57fc008d93ed45c2560a880dc508389d2878d6d83f5ffb96289344c",
+          "test_summary": []
+        },
+        {
+          "gate": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "-p",
+            "marmot-app",
+            "-p",
+            "storage-sqlite",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 1.491,
+          "log": "/Users/pj/project/build/account-chat-presentation-app-window-v9-fmt.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "test_summary": []
+        }
+      ]
+    }
+  },
+  "final_tested_paths": {
+    "crates/marmot-app/src/account_chat_presentation.rs": "5ce0bd90138972e78e4a0b4a57e3eb84987a6d7b3d6d6877aa8d1b7457ec3c5c",
+    "crates/marmot-app/src/account_chat_presentation/tests.rs": "6c9120adc9c53b237230272f70b47f202998dab622d2585a17b088a636bbba2b",
+    "crates/marmot-app/src/chat_presentation/signals.rs": "ca5f579eb95ee83bfdbfa1415687945ab20ecf9832e8e05442255fd103f5e310",
+    "crates/marmot-app/src/client/account_chat_sharing.rs": "86cf242ba2ff8c91d241d83d93e2f8e8f114b5f4edb59f6a9f0811fabe8ad6b1",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "900aeaeacc71eda6e4dc1cb5654ca7090972cb1ae679f4101955a353f9cfa3f8",
+    "crates/marmot-app/src/client/account_chat_sharing/presentation.rs": "2bd5ace83a4f4ffb33171f38ef286b21f083ea06343fb8292f4d973d0e3f514d",
+    "crates/marmot-app/src/client/sync.rs": "0571ecfc015cbf25a0e1fc0598dc059a85965aa8c4a9e1afc7f41e7a4f33f316",
+    "crates/marmot-app/src/lib.rs": "e71858294d358654d7ae706bd80252ed1caa233fc7030db7fcad29e8bbb02c86",
+    "crates/marmot-app/src/runtime/account_chat_presentation.rs": "bd8be83b4a0538915d45eac20fbad5ed5393287a827810067302f442cf703672",
+    "crates/marmot-app/src/runtime/account_chat_windows.rs": "d2f00b2ee5bfaa826f827b861fe90ef01576da1a6ee79ab7762f21350e8f1e89",
+    "crates/marmot-app/src/runtime/account_conversation_windows.rs": "f1984e351f3dacd3e9555dc9012301929180c7348920cd3edeece283825666fc",
+    "crates/marmot-app/src/runtime/account_worker.rs": "6c2b1e3a0ab6d9752d5ae58d4e5c57169a3e562959fac28dcfca357abb34f167",
+    "crates/marmot-app/src/runtime/mod.rs": "f1b07911e28072de80e3864addc4099a858013f1a477891cc96a6f818d7556b5",
+    "crates/storage-sqlite/src/lib.rs": "87a4bfb307e3a765e15e0a747040726b157aa2b7f56950692f95e39aef99494b",
+    "crates/storage-sqlite/src/mirrored_chat_presentation.rs": "9a2855d0059c49bf0b83078b6edb1a9d770b25abf48960644ef33e7cbfcf3eb6",
+    "crates/storage-sqlite/src/mirrored_chat_presentation/tests.rs": "a7614fd59b1c9e30a7970d011e9ae45fc46a23854d4f834dc4a32f1246e84dfa",
+    "crates/storage-sqlite/src/timeline.rs": "80b2b3e64734b24541b56796236303510c1918bb7601248e8b4822f4f61dc80f",
+    "crates/storage-sqlite/src/timeline/tests.rs": "7a651dd8d26a7362e20d2e844c8b68ea314aa5eb81a156439af78f4715786eff"
+  },
+  "final_inputs_verified_against_named_git_candidate": 2588,
+  "final_source_mismatches": [],
+  "final_changed_inputs": [],
+  "unchanged_real_original_fixture_sha256": "6c9120adc9c53b237230272f70b47f202998dab622d2585a17b088a636bbba2b",
+  "regression_notes": [
+    "The real original fixture is byte-identical from behavioral shutdown RED v2 through final v9.",
+    "The retention regression assertions are unchanged from v4 RED through v5 GREEN. Final boxing only wraps its synthetic observations; final v9 reruns it.",
+    "v4/v5/v6/v8/v9 complete frozen inputs and log hashes were checked against named Git candidates; v1/v2/v3 checks are retained separately. Contaminated v7 is not accepted as presentation source."
+  ],
+  "scope": [
+    "Fresh actual durable approval plus current Core/Completed source scopes before and at read tail; no host scope/grant input.",
+    "Actual original relay approval, initial/later catalog wake, real LocalMls versus PairedSource headers, stale window sequence, cancellation and shutdown controls.",
+    "Synthetic storage controls for total bounds, canonical chronology/cursors, ordinary ID precedence, blocked authors, retention/edit/deletion/reply/media privacy.",
+    "Canonical logical kind9 parser with ordered media rejection outcomes; unsupported kinds remain typed placeholders.",
+    "Default build refuses new surfaces before malformed inputs or account effects."
+  ],
+  "limits": [
+    "List is an initial two-lane bounded visible view with original ordinary metadata/anchors and a separate mirror cursor; no global activity ordering or ordinary list paging added. Do not concatenate local metadata rows into visible rows again.",
+    "Local-to-paired membership transitions close the conversation window and require reopen.",
+    "Actual protected lifecycle wake hunks are present; open-before-automatic-map removal is not separately demonstrated in the real fixture.",
+    "The Records actor is not in this frozen dependency. Real mirrored message stream/window notifications, forwarding sends, native bindings/Swift normal view adoption, installed acceptance and full integration matrix remain separate.",
+    "Legacy ordinary rows with noncanonical event IDs fail closed in the unified cursor. No payload or media download grant is derived from mirror observations.",
+    "Merged LocalMls(TimelineMessageRecord) does not carry ConversationWindowPage.authenticated_system_content proof. Native conversion must use the existing prepared presentation mapper with trusted=false. Ordinary authenticated system content, references and actions require the genuine ordinary conversation window; persistence or tags do not restore that authority."
+  ],
+  "resource_policy": {
+    "final_runner": "CARGO_INCREMENTAL=0; jobs1; 2GiB free before each gate",
+    "v3_incremental_omission_retained": true,
+    "no_cache_or_account_deletion_by_this_slice": true
+  },
+  "post_gate_changes": "Compact proof and additive human/agent documentation only; all 18 runtime/test paths remain exact final tested bytes."
+}

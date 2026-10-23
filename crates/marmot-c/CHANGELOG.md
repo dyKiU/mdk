@@ -5,7 +5,24 @@ All notable changes to the Marmot C bindings.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
+## Unreleased exact-device revocation
+
+- Adds opaque original device-revocation factory, clone, snapshot, approve, cancel and free functions; review records contain captured and completed group IDs.
+- Appends status values 151–157. New symbols/layout require the matching generated header and library; default builds refuse before input/account effects.
+
 ## [Unreleased]
+
+- Upstream moderation keeps C statuses 96–100. The private experimental sync
+  statuses formerly 96–120 move to 121–145 in this integration candidate;
+  106–120 stay unused. Earlier private C clients must regenerate and recompile
+  with the matching header and library. Published upstream statuses are unchanged.
+
+### Changed
+
+- Appends nullable owned `edit` metadata to `MarmotPairedChatMessage`. Shared
+  messages retain their original ID/time while displaying the latest accepted
+  canonical edit. The record layout requires the matching generated header and
+  library; it is not compatible with an older binary.
 
 ### Breaking changes
 
@@ -21,6 +38,12 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 - Every `marmot_client_new*` constructor takes a required `const MarmotDeployment *deployment` just before `out_client` (host-configuration brief, PRs 2 and 3). The opaque `MarmotDeployment` (`marmot_deployment_white_noise`, `marmot_deployment_neutral`, the `marmot_deployment_set_*` setters, `marmot_deployment_free`) carries the recovery relays, discovery indexers, media and image servers, Open Ranking, KeyPackage client preference, moderation label namespace and keychain service; the client copies it. A NULL deployment returns `MARMOT_STATUS_NULL_POINTER` before anything opens. White Noise hosts pass `marmot_deployment_white_noise()`, which keeps their behaviour and keychain unchanged; unset values fall back to nothing. `MarmotClientOptions` is unchanged. Use matching regenerated headers and libraries.
 
 ### Added
+
+- `marmot_begin_automatic_device_linking_session` and
+  `marmot_scan_automatic_device_linking_session` expose role-neutral one-scan
+  transport using the existing owned session handle and status values. These
+  symbols require the matching library/header; legacy manual factories remain
+  supported. Comparison and original enrollment approvals remain explicit.
 
 - `marmot_attachment_keep_media` and `marmot_set_attachment_keep_media` with
   `MarmotAttachmentKeepMedia`: the opt-in "Keep media" setting (mdk#2314
@@ -54,6 +77,95 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
   (record `MarmotAttachmentHandoff`, freed with `marmot_attachment_handoff_free`,
   which does not release the lease) for handoff copies of retained attachments
   (mdk#2314 step 4). Use matching regenerated headers and libraries.
+- Appends owned nullable `latest_message` to `MarmotPairedChatSummary` for
+  source-qualified chat-list preview/time observations. Its message retains its
+  own source and expiry; page/snapshot deep-free releases it recursively.
+  Consumers must use matching regenerated headers and native libraries.
+
+- Appends nullable `direct_peer_account_id_hex` to `MarmotPairedChatSummary` for
+  source-attested direct-chat labels. It grants no MLS membership or send rights.
+  Consumers must use the matching generated header and library for this layout.
+
+- `marmot_existing_account_direct_conversation` and its deep-free return an
+  optional tagged local-MLS or paired-source route for a contact. Local-only
+  lookup remains available. New symbols and tagged layout require the matching
+  generated header/library; the lookup does not create invitations or membership.
+
+- Experimental one-scan pairing adds bounded UTF-8 bootstrap activation, automatic
+  scan factory and revision-bound enrollment/sharing symbols. Use the matching
+  generated header and library; visual comparison and sibling approvals remain required.
+
+- Account-wide chat departure state/leave methods support ordinary and paired-only
+  callers with pending, administrator and source-readiness reasons. State results
+  own their optional operation strings and use the matching deep-free. Appends
+  typed send-denial status158, preserving121–157; ordinary device-local leave and
+  standard public SelfRemove wire remain available.
+
+
+- Add bounded paired chat pages and cancellable account chat/conversation windows.
+  Snapshot tagged unions keep ordinary MLS authority distinct from paired-source
+  observations. Root snapshots/pages deep-free all owned union payloads; cursors
+  are borrowed on input. The experimental feature is required; default builds
+  refuse before reading inputs or opening a window.
+
+- Original enrollment approval can explicitly include existing and future chats
+  through `marmot_device_linking_approval_approve_and_share_chats`. The borrowed
+  original-action handle and displayed revision are required; ordinary approval
+  cannot be upgraded later. This additive export requires the matching generated
+  header and library and preserves default-build refusal. Source qualification
+  does not establish a released SDK or installed automatic delivery.
+
+- Account-wide original sharing review handles, authenticated current protected
+  peer inventory and owned review snapshots. Pending entries are list-owned;
+  clone before releasing the list. Status values 146–150 append typed account-
+  sharing errors. The named pairing continuation approves existing/future-chat,
+  history and messaging scope; ordinary continuation retains its narrower scope.
+  Use matching generated headers and libraries. Policy completion does not
+  establish automatic installed chat delivery.
+
+- Read-only linked history-recipient choices with an owned list of actual leaf
+  indices and public device byte buffers. The list deep-free owns every embedded
+  entry; listing creates no consent or channel. Required outputs are preflighted
+  and default builds refuse before input reads. Use matching headers and libraries.
+
+- Bounded committed-history query and owned source-attested pages, logical tags,
+  ordered media verdicts and message-ID cursor. Page deep-free releases embedded
+  records and buffers. Query statuses append117–120; default builds refuse
+  before input reads and all calls preflight outputs. Use matching headers and
+  libraries; this does not establish native conversation acceptance.
+
+- Original history transfer and recipient consent handles, list-owned consent
+  entries, shared clones, authenticated review snapshots and displayed-revision
+  continuation/approval. History statuses append112–116 without renumbering older
+  values. Default factories refuse before input dereference; all owned outputs
+  require matching deep frees. Use the matching generated header/library. Control
+  completion does not establish installed conversation presentation.
+
+- Revision-bound authenticated approval review metadata with owned binary source
+  and joining device signature keys, predecessor count and matching deep free.
+  This additive display record grants no enrollment permission; use matching
+  generated headers and libraries.
+
+- Opaque selected-chat request and consent handles, explicit shared clones,
+  revision-bound private packet methods and source continuation. Selected-chat
+  statuses append 102–111; request phase `InviteConfirmed` is value 4. New display
+  snapshots and binary results require matching generated headers/libraries and
+  matching deep frees. Default factories remain Unsupported. Source confirmation
+  does not establish recipient joining or history synchronization.
+
+- Opaque protected target selection, existing-device approval handles, bounded
+  enrollment packets and explicit original-session finalization. Pending approval
+  entries are list-owned; clone a handle before freeing its parent list and free
+  the retained clone separately. Session phase `EnrollmentComplete` appends value8;
+  existing phase values0–7 are unchanged. Use matching generated headers/libraries.
+  Capability remains false pending artifacts and application acceptance; protected
+  enrollment does not establish ordinary chat or history delivery.
+
+- Opaque device-verification session/subscription handles, bounded transport and
+  display records, exact cancellation and typed statuses 96–101. The C experimental
+  feature forwards the UniFFI opt-in; default methods remain Unsupported.
+  Use matching generated headers/libraries and deep-free all returned records.
+  Verification does not establish enrollment or synchronized chat/history.
 
 - Add `marmot_cached_public_event_previews` and `marmot_resolve_public_event_preview` (record `MarmotPublicEventPreview`, enum `MarmotPublicEventPreviewState`, freed with `marmot_public_event_preview_free` / `marmot_public_event_preview_list_free`) for cached public Nostr event previews (mdk#1547), and `MARMOT_STATUS_INVALID_PUBLIC_EVENT_REFERENCES` (103) for a read of more than 16 references. Use matching regenerated headers and libraries.
 
@@ -147,6 +259,7 @@ status values are appended. See the [client upgrade guide](../../docs/integratio
   events; existing discriminants remain unchanged. Recompile with the matching
   header and native library and handle the new event kinds. Restoration describes
   retained-history repair, not automatic scheduler restoration of removed copies.
+
 - `MarmotPresentedChatRow` gains a nullable row-owned `MarmotChatListDraftVersion` handle and
   `marmot_message_draft_revision_includes_chat_list_version` compares it against
   a borrowed selected revision. Both inputs are opaque read-only borrows; only

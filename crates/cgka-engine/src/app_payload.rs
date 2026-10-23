@@ -243,6 +243,7 @@ impl<S: cgka_traits::StorageProvider> crate::engine::Engine<S> {
             )? {
                 let app_event = validate_app_payload_for_sender(&source.payload, &request.sender)?;
                 let event = GroupEvent::MessageReceived {
+                    source_leaf: None,
                     group_id: request.group_id,
                     message_id: request.message_id.clone(),
                     epoch: request.epoch,

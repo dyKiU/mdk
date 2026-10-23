@@ -1,0 +1,96 @@
+name: C1 Body receipt ordering
+on:
+  push:
+    branches: [ci/upstream-c1-body-ordering-20261019]
+  workflow_dispatch:
+    inputs:
+      scope:
+        type: choice
+        options: [preflight, runtime]
+        default: preflight
+      expected:
+        type: choice
+        options: [green, pfp]
+        default: pfp
+permissions:
+  contents: read
+concurrency:
+  group: c1-body-restart-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/ci/upstream-c1-body-ordering-20261019' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UPSTREAM_C1_BODY_BASELINE: b1dd1b659a1e410a1d66b4a77225acc1c6cf3df5
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Whole source and closed parser controls; zero bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_c1_body_restart.py --preflight
+      - name: Hosted formatting; exact patch on failure
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" cargo fmt --all
+          git diff --binary > "$RUNNER_TEMP/c1-body-restart-format.patch"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: c1-body-restart-preflight
+          path: |
+            ${{ runner.temp }}/c1-body-restart-evidence/result.json
+            ${{ runner.temp }}/c1-body-restart-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  runtime:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-c1-body-ordering-20261019'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.expected == 'pfp' && 300 || 90 }}
+    env:
+      UPSTREAM_C1_BODY_BASELINE: b1dd1b659a1e410a1d66b4a77225acc1c6cf3df5
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: Five unchanged cases and optional receipt omission PFP; no retries
+        env:
+          CARGO_INCREMENTAL: '1'
+          CASE_EXPECTED: ${{ inputs.expected }}
+        run: python3 scripts/qualify_upstream_c1_body_restart.py --expected "$CASE_EXPECTED"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: c1-body-restart-${{ inputs.expected }}
+          path: ${{ runner.temp }}/c1-body-restart-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7

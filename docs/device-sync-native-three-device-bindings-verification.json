@@ -1,0 +1,408 @@
+{
+  "scope": "Ready-account protected three-device enrollment through original opaque UniFFI/C actions; no app/Apple-artifact/fresh-onboarding/ordinary-chat/history qualification. Capability remains false.",
+  "baseline_head": "b14decf2c67c42307d7a0c54214dc099fa85bb4c",
+  "inputs_verified": 2393,
+  "source_manifest_sha256": "b6d1029767865591f3c636a801525561961eb5bd43cc96dfa2c0d664bc5bb871",
+  "full_qualification": [
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 35.19,
+      "counts": [],
+      "log_sha256": "f101fc8be72114cfe2d7ce97224bc2a7f26c5796d38533e74aa546ffc6586127"
+    },
+    {
+      "name": "default",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 24.02,
+      "counts": [],
+      "log_sha256": "ee353229aab2bdcbd3c82404c9c87bb6c67c7637a0f3fc7eab912f38ad4c71b2"
+    },
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.36,
+      "counts": [],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "uniffi-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 108.31,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 199,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 29,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "afa891720583a65e20fffe9f84d57934b0208f998ba07ccb3db5e13f1006c692"
+    },
+    {
+      "name": "c-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--features",
+        "experimental-device-sync,alloc-audit",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 66.83,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 84,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "70dbc590c23bcd368acece633b5a902d427d7b825b812ac4e7a6123f4c531149"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "scripts/check_binding_docs.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.15,
+      "counts": [],
+      "log_sha256": "51949006a508d3ad60fcf5cbc6566c717d163d89b4f092f7f097ae4229358de1"
+    },
+    {
+      "name": "docs-tests",
+      "command": [
+        "python3",
+        "scripts/test_check_binding_docs.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.16,
+      "counts": [],
+      "log_sha256": "7ca2e8b6fddca26de9cb7248dd537c5c30d717a4572e4516e9a9607f667cfa52"
+    },
+    {
+      "name": "parity",
+      "command": [
+        "python3",
+        "scripts/check_c_binding_parity.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.09,
+      "counts": [],
+      "log_sha256": "52ae9cab87c415626d73ce27e57c62f10b770a3b5a2ede75bd66d4c7dbcc5fed"
+    }
+  ],
+  "focused_pre_lint_cleanup": [
+    {
+      "name": "uniffi",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "--features",
+        "experimental-device-sync",
+        "commands::device_linking::tests::",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 15.57,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "e21e24289462886c15b3da58a3f35d580b2cc9d4829662af73e1df4cb494684e"
+    },
+    {
+      "name": "c",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "--features",
+        "experimental-device-sync,alloc-audit",
+        "device_linking::tests::",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 62.42,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "97d782bd58b17e30e403d2c3b545b2e6b9e2638246557a0dd51da4f74f5fefd5"
+    },
+    {
+      "name": "uniffi-default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "commands::device_linking::tests::",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 20.79,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "5740ccb10abce35d6bb2a7202896ff3b35b9b9150697bbe14a06f0fd58488e5d"
+    },
+    {
+      "name": "c-default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "--features",
+        "alloc-audit",
+        "device_linking::tests::",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 24.57,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "3b571c55b98eee4df15464c69045ff3c1f163a4e781f9ece4e4818c48207a17d"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "seconds": 20.72,
+      "counts": [],
+      "log_sha256": "efc9ea7bbb45784c7f33b20d0ce04b9916a25f7c7a4da544bab3a1b2f4626e21"
+    }
+  ],
+  "matched_host_abi": [
+    {
+      "name": "swift-default",
+      "command": [
+        "env",
+        "EXPERIMENTAL_DEVICE_SYNC=0",
+        "./crates/marmot-uniffi/device-linking-smoke.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 65.65,
+      "counts": [],
+      "log_sha256": "f0af92cdf1bcab2eae9d92e317f45b337c4068e1927b581d6c0f110890da7cc8"
+    },
+    {
+      "name": "swift-feature",
+      "command": [
+        "env",
+        "EXPERIMENTAL_DEVICE_SYNC=1",
+        "./crates/marmot-uniffi/device-linking-smoke.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 56.44,
+      "counts": [],
+      "log_sha256": "22d8908c66ab21ec48df983b4d35327d26d0f929152bda015b85b6a9289b15ab"
+    },
+    {
+      "name": "c-smoke",
+      "command": [
+        "./crates/marmot-c/c-smoke.sh",
+        "--debug"
+      ],
+      "exit_code": 0,
+      "seconds": 41.35,
+      "counts": [],
+      "log_sha256": "feca1045953e1e9dabe6b18072ecf91ceea83320f491f86183411d0f7368117a"
+    }
+  ],
+  "swift_checks": {
+    "each_cohort": {
+      "session_snapshots": 18,
+      "approval_snapshots": 6,
+      "binary_target_round_trips": 1,
+      "binary_packet_round_trips": 1,
+      "typed_factory_and_observation_gates": true,
+      "shutdown": true
+    },
+    "cohorts": [
+      "default",
+      "experimental-device-sync"
+    ]
+  },
+  "external_c": {
+    "linked_models": [
+      "shared",
+      "static"
+    ],
+    "smoke_ok_lines_total": 292,
+    "completed_runs": 2,
+    "no_constructor_skip": true,
+    "new_exports_referenced": 14,
+    "alloc_audit": "Full C Rust suite95 passes; external valgrind unavailable"
+  },
+  "counts": {
+    "uniffi_passed": 230,
+    "uniffi_ignored": 2,
+    "c_passed": 95,
+    "docs_companion_tests": 17,
+    "uniffi_callables": 363,
+    "c_header_callables": 537,
+    "parity_exports": 350
+  },
+  "tdd_scope": "App missing-target behavioral RED and original public ABC GREEN are recorded in b14decf2; new thin bindings exercise genuine opaque relay flows. No missing-symbol or compile-only failure is called a binding behavioral RED.",
+  "retained_failures": [
+    "Initial incomplete-transfer run v1 terminated before qualification.",
+    "Focused v2 actual12 tests pass; production Clippy rejects two redundant String .into conversions, then minimal cleanup passes full production gate."
+  ],
+  "resource_policy": "Idle75GiB incremental cache retired between full and ABI checks with no Cargo/rustc active; matched ABI runner uses CARGO_INCREMENTAL=0. Dependency/release/products/source/logs preserved.",
+  "independent_verification": {
+    "full_inputs": 2393,
+    "full_logs": 8,
+    "abi_inputs": 2393,
+    "abi_logs": 3,
+    "focused_reconstructed_inputs": 2393,
+    "focused_logs": 5
+  },
+  "post_qualification_append": "This proof added and current-state architecture prose updated after frozen checks; all pre-existing inputs matched before these documentation-only edits."
+}

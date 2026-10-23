@@ -1,0 +1,312 @@
+{
+  "scope": "Private revision15 durable negative authenticated history request identity; no restored permission or native SDK adoption",
+  "base": "1e01dd9ccd442ed0b5dfc7544329937f1a2fedf7",
+  "cohorts": [
+    {
+      "prefix": "history-encrypted-recipient-reopen-red-v1",
+      "candidate": "d6ac8918cccc537ff65d8116af866795972cdd33",
+      "input_count": 2475,
+      "source_manifest_sha256": "f804377189be502ee2fbcee3ede584c960f49dce630628c3841b925ea29976cf",
+      "all_source_bytes_verified": true,
+      "gates": [
+        {
+          "gate": "focused",
+          "exit": 101,
+          "seconds": 64.30527186393738,
+          "log": "/Users/pj/project/build/history-encrypted-recipient-reopen-red-v1-focused.log",
+          "log_sha256": "4bae82419614d61f8dce945524a285fa38b8b684c91a51b700dc13c39d7df43b",
+          "test_summaries": [
+            {
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "history-durable-request-fence-green-v2",
+      "candidate": "4649bb8a02923ba00c1829d0364620e6bb304159",
+      "input_count": 2477,
+      "source_manifest_sha256": "a0bed9a6a66433f0f7e07ef404677332afe370e7cb9c6512dad7990fe950b043",
+      "all_source_bytes_verified": true,
+      "gates": [
+        {
+          "gate": "storage",
+          "exit": 0,
+          "seconds": 15.901960849761963,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v2-storage.log",
+          "log_sha256": "d7b8037b39ae8a02f7ca752f51a02f99a589043fe19afe1c878cd8f1c608b10a",
+          "test_summaries": [
+            {
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "focused",
+          "exit": 0,
+          "seconds": 76.61747908592224,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v2-focused.log",
+          "log_sha256": "638f48b44da1867e6b3a7133fa21076ca391b9afcb95ce570162a9b839149713",
+          "test_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 8.702867031097412,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v2-default.log",
+          "log_sha256": "2d047df4494fe2685c3d729e8d1c38ff0287265adc937fbc9cf72c446506a379",
+          "test_summaries": [
+            {
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "populated-default",
+          "exit": 0,
+          "seconds": 1.438140869140625,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v2-populated-default.log",
+          "log_sha256": "58c74a047a527f7a44a481bee2f74e07a9705feea85f0ad235b8bab64c9a46a5",
+          "test_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "ledger",
+          "exit": 101,
+          "seconds": 26.49596905708313,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v2-ledger.log",
+          "log_sha256": "a4c2d2d55cad568480f2bc9fd6d665458173a872b929233327247b53fdbdfed2",
+          "test_summaries": [
+            {
+              "passed": 16,
+              "failed": 1,
+              "ignored": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "history-durable-request-fence-green-v3",
+      "candidate": "f3b7e9993f1bb799ee55bed154e8274f377a3669",
+      "input_count": 2477,
+      "source_manifest_sha256": "9071e70b39449626280f3bce998889b109310afaa2e80d71dc0731abab8567c6",
+      "all_source_bytes_verified": true,
+      "gates": [
+        {
+          "gate": "storage",
+          "exit": 0,
+          "seconds": 14.594841957092285,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v3-storage.log",
+          "log_sha256": "aa0ff0f080a866905f9787e27d4baa578bf823604b3f2b10298a505cf521c006",
+          "test_summaries": [
+            {
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "focused",
+          "exit": 0,
+          "seconds": 71.4655511379242,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v3-focused.log",
+          "log_sha256": "0e6d8552912433943263d4d4966bd968599ddbb1ccaab6754793271d6083243a",
+          "test_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 28.76122283935547,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v3-default.log",
+          "log_sha256": "6af48dd9c0ff9ac119914a6f41f1debd76524248391697bb191d230e7404a88d",
+          "test_summaries": [
+            {
+              "passed": 7,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "populated-default",
+          "exit": 0,
+          "seconds": 1.3732500076293945,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v3-populated-default.log",
+          "log_sha256": "3fd20b46955286f7ff08243c3ec4add82a0b3815e75fcc2b5113bee3e2b753e0",
+          "test_summaries": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "ledger",
+          "exit": 0,
+          "seconds": 25.460036039352417,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v3-ledger.log",
+          "log_sha256": "8af50770181311c0aa4ee792e4ff89e860be573b5c1ad4d38af703cc9e4e8301",
+          "test_summaries": [
+            {
+              "passed": 17,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "clippy",
+          "exit": 101,
+          "seconds": 5.139659881591797,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v3-clippy.log",
+          "log_sha256": "2510767b27e7791de0d4f2eecddbf495f4c56e56a41b9e1243df9c71b62ed8af",
+          "test_summaries": []
+        }
+      ]
+    },
+    {
+      "prefix": "history-durable-request-fence-green-v4",
+      "candidate": "fe39bbadf64cd58bbd9f867339b27dd6fec392a3",
+      "input_count": 2477,
+      "source_manifest_sha256": "16dcee12b8b676ef86ccc8607a52491b862c29c0431dd559dee82af70c5fa202",
+      "all_source_bytes_verified": true,
+      "gates": [
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 30.811851024627686,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v4-clippy.log",
+          "log_sha256": "0629533890b46c56dc80d6bfefb644022c58cff2ac3ff9d528257d37003128d1",
+          "test_summaries": []
+        },
+        {
+          "gate": "storage",
+          "exit": 0,
+          "seconds": 13.633531093597412,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v4-storage.log",
+          "log_sha256": "14de3fb0ef23123125c73d644882f7ec829cacd745300e6285b1a0dc197cbdab",
+          "test_summaries": [
+            {
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "history-family",
+          "exit": 0,
+          "seconds": 148.0970869064331,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v4-history-family.log",
+          "log_sha256": "8713a117d13f265e44772409e1f2b72864c9377656855bd2dc2da3c0f09a6081",
+          "test_summaries": [
+            {
+              "passed": 10,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 18.28622603416443,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v4-default.log",
+          "log_sha256": "3d88d17a17a4239576c68c60b32f512b69886bf37a3b7a795e1d5846a1f2bf2f",
+          "test_summaries": [
+            {
+              "passed": 7,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "ledger",
+          "exit": 0,
+          "seconds": 25.108143091201782,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v4-ledger.log",
+          "log_sha256": "88429f6e96ebba1fae545731de879db318f4ad2428284b26cec4558dcc2dfc1b",
+          "test_summaries": [
+            {
+              "passed": 17,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "check",
+          "exit": 0,
+          "seconds": 25.255785942077637,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v4-check.log",
+          "log_sha256": "af62662a8e5786744c1dfc0466aee6a8d2bc0feab491264825f84531206b8e9d",
+          "test_summaries": []
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.7178101539611816,
+          "log": "/Users/pj/project/build/history-durable-request-fence-green-v4-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "test_summaries": []
+        }
+      ]
+    }
+  ],
+  "original_behavioral_fixture_sha256": "aa67ca29641645aded74f0f2b2602ad61681550b708022ceec9ce175c19cf845",
+  "final_behavioral_fixture_sha256": "f3f216fee3218fa36636ba7ce2c6f5c3bce9a055892000d24b315bb8ff5578cd",
+  "red_to_final_fixture_patch": "diff --git a/crates/marmot-app/src/selected_chat_copy/tests.rs b/crates/marmot-app/src/selected_chat_copy/tests.rs\nindex 96c6c856..0b02c451 100644\n--- a/crates/marmot-app/src/selected_chat_copy/tests.rs\n+++ b/crates/marmot-app/src/selected_chat_copy/tests.rs\n@@ -1492,7 +1492,7 @@ mod actual {\n                     .await\n                     .unwrap();\n             }\n-            let transfer = managers[0].begin_history_transfer(\"test\", &fixture.chat, recipient_selector).await\n+            let transfer = managers[0].begin_history_transfer(\"test\", &fixture.chat, recipient_selector.clone()).await\n                 .expect(\"a fresh opt-in history request must retain its original actor owner after actual four-leaf admission\");\n             assert!(\n                 recipient_storage\n@@ -1603,6 +1603,28 @@ mod actual {\n                         .is_empty()\n                 );\n                 transfer.cancel();\n+                let fresh = managers[0]\n+                    .begin_history_transfer(\"test\", &fixture.chat, recipient_selector)\n+                    .await\n+                    .unwrap();\n+                let next = tokio::time::timeout(std::time::Duration::from_secs(10), async {\n+                    loop {\n+                        if let Some(next) = reopened_manager\n+                            .pending_history_requests(\"test\")\n+                            .await\n+                            .unwrap()\n+                            .into_iter()\n+                            .next()\n+                        {\n+                            break next;\n+                        }\n+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;\n+                    }\n+                })\n+                .await\n+                .expect(\"fresh distinct authenticated request remains possible after reopen\");\n+                next.cancel();\n+                fresh.cancel();\n                 reopened.shutdown_and_close().await.unwrap();\n                 directory_reader.shutdown().await;\n                 for runtime in all_runtimes {\n",
+  "red_to_final_fixture_patch_sha256": "2d33db7108e52a03a29113e8f1915284962a82b8c83e17a8ee52f47d9c5cbe4a",
+  "fixture_delta": "Original encrypted-reopen refusal assertion unchanged; clone recipient selector and add fresh distinct original request acceptance after reopen.",
+  "preserved_failures": [
+    {
+      "prefix": "history-durable-request-fence-green-v1",
+      "kind": "App compile-only moved recipient selector fixture; storage3 pass",
+      "raw_log_sha256": "98a93c4637dad380f4787dbfae0cf22f36a9f72d8bf80c5ab1bcd832f86eb083"
+    },
+    {
+      "prefix": "history-durable-request-fence-green-v2",
+      "kind": "Migration fixture supplied3 values to4-column ledger; fixed explicit names and existing Pending-to-Denied transition. Zero-test default selector not qualified; populated-default1 and actualreopen1 pass."
+    },
+    {
+      "prefix": "history-durable-request-fence-green-v3",
+      "kind": "Production Clippy unnecessary_i64_cast; corrected equivalent expression only",
+      "raw_log_sha256": "2510767b27e7791de0d4f2eecddbf495f4c56e56a41b9e1243df9c71b62ed8af"
+    }
+  ],
+  "limits": [
+    "At most128 cumulative authenticated received request identities per encrypted account-device, including cancelled/expired/completed requests; fails closed at capacity, never prunes or resets on reopen. Not an unbounded ongoing-sync journal.",
+    "Rows contain only account/local-device/transfer/request digest. Actual current addressed Core authentication precedes insertion; first observation does not restore keys, consent, grants or deadline.",
+    "Whole storage/App backend suites and native history integration/adoption are not qualified here. Later source retention expiry after snapshot remains separate.",
+    "Final SDK83 artifacts/installed apps and historical default baseline binary remain untouched."
+  ],
+  "post_freeze_delta": "Only this proof and appended human guidance/plan/resource bounds; no runtime or test byte changes."
+}

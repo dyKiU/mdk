@@ -692,7 +692,32 @@ pub use attachment_storage::*;
 mod attachment_controls;
 pub use attachment_controls::*;
 
+mod device_linking;
+pub use device_linking::*;
+
+mod selected_chat_copy;
+pub use selected_chat_copy::*;
+
+mod history_transfer;
+pub use history_transfer::*;
+
+mod synchronized_history;
+pub use synchronized_history::*;
+
 mod account_attachment_history;
 pub use account_attachment_history::*;
 mod startup_diagnostics;
 pub use startup_diagnostics::*;
+mod account_chat_sharing;
+pub use account_chat_sharing::*;
+
+mod account_chat_presentation;
+pub use account_chat_presentation::*;
+mod account_chat_windows;
+pub use account_chat_windows::*;
+
+mod device_revocation;
+pub use device_revocation::*;
+
+mod account_chat_departure;
+pub use account_chat_departure::*;

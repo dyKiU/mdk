@@ -2415,7 +2415,8 @@ pub(crate) fn classify_engine_error(error: &EngineError) -> (SubjectFailureCateg
         // bound (ledger E9), the same class of observation as a storage failure.
         EngineError::Backend(_)
         | EngineError::Storage(_)
-        | EngineError::QueuedOutboundAtCapacity { .. } => SubjectFailureCategory::Resource,
+        | EngineError::QueuedOutboundAtCapacity { .. }
+        | EngineError::PrivateEnrollmentIntakeAtCapacity => SubjectFailureCategory::Resource,
         EngineError::InvalidTransition(_)
         | EngineError::Other(_)
         | EngineError::Peeler(_)
@@ -2430,6 +2431,10 @@ pub(crate) fn classify_engine_error(error: &EngineError) -> (SubjectFailureCateg
         // to caller input (the pinned epoch), not a protocol failure.
         | EngineError::AppMessageEpochMismatch { .. }
         | EngineError::AppMessageEpochUnsettled { .. }
+        // A private exact-Welcome policy denial is an expected refusal, not
+        // a new protocol/conformance outcome or a failure of MLS processing.
+        | EngineError::LinkingWelcomeDenied(_)
+        | EngineError::SelectedChatWelcomeDenied
         | EngineError::InvalidWelcome
         | EngineError::MissingWelcomeKeyPackage
         | EngineError::WelcomeAlreadyProcessed
@@ -2499,7 +2504,11 @@ fn observe_engine_error(error: &EngineError) -> String {
         // Every decode failure the engine can reach, not an admin-policy
         // verdict: `audit_helpers::engine_error_kind` names it the same way.
         EngineError::Serialize(_) => "serialize",
-        EngineError::InvalidWelcome => "invalid_welcome",
+        // Reuse the existing Welcome diagnostic; private verifier details must
+        // not become normative trace values or escape into simulator reports.
+        EngineError::InvalidWelcome
+        | EngineError::LinkingWelcomeDenied(_)
+        | EngineError::SelectedChatWelcomeDenied => "invalid_welcome",
         EngineError::MissingWelcomeKeyPackage => "missing_welcome_key_package",
         EngineError::WelcomeAlreadyProcessed => "welcome_already_processed",
         EngineError::InvalidTransition(_) => "invalid_transition",
@@ -2526,6 +2535,7 @@ fn observe_engine_error(error: &EngineError) -> String {
         EngineError::InvalidAppMessagePayload(_) => "invalid_app_message_payload",
         EngineError::UnknownPending => "unknown_pending",
         EngineError::QueuedOutboundAtCapacity { .. } => "queued_outbound_at_capacity",
+        EngineError::PrivateEnrollmentIntakeAtCapacity => "private_enrollment_intake_at_capacity",
     }
     .into()
 }
@@ -2742,6 +2752,13 @@ mod tests {
             classify_engine_error(&EngineError::Serialize("malformed internal state".into()));
         assert_eq!(category, SubjectFailureCategory::Protocol);
         assert_eq!(code, "serialize");
+    }
+
+    #[test]
+    fn selected_chat_welcome_denial_is_a_private_expected_refusal() {
+        let (category, code) = classify_engine_error(&EngineError::SelectedChatWelcomeDenied);
+        assert_eq!(category, SubjectFailureCategory::ExpectedRefusal);
+        assert_eq!(code, "invalid_welcome");
     }
 
     #[test]
@@ -3714,14 +3731,30 @@ mod tests {
                 .is_empty()
         );
         subject
-            .advance_time(1_000)
+            .advance_time(999)
             .await
-            .expect("advance through the pinned settlement window");
-
+            .expect("advance before the pinned settlement cutoff");
         subject
-            .client_mut("carol")
-            .expect("carol exists")
-            .advance_convergence()
+            .tick(&labels[2..3])
+            .await
+            .expect("carol services convergence before the cutoff");
+        assert!(
+            subject
+                .poll_outbound("carol")
+                .expect("queued application is still held before the cutoff")
+                .is_empty()
+        );
+        subject
+            .advance_time(1)
+            .await
+            .expect("advance to the pinned settlement cutoff");
+
+        // AdvanceTime selects the injected clock, and Tick services the
+        // deterministic bounded work slice at that instant. The app entry
+        // point also has a cooperative wall-clock budget, so one call need
+        // not finish convergence on a loaded runner.
+        subject
+            .tick(&labels[2..3])
             .await
             .expect("carol settles and regenerates queued application");
         let first = subject
@@ -3739,9 +3772,7 @@ mod tests {
             .expect("definite failure re-arms the queued intent");
 
         subject
-            .client_mut("carol")
-            .expect("carol exists")
-            .advance_convergence()
+            .tick(&labels[2..3])
             .await
             .expect("carol retries the queued application");
         let retry = subject
@@ -3759,9 +3790,7 @@ mod tests {
             .await
             .expect("accepted retry retires the queued intent");
         subject
-            .client_mut("carol")
-            .expect("carol exists")
-            .advance_convergence()
+            .tick(&labels[2..3])
             .await
             .expect("no queued retry remains");
         assert!(

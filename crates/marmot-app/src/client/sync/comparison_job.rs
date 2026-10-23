@@ -242,6 +242,14 @@ pub(crate) struct ComparisonNetworkResult {
 }
 
 impl ComparisonNetworkResult {
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn attempted_group(&self, route: &[u8; 32]) -> bool {
+        self.routes.iter().any(|result| {
+            result.route == TransportReconciliationRoute::Group(*route)
+                && !matches!(result.result, ComparisonRouteWorkResult::Skipped)
+        })
+    }
+
     /// What each route's relays returned, for a pass discarded before any
     /// admission exists: counts only, nothing admitted or certified. A route
     /// counts as answered only when its comparison ran and every failed relay
@@ -1086,6 +1094,9 @@ impl AppClient {
                 .observe_unsettled_routes(network.unsettled_routes());
             return stable.map(|_| None);
         }
+        #[cfg(feature = "experimental-device-sync")]
+        self.note_private_echo_comparison(&network)
+            .map_err(super::super::private_echo::PrivateEchoError::into_app)?;
         let mut admission = ComparisonAdmission::default();
         for (index, route) in network.routes.into_iter().enumerate() {
             let inventory = grant
@@ -1313,6 +1324,22 @@ impl AppClient {
             // native frames. A large same-group prefix cannot monopolize both.
             admission.prefer_native = !admission.prefer_native;
             let OrderedInput::Comparison(position) = input else {
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                if self
+                    .recovery_owner
+                    .native_batch
+                    .as_ref()
+                    .is_some_and(|batch| self.adapter.defer_held_native_for_test(batch))
+                {
+                    // Keep the actual native loan and comparison pending, but
+                    // return this bounded turn so own-Leave can run first.
+                    inventory.flush(self);
+                    return Ok(false);
+                }
                 native_examined += 1;
                 let (ingested, record) = self.admit_native_frame().await?;
                 inventory.stage(self, record);

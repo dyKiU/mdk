@@ -5,7 +5,11 @@ version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+experimental-device-sync = ["cgka-session/experimental-device-sync"]
+
 [dependencies]
+web-time.workspace = true
 async-trait.workspace = true
 cgka-session.workspace = true
 cgka-traits.workspace = true

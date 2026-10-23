@@ -234,6 +234,49 @@ pub(crate) fn member_id_of_processed_message(
     }
 }
 
+/// Capture device evidence only against the exact authenticated source tree.
+/// Never resolve a delayed application's leaf index against a newer tree.
+pub(crate) fn source_leaf_proof_of_processed_message(
+    processed: &ProcessedMessage,
+    group: &MlsGroup,
+) -> Option<cgka_traits::source_leaf::SourceLeafProof> {
+    #[cfg(not(feature = "experimental-device-sync"))]
+    {
+        let _ = (processed, group);
+        None
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    {
+        use sha2::{Digest, Sha256};
+        if processed.epoch() != group.epoch()
+            || !matches!(
+                processed.content(),
+                ProcessedMessageContent::ApplicationMessage(_)
+            )
+        {
+            return None;
+        }
+        let Sender::Member(index) = processed.sender() else {
+            return None;
+        };
+        let member = group.member_at(*index)?;
+        if validated_member_id(processed.credential()).ok()?
+            != validated_member_id(&member.credential).ok()?
+            || member.signature_key.is_empty()
+            || member.signature_key.len() > 256
+        {
+            return None;
+        }
+        Some(cgka_traits::source_leaf::SourceLeafProof {
+            leaf_index: index.u32(),
+            signature_public_key: member.signature_key,
+            epoch: cgka_traits::types::EpochId(processed.epoch().as_u64()),
+            epoch_authenticator_digest: Sha256::digest(group.epoch_authenticator().as_slice())
+                .into(),
+        })
+    }
+}
+
 pub(crate) fn member_id_of_sender(sender: &Sender, group: &MlsGroup) -> Option<MemberId> {
     match sender {
         Sender::Member(leaf_idx) => member_id_at_leaf(group, *leaf_idx),

@@ -1,0 +1,121 @@
+{
+  "base": "0f8f04f95da402799c54297892c606fad7392cdc",
+  "original_red_stash": "fb7192a3a7a7939cdd805ae0987927020dc84ba3",
+  "candidate_stash": "eb193d5258c3693a17bb2dbbd2a296b362de2a09",
+  "original_regression_unchanged": true,
+  "original_regression_sha256": "37c07fe8eb39e63d903ed2405989df2ee087cf6fb941909e2a9877ccc0051a3c",
+  "full_source_inputs_verified_remote": 2462,
+  "source_manifest_sha256": "846c29906812227a91f2107401ba196fa6a0ff236243b3a15fed8cbf4c3024b9",
+  "source_paths": {
+    "Cargo.lock": "c65b5e21f3c2ed47bba9c50e70b9889072f4995d0a37616afe9da11bb4f85925",
+    "crates/storage-sqlite/AGENTS.md": "43a3a1f19059c10ade30739f165cd30bad25c6aa0b60048dc04a584ad95b4d2f",
+    "crates/storage-sqlite/Cargo.toml": "0d8dca1af81e612f99270c9107d8491aa12177e23ec6559697884f3f4711b2e4",
+    "crates/storage-sqlite/README.md": "3f7e9a2aa9b25f4e2bec03cc1547d4ee097017617a4346848e8eeab931a29342",
+    "crates/storage-sqlite/src/lib.rs": "c5977963c595db7b31d016fd8661869e4b2eadee314dae8cc069972261494ead",
+    "crates/storage-sqlite/src/migrations.rs": "9aeb0206b366923a44c4fea095b809ec6eb468fde2d102d3612574f55e53c233",
+    "crates/storage-sqlite/src/synchronized_history.rs": "025ae53a4d61d585ddaf8005a74d66d1b3a6f47c471f6c482bfa7f987e318aad",
+    "crates/storage-sqlite/src/synchronized_history/tests.rs": "6c256cabe3785f4063b335af4e768ad4186719051106f1e51bd88f6a5b6c2834",
+    "crates/storage-sqlite/src/private_migrations/0014_history_archive_staging.rs": "4254f45b1f708a32dc62303a2324b4c443e024e3834210560120840e207c4fd5",
+    "crates/storage-sqlite/src/synchronized_history/archive.rs": "a3496fef132f8aded24abf1c2e9409e927e57b5879e19000949d126ac86d28ac"
+  },
+  "runtime_logs": {
+    "red": {
+      "sha256": "44f91ab1ea2e9d973053e2e7122e2dd07a01041c5336bd9af01e15c41a4a91ae",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "exit_code": 101,
+      "reason": "ArchiveStagingUnavailable"
+    },
+    "green": {
+      "sha256": "f74ee9a1f93b2dad5fe30c9358d4fd6d26eda99439a7bafad6f1bebfffd29784",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0
+    },
+    "controls": {
+      "sha256": "068b4d82c1e12eb7e82f90e6ddf85adf57ac6f5d572d368eb09af795d5ffd2b0",
+      "passed_observed": 5,
+      "terminal_success": false,
+      "reason": "Test-only cancellation callback re-entered storage lock; exact test process terminated; fixture corrected without production change"
+    },
+    "controls-v2": {
+      "sha256": "c2c461acfdb89dd174b30c0198a89be71ade72afe813d8fa9c2dc69bfbb6df0a",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "runtime_seconds": 14.2
+    },
+    "cross-api-red": {
+      "sha256": "c1c281752bd0ad7f72dfc368fa99b4bd83988f34890f0fd86de2a43cfc8005bd",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "exit_code": 101,
+      "reason": "Public logical admission claimed archive-reserved transfer ID"
+    },
+    "controls-v3": {
+      "sha256": "8910ef028d3a4ad559770bf7ba4b676a7386fd362e5dcbcc229f56ba991d7ba1",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "runtime_seconds": 16.82
+    },
+    "clippy": {
+      "sha256": "87b228032b889a6f56fb44c29c4b07b0cf77d816e760d4bf3d28f333753c6e83",
+      "exit_code": 0
+    },
+    "default": {
+      "sha256": "afb86ad04ea36c0696a715a692918ad08fb21dd0d1bc1f5d25ebe96dd3029bc9",
+      "exit_code": 0
+    },
+    "fmt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exit_code": 0
+    },
+    "all-history": {
+      "sha256": "45bd49d7289d66da39964c4556b907e073f2a8e32c818b8a2539e8815f7c0b11",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "runtime_seconds": 59.76
+    },
+    "full-interrupted": {
+      "sha256": "6cecd4fc0607c06a83aac2634ab28ad8d19ebdc3825989677979b3a61bb574e2",
+      "terminal_success": false,
+      "reason": "Stopped exact test process on discovered cross-API bug; final source not fully backend-qualified"
+    }
+  },
+  "commands": [
+    "cargo test -p storage-sqlite --lib --locked --features experimental-device-sync history_archive_fragment_receipts_do_not_report_import_until_full_atomic_completion -- --nocapture --test-threads=2",
+    "cargo test -p storage-sqlite --lib --locked --features experimental-device-sync history_archive_ -- --nocapture --test-threads=2",
+    "cargo clippy -p storage-sqlite --all-targets --locked --features experimental-device-sync -- -D warnings",
+    "cargo check -p storage-sqlite --all-targets --locked",
+    "cargo fmt -p storage-sqlite --check",
+    "cargo test -p storage-sqlite --lib --locked --features experimental-device-sync synchronized_history::tests -- --test-threads=4"
+  ],
+  "qualification": {
+    "focused_controls": "7/7 passed",
+    "full_backend": "Interrupted on review finding; final full backend pending",
+    "production_clippy": "all-targets feature-enabled -D warnings passed",
+    "default_check": "all-targets feature-disabled passed",
+    "format": "cargo fmt -p storage-sqlite --check and git diff --check passed",
+    "all_history": "20/20 passed"
+  },
+  "limits": [
+    "Storage-only; original authenticated App/Core consent and fixed lifetime remain caller-owned and unqualified here",
+    "No installed native history integration or real third-member privacy acceptance",
+    "No device revocation or continuous journal delivery"
+  ],
+  "private_revision": 14,
+  "upstream_core_unchanged": 102,
+  "archive_limit_bytes": 196608,
+  "fragment_limit_bytes": 1536,
+  "lifetime_transfer_limit": 128,
+  "cross_api_original_red_stash": "d4850e86cb2ce40699201d5cb252485f527dba77",
+  "cross_api_red_green_entire_test_file_unchanged": true
+}

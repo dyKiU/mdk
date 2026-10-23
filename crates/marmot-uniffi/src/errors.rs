@@ -403,6 +403,87 @@ pub enum MarmotKitError {
     ConversationWindowMessageNotRetained,
     #[error("invalid app component: {details}")]
     InvalidAppComponent { details: String },
+    #[error("Device verification is not supported by this build")]
+    DeviceLinkingUnsupported,
+
+    #[error("Device verification session is closed")]
+    DeviceLinkingClosed,
+
+    #[error("Invalid device verification packet")]
+    DeviceLinkingInvalidPacket,
+
+    #[error("Device verification is not ready for this action")]
+    DeviceLinkingNotReady,
+
+    #[error("The displayed device verification state is stale")]
+    DeviceLinkingStaleRevision,
+
+    #[error("Device verification runtime is unavailable")]
+    DeviceLinkingRuntimeUnavailable,
+    #[error("Selected chat copy: Unsupported")]
+    SelectedChatCopyUnsupported,
+    #[error("Selected chat copy: NotReady")]
+    SelectedChatCopyNotReady,
+    #[error("Selected chat copy: InvalidSelection")]
+    SelectedChatCopyInvalidSelection,
+    #[error("Selected chat copy: UnsupportedGroup")]
+    SelectedChatCopyUnsupportedGroup,
+    #[error("Selected chat copy: NotAdmin")]
+    SelectedChatCopyNotAdmin,
+    #[error("Selected chat copy: Busy")]
+    SelectedChatCopyBusy,
+    #[error("Selected chat copy: RuntimeUnavailable")]
+    SelectedChatCopyRuntimeUnavailable,
+    #[error("Selected chat copy: InvalidPacket")]
+    SelectedChatCopyInvalidPacket,
+    #[error("Selected chat copy: StaleRevision")]
+    SelectedChatCopyStaleRevision,
+    #[error("Selected chat copy: Closed")]
+    SelectedChatCopyClosed,
+    #[error("History transfer is unsupported by this build")]
+    HistoryTransferUnsupported,
+    #[error("History transfer is not ready")]
+    HistoryTransferNotReady,
+    #[error("History original action is closed")]
+    HistoryTransferClosed,
+    #[error("History displayed revision changed")]
+    HistoryTransferStaleRevision,
+    #[error("History runtime is unavailable")]
+    HistoryTransferRuntimeUnavailable,
+    #[error("Synchronized history is unsupported by this build")]
+    SynchronizedHistoryUnsupported,
+    #[error("Invalid synchronized history query")]
+    SynchronizedHistoryInvalidQuery,
+    #[error("Synchronized history storage is unavailable")]
+    SynchronizedHistoryUnavailable,
+    #[error("Invalid synchronized history logical record")]
+    SynchronizedHistoryInvalidRecord,
+    #[error("Account chat sharing: Unsupported")]
+    AccountSharingUnsupported,
+    #[error("Account chat sharing: NotReady")]
+    AccountSharingNotReady,
+    #[error("Account chat sharing: Closed")]
+    AccountSharingClosed,
+    #[error("Account chat sharing: StaleRevision")]
+    AccountSharingStaleRevision,
+    #[error("Account chat sharing: RuntimeUnavailable")]
+    AccountSharingRuntimeUnavailable,
+    #[error("Device revocation: Unsupported")]
+    DeviceRevocationUnsupported,
+    #[error("Device revocation: NotReady")]
+    DeviceRevocationNotReady,
+    #[error("Device revocation: Closed")]
+    DeviceRevocationClosed,
+    #[error("Device revocation: InvalidSelection")]
+    DeviceRevocationInvalidSelection,
+    #[error("Device revocation: Busy")]
+    DeviceRevocationBusy,
+    #[error("Device revocation: StaleRevision")]
+    DeviceRevocationStaleRevision,
+    #[error("Device revocation: RuntimeUnavailable")]
+    DeviceRevocationRuntimeUnavailable,
+    #[error("account-wide chat departure prevents sends")]
+    AccountChatDepartureDenied,
 }
 
 impl From<AppError> for MarmotKitError {
@@ -428,6 +509,7 @@ impl From<&AppError> for MarmotKitError {
             AppError::InvalidAppComponent(details) => Self::InvalidAppComponent {
                 details: details.clone(),
             },
+            AppError::AccountChatDepartureDenied => Self::AccountChatDepartureDenied,
             AppError::UserBlocked => Self::UserBlocked,
             AppError::BlockListUnavailable => Self::BlockListUnavailable,
             AppError::BlockPublicationUncertain => Self::BlockPublicationUncertain,
@@ -1354,6 +1436,113 @@ impl From<marmot_app::ConversationWindowError> for MarmotKitError {
             E::Presentation(e) => Self::ConversationWindowPresentation {
                 details: e.to_string(),
             },
+        }
+    }
+}
+
+impl From<marmot_app::DeviceLinkingError> for MarmotKitError {
+    fn from(value: marmot_app::DeviceLinkingError) -> Self {
+        match value {
+            marmot_app::DeviceLinkingError::Unsupported => Self::DeviceLinkingUnsupported,
+            marmot_app::DeviceLinkingError::Closed => Self::DeviceLinkingClosed,
+            marmot_app::DeviceLinkingError::InvalidPacket => Self::DeviceLinkingInvalidPacket,
+            marmot_app::DeviceLinkingError::NotReady => Self::DeviceLinkingNotReady,
+            marmot_app::DeviceLinkingError::StaleRevision => Self::DeviceLinkingStaleRevision,
+            marmot_app::DeviceLinkingError::RuntimeUnavailable => {
+                Self::DeviceLinkingRuntimeUnavailable
+            }
+        }
+    }
+}
+
+impl From<marmot_app::SelectedChatCopyError> for MarmotKitError {
+    fn from(value: marmot_app::SelectedChatCopyError) -> Self {
+        match value {
+            marmot_app::SelectedChatCopyError::Unsupported => Self::SelectedChatCopyUnsupported,
+            marmot_app::SelectedChatCopyError::NotReady => Self::SelectedChatCopyNotReady,
+            marmot_app::SelectedChatCopyError::InvalidSelection => {
+                Self::SelectedChatCopyInvalidSelection
+            }
+            marmot_app::SelectedChatCopyError::UnsupportedGroup => {
+                Self::SelectedChatCopyUnsupportedGroup
+            }
+            marmot_app::SelectedChatCopyError::NotAdmin => Self::SelectedChatCopyNotAdmin,
+            marmot_app::SelectedChatCopyError::Busy => Self::SelectedChatCopyBusy,
+            marmot_app::SelectedChatCopyError::RuntimeUnavailable => {
+                Self::SelectedChatCopyRuntimeUnavailable
+            }
+            marmot_app::SelectedChatCopyError::InvalidPacket => Self::SelectedChatCopyInvalidPacket,
+            marmot_app::SelectedChatCopyError::StaleRevision => Self::SelectedChatCopyStaleRevision,
+            marmot_app::SelectedChatCopyError::Closed => Self::SelectedChatCopyClosed,
+        }
+    }
+}
+
+impl From<marmot_app::HistoryTransferError> for MarmotKitError {
+    fn from(value: marmot_app::HistoryTransferError) -> Self {
+        match value {
+            marmot_app::HistoryTransferError::Unsupported => Self::HistoryTransferUnsupported,
+            marmot_app::HistoryTransferError::NotReady => Self::HistoryTransferNotReady,
+            marmot_app::HistoryTransferError::Closed => Self::HistoryTransferClosed,
+            marmot_app::HistoryTransferError::StaleRevision => Self::HistoryTransferStaleRevision,
+            marmot_app::HistoryTransferError::RuntimeUnavailable => {
+                Self::HistoryTransferRuntimeUnavailable
+            }
+        }
+    }
+}
+
+impl From<marmot_app::SynchronizedHistoryReadError> for MarmotKitError {
+    fn from(value: marmot_app::SynchronizedHistoryReadError) -> Self {
+        match value {
+            marmot_app::SynchronizedHistoryReadError::Unsupported => {
+                Self::SynchronizedHistoryUnsupported
+            }
+            marmot_app::SynchronizedHistoryReadError::InvalidQuery => {
+                Self::SynchronizedHistoryInvalidQuery
+            }
+            marmot_app::SynchronizedHistoryReadError::Unavailable => {
+                Self::SynchronizedHistoryUnavailable
+            }
+            marmot_app::SynchronizedHistoryReadError::InvalidRecord => {
+                Self::SynchronizedHistoryInvalidRecord
+            }
+        }
+    }
+}
+
+impl From<marmot_app::AccountSharingError> for MarmotKitError {
+    fn from(v: marmot_app::AccountSharingError) -> Self {
+        match v {
+            marmot_app::AccountSharingError::Unsupported => Self::AccountSharingUnsupported,
+            marmot_app::AccountSharingError::NotReady => Self::AccountSharingNotReady,
+            marmot_app::AccountSharingError::Closed => Self::AccountSharingClosed,
+            marmot_app::AccountSharingError::StaleRevision => Self::AccountSharingStaleRevision,
+            marmot_app::AccountSharingError::RuntimeUnavailable => {
+                Self::AccountSharingRuntimeUnavailable
+            }
+        }
+    }
+}
+
+impl From<marmot_app::GroupDeviceRevocationError> for MarmotKitError {
+    fn from(value: marmot_app::GroupDeviceRevocationError) -> Self {
+        match value {
+            marmot_app::GroupDeviceRevocationError::Unsupported => {
+                Self::DeviceRevocationUnsupported
+            }
+            marmot_app::GroupDeviceRevocationError::NotReady => Self::DeviceRevocationNotReady,
+            marmot_app::GroupDeviceRevocationError::Closed => Self::DeviceRevocationClosed,
+            marmot_app::GroupDeviceRevocationError::InvalidSelection => {
+                Self::DeviceRevocationInvalidSelection
+            }
+            marmot_app::GroupDeviceRevocationError::Busy => Self::DeviceRevocationBusy,
+            marmot_app::GroupDeviceRevocationError::StaleRevision => {
+                Self::DeviceRevocationStaleRevision
+            }
+            marmot_app::GroupDeviceRevocationError::RuntimeUnavailable => {
+                Self::DeviceRevocationRuntimeUnavailable
+            }
         }
     }
 }

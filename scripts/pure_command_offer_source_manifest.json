@@ -1,0 +1,228 @@
+{
+  "baseline": "a9b6a59407c2b4c23781a32d1fc47c01603778ca",
+  "owned_metadata": [
+    "scripts/qualify_upstream_pure_command_offer.py",
+    "scripts/qualify_upstream_pure_native5.py",
+    "scripts/pure_command_offer_source_manifest.json"
+  ],
+  "helpers": {
+    "scripts/qualify_upstream_command_backlog_red.py": {
+      "sha256": "7581507845da9e588866d10cbbe59dee98a2dddd878212243c23111a0a47585d",
+      "mode": "100644",
+      "source": "89326048c400e87671e2f66eb192547109265eae"
+    },
+    "scripts/qualify_upstream_command_backlog_pair.py": {
+      "sha256": "6e6600e422d4930b8c3ad9c9ce6e31bfe6910385335e2a0c32dfdd211dd7d9ec",
+      "mode": "100644",
+      "source": "89326048c400e87671e2f66eb192547109265eae"
+    }
+  },
+  "workflow_overlays": [
+    {
+      "name": "offer",
+      "begin": "  # PURE_COMMAND_OFFER_JOBS_BEGIN\n",
+      "end": "  # PURE_COMMAND_OFFER_JOBS_END\n",
+      "options": "options: [pure-command-offer-preflight, pure-command-offer-pfp, "
+    },
+    {
+      "name": "native5",
+      "begin": "  # PURE_NATIVE5_JOBS_BEGIN\n",
+      "end": "  # PURE_NATIVE5_JOBS_END\n",
+      "options": "options: [pure-native5-preflight, pure-native5-green, "
+    }
+  ],
+  "product": {
+    "path": "crates/marmot-app/src/runtime/account_worker.rs",
+    "git_mode": "100644",
+    "before_sha256": "bb68f37c54eb19d48b45728f9529eea94c02bf1e5a34b1ad1904e6a48c066a0a",
+    "after_sha256": "3c2d1f25bae154ff1fdb8c15cbe26a15dfd3791421c66c152129e1a040b11719",
+    "edits": [
+      {
+        "before": "    let mut yield_to_convergence = false;\n",
+        "after": "    let mut yield_to_convergence = false;\n    #[cfg(feature = \"experimental-device-sync\")]\n    let mut command_input_service_owed = false;\n"
+      },
+      {
+        "before": "                    command = async {\n                        match ready_command.and_then(|index| pending.remove(index)) {\n",
+        "after": "                    command = async {\n                        #[cfg(feature = \"experimental-device-sync\")]\n                        if command_input_service_owed {\n                            // Retain consumption across select cancellation. Do not\n                            // remove a command before offering other ready input.\n                            command_input_service_owed = false;\n                            tokio::task::yield_now().await;\n                        }\n                        match ready_command.and_then(|index| pending.remove(index)) {\n"
+      },
+      {
+        "before": "                        match command {\n                            Some((command, approved_pending)) => {\n",
+        "after": "                        match command {\n                            Some((command, approved_pending)) => {\n                                #[cfg(feature = \"experimental-device-sync\")]\n                                { command_input_service_owed = true; }\n"
+      }
+    ]
+  },
+  "reviewed_paired_RED_control": {
+    "source": "89326048c400e87671e2f66eb192547109265eae",
+    "run_id": "39145323017",
+    "artifact_id": 12143367050,
+    "artifact_sha256": "c69173651dcfe235c649bd89057655d24dbf279f32545a38f729a20cef3f2af6",
+    "paired_red_control_verified": true,
+    "actual_passed": 1,
+    "actual_failed": 1,
+    "actual_ignored": 0,
+    "actual_executed_nonignored": 2,
+    "compiler_error_count": 0,
+    "post_and_final_binary_sha256": "4d734159e99c7e092b439358f6726c8fd633da242d5bd87162d37e65dc1215e8",
+    "reviewed_receipt_sha256": "b69a43715dc9d23e6adbc1eede769f35cad871e0bcec6be48712561e8e14b812"
+  },
+  "reviewed_diagnostic_PFP": {
+    "source": "a9c99b7025f1b4d4a948a041b2d6d0e0ed9ddd55",
+    "run_id": "39146044785",
+    "actual_passed": 4,
+    "actual_failed": 1,
+    "actual_ignored": 0,
+    "actual_executed_nonignored": 5,
+    "component_PFP_verified": true,
+    "receipt_sha256": "d64b92a37ced5bdd450c47ce593613a3e4942e856104ab7891b05136f249dc94",
+    "evidence_reused_for_pure_PFP": false
+  },
+  "runtime_evidence_reused": false,
+  "projection_identity_provisional_until_root_final_format_and_App_pins": false,
+  "native5": {
+    "fixture": "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs",
+    "fixture_sha256": "a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca",
+    "parent": "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
+    "parent_sha256": "49ea45e3825771c2079c3f6b463d00b66e9fed1b55c68e3bf4d8fefb71faadfa",
+    "strict_helper_sha256": "a059addf027097d91c672ccfe36e613f99cfb93f889ab2087b872a84c7a58ff2",
+    "oracle_region_sha256": "88417f89d6d6b3b9a8037d408be60c54d8b86451085cff9d254cb6cc74537e72"
+  },
+  "controlled_ingress": {
+    "source": "0c1c7bb1f8dc67469c340738cfeefe71566e94db",
+    "formatted_source": "75fb999ceea4ef5abefe25060298b6fe021067f3",
+    "exact_hosted_format_patch_sha256": "10fea844ee750d7cb018304cac19e6e4e1947e2e3a2b7360baaba9c1765f7c89",
+    "test_only": true,
+    "capacity": 32,
+    "genuine_target_and_historical_helpers_unchanged": true,
+    "all_five_runtime_cases_require_positive_armed_valid_released_flushed_target1_equal_replay_nooverflow": true,
+    "evidence_is_controlled_test_arrivals_not_production_FIFO": true
+  },
+  "retained_failed_pure_PFP": {
+    "source": "e517436acc84d8ed6aab5c073381e8f26e7a3114",
+    "run_id": "39147054910",
+    "actual_passed": 3,
+    "actual_failed": 2,
+    "actual_ignored": 0,
+    "restored_setup_prerequisite_failed": true,
+    "receipt_sha256": "681050540e06b0cba42a532831476beb45768e15d5253fe7611066548e3a07d0",
+    "does_not_qualify": true
+  },
+  "retained_compile_failure": {
+    "source": "62b60ae9765dfe58c7fa9759c059ddbbe2151af2",
+    "run_id": "39148978891",
+    "runtime_bodies_executed": 0,
+    "compiler_exit_code": 101,
+    "safe_code": "E0609",
+    "unique_safe_site": "pending_restart_acceptance.rs:221:31",
+    "receipt_sha256": "a28e5626573f8e8fdef9b056b46f5c36e3690509039c98e3496dab60255e7788",
+    "behavioral_RED": false
+  },
+  "owner_diagnostic_adaptation": {
+    "source": "c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee",
+    "semantics": "unified publication is a handshake only for Request or Consent; retain same closed observation and assertions",
+    "product_behavior_changed": false
+  },
+  "watch_pressure": {
+    "source": "773226ecb137f5e7a637a2f10c9efed366b25fee",
+    "formatted_source": "d9cef842e698f274530d0ffd71ec7cc77682e5b3",
+    "test_only": true,
+    "real_hint_sends": 8,
+    "actual_service_returns": 8,
+    "product_watch_offer_adopted": true,
+    "shared_fixture_serialization": true,
+    "source_patch_sha256": "6778202ece5804e8f6c66a2d29e820347d62d27b927d91411321e44eda0ec56d",
+    "exact_hosted_format_patch_sha256": "2e3ecb2f0c63a27aedf633362c44d8b1462d2d46c3b8002c00a161ac989811c0",
+    "runtime_evidence_reused": false,
+    "product_source": "cbdbaf5a31f707de3c37509150e54d00f4f2b524",
+    "component_PFP_verified": false
+  },
+  "watch_product": {
+    "path": "crates/marmot-app/src/runtime/account_worker.rs",
+    "git_mode": "100644",
+    "before_sha256": "340064e1b1b843ddc0957049c2f415b3de04bea9af3202a5046e24035dccb517",
+    "after_sha256": "3c2d1f25bae154ff1fdb8c15cbe26a15dfd3791421c66c152129e1a040b11719",
+    "edits": [
+      {
+        "before": "    let mut sibling_completions_open = true;",
+        "after": "    let mut sibling_completions_open = true;\n    #[cfg(feature = \"experimental-device-sync\")]\n    let mut sibling_completion_input_service_owed = false;"
+      },
+      {
+        "before": "                        { sibling_completions.changed().await }",
+        "after": "                        {\n                            if sibling_completion_input_service_owed {\n                                // Offer other ready input without consuming a watch version.\n                                sibling_completion_input_service_owed = false;\n                                tokio::task::yield_now().await;\n                            }\n                            sibling_completions.changed().await\n                        }"
+      },
+      {
+        "before": "                                    tracing::debug!(target: \"marmot_app::device_linking\", method = \"worker_sibling_completion\", \"sibling publication completion deferred\");\n                                }\n",
+        "after": "                                    tracing::debug!(target: \"marmot_app::device_linking\", method = \"worker_sibling_completion\", \"sibling publication completion deferred\");\n                                }\n                                sibling_completion_input_service_owed = true;\n"
+      }
+    ]
+  },
+  "reviewed_watch_RED_control": {
+    "source": "b36fcf08e36c31a50cef5860012cbd36dbc08bd4",
+    "run_id": "39150421926",
+    "artifact_id": 12145366142,
+    "artifact_sha256": "45af8f5748cd6db317728a30c359af9595e1f67a8387951bb65ffc439434d1fa",
+    "receipt_sha256": "a912b0b1a337ceeb72a15c8ba352ee73b78886438dab4e9636d45597f80eb299",
+    "watch_pressure_RED_verified": true,
+    "all_required_prerequisites_and_cleanup": true,
+    "actual_passed": 1,
+    "actual_failed": 1,
+    "actual_ignored": 0,
+    "actual_executed_nonignored": 2,
+    "compiler_error_count": 0,
+    "same_binary_sha256": "cc93987e2ecf41462407eda2c9c38a130473ee0c1473860ef0322b5a16ccd118"
+  },
+  "native16": {
+    "source": "2ba362f3e8cb41a91088f3d011e734218cbe0b7c",
+    "immutable_inventory_helper": "scripts/qualify_upstream_request_retry_ack.py",
+    "case_count": 16,
+    "includes_serial_stress": 3,
+    "includes_paused_clock": 1,
+    "runtime_result_reused": false,
+    "same_strict_oracles": true
+  },
+  "strict_App_statics": {
+    "cohorts": [
+      "default",
+      "experimental"
+    ],
+    "runtime_bodies": 0,
+    "requested_features_and_unbound_cached_unit_features_distinguished": true
+  },
+  "test_observer_style": {
+    "source": "e5135f7e8460cfabce8a9e12abd428636d48502c",
+    "formatted_source": "f9cd5e1f042122c6ba9785ab471c457a64f3c247",
+    "exact_hosted_format_patch_sha256": "5b90bf8bdb4c11dbf2f9089a36f185bbae09d15a3bb5916fa033ca2a878e9fe8",
+    "scope": "test-support tuple aliases and equivalent ingress activation condition; unchanged facts/assertions/deadlines",
+    "runtime_evidence_reused": false
+  },
+  "directed": {
+    "ordinary_controller": "scripts/qualify_upstream_pure_directed.py",
+    "controller_sha256": "a8f60c6c82defd7a421365f39eb8d55db3b904677064a04839b49be42ddf7f3f",
+    "ordinary_oracle": "scripts/pure_directed_snapshot_oracles.py",
+    "ordinary_manifest": "scripts/pure_directed_source_manifest.json",
+    "none_are_owned_metadata_exemptions": true,
+    "historic_guards_mains_globals_used": false,
+    "runtime_evidence_reused": false
+  },
+  "watch_source_transfer": {
+    "path": "crates/marmot-app/src/runtime/account_worker.rs",
+    "git_mode": "100644",
+    "candidate_baseline": "a9b6a59407c2b4c23781a32d1fc47c01603778ca",
+    "historical_source": "b36fcf08e36c31a50cef5860012cbd36dbc08bd4",
+    "upstream_old_source": "5247c0846da5cd9fc4d3ce42158507dbe3c22c0a",
+    "upstream_new_source": "56d43f7d89938cadff448a03d79930f2c188af1b",
+    "historical_worker_sha256": "0d5356aff9da14971d406f9835a0569c446b3035c0dbae3f4c3134b870010071",
+    "old_upstream_worker_sha256": "141b7b32b5e1b7597616b0ad876b3ff65ae0c3cfb484172cd3e7a87d7c06105a",
+    "new_upstream_worker_sha256": "31a3c3c620772a1fbf511765f98de9e0ff9a5db137270eb663077f083ceb29af",
+    "new_omission_worker_sha256": "340064e1b1b843ddc0957049c2f415b3de04bea9af3202a5046e24035dccb517",
+    "edits": [
+      {
+        "before": "    let storage = client.app.account_storage(&client.state.label)?;\n    let transport = client.blossom_http_transport.clone();\n",
+        "after": "    let storage = client.app.account_storage(&client.state.label)?;\n    let transport = client.blossom_http_transport.clone();\n    let group_image_server = client\n        .app\n        .deployment()\n        .group_image_endpoint_or_fallback(None);\n"
+      },
+      {
+        "before": "            let transport = transport.clone();\n            async move { crate::media::avatar::fetch(&descriptor, &transport).await }\n",
+        "after": "            let transport = transport.clone();\n            let group_image_server = group_image_server.clone();\n            async move {\n                crate::media::avatar::fetch(&descriptor, &group_image_server, &transport).await\n            }\n"
+      }
+    ]
+  }
+}

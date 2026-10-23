@@ -1,0 +1,150 @@
+{
+  "scope": "Thin opaque selected-chat request/consent bindings; default denial; no capability advertisement or native artifact adoption.",
+  "base": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+  "original_uniffi_red_stash": "b518d93d2e582f65e4b843c0ff55c7aebeab325a",
+  "original_c_red_stash": "f2808fe2e86c604cac729fad60be8b5eb7e49559",
+  "qualified_eight_gate_stash": "21d40725d51c36032343fc6c5a6980ffd07d2576",
+  "qualified_source": {
+    "head": "64a5880a7e018b37810f87aba95f36dca010e7ad",
+    "behavioral_fixture_sha256": "5acfeb2d1fc13b73bef9832beb378f94b73719ea9cbad28b881c3360bfe80030",
+    "input_count": 2434,
+    "source_manifest_sha256": "6b9be92ad1f66401a7f203b13446be984c6e3227a8dd0f1eb1e3297d4fa3d614",
+    "gates": [
+      {
+        "gate": "c-real-green",
+        "exit_code": 0,
+        "seconds": 66.11,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "11382122ca1e70e2a50efe80008470a1b00ba268b2f6a60f581f7808ef12d4db"
+      },
+      {
+        "gate": "c-feature-controls",
+        "exit_code": 0,
+        "seconds": 0.29,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "b5ca5d59647ef660ac7b53021300654d576c8221ad0eb2c114fbb6c9fbe00376"
+      },
+      {
+        "gate": "c-default-controls",
+        "exit_code": 0,
+        "seconds": 40.3,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "626603eb78eeff677da9554b23490c1bd8516ac4dca4eeb01d1292ee14b81d23"
+      },
+      {
+        "gate": "uniffi-controls",
+        "exit_code": 0,
+        "seconds": 52.65,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "c17844902222c5e07f36c94a53eb1a0e871cbb65b5f87967528a413734e5caf0"
+      },
+      {
+        "gate": "uniffi-default",
+        "exit_code": 0,
+        "seconds": 29.36,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "724188743eabace63100749066015aa3e9568c58282ad0f64d3d990d041a08d2"
+      },
+      {
+        "gate": "production-clippy",
+        "exit_code": 0,
+        "seconds": 31.95,
+        "counts": [],
+        "log_sha256": "3165822aba785d1783b565557d4fc0e99709a5ffd75e947806e15bad0e984ad2"
+      },
+      {
+        "gate": "default-check",
+        "exit_code": 0,
+        "seconds": 23.21,
+        "counts": [],
+        "log_sha256": "dcdf15b3fda32c5e283114ea6023e475687559332755a6735657f9d92fcc6756"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.45,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "header": {
+    "command": [
+      "/Users/pj/project/build/NativeBindingTools/bin/cbindgen",
+      "--config",
+      "crates/marmot-c/cbindgen.toml",
+      "--crate",
+      "marmot-c",
+      "--output",
+      "crates/marmot-c/include/marmot.h",
+      "crates/marmot-c"
+    ],
+    "exit_code": 0,
+    "seconds": 34.96,
+    "tool_version": "cbindgen 0.29.4",
+    "tool_sha256": "ca40468bfbd230290ff4b172fa526385b055c46d79bbc9b5e55358358935fcd7",
+    "log_sha256": "1c309bec66ce8b620c2244856fa775a5ade1bc3e59bb667634d6b63c48105397",
+    "header_sha256": "8f688d2b024e3400570c5072f1feaff923fcb59ae41ce37ae7e65e9035b7981d"
+  },
+  "documentation": {
+    "uniffi_callables": 376,
+    "c_callables": 557,
+    "parity_exports": 363,
+    "documentation_regressions_passed": 17
+  },
+  "actual_acceptance": [
+    "Real protected ABC and ordinary A/D setup precede both constructor RED failures.",
+    "UniFFI original objects drive explicit consent, exact private offers, source InviteConfirmed, four independent MLS members and a new message observed on all four.",
+    "C aliases outlive the first handle free; callback-safe snapshot, packet bounds and displayed revisions, original consent/offer/continuation and actual four independent MLS members pass.",
+    "C allocation audit and binary snapshot deep frees return to baseline; default factories reject before account effects."
+  ],
+  "prior_attempts": [
+    "Initial UniFFI compile-only failure referenced a private TransportEndpoint reexport; corrected fixture imports before actual RED.",
+    "Initial C compile-only failure used CFree on an opaque handle; corrected to existing free_plain before actual RED.",
+    "C v2 targeted test passed because helper was placed in a different singleton fixture; this is wiring evidence, not RED. Corrected placement produces v3 real NotReady failure."
+  ],
+  "post_freeze_delta": [
+    "Generated C header, authored API references/ownership guide, qualification JSON and these instruction notes only. No runtime or behavioral test changes after eight green gates."
+  ],
+  "pending": [
+    "Full binding suites and external C/Swift generated-language ABI checks on this source.",
+    "Matching native artifacts and application adoption.",
+    "Incoming selected Welcome SQL retry is a separate root-owned regression.",
+    "History transfer, selected-chat capability advertisement and recipient e-tag comparison remain unqualified."
+  ]
+}

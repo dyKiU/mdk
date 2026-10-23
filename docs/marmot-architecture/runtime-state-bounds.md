@@ -24,6 +24,64 @@ Tracking issue: marmot-protocol/mdk#381.
 
 ## Inventory
 
+### Experimental Core automatic-sharing originals
+
+Each `OwnedAccountSharingChannel` retains one signed request, one signed consent,
+one recipient-only HPKE key pair and at most 128 immutable sealed bodies. Plain
+bodies are at most 1536 bytes and canonical signed wire frames at most 16 KiB.
+Same-sequence different-kind/body retries refuse; capacity exhaustion refuses
+before adding another entry. These are original action resources, not convergence
+policy or a persisted ongoing journal. Fixed actor expiry, cancellation and Engine
+destruction deny access; explicit retirement and final drop release the keys and
+retry buffers. HPKE private keys use upstream `SecretVLBytes` zeroization on drop.
+The protected carrier additionally retains at most 130 frozen encrypted controls
+and their successful wrappers per original (the 128 body budget plus handshake
+allowance); expiry/cancellation deny retries and retirement/drop reclaim them.
+No channel registry, automatic actor renewal or durable send queue is introduced
+by this Core foundation.
+
+### Experimental native device enrollment (`marmot-app`)
+
+These are account-owned UI/transport resources, not convergence policy or
+serialized authorization. The original SDK/received-action lifetime remains the
+only positive authority.
+
+| Structure | Bound | Reclamation |
+| --- | --- | --- |
+| `native_approval_handles` weak registry | 128 entries across one account manager; observations come from at most 128 retained authenticated proposals per account. Entries hold only correlation, a weak handle, and the original receipt deadline. | Every listing prunes expired entries globally and disappeared observations for that account. A dropped last handle stays negative while its exact observation remains; it cannot be recreated by polling. Manager destruction releases the registry. |
+| Shared opaque approval handle | One shared process-local state per registry entry, one operation mutex, one snapshot, at most one 16 KiB admitted packet. Caller-held references never create another original action. | Explicit cancel and last-reference drop cancel the exact original binding; actor cancellation/expiry/shutdown revoke the underlying action. Packet retries use the same retained action and exact bytes. |
+| `NativeEnrollmentIntent` | One per account actor, sharing the original scope; one bounded retry timestamp and publication flags. | Exact cancel, lost reply, new reservation, original owner revocation/expiry, and actor drop clear it. A recipient awaiting endorsed metadata retains its actual unconsumed SDK/purpose, not a row-derived guard. |
+| Session enrollment packet caches | At most one exported and one admitted packet, each no larger than 16 KiB, per caller-held original session. | Session drop/cancel closes access and schedules exact original cleanup; cached public packets never permit proof reconstruction or extend the original deadline. |
+| Unapproved cancellation tombstones | Existing 128-entry negative-action bound; each uses its exact retained proposal's acquisition deadline. | Idempotent cancellation does not add another entry; actor maintenance prunes expired entries and actor destruction clears the set. |
+
+
+### `marmot-app` selected ordinary-chat requests (`src/selected_chat_copy/enabled.rs`)
+
+| Structure | Bound | Reclamation |
+| --- | --- | --- |
+| Account request slot | One weak request per live account worker; independent checked generation and immutable 600-second monotonic deadline. Retains one ordinary group/epoch/local-leaf anchor and canonical roster digest, one validated protected roster (existing 128-leaf bound), and a random request nonce. Selectors are bounded to 256 bytes. This is a native consent-owner bound, not a convergence policy. | Exact handle cancel/Drop retires only that original request. Expiry, generation change and account-client destruction close access; terminal observations are sticky. A replacement can occupy the slot only after the prior request is negative or dropped. An abandoned worker reply cancels its exact original state. No timer, registry, SQL permission, KeyPackage or transport work is retained. |
+
+
+Selected-chat receipt identities additionally retain at most 128 negative bindings
+per account-client lifetime, each with its immutable original 600-second receipt
+clock and a weak original-consent reference. Exact reimports share that original
+state/public handle, never renew clocks, and cannot revive a dropped/cancelled
+owner. Only one live sibling consent owner is admitted per account. Full admission
+returns Busy before allocation. Account teardown reclaims identities and ends all
+original owners; reopening metadata requires new explicit approval and supplies
+no old recipient-purpose grant. Shared public-handle Drop cancels the original
+state only when the last public handle disappears, independently of RPC custody.
+Request and consent packets are canonical metadata bounded to 16 KiB, signed by
+actual indexed protected MLS device keys; no exporter secret or database copy is
+retained. Exact-source receipt observations are bounded by the selected sibling
+count (at most 127) and never grant Add or recipient admission.
+
+Each original request additionally retains at most one canonical approved response
+and one exact offer frame plus parsed authenticated package per selected sibling
+(at most127). Each wire frame is bounded to16 KiB. These caller-owned observations
+share the original request deadline and cannot restore an owner or recipient lease;
+request destruction reclaims them. No durable publish queue or timer is added.
+
 ### `marmot-app` audit export admission (`src/audit_export_lifecycle.rs`)
 
 | Structure | Bound | Reclamation |
@@ -285,3 +343,101 @@ Transiently failed selected routes stay pending; serviced or unattempted routes
 never erase unresolved coverage. Retained inventory may be narrower than older
 coverage debt. This adds no disk-cap claim for the previously approved unresolved
 loss-generation watermark exception.
+
+### Selected-chat private-package cleanup
+
+The experimental account actor retains at most 128 exact private-package cleanup
+identities, keyed by KeyPackage reference and containing the original scope plus
+a Weak reference to the original consent owner. This is an account-local owner
+resource, not a convergence policy. Repeated offers reuse one entry. Cancellation,
+expiry and last shared public-handle Drop make the entry eligible for exact atomic
+bundle deletion plus a retained Denied tombstone on the existing maintenance turn;
+failed storage cleanup remains queued. SQL facts never restore the weak owner.
+Exclusive account reopen atomically abandons pending packages after checking each
+actual private bundle's account, signer, bytes and reference. Durable capacity
+counts terminal tombstones and fails closed at 128 rather than forgetting refs.
+
+
+### Original selected-chat publication and private transport carrier
+
+One original process-local request retains at most 127 authenticated sibling offer slots (bounded further by the actual protected roster), each with a canonical wire packet of at most16KiB and its verified event ID. Each original consent retains at most one exact signed envelope of at most16KiB; cancellation/expiry/last-handle Drop/account teardown revoke ownership without resetting deadlines. One request retains one prepared ordinary Invite, its exact pending/origin/group, frozen Commit/Welcomes under existing MLS/Invite limits, one actual ACK report and one unobserved confirmation-effects batch. ACKed slots advance rather than accumulating retry history. Negative pending cleanup is capped at128 exact identities with Weak original owners; retries retire only the exact pending or already processed local origin, never a later canonical epoch/another pending slot. These are account-local owner resources, not convergence policies or serialized grants. Durable selected-purpose tombstone bounds remain unchanged.
+
+Selected Welcome storage retries retain at most one original transport observation
+per account worker, with a payload cap of 512 KiB, a Weak reference to the exact
+approved consent, its original revision, purpose scope and package reference. A
+retry timer keeps its monotonic deadline across command-driven select cancellation;
+queries do not restart its one-second delay. Each retry re-enters ordinary Core
+admission, which checks the original owner and purpose again. A Pending SQL row
+only excludes an already committed join and cannot reconstruct permission. No
+serialized queue, renewed consent deadline or positive lifetime retention is added.
+Cancellation, expiry and owner loss release the retained observation without join.
+
+
+### Original opt-in history actor transport
+
+Per account, at most128 process-local history owners retain a fixed600-second
+monotonic deadline. A source freezes at most200 logical records in one canonical
+archive of at most196608 bytes; a201-row query detects overflow and rejects the
+whole snapshot. Each original owner retains at most128 incoming frames, each at
+most16KiB, and Core retains at most129 frozen outbound control slots. Ordered
+archive fragments are at most1536 bytes, at most128. This is a per-account bound;
+there is no newly introduced global process credit. Keys remain original-owned
+and are retired, not restored from staged/imported rows. Completed receipts are
+observations; pending SQL rows never schedule new approval or transport.
+
+Initial checkpoint limits: active entries are bounded but terminal transfer IDs
+are not yet retained, so fresh-outer replay can recreate a canceled owner. SQL
+failure during negative cleanup can lose its removed entry, and postcommit
+receipt-seal failures require completion-observation repair. These are immediate
+regression/fix work, not qualified lifecycle behavior. No native adoption claim.
+
+The subsequent fresh-outer replay repair retains at most128 transfer IDs across
+active and terminal entries for the whole account-owner lifetime. Retirement no
+longer frees the ID budget or permits a received identical signed Request to
+create a new deadline. These IDs are negative process-local facts, never keys,
+consent or restart authority. The real relay/MLS regression sends a newly
+ratchet-encrypted outer frame from the unchanged original source after actual
+recipient retirement; duplicate ciphertext is not used as evidence. SQL cleanup
+and source retention privacy repairs described above remain open.
+
+Source snapshot visibility is now captured before record serialization;
+expired-unpruned logical rows consume the same bounded record slot as a
+zero-payload tombstone. Recipient retention is not relied on to undo source
+plaintext disclosure. This does not qualify later expiry during stalled
+publication or the remaining negative staging cleanup/bookkeeping controls.
+
+The subsequent staging and publication repairs retain failed exact negative SQL
+cleanup within the same128-owner budget, with original keys retired, and record
+committed import observations before fallible sealing. Publication waits observe
+original revocation, unchanged deadline, abandoned continuation and one cloned
+negative runtime lifecycle watch per account. The watch has only the terminal
+boolean and adds no history, grant or scheduling permission; replacement on
+managed-client handoff does not restore channels. Fixed expiry and runtime
+shutdown pass real held-Chunk controls; durable request-ID restart fencing and
+source retention expiry after snapshot remain unqualified.
+
+Private revision15 adds a separate durable negative history request fence: at most
+128 cumulative account-device rows, each holding only32-byte account, local-device,
+transfer and request digest fields. Active and terminal observations share this
+budget; encrypted reopen never recycles it and exhaustion fails closed. There is
+no persisted approval, deadline, key, archive or positive restore API. Actual Core
+addressed request/source authentication precedes the atomic first observation.
+The existing process-local128 owner/terminal-ID budget remains unchanged. This is
+a bounded experimental anti-replay limit, not an unbounded ongoing-sync journal
+or a new convergence scheduling policy. Actual encrypted reopen replay and fresh
+distinct request controls pass alongside immutable-row, rollback and capacity tests.
+
+### Original one-group device revocation review
+
+The default-off `AccountRevocationOwner` retains one weak current original and a cumulative process-client creation count capped at128. Each original holds one bounded Core selection (at most128 indexed ordinary and protected leaves), its captured600-second monotonic deadline and exact cancellation flag. Cancel/last handle Drop/expiry end that original; client Drop invalidates all retained handles. New explicit captures require fresh actual Core authority and cannot reuse old selections across Engine/client reopen. The budget is not recycled within a client lifetime. No SQL positive approval, Remove, retry queue or permission is created by this review-only checkpoint. These are process-local owner resource limits, not convergence scheduling policy.
+
+The exact ordinary-leaf revocation owner additionally retains one pending/origin/group/Weak-original negative cleanup identity per account. Original memory holds one prepared generated Commit/report/confirmed effects, never an account-level removal intent or durable positive authority. Retry uses the same original fixed 600-second deadline; cancellation/Drop/expiry only schedule exact negative retirement. Confirmation is retained before fallible projection reads; the cumulative 128-original account-client budget is unchanged.
+
+
+### Exact-device captured-scope removal checkpoint
+
+Device revocation retains one weak current original, a cumulative 128-original budget, at most 128 captured selections per original, one current pending Commit/report/effects and its exact negative cleanup identity. The original 600-second deadline never renews. Admission currently refuses more than 128 total stored group IDs before filtering; this explicit account-wide liveness limit is separate from convergence policy.
+
+### Original protected Remove settlement custody
+
+Each originating Engine retains at most128 distinct group/canonical-Commit-digest identities across live receipts and captured Remove intents, including terminal entries. Receipt slots are acquired only from actual live delivery after durable content dedup and a matching Completed predecessor. Retries only shorten/preserve the first acquisition deadline. Source intents retain the original approved action's fixed600-second deadline; receiver intents retain the original transport acquisition deadline. Intent fields are bounded actual roster/identity/digest metadata and optional original source lease, never serialized approval. Engine Drop retires all custody; stored rows cannot renew it. The private publisher observes the same opaque admission lifetime, including source cancellation, with a25ms negative liveness check during blocked transport. Positive same-client storage retry and blocked successor-settlement controls remain unqualified.

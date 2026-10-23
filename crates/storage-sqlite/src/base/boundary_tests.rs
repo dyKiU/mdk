@@ -100,15 +100,83 @@ struct SourceFile {
 
 /// Which side a file is on, or `None` when the boundary does not scan it.
 fn side_of(rel: &str) -> Option<Side> {
-    if rel.starts_with("base/migrations/") {
-        return None; // Migration bodies: schema history.
+    classified_side(rel).unwrap_or_else(|reason| panic!("{reason}: {rel}"))
+}
+
+/// Retained root paths have explicit owners, just like the upstream folders.
+/// New production roots must be reviewed rather than silently escaping the scan.
+fn classified_side(rel: &str) -> Result<Option<Side>, &'static str> {
+    // #[path] children keep lexical `base/../` components in walk_file. Resolve
+    // only those components, without following symlinks or changing source files.
+    let mut components = Vec::new();
+    for component in rel.split('/') {
+        match component {
+            "" => return Err("unclassified production storage file"),
+            "." => {}
+            ".." => {
+                if components.pop().is_none() {
+                    return Err("unclassified production storage file");
+                }
+            }
+            value if value.contains(':') || value.contains('\\') => {
+                return Err("unclassified production storage file");
+            }
+            value => components.push(value),
+        }
+    }
+    let normalized = components.join("/");
+    if normalized.is_empty() {
+        return Err("unclassified production storage file");
+    }
+    let rel = normalized.as_str();
+    if rel.starts_with("base/migrations/") || rel.starts_with("private_migrations/") {
+        // Both frozen migration lineages are schema history. The fresh database
+        // and immutable private-ledger tests cover their resulting schema.
+        return Ok(None);
     }
     match rel.split('/').next() {
-        Some("protocol") => Some(Side::Protocol),
-        Some("app") => Some(Side::App),
-        Some("base") | Some("lib.rs") => Some(Side::Base),
-        // `cross/`, `shared` (a separate database), and the feature-gated media
-        // store benchmark, which opens whole account stores.
+        Some("protocol") => Ok(Some(Side::Protocol)),
+        Some("app") => Ok(Some(Side::App)),
+        Some("base") | Some("lib.rs") | Some("private_migration_ledger.rs") => Ok(Some(Side::Base)),
+        // The relocated feature-gated benchmark opens whole stores.
+        Some("cross") | Some("shared") | Some("shared.rs") | Some("media_store_bench.rs") => {
+            Ok(None)
+        }
+        Some(root) => private_root_side(root.strip_suffix(".rs").unwrap_or(root))
+            .map(Some)
+            .ok_or("unclassified production storage file"),
+        None => Err("unclassified production storage file"),
+    }
+}
+
+/// Ownership follows the actual Engine/App contract, not the private namespace.
+/// See cross/private-ownership.md for the callers and each retained crossing.
+fn private_root_side(root: &str) -> Option<Side> {
+    match root {
+        "accepted_welcome"
+        | "accepted_device_group_anchor"
+        | "existing_device_group_anchor"
+        | "revoked_device_group_anchor"
+        | "private_device_invite"
+        | "device_group_genesis"
+        | "private_group_privacy"
+        | "private_roster_settlement"
+        | "roster_ack_capture"
+        | "device_linking_key_package"
+        | "selected_chat_key_package" => Some(Side::Protocol),
+        "device_linking"
+        | "synchronized_history"
+        | "account_chat_departure"
+        | "account_chat_legacy_acceptance"
+        | "account_chat_origin_observation"
+        | "account_chat_record_stream"
+        | "account_chat_send_queue"
+        | "account_chat_source"
+        | "approved_account_sharing_policy"
+        | "mirrored_chat_catalog"
+        | "mirrored_chat_messages"
+        | "mirrored_chat_edits"
+        | "mirrored_chat_presentation" => Some(Side::App),
         _ => None,
     }
 }
@@ -505,7 +573,11 @@ fn path_target(path: &[String], root: &BTreeMap<String, Side>) -> Option<(Side, 
         "app" => Side::App,
         "protocol" => Side::Protocol,
         "base" => Side::Base,
-        name => return root.get(name).map(|side| (*side, format!("crate::{name}"))),
+        name => {
+            return private_root_side(name)
+                .or_else(|| root.get(name).copied())
+                .map(|side| (side, format!("crate::{name}")));
+        }
     };
     // `storage` and `transport` are folders of modules; name the module inside them.
     let folder = path
@@ -530,7 +602,11 @@ fn root_reexports(lib: &syn::File) -> BTreeMap<String, Side> {
                 Some("app") => Side::App,
                 Some("protocol") => Side::Protocol,
                 Some("base") => Side::Base,
-                _ => continue,
+                Some(name) => match private_root_side(name) {
+                    Some(side) => side,
+                    None => continue,
+                },
+                None => continue,
             };
             map.insert(path.last().unwrap().clone(), side);
         }
@@ -733,6 +809,56 @@ fn cfg_predicates_skip_only_test_builds() {
     assert!(!starts_test_only(stmt.to_token_stream()));
     let stmt: syn::Stmt = syn::parse_str("#[cfg(test)] let x = 1;").unwrap();
     assert!(starts_test_only(stmt.to_token_stream()));
+}
+
+#[test]
+fn unknown_production_roots_cannot_escape_boundary_scan() {
+    assert_eq!(
+        classified_side("media_store_bench.rs"),
+        Ok(None),
+        "the upstream whole-store benchmark is explicitly neutral"
+    );
+    let files = production_files();
+    let histories: Vec<_> = files
+        .iter()
+        .filter(|file| file.rel.starts_with("base/../private_migrations/"))
+        .collect();
+    assert_eq!(
+        histories.len(),
+        20,
+        "exercise every declared private history alias"
+    );
+    assert!(
+        histories.iter().all(|file| file.side.is_none()),
+        "declared migration aliases are schema history, never Base-owned SQL"
+    );
+    let ledgers: Vec<_> = files
+        .iter()
+        .filter(|file| file.rel == "base/../private_migration_ledger.rs")
+        .collect();
+    assert_eq!(ledgers.len(), 1, "exercise the actual private ledger alias");
+    assert_eq!(ledgers[0].side, Some(Side::Base));
+    for unregistered in [
+        "future_account_storage.rs",
+        "future_extension/new_store.rs",
+        "private_unregistered_owner.rs",
+        "base/../private_unregistered_owner.rs",
+        "private_migrations/../private_unregistered_owner.rs",
+        "../app/account_projection.rs",
+        "base/../../app/account_projection.rs",
+        "/app/account_projection.rs",
+        "C:/app/account_projection.rs",
+        "base\\..\\private_migrations\\0009_private_group_chat_exclusion.rs",
+        "base/..",
+        ".",
+        "",
+    ] {
+        assert_eq!(
+            classified_side(unregistered),
+            Err("unclassified production storage file"),
+            "a new production root must declare its ownership before shipping"
+        );
+    }
 }
 
 #[test]

@@ -1,0 +1,82 @@
+{
+  "scope": "Core original manifest-bound ordered inner crypto/MLS framing; not App committed history import or production Nostr envelope size qualification",
+  "base": "dd3b328f44b7d35b864f60df2b78caed28067a7f",
+  "original_red_stash": "f7a227041b86cc28574dc1123c718ff271e859ab",
+  "final_candidate_stash": "924ffea4064e99350bfc628ac70ee8ae09da2c0d",
+  "source_manifest_sha256": "9f71f602979d508914969b3379c410995910f8d99559e419e2ca379d55c4aad4",
+  "input_count": 2460,
+  "source_manifest_format": "Direct relative path to dereferenced SHA256; tracked plus untracked source",
+  "all_frozen_inputs_match_pre_documentation_candidate": true,
+  "genuine_red": {
+    "passed": 0,
+    "failed": 1,
+    "runtime_seconds": 1.57,
+    "log_sha256": "8a6ee755b2901b64daa722ef396100b882d28b59868181ec9e0c3ae8dccfbea0",
+    "reason": "Same original pair consent reaches explicit ordered-history NotReady at first indexed chunk"
+  },
+  "final_gates": [
+    {
+      "gate": "focused",
+      "exit": 0,
+      "seconds": 35.98013520240784,
+      "log": "/Users/pj/project/build/history-channel-ordered-green-v2-focused.log",
+      "log_sha256": "dcee12b6b15c73fc3b5faf58afbffde6e1ec405d5cd0f482ca9a7558861c0b0c"
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 9.625761032104492,
+      "log": "/Users/pj/project/build/history-channel-ordered-green-v2-production-clippy.log",
+      "log_sha256": "19d5515bf56150a4daac7cd844009464c8bd091b381da7930ec6414d820012be"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 7.310733795166016,
+      "log": "/Users/pj/project/build/history-channel-ordered-green-v2-default-check.log",
+      "log_sha256": "bdc75d3dc0dc365f536177d89be9acb1d0dcd919c7346c557aa6c96ce9ae6b85"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.4501352310180664,
+      "log": "/Users/pj/project/build/history-channel-ordered-green-v2-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 10,
+    "failed": 0,
+    "ignored": 0
+  },
+  "limits": {
+    "max_chunk_plaintext_bytes": 2048,
+    "max_ordered_chunks": 128,
+    "max_original_outbound_controls": 129,
+    "max_plaintext_transfer_bytes": 262144,
+    "each_control_wire_upper_bound": 16384
+  },
+  "coverage": [
+    "Exact original transcript, manifest digest, ordinal and role bound in HPKE AAD and device-leaf signature",
+    "Source advances only after same-original authenticated ordinal receipt; recipient cannot receipt unopened ordinal",
+    "Maximum2048B actual Core MarmotAppEvent/MLS ciphertext with PassthroughPeeler fits16KiB; exact frozen wrapper retry",
+    "Immutable same-body retry, changed-body/manifest/future ordinal/overbody/expired owner refusal",
+    "Signed manifest/ordinal/role/generation mutation on exact unopened recipient fails, leaving original unbound; unchanged genuine frame succeeds"
+  ],
+  "prior_lint_failure": {
+    "prefix": "history-channel-ordered-green-v1",
+    "focused_passed": 9,
+    "clippy_exit": 101,
+    "log_sha256": "3a600a7d7cac2dea3b87dd52a8b41a86fe91af14ae88d0b809ebf1cb5ac87906",
+    "correction": "Equivalent outbound bound comparison; added original-unopened substitutions and strict zero ordered metadata on request/consent, final full10+production/default/fmt rerun"
+  },
+  "remaining_acceptance": [
+    "Receipt fixture is synthetic bytes, NOT committed SQL receipt or membership permission",
+    "Actual App immutable record export/manifest/count/fragmentation, recipient explicit original consent/import receipt semantics remain open",
+    "Entire bounded encoded archive including manifest must fit128\u00d72048; fragment large logical records or reject complete oversize snapshot before consent, never silently truncate",
+    "Actual protected thirdC outer-MLS decrypt yet cannot innerdecrypt remains App acceptance",
+    "Passthrough max-frame assertion is NOT production Nostr envelope sizing; actual signed/encrypted relay maximum-frame test/size refusal required",
+    "App original history end-to-end genuine RED remains NotReady; no native history API/artifact adoption or completion claim"
+  ],
+  "post_freeze_changes": "Only Core AGENTS/README, human plan and compact proof appended"
+}

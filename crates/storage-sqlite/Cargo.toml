@@ -7,6 +7,7 @@ publish.workspace = true
 description = "SQLite storage backend for the CGKA engine with Marmot and OpenMLS state in one database."
 
 [dependencies]
+base64.workspace = true
 cgka-traits.workspace = true
 fs-private.workspace = true
 hex.workspace = true
@@ -32,6 +33,8 @@ tempfile.workspace = true
 tracing-subscriber.workspace = true
 
 [features]
+# Experimental archive storage and device-local verifier fences; enrollment and continuous sync remain separate.
+experimental-device-sync = []
 extensions-draft = ["openmls_traits/extensions-draft"]
 storage-format-benchmarks = []
 # Media file store benchmark (mdk#2314 step 0): `media_store_bench` (the

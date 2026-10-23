@@ -1071,6 +1071,8 @@ These tests keep the simulator machinery honest.
   work stays pending until the public acknowledgement arrives.
 - `regenerated_queued_intent_retries_then_retires_through_outbound_acknowledgement` proves a queued application is
   re-armed after definite failure, regenerated with a fresh artifact, and retired only after transport acceptance.
+  It services the virtual-time subject through deterministic bounded `Tick` slices at the pinned 1,000 ms cutoff;
+  an individual app maintenance call also has a cooperative wall-clock budget and need not drain a loaded runner.
 - `no_endpoint_outcome_is_rejected_after_recipient_exposure` prevents a caller from claiming definite non-publication
   after an artifact reached a recipient mailbox;
   `exposed_welcome_prevents_partial_commit_retraction_and_rollback` applies the same rule to the complete

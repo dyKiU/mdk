@@ -2,6 +2,39 @@ package dev.ipf.marmotkit
 
 /** Exercise generated record layout and enum discriminants, including presentation roles. */
 fun main() {
+    val pairedSource = PairedChatSourceFfi("device", "policy", ULong.MAX_VALUE, 2uL, 3uL, "digest")
+    val pairedSummary = PairedChatSummaryFfi("opaque-group", "Paired 🦀", "source observation", pairedSource)
+    for (peer in listOf(null, "ab".repeat(32))) {
+        val summary = PairedChatSummaryFfi("opaque-group", "", "source observation", pairedSource, peer)
+        val copy = FfiConverterTypePairedChatSummaryFfi.lift(FfiConverterTypePairedChatSummaryFfi.lower(summary))
+        check(copy == summary && copy.directPeerAccountIdHex == peer)
+        val header = AccountConversationHeaderFfi.PairedSource(summary)
+        check(FfiConverterTypeAccountConversationHeaderFfi.lift(FfiConverterTypeAccountConversationHeaderFfi.lower(header)) == header)
+    }
+    val pairedList = PairedChatListPageFfi(listOf(pairedSummary), "opaque-next")
+    check(FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(pairedList)) == pairedList)
+    val pairedRow = AccountChatRowFfi.PairedSource(pairedSummary)
+    check(FfiConverterTypeAccountChatRowFfi.lift(FfiConverterTypeAccountChatRowFfi.lower(pairedRow)) == pairedRow)
+    for (cursor in listOf(null, PairedChatMessageCursorFfi(ULong.MAX_VALUE, "canonical"))) {
+        val observation = PairedChatMessageFfi(9u, true, "canonical", "author", 1uL, null, false, "fixture 🦀", MarkdownDocumentFfi(emptyList(), false, byteArrayOf()), listOf(MessageTagFfi(listOf("e", "reply"))), emptyList(), pairedSource)
+        val activity = PairedChatSummaryFfi("opaque-group", "Paired 🦀", "source observation", pairedSource, latestMessage = observation)
+        val activityCopy = FfiConverterTypePairedChatSummaryFfi.lift(FfiConverterTypePairedChatSummaryFfi.lower(activity))
+        val latest = activityCopy.latestMessage!!
+        check(latest.content == observation.content && latest.createdAt == observation.createdAt && latest.expiresAt == observation.expiresAt && latest.source == observation.source)
+        check(latest.contentTokens.blankLinesBefore.contentEquals(observation.contentTokens.blankLinesBefore))
+        val activityPage = PairedChatListPageFfi(listOf(activity), null)
+        val activityPageCopy = FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(activityPage))
+        check(activityPageCopy.chats.single().latestMessage!!.content == observation.content)
+        val pairedPage = PairedChatMessagePageFfi(listOf(observation), cursor)
+        val pairedPageCopy = FfiConverterTypePairedChatMessagePageFfi.lift(FfiConverterTypePairedChatMessagePageFfi.lower(pairedPage))
+        check(pairedPageCopy.next == cursor && pairedPageCopy.messages.single().content == observation.content && pairedPageCopy.messages.single().tags == observation.tags)
+        check(pairedPageCopy.messages.single().contentTokens.blankLinesBefore.contentEquals(observation.contentTokens.blankLinesBefore))
+        val pairedWindow = AccountConversationWindowSnapshotFfi("original-window", ULong.MAX_VALUE, AccountConversationHeaderFfi.PairedSource(pairedSummary), listOf(AccountConversationRowFfi.PairedSource(observation)), cursor)
+        val copy = FfiConverterTypeAccountConversationWindowSnapshotFfi.lift(FfiConverterTypeAccountConversationWindowSnapshotFfi.lower(pairedWindow))
+        check(copy.generation == pairedWindow.generation && copy.sequence == pairedWindow.sequence && copy.header == pairedWindow.header && copy.nextBefore == pairedWindow.nextBefore)
+        val copiedRow = (copy.rows.single() as AccountConversationRowFfi.PairedSource).row
+        check(copiedRow.messageIdHex == observation.messageIdHex && copiedRow.tags == observation.tags && copiedRow.source == observation.source && copiedRow.content == observation.content)
+    }
     for (query in listOf(
         AccountAttachmentQueryFfi(emptyList(), emptyList(), null, null),
         AccountAttachmentQueryFfi(listOf("aa"), listOf("sender"), 0uL, ULong.MAX_VALUE),
@@ -240,4 +273,10 @@ suspend fun compileAutomaticAttachment(marmot: Marmot, account: String, group: S
         val result = marmot.requestAutomaticAttachment(account, group, target)
         check(!result.newlyQueued || result.status.state == AttachmentTransferStateFfi.QUEUED)
     }
+}
+
+// Distinct generated operations: close the original stream, then dispose its wrapper.
+private fun compileDeviceLinkingStreamClose(subscription: DeviceLinkingSubscription) {
+    subscription.closeStream()
+    subscription.close()
 }

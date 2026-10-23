@@ -160,6 +160,18 @@ still land on the same epoch and group state. The engine — not relay order or 
 | | [`incident-replay`](crates/incident-replay/README.md) | Triages forensic exports of real incidents into verdicts and simulator vectors |
 | | [`formal/tamarin`](formal/tamarin/README.md) | Tamarin models for convergence and lifecycle |
 
+## Experimental device enrollment
+
+The experimental private enrollment path now supports an original SDK-owned
+proposal through actual encrypted sibling approval and guarded Add preparation.
+It transfers the same lease, retains exact raw ciphertext on retry and preserves
+the shortest original approval clock. The genuine worker tests also cover a
+preparation request made before a sibling's approval arrives. C admission,
+existing-member transition and actual ABC settlement are still separate gates;
+this does not enable normal cross-device chat/history delivery. See
+[`device-sync-original-add-handoff-verification.json`](docs/device-sync-original-add-handoff-verification.json)
+for the precisely scoped source/test evidence.
+
 ## Development
 
 The toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml); most tasks run through [`just`](Justfile).
@@ -196,6 +208,9 @@ publishing stays serialized per ref so an older build cannot overwrite a newer
 `latest` image.
 
 Common targeted runs:
+
+Fork integration uses the [hosted Apple qualification lane](scripts/upstream_apple_ci/README.md)
+to build one experimental SDK cohort and verify pinned Mac, iOS and native acceptance consumers.
 
 ```sh
 cargo test -p cgka-engine
@@ -236,3 +251,7 @@ after 30 days, and don't count on going back to an older nightly. See [nightly b
 ## License
 
 [MIT](LICENSE).
+
+Original C admission now matches bounded all-leaf evidence to its original SDK
+context and purpose, then joins the actual three-leaf successor with atomic SQL
+rollback and exact retry. B transition and ABC settlement remain gated.

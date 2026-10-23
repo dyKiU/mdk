@@ -61,9 +61,10 @@ byte_id!(
 );
 
 byte_id!(
-    /// Cross-transport member identifier. Typically a signature public key.
-    /// Not an MLS leaf index — indices change as the tree evolves; this id
-    /// stays stable across epochs.
+    /// Cross-transport account credential identity (the Nostr account public
+    /// key in Marmot), shared by independently signing MLS device leaves.
+    /// Neither an MLS signature key nor a leaf index; it stays stable across
+    /// epochs and does not distinguish devices of the same account.
     MemberId
 );
 

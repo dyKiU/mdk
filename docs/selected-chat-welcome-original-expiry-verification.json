@@ -1,0 +1,150 @@
+{
+  "head": "684c75fb079be06e0cee7bae3939a3256fdf3947",
+  "input_count": 2446,
+  "source_manifest_sha256": "a450bf77e8a02e27efba185a82ebb16a8b044d78f94c5507090b777c68f16115",
+  "gates": [
+    {
+      "gate": "original-expiry",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "selected_chat_copy::tests::actual::selected_chat_welcome_original_expiry_during_storage_retry_cannot_admit_or_deliver",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 75.96,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "8927b104b54af9471738eca2c7f408db9df2e6043537b787a0f2664cedb1c99c"
+    },
+    {
+      "gate": "selected-family",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "selected_chat_copy::tests"
+      ],
+      "exit_code": 0,
+      "seconds": 59.18,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "32ee8a5b185b28b4d0b65a21db3807403a4e06112ba9a28e9685d8cd25c9e9d8"
+    },
+    {
+      "gate": "default-refusal",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "default_selected_chat_copy_is_unsupported_before_account_or_worker_effects"
+      ],
+      "exit_code": 0,
+      "seconds": 45.26,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "13354dfb2d94cfaf772999541ae3ab1d66ea2d87d6fa7d20150faad50ff0f57b"
+    },
+    {
+      "gate": "production-feature-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 28.77,
+      "counts": [],
+      "log_sha256": "9003511f83962da6ee086b03d45bdb42c0c0fc0b19ed5bc20be9fb88d68a35e7"
+    },
+    {
+      "gate": "default-all-target-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 22.61,
+      "counts": [],
+      "log_sha256": "28a716c98c8b3a38e11843e8e67d6169b6f66f923fb19bd71e9ade6147019549"
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.56,
+      "counts": [],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "classification": "Passing genuine negative acceptance control against existing expiry behavior; no semantic RED and no behavior fix.",
+  "candidate_git_stash": "17642ec04d10b58d8cdfd17a795a5b9e4becff50",
+  "original_consent_clock": "Fixture B captures a fixed 10-second monotonic lifetime at its original constructor. No renewal, clock advancement, or mutation of an existing owner. Production remains 600 seconds; override exists only with test + test-policy-overrides + experimental-device-sync.",
+  "verified_behavior": [
+    "Actual public ABC enrollment and independent ordinary A/D MLS chat precede new original consent.",
+    "Typed incoming selected Welcome SQL rollback retains Pending purpose, private bundle and original approved owner.",
+    "Original expiry refuses offer/reimport and retires the exact purpose/private bundle.",
+    "Removing the SQL fault cannot admit B or deliver new chat messages to it; actual A/C/D message delivery continues."
+  ],
+  "independent_verification": {
+    "candidate_input_bytes_matched": 2446,
+    "complete_raw_log_hashes_matched": 6
+  },
+  "artifacts": "backups/mdk-sync-delivery-20261009 in the parent workspace",
+  "post_freeze_changes": "Qualification document and agent guidance only; tested code remains byte-identical.",
+  "remaining_acceptance": [
+    "Blocked selected Commit/Welcome publication cancellation and lost reply.",
+    "Native multi-host chat delivery and history transfer."
+  ]
+}

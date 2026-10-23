@@ -1,0 +1,80 @@
+{
+  "scope": "Fixed-construction original expiry and global runtime shutdown during actual held encrypted history Chunk; not durable restart or post-snapshot source retention expiry",
+  "base": "f4165d7e56e8734afb2b0cb4652631b903d2771f",
+  "original_controls_stash": "34fc45d9f770a717c731bb9c30e110ea93c35462",
+  "remote_controls_stash": "272ffa8554ce2fad655856ff2b10d1e0b0ecad68",
+  "final_candidate_stash": "f1c9ac451821e28b091825fa7b06951df322e1cd",
+  "input_count": 2474,
+  "source_manifest_sha256": "c1122535b28e1929291e02b68bbeb671cb92605ba73bd51d5685022d38efc952",
+  "test_fixture_unchanged": true,
+  "baseline_controls": [
+    {
+      "gate": "expiry",
+      "exit": 0,
+      "seconds": 73.13883113861084,
+      "log": "/Users/pj/project/build/history-publication-expiry-shutdown-controls-v1-expiry.log",
+      "log_sha256": "977ef8b03eebc15e0e994a359bdb1f343dbb238cfe35a784d9bcf2b1d7b75e86"
+    },
+    {
+      "gate": "shutdown",
+      "exit": 101,
+      "seconds": 13.51197600364685,
+      "log": "/Users/pj/project/build/history-publication-expiry-shutdown-controls-v1-shutdown.log",
+      "log_sha256": "ff040759c9b37b71d832cbed80da42fbe9be5a88229b254edc54c1afca23dfb5"
+    }
+  ],
+  "baseline_interpretation": {
+    "expiry": "Actual1/1 already passes f416 fixed deadline select; no invented behavioral RED/fix",
+    "shutdown": "Genuine0/1 at unchanged original staying live >500ms while real adapter gate held; forced worker abort is not responsive owner revocation"
+  },
+  "final_gates": [
+    {
+      "gate": "history",
+      "exit": 0,
+      "seconds": 143.5451729297638,
+      "log": "/Users/pj/project/build/history-publication-expiry-shutdown-green-v1-history.log",
+      "log_sha256": "25eaf5a59fbfa7a547c4c077131d801062dbc6c3e5e32ce4bbc80658c3acacf7"
+    },
+    {
+      "gate": "clippy",
+      "exit": 0,
+      "seconds": 30.832762002944946,
+      "log": "/Users/pj/project/build/history-publication-expiry-shutdown-green-v1-clippy.log",
+      "log_sha256": "a02a74bb4e80af175c9c8f7dfeb9d98727a65b60f95a132afe5bf46a45178c8b"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 23.36017394065857,
+      "log": "/Users/pj/project/build/history-publication-expiry-shutdown-green-v1-default-check.log",
+      "log_sha256": "339dd68b0c16a8c2525ee0677e91966cd49cea9c77e1f6111e6285e7b66d98e0"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.6601078510284424,
+      "log": "/Users/pj/project/build/history-publication-expiry-shutdown-green-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 9,
+    "failed": 0,
+    "ignored": 0
+  },
+  "expiry_seam": "Test-policy source-only5sec configured before factory; consumed once at original construction. Production600sec constant unchanged; no global clock or existing deadline mutation.",
+  "implementation": "Account history owner retains one existing negative runtime lifecycle watch, attached at managed client/loop handoff. Biased publication select cancels same original on terminal stop; reopened client receives only negative lifecycle observation, never channels/consent.",
+  "coverage": [
+    "Actual public ABC/four-leaf group and explicit original B consent before genuine signed/encrypted first Chunk gate",
+    "Fixed expiry releases unfinished source continuation with Closed before gate release; same original handle stays retained",
+    "shutdown_and_close cancels original within500ms and finishes before blocked gate release/forced abort; unfinished source reply errors",
+    "Releasing gates delivers no B archive chunk or provenance records; normal import and other original lifecycle controls still pass"
+  ],
+  "remaining": [
+    "Fresh same signedRequest in fresh authenticated outer envelope after genuine encrypted recipient restart",
+    "Source retention expiry after frozen snapshot during delayed publication",
+    "Per-account removal shutdown and stalled peeler versus adapter-only controls",
+    "Broader native API/alias/restart acceptance and SDK adoption"
+  ],
+  "post_freeze_changes": "Proof, plan, resource inventory and App AGENTS only"
+}

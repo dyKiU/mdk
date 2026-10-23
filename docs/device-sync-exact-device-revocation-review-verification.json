@@ -1,0 +1,127 @@
+{
+  "scope": "Fresh opaque one-group administrator review only; no Remove or publication implementation",
+  "base": "30ab1324a6c05ca4afddf6e15f2826a8cecca6f8",
+  "red": {
+    "candidate_stash": "0416cf95e4e0e3695e400ce1751fbdb6dd7b10ae",
+    "source_manifest_sha256": "44a71ce724f1f428d580efcfa76ba318cec3d8334d2c13f9a026130837baac4e",
+    "source_input_count": 2479,
+    "artifact_prefix": "exact-device-revocation-red-v1",
+    "gates": [
+      {
+        "gate": "feature",
+        "exit": 101,
+        "seconds": 83.55849814414978,
+        "log": "/Users/pj/project/build/exact-device-revocation-red-v1-feature.log",
+        "log_sha256": "86ebb4fce08f7deb88475df6bfdd6409fefe52b60c1b8a4d93a49e6a278a9713",
+        "actual_test_counts": [
+          {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "default",
+        "exit": 0,
+        "seconds": 51.92904877662659,
+        "log": "/Users/pj/project/build/exact-device-revocation-red-v1-default.log",
+        "log_sha256": "2d57ad09804d4c287684f23dceb0afc5bf235aa87207cc68b0950033bf1fa5dc",
+        "actual_test_counts": [
+          {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      }
+    ],
+    "fixture_sha256": "c6164d783284b70cf91f03624809c9b5b1f7684344dfb6216fbccb0fdfd05209",
+    "remote_candidate_stash": "e3e51aa92a02b69f57d8d154514c931de3ed7ec0",
+    "meaning": "Actual public ABC and selected Current A/B/C/D copies reach intended missing original-action assertion; semantic failure, not compiler/fixture failure."
+  },
+  "green": {
+    "candidate_stash": "ccddb0a64e46cbce71021c32f78488252ffdb59f",
+    "source_manifest_sha256": "a5134c3ab8185fb1a45809906583857255973afe6d98ec912cfa446cf461805d",
+    "source_input_count": 2483,
+    "artifact_prefix": "exact-device-revocation-green-v1",
+    "gates": [
+      {
+        "gate": "feature",
+        "exit": 0,
+        "seconds": 65.22799277305603,
+        "log": "/Users/pj/project/build/exact-device-revocation-green-v1-feature.log",
+        "log_sha256": "4e42c1aba8040ef680b2515594548d793960ad03feb7ec2782bb66ed17054c8f",
+        "actual_test_counts": [
+          {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "default",
+        "exit": 0,
+        "seconds": 48.23883080482483,
+        "log": "/Users/pj/project/build/exact-device-revocation-green-v1-default.log",
+        "log_sha256": "80147719ee4b4728cd4e08bc9884786a0a88882d72adaffc2e4daf2924404a70",
+        "actual_test_counts": [
+          {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      {
+        "gate": "clippy",
+        "exit": 0,
+        "seconds": 34.51657700538635,
+        "log": "/Users/pj/project/build/exact-device-revocation-green-v1-clippy.log",
+        "log_sha256": "8760ac2af844e7a4f95afc4ccfd1b46500ac963e8c008e4464afd95d966c1b68"
+      },
+      {
+        "gate": "check",
+        "exit": 0,
+        "seconds": 25.63289713859558,
+        "log": "/Users/pj/project/build/exact-device-revocation-green-v1-check.log",
+        "log_sha256": "7f082ec6a121c44774a8528fc8e3b47aba627b794b5b33a8a6b06b1ef53912bc"
+      },
+      {
+        "gate": "fmt",
+        "exit": 0,
+        "seconds": 3.9555020332336426,
+        "log": "/Users/pj/project/build/exact-device-revocation-green-v1-fmt.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "fixture_sha256": "ed19ae453032fb757650061ff7887bc0bbc3b082d26cd8c35a02f2983ea609db",
+    "controls": [
+      "Authenticated exact C own leaf and two other occupied leaves sharing its account",
+      "Self and foreign device target refusal",
+      "One active original; fixed constructor deadline and unchanged cached review",
+      "Exact cancellation, old cancellation isolation, last-handle Drop",
+      "Genuine profile Commit advances ordinary epoch and invalidates old review; fresh explicit capture succeeds",
+      "Existing exact new-message delivery assertions for all four copies continue to pass"
+    ]
+  },
+  "post_freeze_delta": [
+    "crates/cgka-engine/AGENTS.md",
+    "crates/marmot-app/AGENTS.md",
+    "docs/marmot-architecture/runtime-state-bounds.md",
+    "docs/marmot-architecture/overview/current-state.md",
+    "docs/device-sync-exact-device-revocation-review-verification.json"
+  ],
+  "limits": [
+    "Review creation does not stage or publish any MLS Remove or report completed revocation",
+    "Actual original fixed expiry and lost-response behavior need their publication/lifetime controls before claiming removal acceptance",
+    "Protected roster and multi-group revocation remain unimplemented",
+    "No bindings, native SDK artifact rebuild/adoption or source publication",
+    "Full suite/conformance qualification is not claimed for this new review source"
+  ],
+  "historical_binary_guard": {
+    "path": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+    "sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  }
+}

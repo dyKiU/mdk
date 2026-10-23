@@ -1,0 +1,279 @@
+name: Explicit app SDK profile cohorts (remote only)
+on:
+  push:
+    branches: ["ci/upstream-app-sdk-cohorts-*"]
+    paths:
+      - .github/workflows/upstream-app-sdk-cohorts.yml
+      - scripts/upstream_apple_ci/app-sdk-cohort.py
+      - scripts/upstream_apple_ci/test_app_sdk_cohort.py
+      - scripts/upstream_apple_ci/attachment-storage-mutation.py
+      - scripts/upstream_apple_ci/ios-storage-mutations.py
+      - scripts/upstream_apple_ci/missing-key-mutations.py
+      - scripts/upstream_apple_ci/acceptance-identity.py
+      - scripts/upstream_apple_ci/published-interop.sh
+      - scripts/upstream_apple_ci/observed-public-interop.py
+      - scripts/upstream_apple_ci/profile-interop-evidence.py
+      - scripts/upstream_apple_ci/test_profile_interop_evidence.py
+      - .github/workflows/upstream-acceptance-supplement.yml
+  workflow_dispatch:
+    inputs:
+      metadata_only:
+        description: Syntax and synthetic metadata only; no SDK or app inputs or execution
+        type: boolean
+        default: false
+      sdk_source:
+        description: Exact qualified final SDK source F, shared by default and experimental artifacts
+        required: false
+        type: string
+      default_run_id:
+        description: Actual nonpublishing default-profile Apple producer run for F
+        required: false
+        type: string
+      experimental_run_id:
+        description: Actual nonpublishing experimental-profile Apple producer run for same F
+        required: false
+        type: string
+      mac_sha:
+        description: Exact qualified Mac capability candidate
+        required: false
+        type: string
+      ios_sha:
+        description: Exact qualified iOS capability candidate
+        required: false
+        type: string
+      cohort:
+        description: Select only missing qualification; all runs both apps across all three cohorts
+        required: true
+        default: all
+        type: choice
+        options: [all, default, experimental, historical]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: app-sdk-cohorts-${{ github.ref }}-${{ inputs.cohort || 'preparation' }}
+  cancel-in-progress: false
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sdk: ${{ steps.identity.outputs.sdk }}
+      default_run: ${{ steps.identity.outputs.default_run }}
+      experimental_run: ${{ steps.identity.outputs.experimental_run }}
+      mac: ${{ steps.identity.outputs.mac }}
+      ios: ${{ steps.identity.outputs.ios }}
+      profiles: ${{ steps.identity.outputs.profiles }}
+      sdk_profiles: ${{ steps.identity.outputs.sdk_profiles }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate immutable cohort inputs; push performs syntax only
+        id: identity
+        env:
+          INPUT_SDK: ${{ inputs.sdk_source }}
+          INPUT_DEFAULT_RUN: ${{ inputs.default_run_id }}
+          INPUT_EXPERIMENTAL_RUN: ${{ inputs.experimental_run_id }}
+          INPUT_MAC: ${{ inputs.mac_sha }}
+          INPUT_IOS: ${{ inputs.ios_sha }}
+          INPUT_COHORT: ${{ inputs.cohort }}
+          INPUT_METADATA_ONLY: ${{ inputs.metadata_only }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-app-sdk-cohorts-')
+          metadata=os.environ.get('INPUT_METADATA_ONLY','')
+          assert metadata in ('','false','true')
+          if os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and metadata != 'true':
+              values={key:os.environ['INPUT_'+key.upper()] for key in ['sdk','default_run','experimental_run','mac','ios']}
+              assert all(re.fullmatch('[0-9a-f]{40}',values[key]) for key in ['sdk','mac','ios'])
+              assert all(re.fullmatch('[1-9][0-9]*',values[key]) for key in ['default_run','experimental_run'])
+              assert values['default_run']!=values['experimental_run']
+              selected=os.environ['INPUT_COHORT']
+              assert selected in ['all','default','experimental','historical']
+              profiles=['default','experimental','historical'] if selected=='all' else [selected]
+              values['profiles']=json.dumps(profiles)
+              values['sdk_profiles']=json.dumps([p for p in profiles if p!='historical'])
+              with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+                  for key,value in values.items():output.write(key+'='+value+'\n')
+          PY
+      - name: Syntax preparation only; no SDK or product inputs
+        run: |
+          python3 -m py_compile scripts/upstream_apple_ci/app-sdk-cohort.py \
+            scripts/upstream_apple_ci/summarize.py \
+            scripts/upstream_apple_ci/test_summarize.py \
+            scripts/upstream_apple_ci/test_app_sdk_cohort.py \
+            scripts/upstream_apple_ci/attachment-storage-mutation.py \
+            scripts/upstream_apple_ci/ios-storage-mutations.py \
+            scripts/upstream_apple_ci/missing-key-mutations.py
+          python3 -m py_compile scripts/upstream_apple_ci/acceptance-identity.py \
+            scripts/upstream_apple_ci/observed-public-interop.py \
+            scripts/upstream_apple_ci/profile-interop-evidence.py \
+            scripts/upstream_apple_ci/test_profile_interop_evidence.py
+          bash -n scripts/upstream_apple_ci/published-interop.sh
+      - name: Synthetic routing and strict evidence-boundary metadata controls; no SDK/product execution
+        run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_app_sdk_cohort.py -v
+      - name: Closed test and skip metadata controls; no Xcode or SDK execution
+        run: python3 -B scripts/upstream_apple_ci/test_summarize.py
+      - name: Six synthetic cross-profile receipt/parser controls; no SDK or fixture execution
+        run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_profile_interop_evidence.py -v
+  sdk:
+    if: github.event_name == 'workflow_dispatch' && inputs.metadata_only != true && inputs.cohort != 'historical'
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ fromJSON(needs.identity.outputs.sdk_profiles) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk }}
+      SDK_PROFILE: ${{ matrix.profile }}
+      SDK_RUN_ID: ${{ matrix.profile == 'default' && needs.identity.outputs.default_run || needs.identity.outputs.experimental_run }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Wait for exact pre-existing profile artifact; never build or retry producer
+        run: python3 scripts/upstream_apple_ci/wait-sdk.py
+  applications:
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.metadata_only != true && needs.identity.result == 'success' && (needs.sdk.result == 'success' || needs.sdk.result == 'skipped')
+    needs: [identity, sdk]
+    runs-on: macos-26
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos, ios]
+        profile: ${{ fromJSON(needs.identity.outputs.profiles) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SDK_F: ${{ needs.identity.outputs.sdk }}
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk }}
+      DEFAULT_RUN_ID: ${{ needs.identity.outputs.default_run }}
+      EXPERIMENTAL_RUN_ID: ${{ needs.identity.outputs.experimental_run }}
+      SDK_PROFILE: ${{ matrix.profile }}
+      WN_EXPERIMENTAL_DEVICE_SYNC: ${{ matrix.profile == 'experimental' && '1' || '0' }}
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
+      MAC_SHA: ${{ needs.identity.outputs.mac }}
+      IOS_SHA: ${{ needs.identity.outputs.ios }}
+      APP_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac || needs.identity.outputs.ios }}
+      WN_TEST_JOBS: '2'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.identity.outputs.sdk }}
+          path: sdk-source
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ needs.identity.outputs.ios }}
+          path: ios
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        if: matrix.platform == 'macos'
+        with:
+          repository: dyKiU/whitenoise-mac
+          ref: ${{ needs.identity.outputs.mac }}
+          path: mac
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: '26'
+      - name: Resolve producer identity without inventing a historical SDK run
+        run: |
+          case "$SDK_PROFILE" in
+            default) run_id="$DEFAULT_RUN_ID"; app_profile=default ;;
+            experimental) run_id="$EXPERIMENTAL_RUN_ID"; app_profile=experimental ;;
+            historical) run_id=''; app_profile='' ;;
+            *) exit 1 ;;
+          esac
+          printf 'SDK_RUN_ID=%s\nWN_SDK_PROFILE=%s\n' "$run_id" "$app_profile" >> "$GITHUB_ENV"
+      - name: Download exact existing SDK profile artifact
+        if: matrix.profile != 'historical'
+        run: |
+          gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
+            --name "upstream-${SDK_PROFILE}-apple-$SDK_F" --dir packages
+      - name: Install verified ephemeral SDK or verify exact historical published pin
+        run: |
+          python3 scripts/upstream_apple_ci/app-sdk-cohort.py prepare \
+            --profile "$SDK_PROFILE" --platform '${{ matrix.platform }}' --app-sha "$APP_SHA" \
+            --sdk-source "$SDK_F" --sdk-run-id "$SDK_RUN_ID" \
+            --output "$RUNNER_TEMP/cohort-evidence/cohort.json"
+      - name: Build pinned isolated relay fixture
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
+      - name: Select available simulator for full iOS suite
+        if: matrix.platform == 'ios'
+        run: |
+          destination=$(cd ios && bash scripts/pick-simulator.sh)
+          printf 'WN_TEST_DESTINATION=%s\n' "$destination" >> "$GITHUB_ENV"
+          defaults write com.apple.iphonesimulator PasteboardAutomaticSync -bool false
+      - name: Full Mac suite on exact selected SDK cohort
+        if: matrix.platform == 'macos'
+        env:
+          WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-mac-derived-data
+          WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/final-mac.xcresult
+        run: python3 scripts/upstream_apple_ci/mac-tests-with-relay.py
+      - name: Full iOS suite on exact selected SDK cohort
+        if: matrix.platform == 'ios'
+        working-directory: ios
+        env:
+          WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-ios-derived-data
+          WN_TEST_SOURCE_PACKAGES: ${{ runner.temp }}/final-ios-packages
+          WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/final-ios.xcresult
+          TEST_RUNNER_WN_RUN_ATTENTION_CREATION_DIAGNOSTIC: '1'
+        run: bash scripts/test-with-relay.sh
+      - name: Preserve actual full-suite counts and source-only skip inventory
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/cohort-evidence/cohort.json"; then
+            python3 scripts/upstream_apple_ci/app-sdk-cohort.py summary \
+              --profile "$SDK_PROFILE" --platform '${{ matrix.platform }}' --app-sha "$APP_SHA" \
+              --output "$RUNNER_TEMP/cohort-evidence/cohort.json"
+          else
+            exit 1
+          fi
+      - name: Guarded Release builds and static analysis on identical SDK profile
+        run: |
+          python3 scripts/upstream_apple_ci/app-sdk-cohort.py release \
+            --profile "$SDK_PROFILE" --platform '${{ matrix.platform }}' --app-sha "$APP_SHA" \
+            --output "$RUNNER_TEMP/cohort-evidence/cohort.json"
+      - name: Current API Mac runtime mutation controls (default private0 or experimental private1)
+        if: matrix.platform == 'macos' && matrix.profile != 'historical'
+        run: |
+          python3 scripts/upstream_apple_ci/attachment-storage-mutation.py
+          python3 scripts/upstream_apple_ci/attachment-storage-mutation.py --case rearm
+          python3 scripts/upstream_apple_ci/missing-key-mutations.py --platform macos
+      - name: Current API iOS runtime mutation controls (default private0 or experimental private1)
+        if: matrix.platform == 'ios' && matrix.profile != 'historical'
+        run: |
+          python3 scripts/upstream_apple_ci/ios-storage-mutations.py
+          python3 scripts/upstream_apple_ci/missing-key-mutations.py --platform ios
+      - name: Close cohort evidence without private logs or raw XCResult
+        if: always()
+        run: |
+          test -f "$RUNNER_TEMP/cohort-evidence/cohort.json"
+          python3 scripts/upstream_apple_ci/app-sdk-cohort.py finalize \
+            --profile "$SDK_PROFILE" --platform '${{ matrix.platform }}' --app-sha "$APP_SHA" \
+            --output "$RUNNER_TEMP/cohort-evidence/cohort.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: app-sdk-cohort-${{ matrix.platform }}-${{ matrix.profile }}-${{ env.APP_SHA }}-${{ github.sha }}
+          path: ${{ runner.temp }}/cohort-evidence/cohort.json
+          if-no-files-found: error
+          retention-days: 7

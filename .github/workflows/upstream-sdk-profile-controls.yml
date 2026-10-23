@@ -1,0 +1,59 @@
+name: Upstream SDK profile metadata controls only
+on:
+  push:
+    branches: ["ci/upstream-sdk-profile-controls-*"]
+    paths:
+      - .github/workflows/upstream-sdk-profile-controls.yml
+      - .github/workflows/upstream-experimental-apple.yml
+      - scripts/upstream_apple_ci/**
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: upstream-sdk-profile-controls-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}
+      PROFILE_CONTROL_SOURCE_SHA: ${{ github.sha }}
+      PROFILE_CONTROL_MAC_APP: ${{ github.workspace }}/control-mac
+      PROFILE_CONTROL_MAC_SHA: 2a60df8f95245328b43b324c325a31540b2488e5
+      PROFILE_CONTROL_IOS_APP: ${{ github.workspace }}/control-ios
+      PROFILE_CONTROL_IOS_SHA: 395962ac3a13805efd714e5fccc95717f10f8dab
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-mac
+          ref: ${{ env.PROFILE_CONTROL_MAC_SHA }}
+          path: control-mac
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ env.PROFILE_CONTROL_IOS_SHA }}
+          path: control-ios
+          persist-credentials: false
+      - name: Remote syntax only; no Apple inputs or product compiler
+        run: |
+          python3 -m py_compile scripts/upstream_apple_ci/sdk_profiles.py \
+            scripts/upstream_apple_ci/identity.py scripts/upstream_apple_ci/install.py \
+            scripts/upstream_apple_ci/package-evidence.py scripts/upstream_apple_ci/wait-sdk.py \
+            scripts/upstream_apple_ci/test_sdk_profiles.py scripts/upstream_apple_ci/run-sdk-profile-controls.py
+          bash -n scripts/upstream_apple_ci/build-part.sh
+          bash -n scripts/upstream_apple_ci/assemble.sh
+      - name: Require 22 metadata cases and actual one-case PFP mutation controls
+        run: python3 -B scripts/upstream_apple_ci/run-sdk-profile-controls.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-sdk-profile-controls-${{ github.sha }}
+          path: sdk-profile-controls-proof/result.json
+          if-no-files-found: error
+          retention-days: 7

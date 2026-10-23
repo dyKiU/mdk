@@ -23,7 +23,52 @@ use openmls::prelude::{BasicCredential, MlsMessageOut};
 use std::collections::HashSet;
 use tls_codec::Serialize as _;
 
+type SelectedInviteCheck<'a, E> = &'a mut (dyn FnMut(&E) -> Result<(), EngineError> + Send + 'a);
+
 impl<S: StorageProvider> Engine<S> {
+    /// Negative recovery for maintenance admitted by the former late-only
+    /// private send gate. Never changes MLS, proposals, consent or user chats.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn retire_queued_private_maintenance(
+        &mut self,
+        group_id: &GroupId,
+    ) -> Result<(), EngineError> {
+        let retired = self.storage.with_transaction(|storage| {
+            let queued = storage.list_queued_outbound_intents(group_id)?;
+            if !queued.iter().any(|record| {
+                matches!(&record.intent, SendIntent::SelfUpdate { .. })
+                    && !self.queued_outbound_intent_in_flight(group_id, &record.id)
+            }) {
+                return Ok::<_, EngineError>(Vec::new());
+            }
+            if !self.with_mls_group(group_id, |group| {
+                crate::device_group_genesis::has_private_component(group)
+            })? {
+                return Ok::<_, EngineError>(Vec::new());
+            }
+            let mut retired = Vec::new();
+            for record in queued {
+                if matches!(&record.intent, SendIntent::SelfUpdate { .. })
+                    && !self.queued_outbound_intent_in_flight(group_id, &record.id)
+                {
+                    storage.delete_queued_outbound_intent(&record.id)?;
+                    retired.push(record.id);
+                }
+            }
+            Ok(retired)
+        })?;
+        for id in retired {
+            self.audit_group(
+                group_id,
+                marmot_forensics::AuditEventKind::Rejection {
+                    msg_id: hex::encode(id.as_slice()),
+                    reason: "queued_private_maintenance_rejected".into(),
+                },
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) async fn do_send_ready(
         &mut self,
         intent: SendIntent,
@@ -85,6 +130,18 @@ impl<S: StorageProvider> Engine<S> {
                     from: "Disbanding",
                     to: crate::audit_helpers::send_intent_kind_str(&intent),
                     reason: "disband requested or awaiting convergence",
+                },
+            ));
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        if self.with_mls_group(&group_id, |group| {
+            crate::device_group_genesis::has_private_component(group)
+        })? {
+            return Err(EngineError::InvalidTransition(
+                cgka_traits::engine_state::InvalidTransition {
+                    from: "PrivateDeviceGroup",
+                    to: crate::audit_helpers::send_intent_kind_str(&intent),
+                    reason: "authenticated private-group approval is required",
                 },
             ));
         }
@@ -162,6 +219,20 @@ impl<S: StorageProvider> Engine<S> {
         key_packages: Vec<cgka_traits::engine::KeyPackage>,
         initial_admins: Vec<MemberId>,
     ) -> Result<SendResult, EngineError> {
+        self.do_send_invite_with_guard(group_id, key_packages, initial_admins, None)
+            .await
+    }
+
+    pub(crate) async fn do_send_invite_with_guard(
+        &mut self,
+        group_id: GroupId,
+        key_packages: Vec<cgka_traits::engine::KeyPackage>,
+        initial_admins: Vec<MemberId>,
+        #[allow(unused_variables, unused_mut)] mut selected: Option<SelectedInviteCheck<'_, Self>>,
+    ) -> Result<SendResult, EngineError> {
+        if let Some(check) = selected.as_mut() {
+            check(self)?;
+        }
         // Load group + require Stable.
         let provider = EngineOpenMlsProvider::<S>::new(&self.crypto, self.storage.mls_storage());
         let mls_gid = openmls::group::GroupId::from_slice(group_id.as_slice());
@@ -342,6 +413,9 @@ impl<S: StorageProvider> Engine<S> {
             )
             .await
             .map_err(EngineError::Peeler)?;
+        if let Some(check) = selected.as_mut() {
+            check(self)?;
+        }
         let commit_msg = route_wrapped_group_message(commit_msg, &pre_commit_ctx);
         self.record_sent_openmls_message(
             &commit_msg,
@@ -374,12 +448,17 @@ impl<S: StorageProvider> Engine<S> {
                 self.peeler.wrap_welcome(&payload, &recipient).await
             }
             .map_err(EngineError::Peeler)?;
-            self.record_staged_invite_welcome(
-                &wrapped,
-                &commit_msg.id,
-                &group_id,
-                pre_commit_epoch,
-            )?;
+            if let Some(check) = selected.as_mut() {
+                check(self)?;
+            }
+            if selected.is_none() {
+                self.record_staged_invite_welcome(
+                    &wrapped,
+                    &commit_msg.id,
+                    &group_id,
+                    pre_commit_epoch,
+                )?;
+            }
             welcomes.push(wrapped);
         }
 
@@ -391,12 +470,17 @@ impl<S: StorageProvider> Engine<S> {
         // Epoch stays at the pre-merge value; that updates on confirm.
         // On `publish_failed`, the engine re-derives from the (still-
         // unmerged) MLS state, which naturally drops the projection.
-        crate::capability_manager::cache_from_key_packages(&self.storage, &group_id, &parsed_kps)?;
         let mut group_record = existing;
         group_record.members =
             crate::group_lifecycle::projected_members_with_pending(&mls_group, &parsed_kps)?;
-        self.storage.put_group(&group_record)?;
-
+        self.storage.with_transaction(|storage| {
+            crate::capability_manager::cache_from_key_packages(storage, &group_id, &parsed_kps)?;
+            storage.put_group(&group_record)?;
+            if let Some(check) = selected.as_mut() {
+                check(self)?;
+            }
+            Ok::<(), EngineError>(())
+        })?;
         // State: begin pending at the projected new epoch via EpochManager.
         // The MLS group is still at the pre-commit epoch, so the projected
         // post-merge epoch is +1.
@@ -443,6 +527,20 @@ impl<S: StorageProvider> Engine<S> {
         group_id: GroupId,
         members: Vec<MemberId>,
     ) -> Result<SendResult, EngineError> {
+        self.do_send_remove_members_with_guard(group_id, members, None, None)
+            .await
+    }
+
+    pub(crate) async fn do_send_remove_members_with_guard(
+        &mut self,
+        group_id: GroupId,
+        members: Vec<MemberId>,
+        exact_leaf: Option<u32>,
+        mut original_check: Option<SelectedInviteCheck<'_, Self>>,
+    ) -> Result<SendResult, EngineError> {
+        if let Some(check) = original_check.as_mut() {
+            check(self)?;
+        }
         let mut target_set = HashSet::new();
         let mut unique_targets = Vec::new();
         for member in members {
@@ -455,9 +553,10 @@ impl<S: StorageProvider> Engine<S> {
                 "remove requires at least one member".into(),
             ));
         }
-        if unique_targets
-            .iter()
-            .any(|member| member == self.identity.self_id())
+        if exact_leaf.is_none()
+            && unique_targets
+                .iter()
+                .any(|member| member == self.identity.self_id())
         {
             return Err(EngineError::Other(
                 "use SendIntent::Leave to remove the local member".into(),
@@ -495,7 +594,9 @@ impl<S: StorageProvider> Engine<S> {
             let basic = BasicCredential::try_from(member.credential)
                 .map_err(|e| EngineError::Backend(format!("credential: {e:?}")))?;
             let member_id = MemberId::new(basic.identity().to_vec());
-            if target_set.contains(&member_id) {
+            if target_set.contains(&member_id)
+                && exact_leaf.is_none_or(|index| member.index.u32() == index)
+            {
                 leaf_indices.push(member.index);
                 found.insert(member_id);
             }
@@ -513,9 +614,10 @@ impl<S: StorageProvider> Engine<S> {
             .iter()
             .map(crate::app_components::admin_pubkey_from_member_id)
             .collect::<Result<Vec<_>, _>>()?;
-        if admins
-            .iter()
-            .all(|admin| target_admins.iter().any(|target| target == admin))
+        if exact_leaf.is_none()
+            && admins
+                .iter()
+                .all(|admin| target_admins.iter().any(|target| target == admin))
         {
             return Err(EngineError::AdminDepletion {
                 group_id: group_id.clone(),
@@ -618,6 +720,9 @@ impl<S: StorageProvider> Engine<S> {
             .await
             .map_err(EngineError::Peeler)?;
         let commit_msg = route_wrapped_group_message(commit_msg, &pre_commit_ctx);
+        if let Some(check) = original_check.as_mut() {
+            check(self)?;
+        }
         self.record_sent_openmls_message(
             &commit_msg,
             commit_bytes.as_slice(),
@@ -626,9 +731,20 @@ impl<S: StorageProvider> Engine<S> {
         )?;
 
         let mut group_record = existing;
-        group_record
-            .members
-            .retain(|member| !target_set.contains(&member.id));
+        if exact_leaf.is_none() {
+            group_record
+                .members
+                .retain(|member| !target_set.contains(&member.id));
+        } else if unique_targets.iter().any(|member| {
+            crate::app_components::admin_pubkey_from_member_id(member)
+                .map_or(true, |account| !surviving_accounts.contains(&account))
+        }) {
+            // This private path only removes a sibling whose account still has
+            // another real leaf. Account-level metadata must remain intact.
+            return Err(EngineError::Other(
+                "exact sibling removal unavailable".into(),
+            ));
+        }
         self.storage.put_group(&group_record)?;
 
         let prior_epoch = EpochId(mls_group.epoch().as_u64());
@@ -825,6 +941,12 @@ impl<S: StorageProvider> Engine<S> {
 
         if let Some(state) = self.epoch_manager.state(group_id)
             && !state.is_stable()
+        {
+            return Ok(false);
+        }
+        #[cfg(feature = "test-policy-overrides")]
+        if let Ok(own_leaf) = self.do_own_leaf_index(group_id)
+            && crate::canonical_probe_observer::leave_reproposal_held(group_id, own_leaf)
         {
             return Ok(false);
         }

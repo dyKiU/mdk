@@ -158,6 +158,9 @@ pub enum AccountSetupPhase {
     /// exact signed bytes are persisted there before the first network send.
     KeyPackagePublicationStarted,
     KeyPackagePublicationConfirmed,
+    /// Interactive companion sign-in is ready without public KeyPackage
+    /// publication. The separate account-scoped publication hold stays durable.
+    CompanionReady,
 }
 
 impl NostrAccountImport {
@@ -656,6 +659,57 @@ impl AccountHome {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err.into()),
         }
+    }
+
+    /// Persist a one-way hold on public KeyPackage publication for this local
+    /// account installation. Setup completion/cancellation must not remove it.
+    pub fn disable_public_key_package_publication(
+        &self,
+        account_ref: &str,
+    ) -> AccountHomeResult<()> {
+        let account = self.account(account_ref)?;
+        write_private_json(
+            self.account_dir(&account.label)
+                .join("public-key-package-hold.json"),
+            &serde_json::json!({"version": 1, "account_id_hex": account.account_id_hex, "disabled": true}),
+        )
+    }
+
+    /// Missing records preserve legacy behavior; malformed or misbound records
+    /// fail account opening instead of silently authorizing publication.
+    pub fn public_key_package_publication_disabled(
+        &self,
+        account_ref: &str,
+    ) -> AccountHomeResult<bool> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Hold {
+            version: u8,
+            account_id_hex: String,
+            disabled: bool,
+        }
+        let account = self.account(account_ref)?;
+        let record: Hold = match read_json(
+            self.account_dir(&account.label)
+                .join("public-key-package-hold.json"),
+        ) {
+            Ok(record) => record,
+            Err(AccountHomeError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        };
+        if record.account_id_hex != account.account_id_hex {
+            return Err(AccountHomeError::AccountIdMismatch);
+        }
+        if record.version != 1 || !record.disabled {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid public KeyPackage publication hold",
+            )
+            .into());
+        }
+        Ok(true)
     }
 
     /// App-owned onboarding checkpoint. Unlike setup context, this survives

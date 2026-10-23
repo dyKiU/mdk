@@ -1,0 +1,15 @@
+{
+  "workspace_commit": "be04fc60b6a4c40bd85423fbf9e35e8982ae4b84",
+  "source_directory": "tools/native-sync-acceptance",
+  "files": {
+    "build.sh": "6decb26858b6c89de3bab5fa1df055eeb95565f563bab84ed0a45adb93415dea",
+    "Acceptance.swift": "5a9ae01bc401086dfa9cbc370b034d44aaa2f733252ba67cd021c72724216953",
+    "Agent.swift": "e152273246d2a9792b22cadbc0c643a16de4d8957add0253a6be70f8ed3629a3",
+    "StoreControls.swift": "8aa26c6b119e032960a104b4a7a90504e98845c3a89dbb1c06b68776133f44ba",
+    "one_scan.py": "6bee7a076633e380ae714b116db4135c147c2981916b0c859255b787daff6423",
+    "cross_host.py": "ecde36dcf38a5d2963592f2caa29c13c58cdb76983146dc2f70b9957e0766808",
+    "automatic_chat.py": "46e30eae62a2dbb3ead4fa18e7e7d4f8eb2b9ea11bef290fe26bcdc60cfb3d9d",
+    "README.md": "ecd9dd85353eaa473b476169e3c969c451c686d47f8c7ac48f3edce58fb94c47",
+    "test_one_scan.py": "69e62a215865755fe9d4db40c4eb53f431a427c17f063ee7b93bcf0e557e99b8"
+  }
+}

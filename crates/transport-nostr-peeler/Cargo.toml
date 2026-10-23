@@ -6,6 +6,10 @@ license.workspace = true
 publish.workspace = true
 description = "Nostr transport peeler for Marmot CGKA transport messages."
 
+[features]
+default = []
+experimental-device-sync = []
+
 [dependencies]
 async-trait.workspace = true
 base64.workspace = true

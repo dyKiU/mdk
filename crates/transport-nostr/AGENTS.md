@@ -57,3 +57,18 @@ cargo nextest run -p transport-nostr --all-features
 
 Changes that alter what `marmot-app` sees also need its relay tests:
 `cargo nextest run -p marmot-app --lib --features test-policy-overrides,otlp-export -E 'test(/^(tests::relay_plane_runtime|relay_telemetry_export)::/)'`.
+
+## Experimental mailbox and transport fixtures
+
+`pairing.rs` owns a bounded raw-event mailbox only. The app supplies its event
+kind explicitly and owns encrypted packet framing, SAS, consent and enrollment;
+this crate must not import app protocol types. App encrypted/deployment fixtures
+remain under `marmot-app/src/relay_plane/pairing/`.
+
+Experimental publication gates require `test-support` (or this crate's unit tests)
+plus `experimental-device-sync` and `test-policy-overrides`. They hold actual
+requests before the unchanged real adapter future and never supply ACKs.
+`ordinary_commit_gate` receives authoritative fanout lookup through the caller's
+storage trait; it never depends on SQLite. `ordinary_commit_observation` stores a
+test callback and exact registration guard; app-specific MLS/Engine inspection
+stays in the app. Do not enable `test-support` in shipped app artifacts.

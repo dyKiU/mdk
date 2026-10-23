@@ -1,0 +1,95 @@
+{
+  "scope": "Durable explicit paired approval and local-source sequence persistence; no actor, normal UI, transport delivery or deployment completion claim",
+  "base": "f142627270725e01ed87fa5344fa345657b8c6e2",
+  "inputs": {
+    "count": 745,
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-approved-sharing-v5-inputs.json",
+    "sha256": "c944ca2c63893e6b7a4b94e1d04fac90c21c4ad2684ec44264e359ba8067738f",
+    "M1_M5_hash_match": true,
+    "scope": "traits/storage-sqlite/fs-private/OpenMLS Rust/Cargo/snapshot inputs"
+  },
+  "runner": {
+    "host": "macbook.m5",
+    "toolchain": "1.97.1-aarch64-apple-darwin",
+    "target": "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+    "incremental": false,
+    "cargo_jobs": 2
+  },
+  "gates": {
+    "focused": {
+      "passed": 30,
+      "failed": 0,
+      "skipped_by_filter_or_existing_ignore": 1089,
+      "seconds": 8.044,
+      "command": "cargo nextest run -p storage-sqlite --features experimental-device-sync --locked --profile default --retries 0 --no-fail-fast -j8 -E \"test(sharing_) | test(mirrored_catalog) | test(private_ledger) | test(private_history_request_revision15)\"",
+      "log": "automatic-approved-sharing-storage-v5.log"
+    },
+    "traits": {
+      "passed": 170,
+      "failed": 0,
+      "ignored": 0,
+      "suite_counts": [
+        125,
+        1,
+        4,
+        6,
+        34,
+        0
+      ],
+      "command": "cargo test -p cgka-traits --locked",
+      "log": "automatic-approved-sharing-traits-v2.log"
+    },
+    "default_all_targets": {
+      "result": "Passed",
+      "command": "cargo check -p storage-sqlite --all-targets --locked",
+      "log": "automatic-approved-sharing-default-v1.log"
+    },
+    "strict_clippy": {
+      "result": "Passed",
+      "command": "cargo clippy -p storage-sqlite -p cgka-traits --all-targets --features storage-sqlite/experimental-device-sync --locked -- -D warnings",
+      "log": "automatic-approved-sharing-clippy-v1.log"
+    },
+    "format": {
+      "result": "Passed",
+      "command": "cargo fmt --all -- --check"
+    },
+    "diff": {
+      "result": "Passed",
+      "command": "git diff --check"
+    }
+  },
+  "coverage": [
+    "Eight new persistence cases: immutable approval/exact retry/permanent revoke; current-digest-only retries and interleaved groups; original before/tail atomic rollback; encrypted restart/closed owner; bounds/configured owner mismatch; SQL reset/replace fences; revoked rows count toward128 approval references and sequence overflow;8192 journal references stop new inserts without leaking counter and preserve existing retries/updates.",
+    "Shared stable SHA256 identity symmetric across device roles, account/group/peer/approval bound, excluding transient keys/nonces/times/generations. Protected epoch retained solely as immutable negative revocation metadata.",
+    "Seven mirror catalog regressions retained after configured-owner checker extraction; fifteen private-ledger/prefix tests including immutable receipts, activation and fault rollback. Core102/private1\u201317 bodies preserved.",
+    "Cross-boundary snapshot generated with actual INSTA_UPDATE=always, inspected synthetic fields, then normal full traits verification170passed."
+  ],
+  "preserved_attempts": [
+    {
+      "log": "automatic-approved-sharing-storage-v1.log",
+      "kind": "Runner PATH failure; no tests executed"
+    },
+    {
+      "log": "automatic-approved-sharing-storage-v2.log",
+      "kind": "Compile-only test fixture numeric SQL literal typed i32 instead of u8; no behavioral RED"
+    },
+    {
+      "log": "automatic-approved-sharing-storage-v3.log",
+      "passed": 28,
+      "failed": 1,
+      "kind": "Capacity fixture reused original revoked approval ID in its enumeration; corrected distinct synthetic IDs"
+    },
+    {
+      "log": "automatic-approved-sharing-storage-v4.log",
+      "passed": 29,
+      "failed": 0,
+      "kind": "Passing before added8192-journal capacity acceptance"
+    }
+  ],
+  "raw_logs": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-approved-sharing",
+  "limits": [
+    "Synthetic persistence callbacks do not establish actual original pairing approval or protected transport; App/Core independent-store proof follows separately.",
+    "Component-local checks qualify this signed storage slice. Full final affected/native/app suites remain promotion requirements.",
+    "No restored keys/deadline or runtime grant from durable facts. Removed peer or old protected epoch requires authenticated negative revocation and a new explicit original approval for future sharing."
+  ]
+}

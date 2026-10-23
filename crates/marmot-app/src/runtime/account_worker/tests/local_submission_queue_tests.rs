@@ -29,6 +29,222 @@ impl Drop for HeldDatabase {
     }
 }
 
+// SIBLING_WORKER_PASSIVE_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+pub(in crate::runtime::account_worker) mod passive_bob {
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, LazyLock, Mutex};
+
+    type Turn = (u64, u64, bool, bool, bool, bool);
+    #[derive(Clone, Copy, Default)]
+    pub(super) struct Counts {
+        checkpoints: u64,
+        drain_attempts: u64,
+        last_turn: Option<Turn>,
+        phase: Option<u8>,
+        transitions: [u64; 4],
+        transition_overflow: bool,
+        overflow: bool,
+    }
+    static ACTIVE: AtomicBool = AtomicBool::new(false);
+    pub(in crate::runtime::account_worker) fn active() -> bool {
+        ACTIVE.load(Ordering::Acquire)
+    }
+    static SLOTS: LazyLock<Mutex<HashMap<String, Arc<Mutex<Counts>>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    pub(super) struct Guard {
+        account: String,
+        counts: Arc<Mutex<Counts>>,
+    }
+    impl Guard {
+        pub(super) fn snapshot(&self) -> Counts {
+            *self
+                .counts
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+        }
+    }
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let mut slots = SLOTS.lock().unwrap_or_else(|error| error.into_inner());
+            if slots
+                .get(&self.account)
+                .is_some_and(|counts| Arc::ptr_eq(counts, &self.counts))
+            {
+                slots.remove(&self.account);
+            }
+            ACTIVE.store(!slots.is_empty(), Ordering::Release);
+        }
+    }
+    pub(super) fn install(account: &str) -> Option<Guard> {
+        let mut slots = SLOTS.lock().unwrap_or_else(|error| error.into_inner());
+        if slots.len() >= 4 || account.len() > 128 || slots.contains_key(account) {
+            return None;
+        }
+        let counts = Arc::new(Mutex::new(Counts::default()));
+        slots.insert(account.to_owned(), counts.clone());
+        ACTIVE.store(true, Ordering::Release);
+        Some(Guard {
+            account: account.to_owned(),
+            counts,
+        })
+    }
+    fn update(account: &str, record: impl FnOnce(&mut Counts)) {
+        if !ACTIVE.load(Ordering::Acquire) {
+            return;
+        }
+        let counts = SLOTS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(account)
+            .cloned();
+        if let Some(counts) = counts {
+            record(&mut counts.lock().unwrap_or_else(|error| error.into_inner()));
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::runtime::account_worker) fn record_turn(
+        account: &str,
+        pending: usize,
+        buffered: usize,
+        yielded: bool,
+        due: bool,
+        owed: bool,
+        retry_ready: bool,
+    ) {
+        update(account, |counts| {
+            match (
+                counts.checkpoints.checked_add(1),
+                u64::try_from(pending),
+                u64::try_from(buffered),
+            ) {
+                (Some(next), Ok(pending), Ok(buffered)) => {
+                    counts.checkpoints = next;
+                    counts.last_turn = Some((pending, buffered, yielded, due, owed, retry_ready));
+                }
+                _ => counts.overflow = true,
+            }
+        });
+    }
+    // Last reached location only; not an exact blocker or task-poll observation.
+    pub(in crate::runtime::account_worker) fn record_phase(account: &str, phase: u8) {
+        update(account, |counts| {
+            counts.phase = Some(phase);
+            let index = match phase {
+                1 => Some(0),  // Actual worker entry, before startup.
+                7 => Some(1),  // Before the existing cooperative yield.
+                11 => Some(3), // Actual early comparison-settlement continue.
+                _ => None,
+            };
+            if let Some(index) = index {
+                bump_transition(counts, index);
+            }
+        });
+    }
+    fn bump_transition(counts: &mut Counts, index: usize) {
+        if let Some(next) = counts.transitions[index].checked_add(1) {
+            counts.transitions[index] = next;
+        } else {
+            counts.transition_overflow = true;
+        }
+    }
+    pub(in crate::runtime::account_worker) fn record_loop_boundary_passed(account: &str) {
+        update(account, |counts| bump_transition(counts, 2));
+    }
+    #[derive(serde::Serialize)]
+    pub(super) struct Transitions {
+        registered: bool,
+        cooperative_yield_enabled: bool,
+        before: Option<[u64; 4]>,
+        after: Option<[u64; 4]>,
+        overflow: bool,
+    }
+    pub(in crate::runtime::account_worker) fn record_drain(account: &str) {
+        update(account, |counts| {
+            if let Some(next) = counts.drain_attempts.checked_add(1) {
+                counts.drain_attempts = next;
+            } else {
+                counts.overflow = true;
+            }
+        });
+    }
+    #[derive(serde::Serialize)]
+    pub(super) struct Frozen {
+        registered: bool,
+        before_phase: Option<u8>,
+        after_phase: Option<u8>,
+        checkpoints: Option<u64>,
+        drain_attempts: Option<u64>,
+        last_turn: Option<Turn>,
+        overflow: bool,
+        elapsed_ms: Option<u64>,
+        #[serde(skip)]
+        pub(super) transitions: Transitions,
+    }
+    pub(super) fn freeze(
+        guard: Option<&Guard>,
+        before: Option<Counts>,
+        elapsed_ms: Option<u64>,
+    ) -> Frozen {
+        let (Some(guard), Some(before)) = (guard, before) else {
+            return Frozen {
+                registered: false,
+                before_phase: None,
+                after_phase: None,
+                checkpoints: None,
+                drain_attempts: None,
+                last_turn: None,
+                overflow: false,
+                elapsed_ms,
+                transitions: Transitions {
+                    registered: false,
+                    cooperative_yield_enabled: cfg!(feature = "experimental-device-sync"),
+                    before: None,
+                    after: None,
+                    overflow: false,
+                },
+            };
+        };
+        let after = guard.snapshot();
+        let checkpoints = after.checkpoints.checked_sub(before.checkpoints);
+        let drain_attempts = after.drain_attempts.checked_sub(before.drain_attempts);
+        let overflow =
+            before.overflow || after.overflow || checkpoints.is_none() || drain_attempts.is_none();
+        Frozen {
+            registered: true,
+            before_phase: before.phase,
+            after_phase: after.phase,
+            checkpoints: if overflow { None } else { checkpoints },
+            drain_attempts: if overflow { None } else { drain_attempts },
+            last_turn: if !overflow && checkpoints.is_some_and(|count| count > 0) {
+                after.last_turn
+            } else {
+                None
+            },
+            overflow,
+            elapsed_ms,
+            transitions: Transitions {
+                registered: true,
+                cooperative_yield_enabled: cfg!(feature = "experimental-device-sync"),
+                before: if before.transition_overflow || after.transition_overflow {
+                    None
+                } else {
+                    Some(before.transitions)
+                },
+                after: if before.transition_overflow || after.transition_overflow {
+                    None
+                } else {
+                    Some(after.transitions)
+                },
+                overflow: before.transition_overflow || after.transition_overflow,
+            },
+        }
+    }
+}
+// SIBLING_WORKER_PASSIVE_END
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_deleted_timing() {
     let dir = tempfile::tempdir().unwrap();
@@ -52,6 +268,8 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
         .await
         .unwrap();
     let runtime = crate::MarmotAppRuntime::new(app.clone());
+    #[cfg(feature = "test-policy-overrides")]
+    let bob_observer = passive_bob::install(&bob.account_id_hex);
     runtime.reconcile_accounts().await.unwrap();
     for account in [&alice, &bob] {
         runtime
@@ -102,6 +320,13 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
     })
     .await
     .expect("the blocked account owns its admission/selection gate");
+    let mut submit_returned = false;
+    let mut status_polls = 0_u64;
+    let mut last_status = "unknown";
+    #[cfg(feature = "test-policy-overrides")]
+    let bob_before = bob_observer.as_ref().map(passive_bob::Guard::snapshot);
+    #[cfg(feature = "test-policy-overrides")]
+    let healthy_started = TokioInstant::now();
     let healthy = timeout(Duration::from_secs(1), async {
         let accepted = runtime
             .submit_text(
@@ -110,17 +335,33 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
                 "healthy sibling".into(),
                 "healthy-token".into(),
             )
-            .await?;
+            .await;
+        submit_returned = true;
+        let accepted = accepted?;
         loop {
-            if let Some(crate::LocalSendStatus::Completed(summary)) =
-                runtime.local_send_status(&bob.label, &bob_group, "healthy-token")?
-            {
+            status_polls += 1;
+            let status = runtime.local_send_status(&bob.label, &bob_group, "healthy-token")?;
+            last_status = match &status {
+                None => "none",
+                Some(crate::LocalSendStatus::Queued) => "queued",
+                Some(crate::LocalSendStatus::EngineOwned) => "engine_owned",
+                Some(crate::LocalSendStatus::Rejected) => "rejected",
+                Some(crate::LocalSendStatus::Completed(_)) => "completed",
+            };
+            if let Some(crate::LocalSendStatus::Completed(summary)) = status {
                 break Ok::<_, AppError>((accepted, summary));
             }
             sleep(Duration::from_millis(5)).await;
         }
     })
     .await;
+    let healthy_observation = (submit_returned, status_polls, last_status);
+    #[cfg(feature = "test-policy-overrides")]
+    let worker_observation = passive_bob::freeze(
+        bob_observer.as_ref(),
+        bob_before,
+        u64::try_from(healthy_started.elapsed().as_millis()).ok(),
+    );
     // Removal must wait for the owned admission before committing its wipe
     // and cancelling observations. Only UUID/temp fixture identities exist.
     let removing = {
@@ -140,6 +381,24 @@ async fn blocked_account_admission_does_not_delay_sibling_send_or_resurrect_dele
         .unwrap()
         .unwrap()
         .unwrap();
+    eprintln!(
+        "sibling-send-observation {}",
+        serde_json::json!({
+            "submit_returned": healthy_observation.0,
+            "status_polls": healthy_observation.1,
+            "last_status": healthy_observation.2,
+        })
+    );
+    #[cfg(feature = "test-policy-overrides")]
+    eprintln!(
+        "sibling-worker-observation {}",
+        serde_json::json!(worker_observation)
+    );
+    #[cfg(feature = "test-policy-overrides")]
+    eprintln!(
+        "sibling-worker-transition-observation {}",
+        serde_json::json!(worker_observation.transitions)
+    );
     let (accepted, published) = healthy
         .expect("one account's database contention cannot postpone another account's durable send")
         .unwrap();

@@ -12,3 +12,6 @@ pub(crate) mod release;
 pub(crate) mod routes;
 pub(crate) mod views;
 mod wipe;
+
+#[cfg(feature = "experimental-device-sync")]
+mod private_app_capabilities;

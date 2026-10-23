@@ -41,8 +41,23 @@ epoch-scoped readability; `MockPeeler` stays right for everything else.
 - **File:** `scaffold.rs`
   - **Owns:** `EngineBuilder` validation and empty-engine behavior
 
+- **File:** `accepted_welcome_receipts.rs`
+  - **Owns:** Default-off exact accepted-Welcome/KPref/account/MLS-signer evidence, independent same-account device joins, wrong inputs, transactional failure/retry, encrypted reopen. No enrollment or roster authorization.
+
+- **File:** `accepted_welcome_receipts/source_leaf_proofs.rs`
+  - **Owns:** Experimental authenticated exact leaf/signature/epoch/branch capture parity on direct and stored replay for independent same-account signers; no enrollment grant.
+
+- **Files:** `accepted_welcome_receipts/purpose_key_packages.rs`, `purpose_welcome.rs`
+  - **Owns:** Atomic purpose/private factory rollback/reopen, exact scope resolution, cancelled reservation fencing, terminal/expired/startup cleanup; generic unverified denial, authenticated policy mismatch rollback/retry and final expiry rollback. Policy fixtures exercise trusted injection, not SAS proof.
+
+- **File:** `accepted_welcome_receipts/single_use_key_packages.rs`
+  - **Owns:** Experimental single-use private KP exact consumption/reuse refusal, spare bundle preservation, and unchanged normal last-resort reuse. Receipt-write rollback uses a genuinely single-use KP.
+
 - **File:** `group_creation.rs`
   - **Owns:** Fresh KeyPackage, create, join welcome, confirm
+
+- **File:** `device_group_snapshot.rs`
+  - **Owns:** Experimental local indexed-tree candidates for independent same-account signers; pending publication, mixed-account and inconsistent durable-state refusal; real removal leaving a sparse tree. These tests do not prove remote settlement or authorization.
 
 - **File:** `group_context_view.rs`
   - **Owns:** `GroupContextView` exporter-secret length contract
@@ -78,6 +93,7 @@ epoch-scoped readability; `MockPeeler` stays right for everything else.
 - **File:** `distributed_convergence/historical_application_sender.rs`
   - **Owns:** Source-epoch application attribution after removal, replacement leaf reuse, and rejoin; direct
     ingestion and buffered replay after restart, duplicate suppression, and forged replacement-author rejection.
+    Delayed direct evidence stays absent; genuine historical replay evidence never names the current epoch or a replacement signer.
 
 - **File:** `distributed_convergence/delivered_witnesses.rs`
   - **Owns:** Which delivered applications a convergence pass holds (mdk#2330): inert ones at or below the witness
@@ -105,6 +121,7 @@ epoch-scoped readability; `MockPeeler` stays right for everything else.
     `PendingCommit`, clears it, and surfaces `GroupEvent::PendingCommitRecovered` (mdk#150)
 
 - **File:** `record_write_atomicity.rs`
+  - **Also owns:** Unsupported outgoing private-invite capability admission through a real SQLite-delegating provider, signed private-component refusal and no genesis allocation.
   - **Owns:** Group-projection atomicity under injected record/cache write failures (mdk#333, mdk#794), one test per
     seam that projects the record plus inbound capability-cache coverage. No torn record or capability cache,
     orphaned pending publish, leaked snapshot, stale stored proposal, or epoch split between the record and the epoch

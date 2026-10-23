@@ -1,0 +1,85 @@
+---
+source: crates/traits/tests/snapshots.rs
+expression: receipt
+---
+{
+  "welcome_id": [
+    187,
+    187,
+    187,
+    187
+  ],
+  "content_id": [
+    204,
+    204,
+    204
+  ],
+  "group_id": [
+    170,
+    170,
+    170,
+    170
+  ],
+  "consumed_key_package_ref": [
+    1,
+    2,
+    3
+  ],
+  "own_account": [
+    97,
+    108,
+    105,
+    99,
+    101
+  ],
+  "own_signature_public_key": [
+    4,
+    5,
+    6
+  ],
+  "welcomer_account": [
+    98,
+    111,
+    98
+  ],
+  "welcomer_signature_public_key": [
+    7,
+    8,
+    9
+  ],
+  "joined_epoch": 10,
+  "joined_epoch_authenticator_digest": [
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17
+  ]
+}

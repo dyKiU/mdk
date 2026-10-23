@@ -30,6 +30,7 @@ async fn nostr_adapter_peeler_and_session_deliver_welcome_and_group_message() {
     assert!(welcome_report.met_required_acks());
     stack.sync_group(&bob, &created.group_id).await;
 
+    let sender_signature = sender_signature_from_session(&alice, &created.group_id);
     let sent = alice
         .session
         .send(SendIntent::AppMessage {
@@ -54,26 +55,12 @@ async fn nostr_adapter_peeler_and_session_deliver_welcome_and_group_message() {
         .await
         .expect("group delivery should reach bob");
     assert_eq!(received.outcome, IngestOutcome::Processed);
-    let [GroupEvent::MessageReceived { message_id, .. }] = received.effects.events.as_slice()
-    else {
-        panic!("expected exactly one received-message event");
-    };
-    assert_eq!(message_id.as_slice().len(), 32);
-    assert_eq!(
-        received.effects.events,
-        vec![GroupEvent::MessageReceived {
-            authority: None,
-            group_id: created.group_id,
-            message_id: message_id.clone(),
-            epoch: EpochId(1),
-            sender: alice.session.self_id(),
-            payload: app_payload_for(&alice, b"hello through the nostr stack"),
-            retention: Some(cgka_traits::AppMessageRetentionDecision::new(
-                1_700_000_000,
-                0,
-            )),
-            encrypted_media_secret: None,
-        }]
+    assert_received_message(
+        &received,
+        &created.group_id,
+        &alice,
+        &sender_signature,
+        b"hello through the nostr stack",
     );
 }
 
@@ -140,6 +127,7 @@ async fn group_delivery_requires_synced_group_subscription() {
     )
     .await;
 
+    let sender_signature = sender_signature_from_session(&alice, &created.group_id);
     let app_message = send_app_message(&mut alice, &created.group_id, b"sync gated").await;
     let report = stack
         .publish_group(&alice, &created.group_id, app_message, 1)
@@ -169,26 +157,12 @@ async fn group_delivery_requires_synced_group_subscription() {
         .await
         .expect("synced group delivery should reach bob");
     assert_eq!(after_sync.outcome, IngestOutcome::Processed);
-    let [GroupEvent::MessageReceived { message_id, .. }] = after_sync.effects.events.as_slice()
-    else {
-        panic!("expected exactly one received-message event");
-    };
-    assert_eq!(message_id.as_slice().len(), 32);
-    assert_eq!(
-        after_sync.effects.events,
-        vec![GroupEvent::MessageReceived {
-            authority: None,
-            group_id: created.group_id,
-            message_id: message_id.clone(),
-            epoch: EpochId(1),
-            sender: alice.session.self_id(),
-            payload: app_payload_for(&alice, b"sync gated"),
-            retention: Some(cgka_traits::AppMessageRetentionDecision::new(
-                1_700_000_000,
-                0,
-            )),
-            encrypted_media_secret: None,
-        }]
+    assert_received_message(
+        &after_sync,
+        &created.group_id,
+        &alice,
+        &sender_signature,
+        b"sync gated",
     );
 }
 
@@ -530,4 +504,71 @@ async fn publish_confirm_and_deliver_welcome(
 
 fn backup_inbox(label: &str) -> TransportEndpoint {
     TransportEndpoint(format!("wss://{label}-backup.example"))
+}
+
+// Capture expected signer from a distinct public session view before ingest.
+// The fixture's creator occupies leaf0; its first real Add advances to epoch1.
+fn sender_signature_from_session(sender: &StackClient, group: &cgka_traits::GroupId) -> Vec<u8> {
+    let account = sender.session.self_id();
+    let member = sender
+        .session
+        .members(group)
+        .unwrap()
+        .into_iter()
+        .find(|member| member.id == account)
+        .unwrap();
+    member.credential
+}
+fn assert_received_message(
+    received: &IngestEffects,
+    expected_group: &cgka_traits::GroupId,
+    sender_client: &StackClient,
+    expected_signature: &[u8],
+    content: &[u8],
+) {
+    let [
+        GroupEvent::MessageReceived {
+            group_id,
+            message_id,
+            epoch,
+            sender,
+            payload,
+            retention,
+            encrypted_media_secret,
+            authority,
+            source_leaf,
+        },
+    ] = received.effects.events.as_slice()
+    else {
+        panic!("expected exactly one received-message event");
+    };
+    assert!(group_id == expected_group);
+    assert_eq!(message_id.as_slice().len(), 32);
+    assert_eq!(*epoch, EpochId(1));
+    assert!(*sender == sender_client.session.self_id());
+    assert!(*payload == app_payload_for(sender_client, content));
+    assert_eq!(
+        *retention,
+        Some(cgka_traits::AppMessageRetentionDecision::new(
+            1_700_000_000,
+            0
+        ))
+    );
+    assert!(encrypted_media_secret.is_none() && authority.is_none());
+    #[cfg(feature = "experimental-device-sync")]
+    {
+        let proof = source_leaf
+            .as_ref()
+            .expect("real current-epoch MLS ingest must retain its authenticated source leaf");
+        assert_eq!(proof.leaf_index, 0);
+        assert_eq!(proof.epoch, EpochId(1));
+        assert!(proof.signature_public_key.as_slice() == expected_signature);
+        assert!(proof.epoch_authenticator_digest != [0; 32]);
+        // This observation is metadata, never a host-supplied enrollment grant.
+    }
+    #[cfg(not(feature = "experimental-device-sync"))]
+    {
+        let _ = expected_signature;
+        assert!(source_leaf.is_none());
+    }
 }

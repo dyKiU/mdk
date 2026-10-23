@@ -30,3 +30,22 @@ trigger cgka_leave_requests chat_list_keys_cgka_leave_requests_INSERT
 trigger cgka_leave_requests chat_list_keys_cgka_leave_requests_UPDATE
 trigger chat_list_rows chat_list_keys_chat_list_rows_INSERT
 trigger chat_list_rows chat_list_keys_chat_list_rows_UPDATE
+
+# Private ownership crossings retained from our fork. These preserve exact
+# account/signer, original-attempt and local-MLS fences; reasons and owners:
+# src/cross/private-ownership.md. No private migration body is changed.
+path device_linking.rs crate::private_device_invite
+sql device_linking.rs device_linking_key_package
+sql device_linking_key_package.rs device_linking_attempt
+sql private_device_invite.rs device_linking_attempt
+sql accepted_device_group_anchor.rs account_state
+sql existing_device_group_anchor.rs account_state
+sql revoked_device_group_anchor.rs account_state
+sql private_device_invite.rs account_state
+sql device_group_genesis.rs account_state
+sql roster_ack_capture.rs account_state
+sql private_roster_settlement.rs account_state
+sql selected_chat_key_package.rs account_state
+sql approved_account_sharing_policy.rs cgka_account_device_signers
+sql mirrored_chat_presentation.rs cgka_groups
+sql synchronized_history/request_observation.rs cgka_account_device_signers

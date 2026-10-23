@@ -1,0 +1,162 @@
+{
+  "base": "f9536d8e9118441ecb1b90fb6bf14c17fcaa4bad",
+  "regression": "mirrored_presentation_blocked_author_is_filtered_before_total_limit",
+  "unchanged_red_green_regression": true,
+  "stages": {
+    "red": {
+      "candidate_stash": "e055a861ea0aef2d4baddad34a3de83e425e723d",
+      "input_manifest": "account-chat-presentation-storage-blocked-red-v1-inputs.json",
+      "input_manifest_sha256": "387537d1b79feea3792b134525d42a79f217b7a8fe9f969138c6752015150410",
+      "input_count": 2580,
+      "tested_paths": {
+        "crates/storage-sqlite/src/mirrored_chat_presentation.rs": "c14e4e1aa126a492639f1bd710e5399adbc63a883db34c6ded83126c8f5751e8",
+        "crates/storage-sqlite/src/mirrored_chat_presentation/tests.rs": "4b98eed6cea41c020b905e2133c9b729da23c7542f859c8ac55aa483c0f98efe"
+      },
+      "gates": [
+        {
+          "gate": "focused",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "mirrored_chat_presentation::tests::mirrored_presentation_blocked_author_is_filtered_before_total_limit",
+            "--",
+            "--exact",
+            "--test-threads=1"
+          ],
+          "exit_code": 101,
+          "seconds": 7.164,
+          "log": "/Users/pj/project/build/account-chat-presentation-storage-blocked-red-v1-focused.log",
+          "sha256": "929d990805b283759bae19c19ce42c732ad2e002ba95b7ddfebb15a9d900cdb9"
+        }
+      ],
+      "unchanged_at_tail": true,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    },
+    "green": {
+      "candidate_stash": "718ba651cc9e9f27f1661a66217346c6518914b8",
+      "input_manifest": "account-chat-presentation-storage-blocked-green-v1-inputs.json",
+      "input_manifest_sha256": "e4abbd0a9e50474c8f42a46847c70311752a682141a919884b35a2b89ed983ac",
+      "input_count": 2580,
+      "tested_paths": {
+        "crates/storage-sqlite/src/mirrored_chat_presentation.rs": "fc9abd88b5f9258064c9cd680b3562aeb7130cd9934e1f34eda2ef95d772703b",
+        "crates/storage-sqlite/src/mirrored_chat_presentation/tests.rs": "4b98eed6cea41c020b905e2133c9b729da23c7542f859c8ac55aa483c0f98efe"
+      },
+      "gates": [
+        {
+          "gate": "focused",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "mirrored_presentation_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 12.518,
+          "log": "/Users/pj/project/build/account-chat-presentation-storage-blocked-green-v1-focused.log",
+          "sha256": "0cf3d43f639982d23ae8267e8d7a3fada80d99ae6078d3314291d977cc33a782"
+        },
+        {
+          "gate": "affected",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "storage-sqlite",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "mirrored_",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "seconds": 21.158,
+          "log": "/Users/pj/project/build/account-chat-presentation-storage-blocked-green-v1-affected.log",
+          "sha256": "c62b8dd691d128cccdcb3747fb05a5312ba93ad802f89dcb12879ba30f14fb83"
+        },
+        {
+          "gate": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 4.287,
+          "log": "/Users/pj/project/build/account-chat-presentation-storage-blocked-green-v1-clippy.log",
+          "sha256": "6f0f5c07350e40555e445c59d2cf132fa4f47b833c17193e29dc0638f78d0be0"
+        },
+        {
+          "gate": "default",
+          "command": [
+            "cargo",
+            "check",
+            "-p",
+            "storage-sqlite",
+            "--all-targets",
+            "--locked"
+          ],
+          "exit_code": 0,
+          "seconds": 1.591,
+          "log": "/Users/pj/project/build/account-chat-presentation-storage-blocked-green-v1-default.log",
+          "sha256": "0ed3eb484a3e836d849c30493ca924d742954c9387513cff70ffdf88f0ad55e3"
+        },
+        {
+          "gate": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "-p",
+            "storage-sqlite",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 0.46,
+          "log": "/Users/pj/project/build/account-chat-presentation-storage-blocked-green-v1-fmt.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "unchanged_at_tail": true,
+      "counts": {
+        "focused": {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        "affected_includes_focused": {
+          "passed": 23,
+          "failed": 0,
+          "ignored": 0
+        }
+      }
+    }
+  },
+  "scope": "SQLite observation privacy only. Actual stored block filters authors before rank and total LIMIT; synthetic two-source-record fixture. App presentation, live windows, native bindings, automatic routing and installed journey remain unqualified."
+}

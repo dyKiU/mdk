@@ -1,5 +1,7 @@
 #[cfg(feature = "test-policy-overrides")]
 mod canonical_membership;
+#[cfg(feature = "experimental-device-sync")]
+mod device_linking_startup;
 mod draft_lifecycle;
 mod follow_list_edits;
 mod group_lookup;
@@ -528,6 +530,8 @@ pub(crate) struct ScriptedPushRelayClient {
     refuse_group_subscribes: std::sync::atomic::AtomicBool,
     block_next_unsubscribe: std::sync::atomic::AtomicBool,
     block_next_publish: std::sync::atomic::AtomicBool,
+    block_next_publish_kind: std::sync::Mutex<Option<u64>>,
+    blocked_publish_kind: std::sync::Mutex<Option<u64>>,
     block_publish_count: std::sync::atomic::AtomicUsize,
     blocked_publish_count: std::sync::atomic::AtomicUsize,
     block_account_subscribe: std::sync::Mutex<Option<Vec<u8>>>,
@@ -805,6 +809,10 @@ impl ScriptedPushRelayClient {
         *self.publish_results.lock().unwrap() = results.into_iter().collect();
     }
 
+    #[cfg(feature = "test-policy-overrides")]
+    pub(crate) fn published_events_snapshot(&self) -> Vec<NostrTransportEvent> {
+        self.published_events.lock().unwrap().clone()
+    }
     pub(crate) fn published_event_ids(&self) -> Vec<String> {
         self.published_events
             .lock()
@@ -814,7 +822,7 @@ impl ScriptedPushRelayClient {
             .collect()
     }
 
-    fn attempted_event_ids(&self) -> Vec<String> {
+    pub(crate) fn attempted_event_ids(&self) -> Vec<String> {
         self.attempted_events
             .lock()
             .unwrap()
@@ -826,6 +834,10 @@ impl ScriptedPushRelayClient {
     pub(crate) fn block_next_publish(&self) {
         self.block_next_publish
             .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn block_next_publish_of_kind(&self, kind: u64) {
+        *self.block_next_publish_kind.lock().unwrap() = Some(kind);
     }
 
     fn block_account_inbox_subscribe(&self, account_id: Vec<u8>) {
@@ -1330,12 +1342,26 @@ impl NostrRelayClient for ScriptedPushRelayClient {
                 |remaining| remaining.checked_sub(1),
             )
             .is_ok();
+        let block_matching_publish = {
+            let mut selected = self.block_next_publish_kind.lock().unwrap();
+            if *selected == Some(event.kind) {
+                selected.take();
+                true
+            } else {
+                false
+            }
+        };
         if block_counted_publish
+            || block_matching_publish
             || self
                 .block_next_publish
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
         {
             let released = registered_release(&self.publish_release);
+            self.blocked_publish_kind
+                .lock()
+                .unwrap()
+                .get_or_insert(event.kind);
             self.blocked_publish_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.publish_started.notify_one();
@@ -2251,6 +2277,7 @@ fn recovery_warning_requires_qualified_local_observations_and_survives_local_com
         effects
             .events
             .push(cgka_traits::engine::GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group_id.clone(),
                 message_id: cgka_traits::MessageId::new(vec![0xa1; 32]),
@@ -7115,7 +7142,8 @@ async fn initial_profile_retry_returns_the_profile_a_running_bootstrap_publishes
 async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     let directory = tempfile::tempdir().unwrap();
     let relay = Arc::new(ScriptedPushRelayClient::default());
-    relay.block_next_publish();
+    // Hold bootstrap metadata, after the worker has published its priority KeyPackage.
+    relay.block_next_publish_of_kind(0);
     let app = MarmotApp::with_relay(directory.path(), "wss://relay.example")
         .with_test_relay_client(relay.clone());
     let runtime = MarmotAppRuntime::new(app.clone());
@@ -7144,20 +7172,48 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     );
     assert!(result.profile.is_some());
     assert_eq!(result.readiness, AccountSetupReadiness::LocalReady);
-    assert_eq!(
-        runtime
-            .account_setup_readiness(&result.account.account_id_hex)
-            .unwrap(),
-        AccountSetupReadiness::Publishing
+    let live_readiness = runtime
+        .account_setup_readiness(&result.account.account_id_hex)
+        .unwrap();
+    let held_kind = *relay.blocked_publish_kind.lock().unwrap();
+    let readiness_code = |value| match value {
+        AccountSetupReadiness::Initializing => 0,
+        AccountSetupReadiness::LocalReady => 1,
+        AccountSetupReadiness::Publishing => 2,
+        AccountSetupReadiness::NetworkReady => 3,
+        AccountSetupReadiness::RecoveryRequired => 4,
+    };
+    eprintln!(
+        "generated_identity_blocked_publication held_kind_known={} held_kind={} returned_readiness={} live_readiness={}",
+        held_kind.is_some(),
+        held_kind.unwrap_or(0),
+        readiness_code(result.readiness),
+        readiness_code(live_readiness),
     );
+    assert_eq!(
+        held_kind,
+        Some(0),
+        "the held event must be bootstrap metadata"
+    );
+    assert_eq!(live_readiness, AccountSetupReadiness::Publishing);
     let lifecycle = app
         .account_storage(&result.account.label)
         .unwrap()
         .key_package_lifecycle()
         .unwrap()
         .unwrap();
-    let pending = lifecycle.pending_replacement.unwrap();
-    let signed_bytes = pending.signed_event.unwrap().bytes;
+    // The priority publication is already acknowledged before bootstrap metadata blocks.
+    let current_bytes = lifecycle.current_key_package.unwrap().bytes;
+    assert!(!current_bytes.is_empty());
+    assert_eq!(result.key_package_bytes, Some(current_bytes.len()));
+    assert!(lifecycle.publication_targets.iter().any(|target| matches!(
+        target.state,
+        cgka_traits::TransportFanoutAttemptState::Accepted
+    )));
+    let signed_bytes = lifecycle.authored_signed_event.unwrap().bytes;
+    let published: NostrTransportEvent = serde_json::from_slice(&signed_bytes).unwrap();
+    assert_eq!(published.kind, KIND_MARMOT_KEY_PACKAGE);
+    assert!(relay.published_events.lock().unwrap().contains(&published));
 
     let repeated = runtime
         .create_identity_local_ready(AccountSetupRequest {
@@ -7173,17 +7229,19 @@ async fn generated_identity_returns_before_bootstrap_publication_unblocks() {
     );
     assert_eq!(repeated.key_package_bytes, result.key_package_bytes);
     assert_eq!(repeated.readiness, AccountSetupReadiness::Publishing);
+    let repeated_lifecycle = app
+        .account_storage(&repeated.account.label)
+        .unwrap()
+        .key_package_lifecycle()
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        app.account_storage(&repeated.account.label)
-            .unwrap()
-            .key_package_lifecycle()
-            .unwrap()
-            .unwrap()
-            .pending_replacement
-            .unwrap()
-            .signed_event
-            .unwrap()
-            .bytes,
+        repeated_lifecycle.current_key_package.unwrap().bytes,
+        current_bytes,
+        "repeated create must retain the acknowledged initial KeyPackage"
+    );
+    assert_eq!(
+        repeated_lifecycle.authored_signed_event.unwrap().bytes,
         signed_bytes,
         "repeated create must retain the exact signed KeyPackage publication"
     );
@@ -8325,6 +8383,42 @@ async fn legacy_ambiguous_setup_requires_consent_before_reset() {
     let retried = home.import_nostr_account_idempotent(&secret).unwrap();
     assert_eq!(retried.account().account_id_hex, account.account_id_hex);
     runtime.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn companion_publication_hold_is_applied_when_app_opens_an_account() {
+    let directory = tempfile::tempdir().unwrap();
+    let home = AccountHome::open(directory.path());
+    let account = home.create_account("companion").unwrap();
+    home.disable_public_key_package_publication(&account.label)
+        .unwrap();
+    let app = MarmotApp::with_relay(directory.path(), "wss://relay.example");
+    app.ensure_account_state(&account.label).unwrap();
+    let relay_plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let mut opened = app
+        .open_account(&account.label, &relay_plane, false)
+        .unwrap();
+    assert!(
+        !opened
+            .runtime
+            .key_package_network_maintenance_due()
+            .unwrap()
+    );
+    assert!(matches!(
+        opened.runtime.publish_fresh_key_package().await,
+        Err(marmot_account::AccountError::PublicKeyPackagePublicationDisabled)
+    ));
+    drop(opened);
+    std::fs::write(
+        home.account_dir(&account.label)
+            .join("public-key-package-hold.json"),
+        b"invalid",
+    )
+    .unwrap();
+    assert!(
+        app.open_account(&account.label, &relay_plane, false)
+            .is_err()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -13667,21 +13761,87 @@ fn live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue()
     run_composed_app_runtime_test("live-cursor-promotion", || async {
         let mut fixture = LiveCursorFixture::open().await;
         let cursor_before = fixture.cursor_before;
+        // CURSOR_PROMOTION_OBSERVATION_BEGIN
+        let mut injected_ids = Vec::with_capacity(2);
+        let seal_points = Arc::new(std::sync::Mutex::new([false; 2]));
+        let observed_seal_points = seal_points.clone();
+        *fixture.client.cursor_seal_probe.get_mut().unwrap() = Some(Box::new(move |point| {
+            let index = match point {
+                crate::client::CursorSeal::Before => 0,
+                crate::client::CursorSeal::After => 1,
+            };
+            observed_seal_points.lock().unwrap()[index] = true;
+        }));
+        // CURSOR_PROMOTION_OBSERVATION_END
         for (created_at, marker) in [
             (cursor_before + 4_000, "newer"),
             (cursor_before + 1_000, "older"),
         ] {
             let delivery = fixture.delivery(fixture.probe(created_at, marker)).await;
+            injected_ids.push(hex::encode(delivery.message.id.as_slice()));
             fixture
                 .app
                 .relay_plane
                 .route_account_delivery_for_test(delivery);
         }
-        fixture.wait_for_queue_depth(2).await;
+        // This router-pin test installs no further REQs. Join its already-owned
+        // pump so repeated EOSE bookkeeping cannot contend with the deliberately
+        // nonblocking seal. Keep the original five-second queue-readiness budget.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            fixture._eose.0.abort();
+            let stopped = (&mut fixture._eose.0).await;
+            assert!(
+                stopped.is_err_and(|error| error.is_cancelled()),
+                "the fixture-owned EOSE pump is joined before cursor sealing"
+            );
+            fixture.wait_for_queue_depth(2).await;
+            loop {
+                let status = fixture.client.adapter.replay_admission().await;
+                assert!(
+                    status.loss.is_none(),
+                    "cursor preparation must not consume unknown replay loss"
+                );
+                let placed = !status.pending
+                    && !status.spill_pending
+                    && status
+                        .sources()
+                        .all(|source| source.admitted() && source.placed());
+                drop(status);
+                if placed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the router queues and acknowledges every injected probe");
 
-        fixture.ingest_next_live_delivery().await;
+        let first_delivery = fixture.ingest_next_live_delivery().await;
+        // Freeze the original verdict before read-only aggregate observations.
+        let persisted = fixture.persisted();
+        #[cfg(feature = "test-policy-overrides")]
+        let observed_seal_points = *seal_points.lock().unwrap();
+        #[cfg(not(feature = "test-policy-overrides"))]
+        let _ = first_delivery;
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "cursor-promotion-observation {}",
+            serde_json::json!({
+                "first_is_newer": first_delivery == injected_ids[0],
+                "first_is_older": first_delivery == injected_ids[1],
+                "persisted_relative_to_initial": persisted.and_then(|value| {
+                    i64::try_from(i128::from(value) - i128::from(cursor_before)).ok()
+                }),
+                "in_memory_is_newer": fixture.client.state.last_transport_timestamp == Some(cursor_before + 4_000),
+                "checkpoint_is_initial": fixture.client.checkpointed_transport_timestamp == Some(cursor_before),
+                "seal_before": observed_seal_points[0],
+                "seal_after": observed_seal_points[1],
+                "delivery_loss": fixture.client.delivery_loss_blocks_cursor(),
+                "transport_cursor_settled": fixture.client.adapter.transport_cursor_settled(),
+            })
+        ));
         assert_eq!(
-            fixture.persisted(),
+            persisted,
             Some(cursor_before + 1_000 + 120),
             "the older delivery still queued caps the promotion where a restart refetches it"
         );
@@ -18343,6 +18503,7 @@ async fn local_delete_restart_preserves_rotated_route_relay_pairs_for_resurrecti
     assert!(fresh.failures.is_empty());
     let effects = marmot_account::AccountDeviceEffects {
         events: vec![cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: fresh.reports[0].message_id.clone(),
@@ -18452,6 +18613,7 @@ async fn local_delete_batch_suppresses_historical_chat_in_both_event_orders() {
         assert!(fresh.failures.is_empty());
         let epoch = client.runtime.group_record(&group_id).unwrap().epoch;
         let historical_event = cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: historical.reports[0].message_id.clone(),
@@ -18462,6 +18624,7 @@ async fn local_delete_batch_suppresses_historical_chat_in_both_event_orders() {
             encrypted_media_secret: None,
         };
         let fresh_event = cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: fresh.reports[0].message_id.clone(),
@@ -18540,6 +18703,7 @@ async fn account_open_recovers_first_fresh_chat_after_protocol_projection_crash(
     assert!(fresh.failures.is_empty());
     let message_id = fresh.reports[0].message_id.clone();
     let event = cgka_traits::engine::GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: group_id.clone(),
         message_id: message_id.clone(),
@@ -18625,6 +18789,7 @@ async fn account_open_keeps_first_fresh_chat_pending_when_group_projection_is_un
     assert!(fresh.failures.is_empty());
     let message_id = fresh.reports[0].message_id.clone();
     let event = cgka_traits::engine::GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: group_id.clone(),
         message_id,
@@ -21689,6 +21854,150 @@ async fn a_send_that_reaches_the_transport_reports_published() {
     runtime.shutdown().await;
 }
 
+/// Admission retains the original event ID even when transport confirmation is
+/// pending or unknown. Delivery is proved separately by the bounded canonical
+/// state check on every device, without resubmitting the mutation.
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) fn assert_mutation_admitted(summary: &crate::SendSummary) {
+    assert_eq!(summary.message_ids.len(), 1);
+    match summary.accept_disposition {
+        cgka_traits::SendAcceptDisposition::Published => assert_eq!(summary.published, 1),
+        cgka_traits::SendAcceptDisposition::AcceptedPending
+        | cgka_traits::SendAcceptDisposition::CompletionUnknown => {
+            assert_eq!(
+                summary.published, 0,
+                "mutation admission must agree with its actual typed send outcome"
+            );
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn actual_runtime_edit_completion_unknown_preserves_exact_canonical_identity() {
+    use cgka_traits::storage::OutboundFanoutStorage;
+
+    let dir = tempfile::tempdir().unwrap();
+    AccountHome::open(dir.path())
+        .create_account("sender")
+        .unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relay(dir.path(), "wss://scripted-edit-admission.example")
+        .with_test_relay_client(relay.clone());
+    let mut setup = app.client("sender").await.unwrap();
+    let group = setup
+        .create_group("Synthetic edit admission", &[])
+        .await
+        .unwrap();
+    drop(setup);
+    let runtime = MarmotAppRuntime::new(app.clone());
+    runtime.reconcile_accounts().await.unwrap();
+    let original = runtime
+        .send_message("sender", &group, b"Synthetic prior original".to_vec())
+        .await
+        .unwrap();
+    let healthy_original_published = original.published == 1
+        && original.message_ids.len() == 1
+        && original.accept_disposition == cgka_traits::SendAcceptDisposition::Published;
+    assert!(healthy_original_published);
+    let original_id = original.message_ids[0].clone();
+    let group_hex = hex::encode(group.as_slice());
+
+    relay.fail_publishes_as_unavailable();
+    // The real worker, Engine, SQL and signed publication path make the summary.
+    // Only the existing relay seam returns a retryable transport failure.
+    let edited = runtime
+        .edit_message(
+            "sender",
+            &group,
+            &original_id,
+            "Synthetic corrected original",
+        )
+        .await
+        .unwrap();
+    let actual_unknown =
+        edited.accept_disposition == cgka_traits::SendAcceptDisposition::CompletionUnknown;
+    let actual_zero_published = edited.published == 0;
+    assert!(actual_unknown && actual_zero_published);
+    assert_eq!(edited.message_ids.len(), 1);
+    let edit_id = edited.message_ids[0].clone();
+    let exact_one_distinct_edit_id = edit_id != original_id;
+    assert!(exact_one_distinct_edit_id);
+
+    let storage = app.account_storage("sender").unwrap();
+    let retained = storage
+        .list_outbound_fanouts_for_group(&group)
+        .unwrap()
+        .into_iter()
+        .filter(|row| {
+            row.application_message()
+                .is_some_and(|message| message.group_id == group && message.app_event_id == edit_id)
+        })
+        .collect::<Vec<_>>();
+    let durable_edit_bound = retained.len() == 1;
+    assert!(durable_edit_bound);
+    let frozen = retained[0].clone();
+    let frozen_event =
+        NostrTransportEvent::from_transport_message(&frozen.request().message).unwrap();
+    let frozen_transport_verified = frozen_event.to_verified_nostr_event().is_ok();
+    assert!(frozen_transport_verified);
+    let attempted_exact_frozen = relay
+        .attempted_events()
+        .iter()
+        .any(|event| event == &frozen_event);
+    assert!(attempted_exact_frozen);
+
+    relay.allow_publishes();
+    // Same bounded canonical budget as the four-device fixture; no resubmission.
+    let recovery = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let timeline = app.timeline_messages_with_query("sender", TimelineMessageQuery {
+                group_id_hex: Some(group_hex.clone()), ..TimelineMessageQuery::default()
+            }).unwrap();
+            let canonical = timeline.messages.as_slice();
+            let canonical_edit_exact_once = matches!(canonical, [row]
+                if row.message_id_hex == original_id && row.plaintext == "Synthetic corrected original"
+                    && !row.deleted && row.edit.as_ref().is_some_and(|edit|
+                        edit.latest_edit_message_id_hex == edit_id && edit.edit_count == 1));
+            let no_standalone_edit_row = canonical.iter()
+                .all(|row| row.message_id_hex != edit_id && row.kind != 1009);
+            let recovered_exact_transport_once = relay.published_events_snapshot().iter()
+                .filter(|event| *event == &frozen_event).count() == 1;
+            let fanout_retired = storage.outbound_fanout(frozen.message_id()).unwrap().is_none();
+            if canonical_edit_exact_once && no_standalone_edit_row
+                && recovered_exact_transport_once && fanout_retired {
+                break (canonical_edit_exact_once, no_standalone_edit_row,
+                    recovered_exact_transport_once, fanout_retired);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }).await;
+    assert!(
+        recovery.is_ok(),
+        "actual retained edit must recover its exact canonical identity"
+    );
+    let (
+        canonical_edit_exact_once,
+        no_standalone_edit_row,
+        recovered_exact_transport_once,
+        fanout_retired,
+    ) = recovery.unwrap();
+    drop(retained);
+    drop(frozen);
+    drop(storage);
+    runtime.shutdown_and_close().await.unwrap();
+    let cleanup_complete = runtime.storage_is_closed();
+    assert!(cleanup_complete);
+    crate::test_support::emit_line(format_args!(
+        "MUTATION_ADMISSION_PROBE {{\"healthy_original_published\":{healthy_original_published},\"actual_unknown\":{actual_unknown},\"actual_zero_published\":{actual_zero_published},\"exact_one_distinct_edit_id\":{exact_one_distinct_edit_id},\"durable_edit_bound\":{durable_edit_bound},\"frozen_transport_verified\":{frozen_transport_verified},\"attempted_exact_frozen\":{attempted_exact_frozen},\"recovered_exact_transport_once\":{recovered_exact_transport_once},\"canonical_edit_exact_once\":{canonical_edit_exact_once},\"no_standalone_edit_row\":{no_standalone_edit_row},\"fanout_retired\":{fanout_retired},\"cleanup_complete\":{cleanup_complete}}}"
+    ));
+    // The only expected RED is the source-owned legacy helper after all real facts.
+    assert_mutation_admitted(&edited);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unavailable_send_retries_the_exact_event_after_transport_recovers() {
     let dir = tempfile::tempdir().unwrap();
@@ -22451,6 +22760,7 @@ async fn check_received_media_source_epoch_secret(carried_secret: bool) {
 
     let effects = marmot_account::AccountDeviceEffects {
         events: vec![cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: sent.reports[0].message_id.clone(),
@@ -23435,13 +23745,67 @@ async fn due_peer_leave_does_not_shorten_a_collecting_convergence_pass() {
             .joined_groups
             .contains(&group_id)
     );
+    // Passive pre-leave canonical epoch; no protocol work or convergence advance.
+    let peer_leave_prior_epoch = alice
+        .runtime
+        .group_record(&group_id)
+        .ok()
+        .map(|group| group.epoch);
     bob_client.leave_group(&group_id).await.unwrap();
     alice.sync().await.unwrap();
     let delay = alice
         .runtime
         .scheduled_self_remove_auto_commit_delay_ms(&group_id)
-        .unwrap()
         .unwrap();
+    // BEGIN passive-peer-leave-initial-delay: freeze the original getter once.
+    if delay.is_none() {
+        let epoch_state = match alice.runtime.epoch_state(&group_id) {
+            None => "unknown",
+            Some(cgka_traits::EpochState::Stable { .. }) => "stable",
+            Some(cgka_traits::EpochState::PendingPublish(_)) => "pending_publish",
+            Some(cgka_traits::EpochState::Merging(_)) => "merging",
+            Some(cgka_traits::EpochState::Recovering(_)) => "recovering",
+            Some(cgka_traits::EpochState::Unrecoverable(_)) => "unrecoverable",
+            Some(cgka_traits::EpochState::Disbanded(_)) => "disbanded",
+        };
+        let group = alice.runtime.group_record(&group_id).ok();
+        let epoch_pair = peer_leave_prior_epoch.zip(group.as_ref().map(|group| group.epoch));
+        let members = alice.runtime.members(&group_id).ok();
+        let bob_id = hex::decode(&bob.account_id_hex).ok();
+        let bob_member = members.as_ref().zip(bob_id.as_ref()).map(|(members, id)| {
+            members
+                .iter()
+                .any(|member| member.id.as_slice() == id.as_slice())
+        });
+        let cached_storage = app
+            .account_storages
+            .lock()
+            .ok()
+            .and_then(|stores| stores.get("alice").cloned());
+        let own_leave = cached_storage
+            .and_then(|storage| {
+                cgka_traits::storage::LeaveRequestStorage::leave_request(&storage, &group_id).ok()
+            })
+            .map(|request| request.is_some());
+        crate::test_support::emit_line(format_args!(
+            "peer-leave-initial-delay-observation {}",
+            serde_json::json!({
+                "collected": true,
+                "initial_delay_present": false,
+                "epoch_state": epoch_state,
+                "same_epoch": epoch_pair.map(|(before, after)| before == after),
+                "advanced_epoch": epoch_pair.map(|(before, after)| after.0 > before.0),
+                "regressed_epoch": epoch_pair.map(|(before, after)| after.0 < before.0),
+                "group_terminal": group.as_ref().map(|group| group.is_terminal()),
+                "group_unrecoverable": group.as_ref().map(|group| group.unrecoverable),
+                "member_count": members.as_ref().map(Vec::len),
+                "bob_member": bob_member,
+                "own_leave_present": own_leave,
+            })
+        ));
+    }
+    // END passive-peer-leave-initial-delay: preserve the original unwrap below.
+    let delay = delay.unwrap();
     tokio::time::sleep(Duration::from_millis(delay + 1)).await;
     carol_client
         .runtime
@@ -24856,3 +25220,4 @@ pub(crate) mod alloc_audit {
         PEAK.load(Ordering::Relaxed)
     }
 }
+mod account_chat_departure_defaults;

@@ -1,5 +1,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::Pin;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+use std::sync::Weak;
 use std::sync::{
     Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -37,9 +43,59 @@ use transport_nostr_adapter::{
 pub use transport_nostr_adapter::{ReplayAdmissionStatus, ReplayCaptureOutcome, ReplayCapturePlan};
 use transport_nostr_peeler::NostrTransportEvent;
 
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod account_ingress_schedule_for_test;
 mod delivery_spill;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod held_delivery;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub use account_ingress_schedule_for_test::{
+    AccountIngressScheduleForTest, AccountIngressScheduleSnapshot,
+};
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[doc(hidden)]
+pub use held_delivery::Hold as HeldAccountDeliveryForTest;
 mod directory;
 mod directory_wire;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod ordinary_commit_gate;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "ordinary_commit_observation.rs"]
+mod ordinary_commit_observation;
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[doc(hidden)]
+pub use ordinary_commit_observation::PublicationObservationGuard;
+#[cfg(feature = "experimental-device-sync")]
+#[doc(hidden)]
+pub mod pairing;
 #[cfg(test)]
 pub(crate) mod publish_accounting_tests;
 mod safety;
@@ -123,6 +179,13 @@ pub struct MarmotRelayPlane {
     inner: Arc<MarmotRelayPlaneInner>,
 }
 
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod private_confirmation_gate;
+
 struct MarmotRelayPlaneInner {
     subscription_rebuild_lookback: Option<Duration>,
     relay_safety: RelaySafetyPolicy,
@@ -133,11 +196,247 @@ struct MarmotRelayPlaneInner {
     /// account worker share this client so the worker can reuse the same relay
     /// pool instead of constructing another TCP/TLS/WebSocket stack.
     account_publish_clients: std::sync::Mutex<HashMap<String, Arc<dyn NostrRelayClient>>>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    private_confirmation_gate: std::sync::Mutex<Option<private_confirmation_gate::Gate>>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    selected_welcome_gate: std::sync::Mutex<Option<SelectedWelcomePublicationGate>>,
+    // AUTOMATIC_BODY_TEST_BEGIN
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    automatic_body_gate: std::sync::Mutex<Option<AutomaticBodyPublicationGate>>,
+    // AUTOMATIC_BODY_TEST_END
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    ordinary_commit_gate: std::sync::Mutex<Option<ordinary_commit_gate::Gate>>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    ordinary_commit_observation: std::sync::Mutex<Option<Arc<ordinary_commit_observation::Watch>>>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    observed_welcome_ingest: std::sync::Mutex<
+        Option<(
+            MessageId,
+            tokio::sync::oneshot::Sender<Option<cgka_traits::IngestOutcome>>,
+        )>,
+    >,
+}
+
+/// Hold one actual selected publication before its unchanged real relay publication.
+/// This fixture observation never supplies recipient consent or replaces transport.
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SelectedPublicationClass {
+    Welcome,
+    Group,
+    SiblingConsent,
+    Automatic,
+}
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+struct SelectedWelcomePublicationGate {
+    account: MemberId,
+    class: SelectedPublicationClass,
+    observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
+    release: Arc<Notify>,
+}
+
+// AUTOMATIC_BODY_TEST_BEGIN
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+struct AutomaticBodyPublicationGate {
+    account: MemberId,
+    excluded_group: cgka_traits::GroupId,
+    observed: tokio::sync::oneshot::Sender<(cgka_traits::GroupId, cgka_traits::TransportMessage)>,
+    release: Arc<Notify>,
+}
+// AUTOMATIC_BODY_TEST_END
+
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[derive(Clone, Default)]
+struct NotificationQueueObservation {
+    first_receiver: Option<AccountReceiverIdentityForTest>,
+    first_accepted_depths: Option<(usize, usize)>,
+    depth_recorded: bool,
+    dequeued: u64,
+    first_dequeued: Option<std::time::Instant>,
+    invalid: bool,
+}
+
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+type NotificationDispositionEntry = (
+    [u64; 8],
+    [Option<std::time::Instant>; 8],
+    [u64; 6],
+    [Option<std::time::Instant>; 6],
+    NotificationQueueObservation,
+);
+
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[doc(hidden)]
+pub type AccountNotificationTimingForTest = (
+    [u64; 8],
+    [Option<std::time::Instant>; 8],
+    [u64; 6],
+    [Option<std::time::Instant>; 6],
+    (
+        Option<(usize, usize)>,
+        u64,
+        Option<std::time::Instant>,
+        bool,
+    ),
+);
+
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[derive(Default)]
+struct NotificationDispositionObserver(
+    std::sync::Mutex<HashMap<String, NotificationDispositionEntry>>,
+);
+
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+impl NotificationDispositionObserver {
+    // These depths reuse the router's existing observations. They are not an
+    // atomic enqueue/dequeue snapshot or an exact FIFO position: the receiver
+    // can take the delivery before this separate post-send lock is acquired.
+    fn accepted_depths(
+        &self,
+        id: &str,
+        before: usize,
+        after: usize,
+        receiver: AccountReceiverIdentityForTest,
+    ) {
+        let mut entries = self.0.lock().unwrap();
+        let Some(entry) = entries.get_mut(id) else {
+            return;
+        };
+        let queue = &mut entry.4;
+        if queue.depth_recorded {
+            return;
+        }
+        queue.depth_recorded = true;
+        queue.first_receiver = Some(receiver);
+        if before <= ACCOUNT_DELIVERY_BUFFER + 1 && after <= ACCOUNT_DELIVERY_BUFFER + 1 {
+            queue.first_accepted_depths = Some((before, after));
+        } else {
+            queue.invalid = true;
+        }
+    }
+    // Called only after a real queue receive returned Delivery, before App
+    // owner/receipt filters. The clock is this observer callback, not the exact
+    // channel-removal instant; retries count separately without changing IDs.
+    fn dequeued(&self, id: &str) {
+        let mut entries = self.0.lock().unwrap();
+        if entries.len() < 512 || entries.contains_key(id) {
+            let queue = &mut entries.entry(id.to_owned()).or_default().4;
+            if let Some(next) = queue.dequeued.checked_add(1) {
+                queue.dequeued = next;
+            } else {
+                queue.invalid = true;
+            }
+            if queue.first_dequeued.is_none() {
+                queue.first_dequeued = Some(std::time::Instant::now());
+            }
+        }
+    }
+    fn placement(&self, id: &str, slot: usize) {
+        let mut counts = self.0.lock().unwrap();
+        if counts.len() < 512 || counts.contains_key(id) {
+            let entry = counts.entry(id.to_owned()).or_default();
+            entry.2[slot] += 1;
+            if entry.3[slot].is_none() {
+                entry.3[slot] = Some(std::time::Instant::now());
+            }
+        }
+    }
+    fn record(&self, id: &str, slot: usize) {
+        let mut counts = self.0.lock().unwrap();
+        if counts.len() < 512 || counts.contains_key(id) {
+            let entry = counts.entry(id.to_owned()).or_default();
+            entry.0[slot] += 1;
+            if entry.1[slot].is_none() {
+                entry.1[slot] = Some(std::time::Instant::now());
+            }
+        }
+    }
 }
 
 struct RelayPlaneTransport {
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    held_delivery: std::sync::Mutex<Option<Weak<held_delivery::State>>>,
     adapter: NostrTransportAdapter,
     sdk_relay_client: Option<NostrSdkRelayClient>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    test_account_sdk_clients: Mutex<HashMap<MemberId, NostrSdkClient>>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    test_notification_dispositions:
+        std::sync::Mutex<HashMap<MemberId, Arc<NotificationDispositionObserver>>>,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    test_account_ingress_schedule: Arc<account_ingress_schedule_for_test::Control>,
     directory_client: Option<NostrSdkClient>,
     directory_events: broadcast::Sender<DirectoryRelayPlaneEvent>,
     account_deliveries: RwLock<HashMap<MemberId, AccountDeliveryRoute>>,
@@ -187,6 +486,51 @@ struct IncrementalActivation {
     since: Timestamp,
 }
 
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[derive(Clone)]
+#[doc(hidden)]
+pub struct AccountReceiverIdentityForTest {
+    owner: std::sync::Weak<AccountDeliveryOverflowState>,
+    epoch: u64,
+}
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum AccountReceiveStageForTest {
+    AwaitEntry = 0,
+    RxMutexAcquired = 1,
+    SpillWake = 2,
+    QueueDelivery = 3,
+    QueueOverflow = 4,
+    QueueClosed = 5,
+}
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[derive(Default)]
+struct AccountReceiveProbeForTest {
+    counts: [u64; 6],
+    last: Option<(u8, std::time::Instant)>,
+    overflow: bool,
+}
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[doc(hidden)]
+pub type AccountReceiveSnapshotForTest = ([u64; 6], Option<(u8, std::time::Instant)>, bool);
+
 #[derive(Clone)]
 pub struct MarmotRelayPlaneAccountAdapter {
     account_id: MemberId,
@@ -197,7 +541,15 @@ pub struct MarmotRelayPlaneAccountAdapter {
     delivery_overflow: Arc<AccountDeliveryOverflowState>,
     /// The queue generation `delivery_rx` belongs to.
     delivery_epoch: u64,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    receive_probe: Arc<std::sync::Mutex<AccountReceiveProbeForTest>>,
     incremental_activation: Arc<Mutex<Option<IncrementalActivation>>>,
+    #[cfg(feature = "experimental-device-sync")]
+    private_observation_group: Arc<std::sync::RwLock<Option<cgka_traits::GroupId>>>,
 }
 
 #[derive(Clone)]
@@ -228,7 +580,7 @@ pub enum AccountDeliveryRecoveryMarkerError {
 
 #[derive(Debug)]
 enum AccountDeliveryEvent {
-    Delivery(Box<TransportDelivery>),
+    Delivery(Box<transport_nostr_adapter::ObservedTransportDelivery>),
     Overflow { generation: u64 },
 }
 
@@ -263,7 +615,7 @@ pub struct AccountDeliveryPlacementCounts {
 
 #[derive(Debug)]
 pub enum AccountDeliveryReceive {
-    Delivery(Box<TransportDelivery>),
+    Delivery(Box<transport_nostr_adapter::ObservedTransportDelivery>),
     Overflow(AccountDeliveryOverflow),
 }
 
@@ -1203,6 +1555,172 @@ pub struct RelayPlaneHealth {
 }
 
 impl MarmotRelayPlane {
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn observe_exact_welcome_ingest(
+        &self,
+        message: MessageId,
+    ) -> tokio::sync::oneshot::Receiver<Option<cgka_traits::IngestOutcome>> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let mut observation = self.inner.observed_welcome_ingest.lock().unwrap();
+        assert!(observation.is_none());
+        *observation = Some((message, sender));
+        receiver
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn note_exact_welcome_ingest(
+        &self,
+        message: &MessageId,
+        outcome: Option<cgka_traits::IngestOutcome>,
+    ) {
+        let sender = {
+            let mut observation = self.inner.observed_welcome_ingest.lock().unwrap();
+            if observation
+                .as_ref()
+                .is_some_and(|(expected, _)| expected == message)
+            {
+                observation.take().map(|(_, sender)| sender)
+            } else {
+                None
+            }
+        };
+        if let Some(sender) = sender {
+            let _ = sender.send(outcome);
+        }
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn hold_next_selected_welcome(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        self.hold_next_selected_publication(account, SelectedPublicationClass::Welcome)
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn hold_next_selected_commit(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        self.hold_next_selected_publication(account, SelectedPublicationClass::Group)
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn hold_next_sibling_consent(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        self.hold_next_selected_publication(account, SelectedPublicationClass::SiblingConsent)
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn hold_next_automatic_control(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        self.hold_next_selected_publication(account, SelectedPublicationClass::Automatic)
+    }
+
+    // AUTOMATIC_BODY_TEST_BEGIN
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn hold_next_automatic_catalog_body_except(
+        &self,
+        account: MemberId,
+        excluded_group: cgka_traits::GroupId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<(cgka_traits::GroupId, cgka_traits::TransportMessage)>,
+        Arc<Notify>,
+    ) {
+        let (observed, receiver) = tokio::sync::oneshot::channel();
+        let release = Arc::new(Notify::new());
+        let mut gate = self.inner.automatic_body_gate.lock().unwrap();
+        assert!(
+            gate.is_none(),
+            "only one automatic body fixture may be held"
+        );
+        *gate = Some(AutomaticBodyPublicationGate {
+            account,
+            excluded_group,
+            observed,
+            release: release.clone(),
+        });
+        (receiver, release)
+    }
+    // AUTOMATIC_BODY_TEST_END
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn hold_next_selected_publication(
+        &self,
+        account: MemberId,
+        class: SelectedPublicationClass,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        let (observed, receiver) = tokio::sync::oneshot::channel();
+        let release = Arc::new(Notify::new());
+        let mut held = self.inner.selected_welcome_gate.lock().unwrap();
+        assert!(held.is_none(), "only one fixture publication may be held");
+        *held = Some(SelectedWelcomePublicationGate {
+            account,
+            class,
+            observed,
+            release: release.clone(),
+        });
+        (receiver, release)
+    }
+
     /// Call inside a Tokio runtime; see [`MarmotRelayPlane`].
     pub fn runtime_default(subscription_rebuild_lookback: Duration) -> Self {
         Self::from_sdk(Some(subscription_rebuild_lookback), false)
@@ -1306,8 +1824,32 @@ impl MarmotRelayPlane {
         allow_loopback: bool,
     ) -> Self {
         let transport = Arc::new(RelayPlaneTransport {
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            held_delivery: std::sync::Mutex::new(None),
             adapter,
             sdk_relay_client,
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            test_account_sdk_clients: Mutex::new(HashMap::new()),
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            test_notification_dispositions: std::sync::Mutex::new(HashMap::new()),
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            test_account_ingress_schedule: Arc::default(),
             directory_client,
             directory_events: broadcast::channel(DIRECTORY_EVENT_BUFFER).0,
             account_deliveries: RwLock::new(HashMap::new()),
@@ -1328,6 +1870,44 @@ impl MarmotRelayPlane {
                 directory: DirectoryRelayPlane::new(directory_fetcher),
                 directory_subscription_sync: Mutex::new(()),
                 account_publish_clients: std::sync::Mutex::new(HashMap::new()),
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                private_confirmation_gate: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                selected_welcome_gate: std::sync::Mutex::new(None),
+                // AUTOMATIC_BODY_TEST_BEGIN
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                automatic_body_gate: std::sync::Mutex::new(None),
+                // AUTOMATIC_BODY_TEST_END
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                ordinary_commit_gate: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                ordinary_commit_observation: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                observed_welcome_ingest: std::sync::Mutex::new(None),
             }),
         };
         this.spawn_router();
@@ -1472,8 +2052,33 @@ impl MarmotRelayPlane {
             delivery_rx: Arc::new(Mutex::new(delivery_rx)),
             delivery_overflow,
             delivery_epoch,
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            receive_probe: Arc::new(std::sync::Mutex::new(AccountReceiveProbeForTest::default())),
             incremental_activation: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "experimental-device-sync")]
+            private_observation_group: Arc::new(std::sync::RwLock::new(None)),
         }
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn prepare_account_ingress_schedule_for_test(
+        &self,
+        account: MemberId,
+    ) -> Option<AccountIngressScheduleForTest> {
+        self.spawn_router();
+        self.inner
+            .transport
+            .test_account_ingress_schedule
+            .prepare(account)
     }
 
     /// Place one delivery exactly as the router does, synchronously, so a
@@ -1482,6 +2087,144 @@ impl MarmotRelayPlane {
     #[doc(hidden)]
     pub fn route_account_delivery_for_test(&self, delivery: TransportDelivery) {
         route_account_delivery(&self.inner.transport, delivery);
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn account_notification_disposition_for_test(
+        &self,
+        account: &MemberId,
+        id: &str,
+    ) -> Option<[u64; 8]> {
+        let observers = self
+            .inner
+            .transport
+            .test_notification_dispositions
+            .lock()
+            .unwrap();
+        let observer = observers.get(account)?;
+        let counts = observer.0.lock().unwrap();
+        counts.get(id).map(|entry| entry.0)
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn account_notification_same_receiver_for_test(
+        &self,
+        account: &MemberId,
+        id: &str,
+        receiver: &AccountReceiverIdentityForTest,
+    ) -> Option<bool> {
+        let observers = self
+            .inner
+            .transport
+            .test_notification_dispositions
+            .lock()
+            .unwrap();
+        let entries = observers.get(account)?.0.lock().unwrap();
+        let first = entries.get(id)?.4.first_receiver.as_ref()?;
+        Some(
+            std::sync::Weak::ptr_eq(&first.owner, &receiver.owner) && first.epoch == receiver.epoch,
+        )
+    }
+
+    /// Copy the same observer entry, including actual earliest stage instants.
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn account_notification_timing_for_test(
+        &self,
+        account: &MemberId,
+        id: &str,
+    ) -> Option<AccountNotificationTimingForTest> {
+        let observers = self
+            .inner
+            .transport
+            .test_notification_dispositions
+            .lock()
+            .unwrap();
+        let observer = observers.get(account)?;
+        let entries = observer.0.lock().unwrap();
+        entries.get(id).map(|entry| {
+            let queue = &entry.4;
+            (
+                entry.0,
+                entry.1,
+                entry.2,
+                entry.3,
+                (
+                    queue.first_accepted_depths,
+                    queue.dequeued,
+                    queue.first_dequeued,
+                    queue.invalid,
+                ),
+            )
+        })
+    }
+
+    /// Observe the actual registered SDK context without traffic or new ownership.
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub async fn account_sdk_event_observation_for_test(
+        &self,
+        account: &MemberId,
+        event_json: &str,
+    ) -> Option<[bool; 3]> {
+        let event = serde_json::from_str::<NostrTransportEvent>(event_json)
+            .ok()?
+            .to_verified_nostr_event()
+            .ok()?;
+        let client = self
+            .inner
+            .transport
+            .test_account_sdk_clients
+            .lock()
+            .await
+            .get(account)
+            .cloned()?;
+        // The default SDK database tracks IDs rather than complete event bodies.
+        let cached = matches!(
+            client.database().check_id(&event.id).await.ok()?,
+            nostr_sdk::prelude::DatabaseEventStatus::Saved
+        );
+        let subscriptions = client.subscriptions().await;
+        let matches = subscriptions
+            .values()
+            .flat_map(HashMap::values)
+            .flat_map(|filters| filters.iter())
+            .any(|filter| {
+                filter.match_event(&event, nostr_sdk::prelude::MatchEventOptions::default())
+            });
+        let matches_without_time = subscriptions
+            .values()
+            .flat_map(HashMap::values)
+            .flat_map(|filters| filters.iter())
+            .any(|filter| {
+                filter.match_event(
+                    &event,
+                    nostr_sdk::prelude::MatchEventOptions {
+                        since: false,
+                        until: false,
+                        ..Default::default()
+                    },
+                )
+            });
+        Some([cached, matches, matches_without_time])
     }
 
     #[doc(hidden)]
@@ -1624,6 +2367,17 @@ impl MarmotRelayPlane {
             let account_client = sdk_relay_client
                 .register_account(account_id.clone(), signer)
                 .await?;
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            {
+                let mut clients = self.inner.transport.test_account_sdk_clients.lock().await;
+                if clients.len() < 32 || clients.contains_key(account_id) {
+                    clients.insert(account_id.clone(), account_client.client().clone());
+                }
+            }
             let mut forwarders = self
                 .inner
                 .transport
@@ -1691,6 +2445,17 @@ impl MarmotRelayPlane {
         &self,
         account_id: &MemberId,
     ) -> Result<(), TransportAdapterError> {
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.inner
+            .transport
+            .test_account_sdk_clients
+            .lock()
+            .await
+            .remove(account_id);
         let removed =
             account_deliveries_write(&self.inner.transport.account_deliveries).remove(account_id);
         if let Some(removed) = removed {
@@ -2210,37 +2975,170 @@ impl MarmotRelayPlane {
         let transport = self.inner.transport.clone();
         let adapter = transport.adapter.clone();
         let handle = handle.spawn(async move {
+            // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            let mut ingress = account_ingress_schedule_for_test::Router::default();
+            // COMMAND_INGRESS_SCHEDULE_TEST_END
             loop {
-                tokio::select! {
-                    delivery = adapter.receive() => match delivery {
-                        Ok(Some(delivery)) => {
-                            let account_id = delivery.account_id.clone();
-                            let message_id = delivery.message.id.clone();
-                            // Install the queue/spill pin or charge loss before
-                            // releasing the staged replay's admission fence.
-                            route_account_delivery(&transport, delivery);
-                            adapter.ack_replay_delivery(&account_id, &message_id).await;
-                        }
-                        Ok(None) | Err(_) => break,
-                    },
-                    () = adapter.replay_loss_notified() => {
-                        let account_ids = account_deliveries_read(&transport.account_deliveries)
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        for account_id in account_ids {
-                            let status = adapter.take_replay_status(&account_id).await;
-                            if let Some(loss) = status.loss {
-                                // Taking the status consumes the adapter's
-                                // evidence: import it before another await.
-                                import_replay_loss(&transport, &account_id, loss);
-                            }
-                        }
+                // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                {
+                    let mut routed = Vec::new();
+                    ingress.control(&transport.test_account_ingress_schedule, |delivery| {
+                        routed.push((delivery.account_id.clone(), delivery.message.id.clone()));
+                        route_account_delivery(&transport, delivery);
+                    });
+                    for (account, message) in routed {
+                        adapter.ack_replay_delivery(&account, &message).await;
                     }
                 }
+                // COMMAND_INGRESS_SCHEDULE_TEST_END
+                // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                let received = tokio::select! {
+                    biased;
+                    _ = transport.test_account_ingress_schedule.changed.notified() => continue,
+                    received = adapter.receive_observed() => received,
+                    () = adapter.replay_loss_notified() => {
+                        let accounts = account_deliveries_read(&transport.account_deliveries)
+                            .keys().cloned().collect::<Vec<_>>();
+                        for account in accounts {
+                            let status = adapter.take_replay_status(&account).await;
+                            if let Some(loss) = status.loss {
+                                // Import consumed evidence before any next await.
+                                import_replay_loss(&transport, &account, loss);
+                            }
+                        }
+                        continue;
+                    }
+                };
+                #[cfg(not(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                )))]
+                // COMMAND_INGRESS_SCHEDULE_TEST_END
+                let received = tokio::select! {
+                    received = adapter.receive_observed() => received,
+                    () = adapter.replay_loss_notified() => {
+                        let accounts = account_deliveries_read(&transport.account_deliveries)
+                            .keys().cloned().collect::<Vec<_>>();
+                        for account in accounts {
+                            let status = adapter.take_replay_status(&account).await;
+                            if let Some(loss) = status.loss {
+                                // Import consumed evidence before any next await.
+                                import_replay_loss(&transport, &account, loss);
+                            }
+                        }
+                        continue;
+                    }
+                };
+                let Ok(Some(delivery)) = received else {
+                    break;
+                };
+                // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                let delivery = {
+                    let mut routed = Vec::new();
+                    let delivery = {
+                        let mut route =
+                            |delivery: transport_nostr_adapter::ObservedTransportDelivery| {
+                                routed.push((
+                                    delivery.account_id.clone(),
+                                    delivery.message.id.clone(),
+                                ));
+                                route_account_delivery(&transport, delivery);
+                            };
+                        ingress.control(&transport.test_account_ingress_schedule, &mut route);
+                        ingress.delivery(delivery, &mut route)
+                    };
+                    for (account, message) in routed {
+                        adapter.ack_replay_delivery(&account, &message).await;
+                    }
+                    delivery
+                };
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                let Some(delivery) = delivery else {
+                    continue;
+                };
+                // COMMAND_INGRESS_SCHEDULE_TEST_END
+                let account = delivery.account_id.clone();
+                let message = delivery.message.id.clone();
+                // Preserve private provenance through actual placement. Native
+                // replay's admission pin is released only after queue/spill/loss.
+                route_account_delivery(&transport, delivery);
+                adapter.ack_replay_delivery(&account, &message).await;
             }
+            // COMMAND_INGRESS_SCHEDULE_TEST_BEGIN
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            {
+                let mut routed = Vec::new();
+                ingress.finish(&transport.test_account_ingress_schedule, |delivery| {
+                    routed.push((delivery.account_id.clone(), delivery.message.id.clone()));
+                    route_account_delivery(&transport, delivery);
+                });
+                for (account, message) in routed {
+                    adapter.ack_replay_delivery(&account, &message).await;
+                }
+            }
+            // COMMAND_INGRESS_SCHEDULE_TEST_END
         });
         *router = Some(handle);
+    }
+
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub async fn enrollment_endpoint_eose_for_test(
+        &self,
+        account: &MemberId,
+        group: &cgka_traits::GroupId,
+        transport_group: &[u8],
+        endpoint: TransportEndpoint,
+    ) -> bool {
+        let adapter = &self.inner.transport.adapter;
+        let Some(attempt) = adapter.account_subscription_attempt(account).await else {
+            return false;
+        };
+        let subscription = transport_nostr_adapter::NostrSubscription::Group {
+            account_id: account.clone(),
+            group_id: group.clone(),
+            transport_group_id: transport_group.to_vec(),
+            endpoints: vec![endpoint.clone()],
+            since: None,
+            attempt,
+        };
+        adapter
+            .subscription_endpoint_eose(&subscription.subscription_id(), &endpoint)
+            .await
+            == Some(true)
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -2535,6 +3433,14 @@ impl RelayNotificationRestartBackoff {
 
 trait RelayNotificationSource: Send + Sync {
     fn notifications(&self) -> RelayNotificationStream;
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn disposition_observer(&self) -> Option<Arc<NotificationDispositionObserver>> {
+        None
+    }
     fn is_shutdown(&self) -> bool;
     /// Record receiver loss and return the lowest REQ `since` that could have
     /// delivered the lost notifications. A source without that evidence
@@ -2573,9 +3479,23 @@ struct NotificationWorkerFailureHook {
 
 struct SdkRelayNotificationSource {
     client: NostrSdkRelayClient,
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    disposition_observer: Option<Arc<NotificationDispositionObserver>>,
 }
 
 impl RelayNotificationSource for SdkRelayNotificationSource {
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn disposition_observer(&self) -> Option<Arc<NotificationDispositionObserver>> {
+        self.disposition_observer.clone()
+    }
     fn notifications(&self) -> RelayNotificationStream {
         self.client.notifications()
     }
@@ -2620,6 +3540,15 @@ fn spawn_relay_notification_forwarder_scoped(
 ) -> JoinHandle<()> {
     let source: Arc<dyn RelayNotificationSource> = Arc::new(SdkRelayNotificationSource {
         client: sdk_relay_client,
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        disposition_observer: account_id.as_ref().map(|account| {
+            let mut observers = transport.test_notification_dispositions.lock().unwrap();
+            observers.entry(account.clone()).or_default().clone()
+        }),
     });
     spawn_relay_notification_supervisor_scoped(source, transport, account_id)
 }
@@ -2884,6 +3813,11 @@ async fn run_relay_notification_consumer_scoped(
     source: Arc<dyn RelayNotificationSource>,
 ) -> RelayNotificationConsumerOutcome {
     let (sender, mut event_rx) = mpsc::channel(RELAY_NOTIFICATION_EVENT_QUEUE_CAPACITY);
+    #[cfg(feature = "experimental-device-sync")]
+    let mut acquisition = transport_nostr_adapter::SdkLiveNotificationReceiver::new(
+        adapter.clone(),
+        account_id.clone(),
+    );
     // Channel capacity returns to its maximum when a panicked worker drops
     // the receiver, even though queued work was discarded. Count admitted
     // items independently until each worker operation actually finishes.
@@ -2892,8 +3826,14 @@ async fn run_relay_notification_consumer_scoped(
     #[cfg(test)]
     let worker_failure_hook = source.worker_failure_hook();
     let classifier = Arc::clone(&source);
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let disposition_observer = source.disposition_observer();
     let mut worker = tokio::spawn(async move {
-        while let Some(notification) = event_rx.recv().await {
+        while let Some((notification, capture)) = event_rx.recv().await {
             #[cfg(test)]
             if let Some(hook) = &worker_failure_hook {
                 let fail = hook.fail_once.swap(false, Ordering::SeqCst);
@@ -2906,8 +3846,20 @@ async fn run_relay_notification_consumer_scoped(
                 }
             }
             let classify = |reason: &str| classifier.subscription_refusal(reason);
-            if handle_relay_notification(notification, &adapter, account_id.as_ref(), &classify)
-                .await
+            if handle_relay_notification_captured(
+                notification,
+                &adapter,
+                account_id.as_ref(),
+                capture,
+                &classify,
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                disposition_observer.as_deref(),
+            )
+            .await
             {
                 worker_pending.fetch_sub(1, Ordering::SeqCst);
                 return true;
@@ -2946,8 +3898,12 @@ async fn run_relay_notification_consumer_scoped(
                             )
                         };
                     }
+                    #[cfg(feature = "experimental-device-sync")]
+                    let capture = acquisition.capture(&notification).await;
+                    #[cfg(not(feature = "experimental-device-sync"))]
+                    let capture = ();
                     pending.fetch_add(1, Ordering::SeqCst);
-                    if let Err(error) = sender.try_send(notification) {
+                    if let Err(error) = sender.try_send((notification, capture)) {
                         pending.fetch_sub(1, Ordering::SeqCst);
                         let skipped = match error {
                             mpsc::error::TrySendError::Full(_) => {
@@ -2993,12 +3949,75 @@ async fn run_relay_notification_consumer_scoped(
     }
 }
 
+#[cfg(test)]
 async fn handle_relay_notification(
     notification: NostrSdkNotification,
     adapter: &NostrTransportAdapter,
     account_id: Option<&MemberId>,
     classify_closed: &(dyn Fn(&str) -> transport_nostr_adapter::SubscriptionRefusal + Sync),
 ) -> bool {
+    handle_relay_notification_captured(
+        notification,
+        adapter,
+        account_id,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
+        #[cfg(not(feature = "experimental-device-sync"))]
+        (),
+        classify_closed,
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        None,
+    )
+    .await
+}
+
+async fn handle_relay_notification_captured(
+    notification: NostrSdkNotification,
+    adapter: &NostrTransportAdapter,
+    account_id: Option<&MemberId>,
+    #[cfg(feature = "experimental-device-sync")] capture: Option<
+        transport_nostr_adapter::CapturedLiveRelayEvent,
+    >,
+    #[cfg(not(feature = "experimental-device-sync"))] _capture: (),
+    classify_closed: &(dyn Fn(&str) -> transport_nostr_adapter::SubscriptionRefusal + Sync),
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    disposition_observer: Option<&NotificationDispositionObserver>,
+) -> bool {
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let observe = |id: &str, slot: usize| {
+        if let Some(observer) = disposition_observer {
+            observer.record(id, slot);
+        }
+    };
+    #[cfg(feature = "experimental-device-sync")]
+    let shutdown = NostrSdkRelayClient::dispatch_sdk_replay_captured(
+        notification,
+        adapter,
+        account_id,
+        capture,
+        classify_closed,
+        #[cfg(all(feature = "test-policy-overrides", any(test, feature = "test-support")))]
+        Some(&observe),
+        #[cfg(all(
+            feature = "test-policy-overrides",
+            not(any(test, feature = "test-support"))
+        ))]
+        None,
+    )
+    .await;
+    #[cfg(not(feature = "experimental-device-sync"))]
     let shutdown = transport_nostr_adapter::dispatch_sdk_replay(
         notification,
         adapter,
@@ -3114,6 +4133,251 @@ fn recover_relay_notification_forwarder_scoped(
 }
 
 impl MarmotRelayPlaneAccountAdapter {
+    /// Direct selected-chat publication under its original owner. Relay ACKs do
+    /// not manufacture an inbound echo, recipient join or generic queued retry.
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub async fn publish_selected_chat(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(any(test, feature = "test-support"), feature = "test-policy-overrides"))]
+        {
+            let welcome = matches!(
+                request.message.envelope,
+                cgka_traits::TransportEnvelope::Welcome { .. }
+            );
+            let gate = {
+                let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
+                if held.as_ref().is_some_and(|gate| {
+                    gate.account == request.account_id
+                        && gate.class
+                            == if welcome {
+                                SelectedPublicationClass::Welcome
+                            } else {
+                                SelectedPublicationClass::Group
+                            }
+                }) {
+                    held.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(gate) = gate {
+                let _ = gate.observed.send(request.message.clone());
+                gate.release.notified().await;
+            }
+        }
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    /// Same protected publication path, with a test seam for the exact sibling consent.
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub async fn publish_sibling_consent(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(any(test, feature = "test-support"), feature = "test-policy-overrides"))]
+        {
+            let gate = {
+                let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
+                if held.as_ref().is_some_and(|gate| {
+                    gate.class == SelectedPublicationClass::SiblingConsent
+                        && gate.account == request.account_id
+                }) {
+                    held.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(gate) = gate {
+                let _ = gate.observed.send(request.message.clone());
+                gate.release.notified().await;
+            }
+        }
+        self.publish_selected_chat(request).await
+    }
+
+    // AUTOMATIC_BODY_TEST_BEGIN
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub async fn hold_automatic_catalog_body_for_test(
+        &self,
+        request: &TransportPublishRequest,
+        catalog_group: Option<&cgka_traits::GroupId>,
+    ) {
+        let Some(group) = catalog_group else {
+            return;
+        };
+        let gate = {
+            let mut held = self.relay_plane.inner.automatic_body_gate.lock().unwrap();
+            if held.as_ref().is_some_and(|gate| {
+                gate.account == request.account_id && &gate.excluded_group != group
+            }) {
+                held.take()
+            } else {
+                None
+            }
+        };
+        if let Some(gate) = gate {
+            let _ = gate.observed.send((group.clone(), request.message.clone()));
+            gate.release.notified().await;
+        }
+    }
+    // AUTOMATIC_BODY_TEST_END
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub async fn publish_automatic_control(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(any(test, feature = "test-support"), feature = "test-policy-overrides"))]
+        {
+            let gate = {
+                let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
+                if held.as_ref().is_some_and(|gate| {
+                    gate.class == SelectedPublicationClass::Automatic
+                        && gate.account == request.account_id
+                }) {
+                    held.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(gate) = gate {
+                let _ = gate.observed.send(request.message.clone());
+                gate.release.notified().await;
+            }
+        }
+        self.publish_selected_chat(request).await
+    }
+
+    /// Private COMMIT relay acknowledgments must not manufacture an inbound echo.
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub async fn publish_private_commit(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    /// Private Welcome ACKs are not a recipient join or a local echo.
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub async fn publish_private_welcome(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    /// Encrypted proposal receipt is metadata, never a local chat mirror.
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub async fn publish_private_enrollment_proposal(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    /// Private confirmation ACKs are never ordinary chat echoes.
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub async fn publish_private_confirmation(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        private_confirmation_gate::hold(self, &request).await?;
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    async fn publish_with_local_mirror(
+        &self,
+        request: TransportPublishRequest,
+        mirror_local: bool,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        if request.account_id != self.account_id {
+            return Err(TransportAdapterError::AccountNotActive(request.account_id));
+        }
+        let request = self
+            .relay_plane
+            .inner
+            .relay_safety
+            .sanitize_publish_request(request)
+            .map_err(TransportAdapterError::Publish)?;
+        request.validate_envelope_matches_target()?;
+        let event = NostrTransportEvent::from_transport_message(&request.message)
+            .map_err(|e| TransportAdapterError::Publish(format!("Nostr payload: {e}")))?;
+        // Welcome fanout keeps its account publisher; a blocked inbox write
+        // cannot stall the independent anonymous group publisher.
+        let publication = async {
+            if matches!(
+                request.target,
+                cgka_traits::TransportPublishTarget::Group { .. }
+            ) {
+                self.publish_signed_event(
+                    self.publish_client.as_ref(),
+                    request.target.endpoints(),
+                    &event,
+                    request.required_acks,
+                )
+                .await
+            } else {
+                self.publish_client
+                    .publish_event_for_account(
+                        &self.account_id,
+                        request.target.endpoints(),
+                        &event,
+                        request.required_acks,
+                    )
+                    .await
+            }
+        };
+        let outcome = self
+            .relay_plane
+            .inner
+            .transport
+            .adapter
+            .publish_event_with_client(publication, request.required_acks)
+            .await?;
+        let local_fanout_endpoints = if !outcome.accepted.is_empty() {
+            outcome
+                .accepted
+                .iter()
+                .map(|receipt| receipt.endpoint.clone())
+                .collect::<Vec<_>>()
+        } else if outcome.failed.is_empty() {
+            request.target.endpoints().to_vec()
+        } else {
+            Vec::new()
+        };
+        if mirror_local && !local_fanout_endpoints.is_empty() {
+            let mut local_message = request.message.clone();
+            if let Some(message_id) = outcome.message_id.clone() {
+                local_message.id = message_id;
+            }
+            self.relay_plane
+                .inner
+                .transport
+                .adapter
+                .deliver_local_publish(&local_message, &local_fanout_endpoints)
+                .await?;
+        }
+        Ok(publish_report_from_outcome(outcome, request))
+    }
+
     #[doc(hidden)]
     pub async fn publish_signed_event(
         &self,
@@ -3410,6 +4674,38 @@ impl MarmotRelayPlaneAccountAdapter {
 
     /// This account's deliveries for one owned comparison event. The worker
     /// admits them directly, never through the live queue.
+    #[cfg(feature = "experimental-device-sync")]
+    #[doc(hidden)]
+    pub fn set_private_observation_group(
+        &self,
+        selected: Option<cgka_traits::GroupId>,
+    ) -> Result<(), TransportAdapterError> {
+        *self.private_observation_group.write().map_err(|_| {
+            TransportAdapterError::Subscription("private observation selection unavailable".into())
+        })? = selected;
+        Ok(())
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn configure_private_observation_group(&self) -> Result<(), TransportAdapterError> {
+        let selected = self
+            .private_observation_group
+            .read()
+            .map_err(|_| {
+                TransportAdapterError::Subscription(
+                    "private observation selection unavailable".into(),
+                )
+            })?
+            .clone();
+        self.relay_plane
+            .inner
+            .transport
+            .adapter
+            .configure_private_observation_group(&self.account_id, selected)
+            .await;
+        Ok(())
+    }
+
     #[doc(hidden)]
     pub async fn recovered_deliveries(
         &self,
@@ -3516,18 +4812,122 @@ impl MarmotRelayPlaneAccountAdapter {
         eose
     }
 
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn note_receive_for_test(&self, stage: AccountReceiveStageForTest) {
+        let mut probe = self.receive_probe.lock().unwrap();
+        if let Some(next) = probe.counts[stage as usize].checked_add(1) {
+            probe.counts[stage as usize] = next;
+        } else {
+            probe.overflow = true;
+        }
+        probe.last = Some((stage as u8, std::time::Instant::now()));
+    }
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn receiver_snapshot_for_test(
+        &self,
+    ) -> (
+        AccountReceiveSnapshotForTest,
+        AccountReceiverIdentityForTest,
+    ) {
+        let snapshot = {
+            let probe = self.receive_probe.lock().unwrap();
+            (probe.counts, probe.last, probe.overflow)
+        };
+        (
+            snapshot,
+            AccountReceiverIdentityForTest {
+                owner: Arc::downgrade(&self.delivery_overflow),
+                epoch: self.delivery_epoch,
+            },
+        )
+    }
+
     #[doc(hidden)]
     pub async fn receive_account_delivery(
         &self,
     ) -> Result<Option<AccountDeliveryReceive>, TransportAdapterError> {
-        let event = self.delivery_rx.lock().await.recv().await;
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.note_receive_for_test(AccountReceiveStageForTest::AwaitEntry);
+        let event = {
+            let mut receiver = self.delivery_rx.lock().await;
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            self.note_receive_for_test(AccountReceiveStageForTest::RxMutexAcquired);
+            receiver.recv().await
+        };
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if event.is_none() {
+            self.note_receive_for_test(AccountReceiveStageForTest::QueueClosed);
+        }
         Ok(event.map(|event| self.account_delivery_receive(event)))
     }
 
+    // COMMAND_BACKLOG_QUEUE_TEST_BEGIN
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn account_delivery_queue_len_for_test(&self) -> Option<usize> {
+        self.delivery_rx
+            .try_lock()
+            .ok()
+            .map(|receiver| receiver.len())
+    }
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[doc(hidden)]
+    pub fn activate_account_ingress_schedule_for_test(&self, target: &MessageId) -> bool {
+        self.relay_plane
+            .inner
+            .transport
+            .test_account_ingress_schedule
+            .activate(&self.account_id, target)
+    }
+    // COMMAND_BACKLOG_QUEUE_TEST_END
     /// The next queued item, if one is ready now.
     #[doc(hidden)]
     pub fn try_receive_account_delivery(&self) -> Option<AccountDeliveryReceive> {
-        let event = self.delivery_rx.try_lock().ok()?.try_recv().ok()?;
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.note_receive_for_test(AccountReceiveStageForTest::AwaitEntry);
+        let event = {
+            let mut receiver = self.delivery_rx.try_lock().ok()?;
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            self.note_receive_for_test(AccountReceiveStageForTest::RxMutexAcquired);
+            receiver.try_recv().ok()?
+        };
         Some(self.account_delivery_receive(event))
     }
 
@@ -3536,20 +4936,71 @@ impl MarmotRelayPlaneAccountAdapter {
     /// hide it; it fires once per writer batch, so live input is not starved.
     #[doc(hidden)]
     pub async fn receive_account_delivery_or_spill(&self) -> AccountDeliveryWait {
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.note_receive_for_test(AccountReceiveStageForTest::AwaitEntry);
         let mut delivery_rx = self.delivery_rx.lock().await;
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.note_receive_for_test(AccountReceiveStageForTest::RxMutexAcquired);
         tokio::select! {
             biased;
-            () = self.delivery_overflow.spill_ready.notified() => AccountDeliveryWait::SpillReady,
+            () = self.delivery_overflow.spill_ready.notified() => {
+                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                self.note_receive_for_test(AccountReceiveStageForTest::SpillWake);
+                AccountDeliveryWait::SpillReady
+            },
             event = delivery_rx.recv() => match event {
                 Some(event) => AccountDeliveryWait::Received(self.account_delivery_receive(event)),
-                None => AccountDeliveryWait::Closed,
+                None => {
+                    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    self.note_receive_for_test(AccountReceiveStageForTest::QueueClosed);
+                    AccountDeliveryWait::Closed
+                },
             },
         }
     }
 
     fn account_delivery_receive(&self, event: AccountDeliveryEvent) -> AccountDeliveryReceive {
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.note_receive_for_test(if matches!(&event, AccountDeliveryEvent::Delivery(_)) {
+            AccountReceiveStageForTest::QueueDelivery
+        } else {
+            AccountReceiveStageForTest::QueueOverflow
+        });
         match event {
             AccountDeliveryEvent::Delivery(delivery) => {
+                // NATIVE5_DEQUEUE_TIMING_BEGIN
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                {
+                    let observer = self
+                        .relay_plane
+                        .inner
+                        .transport
+                        .test_notification_dispositions
+                        .lock()
+                        .unwrap()
+                        .get(&delivery.account_id)
+                        .cloned();
+                    if let Some(observer) = observer {
+                        observer.dequeued(&hex::encode(delivery.message.id.as_slice()));
+                    }
+                }
+                // NATIVE5_DEQUEUE_TIMING_END
                 // Taken, it still caps every commit until its consumer
                 // releases it: a failed ingest's checkpoint must not pass it.
                 self.delivery_overflow.take(
@@ -3890,6 +5341,8 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
             .relay_safety
             .sanitize_activation(activation)
             .map_err(TransportAdapterError::Subscription)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.configure_private_observation_group().await?;
         let incremental = activation.since.map(|since| IncrementalActivation {
             inbox_endpoints: activation.inbox_endpoints.clone(),
             since,
@@ -3930,6 +5383,8 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
             .relay_safety
             .sanitize_group_sync(sync)
             .map_err(TransportAdapterError::Subscription)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.configure_private_observation_group().await?;
         self.relay_plane
             .inner
             .transport
@@ -3953,79 +5408,24 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
         &self,
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
-        if request.account_id != self.account_id {
-            return Err(TransportAdapterError::AccountNotActive(request.account_id));
-        }
-        let request = self
-            .relay_plane
-            .inner
-            .relay_safety
-            .sanitize_publish_request(request)
-            .map_err(TransportAdapterError::Publish)?;
-        request.validate_envelope_matches_target()?;
-        let event = NostrTransportEvent::from_transport_message(&request.message)
-            .map_err(|e| TransportAdapterError::Publish(format!("Nostr payload: {e}")))?;
-        // Welcome fanout keeps its account publisher; a blocked inbox write
-        // cannot stall the independent anonymous group publisher.
-        let publication = async {
-            if matches!(
-                request.target,
-                cgka_traits::TransportPublishTarget::Group { .. }
-            ) {
-                self.publish_signed_event(
-                    self.publish_client.as_ref(),
-                    request.target.endpoints(),
-                    &event,
-                    request.required_acks,
-                )
-                .await
-            } else {
-                self.publish_client
-                    .publish_event_for_account(
-                        &self.account_id,
-                        request.target.endpoints(),
-                        &event,
-                        request.required_acks,
-                    )
-                    .await
-            }
-        };
-        let outcome = self
-            .relay_plane
-            .inner
-            .transport
-            .adapter
-            .publish_event_with_client(publication, request.required_acks)
-            .await?;
-        let local_fanout_endpoints = if !outcome.accepted.is_empty() {
-            outcome
-                .accepted
-                .iter()
-                .map(|receipt| receipt.endpoint.clone())
-                .collect::<Vec<_>>()
-        } else if outcome.failed.is_empty() {
-            request.target.endpoints().to_vec()
-        } else {
-            Vec::new()
-        };
-        if !local_fanout_endpoints.is_empty() {
-            let mut local_message = request.message.clone();
-            if let Some(message_id) = outcome.message_id.clone() {
-                local_message.id = message_id;
-            }
-            self.relay_plane
-                .inner
-                .transport
-                .adapter
-                .deliver_local_publish(&local_message, &local_fanout_endpoints)
-                .await?;
-        }
-        Ok(publish_report_from_outcome(outcome, request))
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        ordinary_commit_gate::hold(self, &request).await?;
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        ordinary_commit_observation::observe(self, &request);
+        self.publish_with_local_mirror(request, true).await
     }
 
     async fn receive(&self) -> Result<Option<TransportDelivery>, TransportAdapterError> {
         match self.receive_account_delivery().await? {
-            Some(AccountDeliveryReceive::Delivery(delivery)) => Ok(Some(*delivery)),
+            Some(AccountDeliveryReceive::Delivery(delivery)) => Ok(Some(delivery.into_delivery())),
             Some(AccountDeliveryReceive::Overflow(_)) => Err(TransportAdapterError::Other(
                 "account delivery overflow recovery required".to_owned(),
             )),
@@ -4045,39 +5445,135 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
 /// holds one of those. Only when the spill cannot take it does the delivery
 /// join an explicit loss generation, using the one channel slot reserved for
 /// its control record.
-fn route_account_delivery(transport: &RelayPlaneTransport, delivery: TransportDelivery) {
+fn route_account_delivery(
+    transport: &RelayPlaneTransport,
+    delivery: impl Into<transport_nostr_adapter::ObservedTransportDelivery>,
+) {
+    let delivery = delivery.into();
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let observer = transport
+        .test_notification_dispositions
+        .lock()
+        .unwrap()
+        .get(&delivery.account_id)
+        .cloned();
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let observed_id = hex::encode(delivery.message.id.as_slice());
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    if let Some(observer) = &observer {
+        observer.record(&observed_id, 5);
+    }
     let Some(route) = account_deliveries_read(&transport.account_deliveries)
         .get(&delivery.account_id)
         .cloned()
     else {
+        #[cfg(all(
+            any(test, feature = "test-support"),
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if let Some(observer) = &observer {
+            observer.record(&observed_id, 6);
+        }
         return;
     };
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    if let Some(observer) = &observer {
+        observer.record(&observed_id, 7);
+    }
     let queue_depth = route
         .sender
         .max_capacity()
         .saturating_sub(route.sender.capacity());
     route.overflow.observe_queue_depth(queue_depth);
+    // NATIVE5_DEQUEUE_TIMING_BEGIN
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let notification_depth_before_placement = queue_depth;
+    // NATIVE5_DEQUEUE_TIMING_END
     let created_at = delivery.message.timestamp.0;
     let key = account_delivery_restart_key(&delivery);
-    match route.overflow.place(
+    let placement = route.overflow.place(
         route.epoch,
         key,
         route.sender.capacity() <= 1,
         route.spill.is_some(),
-    ) {
+    );
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let Some(delivery) = held_delivery::hold(transport, &route, delivery, placement) else {
+        return;
+    };
+    match placement {
         AccountDeliveryPlacement::Queue => {
             match route
                 .sender
                 .try_send(AccountDeliveryEvent::Delivery(Box::new(delivery)))
             {
                 Ok(()) => {
+                    #[cfg(all(
+                        any(test, feature = "test-support"),
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if let Some(observer) = &observer {
+                        observer.placement(&observed_id, 0);
+                    }
                     let queue_depth = route
                         .sender
                         .max_capacity()
                         .saturating_sub(route.sender.capacity());
                     route.overflow.observe_queue_depth(queue_depth);
+                    // NATIVE5_DEQUEUE_TIMING_BEGIN
+                    #[cfg(all(
+                        any(test, feature = "test-support"),
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if let Some(observer) = &observer {
+                        observer.accepted_depths(
+                            &observed_id,
+                            notification_depth_before_placement,
+                            queue_depth,
+                            AccountReceiverIdentityForTest {
+                                owner: Arc::downgrade(&route.overflow),
+                                epoch: route.epoch,
+                            },
+                        );
+                    }
+                    // NATIVE5_DEQUEUE_TIMING_END
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
+                    #[cfg(all(
+                        any(test, feature = "test-support"),
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if let Some(observer) = &observer {
+                        observer.placement(&observed_id, 1);
+                    }
                     route.overflow.unqueue(route.epoch, key);
                     // Only this router writes the route, and it reserves one
                     // control slot above, so reaching Full here indicates a
@@ -4091,6 +5587,14 @@ fn route_account_delivery(transport: &RelayPlaneTransport, delivery: TransportDe
                     );
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
+                    #[cfg(all(
+                        any(test, feature = "test-support"),
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if let Some(observer) = &observer {
+                        observer.placement(&observed_id, 2);
+                    }
                     route.overflow.unqueue(route.epoch, key);
                 }
             }
@@ -4099,7 +5603,15 @@ fn route_account_delivery(transport: &RelayPlaneTransport, delivery: TransportDe
             let spilled = route
                 .spill
                 .as_ref()
-                .is_some_and(|spill| spill.offer(delivery));
+                .is_some_and(|spill| spill.offer(delivery.into_delivery()));
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if let Some(observer) = &observer {
+                observer.placement(&observed_id, if spilled { 3 } else { 4 });
+            }
             if !spilled {
                 // Record the loss before releasing the placement's fence, so
                 // the cursor stays fenced throughout.
@@ -4107,7 +5619,17 @@ fn route_account_delivery(transport: &RelayPlaneTransport, delivery: TransportDe
                 route.overflow.finish_spill(1, 0, 0);
             }
         }
-        AccountDeliveryPlacement::Omit => omit_account_delivery(&route, Some(created_at)),
+        AccountDeliveryPlacement::Omit => {
+            #[cfg(all(
+                any(test, feature = "test-support"),
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if let Some(observer) = &observer {
+                observer.placement(&observed_id, 5);
+            }
+            omit_account_delivery(&route, Some(created_at));
+        }
     }
 }
 

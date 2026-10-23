@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "source_authoring_reference": "2ba362f3e8cb41a91088f3d011e734218cbe0b7c",
+  "pinned_inputs": {
+    "scripts/qualify_upstream_source_readiness_red.py": "1792cd3089294e230f2f0afaada2272fe3446320b842afdf8fad0af0512e6546",
+    "scripts/qualify_upstream_source_readiness_candidate.py": "148ecc22ac2e488f078bb47503443acb77a190791d479990bcf143f1ce86282e",
+    "scripts/qualify_upstream_storage_app_handles.py": "c72879e29cb657292799bf8f9ef5c6edbf3907e662c315273041da9ca9884d2a",
+    "scripts/qualify_upstream_storage_boundary.py": "b74d67df35d4cd612efdc3b2b42ed9380e543a821dc639b172e9be5770aa5265",
+    "scripts/upstream_completion_ci.py": "653ee721447382753e7a69a16762b1981e70188ca029886dfa72026231550b7b",
+    "scripts/qualify_upstream_body_negative.py": "0f4cad2ca33fef9101e891493ea47b89254e57b33cd488264e6b7aa6da5b3595",
+    "scripts/upstream_extraction_cohort.py": "496b9f1b626c647763cb96a366b73a1c00d1584aca36cc84a2b0a252439a7cc0",
+    "crates/marmot-app/src/native_device_linking/tests/source_readiness_acceptance.rs": "bcb87e83de046a01c59a3990f318c2b494c88d29bcab3138a81b09f6452978b9",
+    "crates/marmot-app/src/client/private_enrollment_proposal/source_readiness_probe.rs": "342d26d32477dc121a195cd2379429946516d5634400addaf7865eccfab9acf2",
+    "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": "a5bd3b37d749ac3ca186db601c1eb181b50bf1b524aaf593222fdbda970c2542",
+    "crates/storage-sqlite/src/private_roster_settlement/tests.rs": "f4ca580943dc2a22ddfd83753556dc7e4ba38bf84d5f24c6af2c25e3205f1a05",
+    "crates/storage-sqlite/src/private_roster_settlement.rs": "87b8e64cd40a9b65f3f6597f47f4b28fde433a09f242fa141f429e91b73c4319",
+    "crates/storage-sqlite/src/base/connection.rs": "c5ebd3e612728925dd97c7f5b76c3cf26554219ff323b08fa0897fbea0057221",
+    "crates/storage-sqlite/Cargo.toml": "8e7c10804da31fef46329cb3ffcd9bf59c09028cecbb87aa9303b64e400c6ffe",
+    "scripts/pure_directed_snapshot_oracles.py": "dcc693fa8ded5ae21707ba9ad1ec79b1b14cb98e1c92337cfa57d52be830cba7"
+  },
+  "readiness_mutations": {
+    "consume": {
+      "path": "crates/marmot-app/src/client/device_linking/sibling_sharing.rs",
+      "old": "match self.recheck_owned_sibling_source_readiness() {",
+      "new": "match Ok::<Option<Arc<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>>, ClientLinkingError>(None) {"
+    },
+    "permit": {
+      "path": "crates/marmot-app/src/client/device_linking/sibling_sharing.rs",
+      "old": "(harvested_success || entry.recipient || entry.initial_source_due)",
+      "new": "(harvested_success || entry.recipient)"
+    }
+  },
+  "snapshot_mutations": {
+    "round": {
+      "path": "crates/storage-sqlite/src/private_roster_settlement.rs",
+      "old": "    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        self.connection.with_deferred_read(read)\n    }\n",
+      "new": "    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {\n        {\n            let conn = self.lock()?;\n            read(&conn)\n        }\n    }\n"
+    },
+    "facts": {
+      "path": "crates/storage-sqlite/src/private_roster_settlement.rs",
+      "old": "    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        self.connection\n            .with_deferred_read(|conn| match read(conn)? {\n                Some(state) => facts(conn, &state),\n                None => Ok(vec![]),\n            })\n    }\n",
+      "new": "    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {\n        let conn = self.lock()?;\n        match read(&conn)? {\n            Some(s) => facts(&conn, &s),\n            None => Ok(vec![]),\n        }\n    }\n"
+    }
+  },
+  "readiness_case": "native_device_linking::automatic_pairing_acceptance::source_readiness_acceptance::fresh_completed_source_starts_request_without_sibling_periodic_tick",
+  "snapshot_cases": {
+    "round": {
+      "name": "private_roster_settlement::tests::private_settlement_read_round_pins_foreign_wal_replacement",
+      "line": 789,
+      "message": "public settlement round snapshot must preserve coherent committed state and facts"
+    },
+    "facts": {
+      "name": "private_roster_settlement::tests::private_settlement_read_facts_pins_foreign_wal_replacement",
+      "line": 793,
+      "message": "public settlement facts snapshot must preserve coherent committed state and facts"
+    },
+    "control": {
+      "name": "private_roster_settlement::tests::private_settlement_snapshot_reads_reject_persisted_foreign_generation_fact"
+    }
+  },
+  "full19": [
+    "private_roster_settlement::tests::private_settlement_deferred_ack_does_not_bind_nonce_or_count_confirmation",
+    "private_roster_settlement::tests::private_settlement_deferred_ack_rejects_wrong_generation_role_and_roster",
+    "private_roster_settlement::tests::private_settlement_deferred_ack_rollback_retirement_and_replacement",
+    "private_roster_settlement::tests::private_settlement_legacy_json_without_deferred_ack_field_remains_readable",
+    "private_roster_settlement::tests::private_settlement_deferred_ack_storage_is_bounded_by_actual_remote_slots",
+    "private_roster_settlement::tests::private_settlement_all_leaf_completion_and_exact_completed_retries",
+    "private_roster_settlement::tests::private_settlement_nonce_role_and_generation_fences",
+    "private_roster_settlement::tests::private_settlement_denial_blocks_all_positive_data_and_restart_preserves_completed",
+    "private_roster_settlement::tests::private_settlement_canonical_owner_and_origin_bounds",
+    "private_roster_settlement::tests::private_settlement_limits_and_checked_replacement_do_not_have_lifetime_cap",
+    "private_roster_settlement::tests::private_settlement_last_fact_write_failure_rolls_back_and_reopens_exact_retry",
+    "private_roster_settlement::tests::private_settlement_outer_crypto_unit_rollback_and_replacement_are_atomic",
+    "private_roster_settlement::tests::private_settlement_encrypted_pending_restart_denial_survives_reopen",
+    "private_roster_settlement::tests::private_settlement_all_128_occupied_slots_complete_without_account_deduplication",
+    "private_roster_settlement::tests::private_settlement_read_round_pins_foreign_wal_replacement",
+    "private_roster_settlement::tests::private_settlement_read_facts_pins_foreign_wal_replacement",
+    "private_roster_settlement::tests::private_settlement_snapshot_reads_reject_persisted_foreign_generation_fact",
+    "base::connection::tests::read_snapshot_pins_foreign_writes_and_mls_generation",
+    "base::connection::tests::read_snapshot_restores_mode_and_preserves_outer_transaction_on_all_exits"
+  ],
+  "static_features": [
+    "experimental-device-sync",
+    "extensions-draft",
+    "media-store-benchmarks",
+    "storage-format-benchmarks",
+    "test-conformance-replay",
+    "test-migrated-template",
+    "test-support"
+  ],
+  "oracle_sites": {
+    "readiness": 220,
+    "round": 789,
+    "facts": 793,
+    "expected_unwind": 1673
+  },
+  "historical_evidence_reused": false
+}

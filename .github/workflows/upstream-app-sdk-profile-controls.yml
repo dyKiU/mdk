@@ -1,0 +1,148 @@
+name: App SDK profile metadata controls only
+on:
+  push:
+    branches: ["ci/upstream-app-sdk-profile-controls-*"]
+    paths:
+      - .github/workflows/upstream-app-sdk-profile-controls.yml
+      - scripts/upstream_apple_ci/install.py
+      - scripts/upstream_apple_ci/sdk_profiles.py
+      - scripts/upstream_apple_ci/test_install_destinations.py
+      - scripts/upstream_apple_ci/run-app-profile-controls.py
+      - scripts/upstream_apple_ci/bounded_capture.py
+      - scripts/upstream_apple_ci/test_bounded_capture.py
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact immutable metadata/tool source; must equal this workflow head (not final SDK qualification)
+        required: true
+        type: string
+      mac_sha:
+        description: Exact committed Mac capability-preparation source
+        required: true
+        type: string
+      ios_sha:
+        description: Exact committed iOS capability-preparation source
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: app-sdk-profile-metadata-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preparation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      source: ${{ steps.identity.outputs.source }}
+      mac: ${{ steps.identity.outputs.mac }}
+      ios: ${{ steps.identity.outputs.ios }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require exact immutable manual identities; push is syntax preparation only
+        id: identity
+        env:
+          REQUESTED_SOURCE: ${{ inputs.source_sha }}
+          REQUESTED_MAC: ${{ inputs.mac_sha }}
+          REQUESTED_IOS: ${{ inputs.ios_sha }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-app-sdk-profile-controls-')
+          if os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
+              values={key:os.environ['REQUESTED_'+key.upper()] for key in ['source','mac','ios']}
+              assert all(re.fullmatch('[0-9a-f]{40}',value) for value in values.values())
+              assert values['source']==os.environ['GITHUB_SHA']
+              with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+                  for key,value in values.items(): output.write(key+'='+value+'\n')
+          PY
+      - name: Remote syntax only; zero SDK or product bodies
+        run: |
+          python3 -m py_compile scripts/upstream_apple_ci/install.py \
+            scripts/upstream_apple_ci/sdk_profiles.py \
+            scripts/upstream_apple_ci/test_install_destinations.py \
+            scripts/upstream_apple_ci/bounded_capture.py \
+            scripts/upstream_apple_ci/test_bounded_capture.py \
+            scripts/upstream_apple_ci/run-app-profile-controls.py
+  installer-controls:
+    if: github.event_name == 'workflow_dispatch'
+    needs: preparation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}
+      PROFILE_CONTROL_SOURCE_SHA: ${{ needs.preparation.outputs.source }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.preparation.outputs.source }}
+          persist-credentials: false
+      - name: Six read-only destination controls plus two bounded-capture controls; no SDK install
+        run: |
+          python3 -B scripts/upstream_apple_ci/run-app-profile-controls.py \
+            --directory scripts/upstream_apple_ci --kind installer \
+            --source "$PROFILE_CONTROL_SOURCE_SHA" \
+            --output "$RUNNER_TEMP/app-profile-evidence/installer.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: installer-destination-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/app-profile-evidence/installer.json
+          if-no-files-found: error
+          retention-days: 7
+  app-controls:
+    if: github.event_name == 'workflow_dispatch'
+    needs: preparation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            repository: dyKiU/whitenoise-mac
+            source: ${{ needs.preparation.outputs.mac }}
+          - platform: ios
+            repository: dyKiU/whitenoise-ios
+            source: ${{ needs.preparation.outputs.ios }}
+    env:
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}
+      PROFILE_CONTROL_SOURCE_SHA: ${{ needs.preparation.outputs.source }}
+      PROFILE_CONTROL_APP_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.preparation.outputs.source }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.source }}
+          path: control-app
+          persist-credentials: false
+      - name: Remote app helper syntax only; no Apple compiler
+        run: |
+          python3 -m py_compile control-app/scripts/sdk_profiles.py \
+            control-app/scripts/validate_local_sdk_profile.py \
+            control-app/scripts/test_local_sdk_profile.py \
+            control-app/scripts/bounded_capture.py \
+            control-app/scripts/qualify_local_sdk_guard_pfp.py
+          bash -n control-app/scripts/local-sdk-profile-settings.sh
+          bash -n control-app/scripts/local-device-sync-settings.sh
+      - name: Actual 28 synthetic guard cases and three independent omission PFP chains
+        env:
+          APP_SOURCE: ${{ matrix.source }}
+        run: |
+          python3 -B scripts/upstream_apple_ci/run-app-profile-controls.py \
+            --directory control-app/scripts --kind app --source "$APP_SOURCE" \
+            --output "$RUNNER_TEMP/app-profile-evidence/${PROFILE_CONTROL_APP_PLATFORM}.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: app-sdk-profile-metadata-${{ matrix.platform }}-${{ matrix.source }}
+          path: ${{ runner.temp }}/app-profile-evidence/${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 7

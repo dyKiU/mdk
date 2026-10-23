@@ -657,6 +657,31 @@ async fn concurrent_profile_edits(
     if settled.is_empty() {
         return Err("neither concurrent profile edit reached the settled public state".into());
     }
+    if strict && !dropped.is_empty() {
+        // Preserve the original settled-state failure. Observe only the same
+        // runtimes: no new edit, explicit catch-up, or repair request. This
+        // distinguishes a premature public-stability observation from a lost
+        // accepted intent without making a late arrival qualify the journey.
+        let started = std::time::Instant::now();
+        let mut remaining = dropped.len();
+        let late = tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let observations = subject.observations(&clients).await?;
+                remaining = dropped_accepted_edits(&report, &observations, &edits).len();
+                if remaining == 0 {
+                    return Ok::<_, Box<dyn std::error::Error>>(());
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        })
+        .await;
+        eprintln!(
+            "concurrent-profile-original post-failure-retained={} remaining={} elapsed-ms={}",
+            matches!(late, Ok(Ok(()))),
+            remaining,
+            started.elapsed().as_millis()
+        );
+    }
     require_edits_retained(&dropped, strict)?;
     fresh_traffic_and_reopen(subject, "main", &mut expected, "carol", out, "main").await
 }

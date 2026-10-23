@@ -880,6 +880,105 @@ pub enum NostrSdkNotification {
     Shutdown,
 }
 
+/// Source-owned private acquisition capture, fenced by the same ordered SDK
+/// reader/connection generations as ordinary replay. A reconnect forgets only
+/// that endpoint's prior EOSE; it cannot upgrade queued pre-EOSE ciphertext.
+#[cfg(feature = "experimental-device-sync")]
+pub struct SdkLiveNotificationReceiver {
+    adapter: NostrTransportAdapter,
+    account: Option<MemberId>,
+    endpoints: HashMap<TransportEndpoint, ([u64; 2], crate::LiveNotificationReceiver)>,
+}
+#[cfg(feature = "experimental-device-sync")]
+impl SdkLiveNotificationReceiver {
+    pub fn new(adapter: NostrTransportAdapter, account: Option<MemberId>) -> Self {
+        Self {
+            adapter,
+            account,
+            endpoints: HashMap::new(),
+        }
+    }
+    pub async fn capture(
+        &mut self,
+        input: &NostrSdkNotification,
+    ) -> Option<crate::CapturedLiveRelayEvent> {
+        let (endpoint, epoch, payload) = match input {
+            NostrSdkNotification::Replay {
+                endpoint, epoch, ..
+            } => (endpoint.clone(), *epoch, None),
+            NostrSdkNotification::Payload {
+                notification,
+                epoch,
+                ..
+            } => {
+                let endpoint = match notification {
+                    ClientNotification::Event { relay_url, .. }
+                    | ClientNotification::Message { relay_url, .. } => {
+                        TransportEndpoint(relay_url.to_string())
+                    }
+                    ClientNotification::Shutdown => return None,
+                };
+                (endpoint, *epoch, Some(notification))
+            }
+            NostrSdkNotification::Shutdown => return None,
+        };
+        if self
+            .endpoints
+            .get(&endpoint)
+            .is_some_and(|(old, _)| epoch < *old)
+        {
+            return None;
+        }
+        if self
+            .endpoints
+            .get(&endpoint)
+            .is_none_or(|(old, _)| epoch != *old)
+        {
+            if !self.endpoints.contains_key(&endpoint)
+                && self.endpoints.len() >= SDK_NOTIFICATION_CAPACITY
+            {
+                return None;
+            }
+            self.endpoints.insert(
+                endpoint.clone(),
+                (
+                    epoch,
+                    self.adapter
+                        .live_notification_receiver(self.account.clone()),
+                ),
+            );
+        }
+        let (_, receiver) = self.endpoints.get_mut(&endpoint)?;
+        match payload? {
+            ClientNotification::Message { message, .. } => match message.as_ref() {
+                RelayMessage::EndOfStoredEvents(subscription) => {
+                    receiver
+                        .observe_private_sdk_eose(endpoint, subscription.as_str())
+                        .await;
+                    None
+                }
+                RelayMessage::Event {
+                    subscription_id,
+                    event,
+                } if event.kind == Kind::MlsGroupMessage => {
+                    let event = NostrTransportEvent::from_nostr_event(event).ok()?;
+                    receiver
+                        .capture_private_sdk_event(&NostrRelayEvent {
+                            endpoint,
+                            subscription_id: Some(subscription_id.to_string()),
+                            event,
+                        })
+                        .ok()
+                        .flatten()
+                }
+                _ => None,
+            },
+            // The SDK-deduplicated Event twin never supplies acquisition provenance.
+            _ => None,
+        }
+    }
+}
+
 // Match the SDK client's default bounded notification allowance. There is no
 // second unbounded control queue: every payload also carries its boundary.
 // Convergence ledger A17: overflow restarts owned replay with retained loss.
@@ -1272,6 +1371,8 @@ impl SdkFrontierReader {
 /// `nostr-sdk` backed implementation of [`NostrRelayClient`].
 #[derive(Clone)]
 pub struct NostrSdkRelayClient {
+    #[cfg(feature = "test-policy-overrides")]
+    publication_diagnostic_ordinal: u64,
     client: Client,
     signer: Option<SdkSigner>,
     account_id: Option<MemberId>,
@@ -1319,6 +1420,79 @@ pub struct NostrSdkRelayClient {
     /// Test-only: select every route in ID order, to exercise the cursor alone.
     #[cfg(test)]
     id_order_only: bool,
+}
+
+#[cfg(feature = "test-policy-overrides")]
+#[doc(hidden)]
+pub type SdkForwarderSnapshotForTest = Box<dyn Fn() -> [u64; 15] + Send + Sync>;
+
+/// Fixed per-forwarder diagnostics, enabled only for internal test runners.
+/// No account, endpoint, wire, event, payload, or error text is retained.
+#[cfg(feature = "test-policy-overrides")]
+#[derive(Default)]
+struct ForwarderProbeState {
+    fields: [AtomicU64; 14],
+}
+#[cfg(feature = "test-policy-overrides")]
+impl ForwarderProbeState {
+    fn add(&self, slot: usize, value: u64) {
+        let _ = self.fields[slot].fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+            Some(old.checked_add(value).unwrap_or_else(|| {
+                self.fields[11].store(1, Ordering::Relaxed);
+                u64::MAX
+            }))
+        });
+    }
+    fn end(&self, reason: u64, abandoned: u64, skipped: u64) {
+        if self.fields[0]
+            .compare_exchange(0, reason, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            self.fields[7].store(abandoned, Ordering::Relaxed);
+            self.fields[12].store(skipped, Ordering::Relaxed);
+        }
+    }
+    fn snapshot(&self, pending: &AtomicU64) -> [u64; 15] {
+        let mut result = [0; 15];
+        result[0] = self.fields[0].load(Ordering::Relaxed);
+        result[1] = pending.load(Ordering::SeqCst);
+        for slot in 1..14 {
+            result[slot + 1] = self.fields[slot].load(Ordering::Relaxed);
+        }
+        result
+    }
+}
+#[cfg(feature = "test-policy-overrides")]
+struct ForwarderProbeGuard {
+    probe: Option<Arc<ForwarderProbeState>>,
+    pending: Arc<AtomicU64>,
+}
+#[cfg(feature = "test-policy-overrides")]
+impl Drop for ForwarderProbeGuard {
+    fn drop(&mut self) {
+        if let Some(probe) = &self.probe {
+            // First terminal decision wins, including cancellation before first poll.
+            probe.end(
+                if std::thread::panicking() { 8 } else { 7 },
+                self.pending.load(Ordering::SeqCst),
+                0,
+            );
+        }
+    }
+}
+#[cfg(feature = "test-policy-overrides")]
+fn forwarder_probe_kind(notification: &NostrSdkNotification) -> usize {
+    match notification {
+        NostrSdkNotification::Payload {
+            notification: ClientNotification::Message { message, .. },
+            ..
+        } => match message.as_ref() {
+            RelayMessage::Event { event, .. } if event.kind == Kind::MlsGroupMessage => 0,
+            RelayMessage::EndOfStoredEvents(_) => 1,
+            _ => 2,
+        },
+        _ => 2,
+    }
 }
 
 /// An aborted public forwarder must not detach a blocked delivery child. It
@@ -1566,11 +1740,48 @@ struct PreparedPublish {
 ///
 /// Both consumers enter through `dispatch_sdk_replay` before this payload
 /// handler; untagged SDK input cannot bypass the replay-generation fence.
+#[cfg(any(test, not(feature = "experimental-device-sync")))]
 async fn dispatch_sdk_notification(
     notification: ClientNotification,
     adapter: &NostrTransportAdapter,
     account_id: Option<&MemberId>,
     classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
+) -> bool {
+    dispatch_sdk_notification_inner(
+        notification,
+        adapter,
+        account_id,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
+        classify_closed,
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        None,
+    )
+    .await
+}
+
+/// Test-policy observation callback shared by both SDK dispatch entrypoints.
+#[doc(hidden)]
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub type SdkNotificationObserver<'a> = dyn Fn(&str, usize) + Sync + 'a;
+
+async fn dispatch_sdk_notification_inner(
+    notification: ClientNotification,
+    adapter: &NostrTransportAdapter,
+    account_id: Option<&MemberId>,
+    #[cfg(feature = "experimental-device-sync")] capture: Option<crate::CapturedLiveRelayEvent>,
+    classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    observe: Option<&SdkNotificationObserver<'_>>,
 ) -> bool {
     match notification {
         ClientNotification::Event {
@@ -1578,6 +1789,18 @@ async fn dispatch_sdk_notification(
             subscription_id,
             event,
         } => {
+            #[cfg(all(
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            let observed_id = event.id.to_string();
+            #[cfg(all(
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if let Some(observe) = observe {
+                observe(&observed_id, 0);
+            }
             // The SDK emits Event before its raw Message copy. Only the raw
             // copy may admit group ciphertext: a delayed Event from a retired
             // attempt must never bypass the subscription/replay gate.
@@ -1618,12 +1841,30 @@ async fn dispatch_sdk_notification(
                     subscription_id,
                     event,
                 } => {
+                    #[cfg(all(
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if let Some(observe) = observe {
+                        observe(&event.id.to_string(), 1);
+                    }
                     // The SDK authenticates event ids, not later cache-hit bytes.
                     // Group copies reuse trusted bodies or validate the body hash.
                     // Keep observation and admission in relay/EOSE order.
                     let endpoint = TransportEndpoint(relay_url.to_string());
                     if event.kind == Kind::MlsGroupMessage {
-                        let _ = adapter
+                        #[cfg(feature = "experimental-device-sync")]
+                        let result = adapter
+                            .handle_captured_sdk_group_copy(
+                                &event,
+                                endpoint,
+                                subscription_id.to_string(),
+                                account_id,
+                                capture,
+                            )
+                            .await;
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        let result = adapter
                             .handle_sdk_group_copy(
                                 &event,
                                 endpoint,
@@ -1631,6 +1872,25 @@ async fn dispatch_sdk_notification(
                                 account_id,
                             )
                             .await;
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
+                        if let Some(observe) = observe {
+                            observe(
+                                &event.id.to_string(),
+                                match result {
+                                    Ok(0) => 2,
+                                    Ok(_) => 3,
+                                    Err(_) => 4,
+                                },
+                            );
+                        }
+                        #[cfg(not(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        )))]
+                        let _ = result;
                     } else if event.verify_id() {
                         adapter
                             .observe_relay_event(
@@ -1683,6 +1943,34 @@ pub async fn dispatch_sdk_replay(
     account_id: Option<&MemberId>,
     classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
 ) -> bool {
+    dispatch_sdk_replay_inner(
+        notification,
+        adapter,
+        account_id,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
+        classify_closed,
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        None,
+    )
+    .await
+}
+
+async fn dispatch_sdk_replay_inner(
+    notification: NostrSdkNotification,
+    adapter: &NostrTransportAdapter,
+    account_id: Option<&MemberId>,
+    #[cfg(feature = "experimental-device-sync")] capture: Option<crate::CapturedLiveRelayEvent>,
+    classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    observe: Option<&SdkNotificationObserver<'_>>,
+) -> bool {
     match notification {
         NostrSdkNotification::Replay {
             endpoint,
@@ -1712,13 +2000,63 @@ pub async fn dispatch_sdk_replay(
             {
                 return false;
             }
-            dispatch_sdk_notification(notification, adapter, account_id, classify_closed).await
+            #[cfg(feature = "experimental-device-sync")]
+            let shutdown = dispatch_sdk_notification_inner(
+                notification,
+                adapter,
+                account_id,
+                capture,
+                classify_closed,
+                #[cfg(feature = "test-policy-overrides")]
+                observe,
+            )
+            .await;
+            #[cfg(not(feature = "experimental-device-sync"))]
+            let shutdown =
+                dispatch_sdk_notification(notification, adapter, account_id, classify_closed).await;
+            shutdown
         }
         NostrSdkNotification::Shutdown => true,
     }
 }
 
 impl NostrSdkRelayClient {
+    /// Dispatch with the opaque live route captured before notification queueing.
+    /// The four-argument dispatcher remains the ordinary entrypoint; this shares
+    /// its single notification match without reconstructing capture authority.
+    #[doc(hidden)]
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn dispatch_sdk_replay_captured(
+        notification: NostrSdkNotification,
+        adapter: &NostrTransportAdapter,
+        account_id: Option<&MemberId>,
+        capture: Option<crate::CapturedLiveRelayEvent>,
+        classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
+        #[cfg(feature = "test-policy-overrides")] observe: Option<&SdkNotificationObserver<'_>>,
+    ) -> bool {
+        dispatch_sdk_replay_inner(
+            notification,
+            adapter,
+            account_id,
+            capture,
+            classify_closed,
+            #[cfg(feature = "test-policy-overrides")]
+            observe,
+        )
+        .await
+    }
+
+    #[cfg(feature = "test-policy-overrides")]
+    fn diagnose_publish_stage(&self, stage: &'static str) {
+        tracing::warn!(
+            target: "transport_nostr_adapter::sdk_client::test_publication",
+            method = "diagnose_publish_stage",
+            client_ordinal = self.publication_diagnostic_ordinal,
+            stage,
+            "test-only publication boundary"
+        );
+    }
+
     pub fn new(client: Client) -> Self {
         let notification_loss_tx = watch::channel(None).0;
         let subscription_floors = Arc::new(StdMutex::new(SubscriptionFloors::default()));
@@ -1729,6 +2067,11 @@ impl NostrSdkRelayClient {
             owed.clone(),
         ));
         Self {
+            #[cfg(feature = "test-policy-overrides")]
+            publication_diagnostic_ordinal: {
+                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
             publish_relay_cache: Arc::new(PublishRelayCache {
                 client: client.clone(),
                 frontier: frontier.clone(),
@@ -3476,24 +3819,94 @@ impl NostrSdkRelayClient {
     /// queue. It exits on pool shutdown or receiver loss; a supervisor must
     /// retain the loss watch and start a replacement after a gap.
     pub fn spawn_notification_forwarder(&self, adapter: NostrTransportAdapter) -> JoinHandle<()> {
+        self.spawn_notification_forwarder_inner(
+            adapter,
+            #[cfg(feature = "test-policy-overrides")]
+            None,
+        )
+    }
+
+    /// Internal integration-test observation of this exact forwarder's owned work.
+    /// Snapshot counters are individually sampled, not an atomic global transaction.
+    #[cfg(feature = "test-policy-overrides")]
+    #[doc(hidden)]
+    pub fn spawn_notification_forwarder_observed_for_test(
+        &self,
+        adapter: NostrTransportAdapter,
+    ) -> (JoinHandle<()>, SdkForwarderSnapshotForTest) {
+        let probe = Arc::new(ForwarderProbeState::default());
+        let pending = Arc::new(AtomicU64::new(0));
+        let read_probe = probe.clone();
+        let read_pending = pending.clone();
+        let task = self.spawn_notification_forwarder_with_pending(adapter, pending, Some(probe));
+        (task, Box::new(move || read_probe.snapshot(&read_pending)))
+    }
+
+    fn spawn_notification_forwarder_inner(
+        &self,
+        adapter: NostrTransportAdapter,
+        #[cfg(feature = "test-policy-overrides")] probe: Option<Arc<ForwarderProbeState>>,
+    ) -> JoinHandle<()> {
+        self.spawn_notification_forwarder_with_pending(
+            adapter,
+            Arc::new(AtomicU64::new(0)),
+            #[cfg(feature = "test-policy-overrides")]
+            probe,
+        )
+    }
+
+    fn spawn_notification_forwarder_with_pending(
+        &self,
+        adapter: NostrTransportAdapter,
+        pending: Arc<AtomicU64>,
+        #[cfg(feature = "test-policy-overrides")] probe: Option<Arc<ForwarderProbeState>>,
+    ) -> JoinHandle<()> {
         let mut notifications = self.notifications();
         let loss = self.clone();
+        #[cfg(feature = "test-policy-overrides")]
+        let probe_guard = ForwarderProbeGuard {
+            probe: probe.clone(),
+            pending: pending.clone(),
+        };
         tokio::spawn(async move {
+            #[cfg(feature = "test-policy-overrides")]
+            let _probe_guard = probe_guard;
+            #[cfg(feature = "test-policy-overrides")]
+            if let Some(probe) = &probe {
+                probe.fields[13].store(1, Ordering::Relaxed);
+            }
             const EVENT_QUEUE_CAPACITY: usize = 256;
             let (sender, mut event_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
-            let pending = Arc::new(AtomicU64::new(0));
+            #[cfg(feature = "experimental-device-sync")]
+            let mut acquisition =
+                SdkLiveNotificationReceiver::new(adapter.clone(), loss.account_id.clone());
             let worker_pending = pending.clone();
             let classifier = loss.clone();
+            #[cfg(feature = "test-policy-overrides")]
+            let worker_probe = probe.clone();
             let mut worker = tokio::spawn(async move {
-                while let Some(notification) = event_rx.recv().await {
-                    let shutdown = dispatch_sdk_replay(
+                while let Some((notification, _capture)) = event_rx.recv().await {
+                    #[cfg(feature = "test-policy-overrides")]
+                    let kind = forwarder_probe_kind(&notification);
+                    let shutdown = dispatch_sdk_replay_inner(
                         notification,
                         &adapter,
                         classifier.account_id.as_ref(),
+                        #[cfg(feature = "experimental-device-sync")]
+                        _capture,
                         &|reason: &str| classifier.subscription_refusal(reason),
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
+                        None,
                     )
                     .await;
                     worker_pending.fetch_sub(1, Ordering::SeqCst);
+                    #[cfg(feature = "test-policy-overrides")]
+                    if let Some(probe) = &worker_probe {
+                        probe.add(4 + kind, 1);
+                    }
                     if shutdown {
                         break;
                     }
@@ -3510,6 +3923,8 @@ impl NostrSdkRelayClient {
                     _ = &mut worker => {
                         worker_guard.loss_accounted = true;
                         let abandoned = pending.load(Ordering::SeqCst);
+                        #[cfg(feature = "test-policy-overrides")]
+                        if let Some(probe) = &probe { probe.end(4, abandoned, 0); }
                         if abandoned > 0 {
                             loss.record_notification_gap(abandoned);
                         }
@@ -3517,9 +3932,21 @@ impl NostrSdkRelayClient {
                     }
                     update = notifications.next() => update,
                 };
-                let Some(update) = update else { break };
+                let Some(update) = update else {
+                    #[cfg(feature = "test-policy-overrides")]
+                    if let Some(probe) = &probe {
+                        probe.end(6, pending.load(Ordering::SeqCst), 0);
+                    }
+                    break;
+                };
                 match update {
-                    NotificationUpdate::Notification(NostrSdkNotification::Shutdown) => break,
+                    NotificationUpdate::Notification(NostrSdkNotification::Shutdown) => {
+                        #[cfg(feature = "test-policy-overrides")]
+                        if let Some(probe) = &probe {
+                            probe.end(5, pending.load(Ordering::SeqCst), 0);
+                        }
+                        break;
+                    }
                     NotificationUpdate::Notification(notification) => {
                         // Group admission uses the verified raw copy. Its SDK
                         // deduplicated twin cannot deliver and only spends queue room.
@@ -3529,10 +3956,42 @@ impl NostrSdkRelayClient {
                         {
                             continue;
                         }
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
+                        let capture_started = probe.as_ref().map(|_| std::time::Instant::now());
+                        #[cfg(feature = "experimental-device-sync")]
+                        let capture = acquisition.capture(&notification).await;
+                        #[cfg(all(
+                            feature = "experimental-device-sync",
+                            feature = "test-policy-overrides"
+                        ))]
+                        if let (Some(probe), Some(capture_started)) = (&probe, capture_started) {
+                            let elapsed = u64::try_from(capture_started.elapsed().as_micros())
+                                .unwrap_or_else(|_| {
+                                    probe.fields[11].store(1, Ordering::Relaxed);
+                                    u64::MAX
+                                });
+                            probe.add(8, 1);
+                            probe.add(9, elapsed);
+                            probe.fields[10].fetch_max(elapsed, Ordering::Relaxed);
+                        }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        let capture = ();
+                        #[cfg(feature = "test-policy-overrides")]
+                        let kind = forwarder_probe_kind(&notification);
                         pending.fetch_add(1, Ordering::SeqCst);
-                        if sender.try_send(notification).is_err() {
+                        if let Err(error) = sender.try_send((notification, capture)) {
+                            #[cfg(feature = "test-policy-overrides")]
+                            let queue_full = matches!(&error, mpsc::error::TrySendError::Full(_));
+                            drop(error);
                             pending.fetch_sub(1, Ordering::SeqCst);
                             let abandoned = 1 + pending.load(Ordering::SeqCst);
+                            #[cfg(feature = "test-policy-overrides")]
+                            if let Some(probe) = &probe {
+                                probe.end(if queue_full { 1 } else { 2 }, abandoned, 0);
+                            }
                             worker_guard.loss_accounted = true;
                             loss.record_notification_gap(abandoned);
                             loss.notification_receiver_replaced();
@@ -3540,10 +3999,20 @@ impl NostrSdkRelayClient {
                             let _ = worker.await;
                             return;
                         }
+                        #[cfg(feature = "test-policy-overrides")]
+                        if let Some(probe) = &probe {
+                            probe.add(1 + kind, 1);
+                        }
                     }
-                    NotificationUpdate::Lagged { .. } => {
+                    NotificationUpdate::Lagged { skipped } => {
+                        #[cfg(not(feature = "test-policy-overrides"))]
+                        let _ = skipped;
                         // The native frontier already recorded its own gap.
                         let abandoned = pending.load(Ordering::SeqCst);
+                        #[cfg(feature = "test-policy-overrides")]
+                        if let Some(probe) = &probe {
+                            probe.end(3, abandoned, skipped);
+                        }
                         worker_guard.loss_accounted = true;
                         loss.record_notification_gap(abandoned);
                         worker.abort();
@@ -3877,6 +4346,8 @@ impl NostrSdkRelayClient {
         // a read lock that blocks registering other concurrent publish targets.
         // `Err(true)` is a handshake that outlived the connect budget, kept
         // apart from immediate dial errors so audit can tell them apart.
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("connect-start");
         let connected = match self.client.relay(endpoint.clone()).await {
             Ok(Some(relay)) => relay
                 .try_connect()
@@ -3885,6 +4356,8 @@ impl NostrSdkRelayClient {
                 .map_err(|error| error.kind() == SdkErrorKind::Timeout),
             Ok(None) | Err(_) => Err(false),
         };
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("connect-returned");
         match connected {
             Ok(()) => Ok(endpoint),
             // Failure reasons never embed the nostr-sdk error Display: it
@@ -3958,7 +4431,12 @@ impl NostrSdkRelayClient {
                     .await
                     .map_err(|_| local_failure("send event failed"))?
                     .ok_or_else(|| local_failure("send event failed"))?;
-                match relay.send_event(event).await {
+                #[cfg(feature = "test-policy-overrides")]
+                self.diagnose_publish_stage("sdk-send-start");
+                let result = relay.send_event(event).await;
+                #[cfg(feature = "test-policy-overrides")]
+                self.diagnose_publish_stage("sdk-send-returned");
+                match result {
                     Ok(output) => Ok(typed_relay_ack_kind(Some(output.status()))),
                     Err(error) if error.kind() == SdkErrorKind::Rejected => {
                         let message = error.to_string();
@@ -4122,7 +4600,12 @@ impl NostrSdkRelayClient {
         // `JoinSet::abort_all` is non-blocking. Drain aborted tasks before
         // releasing the batch lease so no send future can race cleanup.
         if aborted_publishes {
+            #[cfg(feature = "test-policy-overrides")]
+            self.diagnose_publish_stage("aborted-join-drain-start");
             while publishes.join_next().await.is_some() {}
+            #[cfg(feature = "test-policy-overrides")]
+            self.diagnose_publish_stage("aborted-join-drain-returned");
+
             // Quorum cancellation is not an acknowledgement from the losing
             // relays. Do not cache their possibly unfinished transports, but
             // let overlapping leases finish before removing the socket.
@@ -4140,7 +4623,12 @@ impl NostrSdkRelayClient {
                 }
             }
         }
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("ambiguous-reset-start");
         self.reset_ambiguous_publish_relays(&failed).await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("ambiguous-reset-returned");
+
         Self::finish_publish_outcome(
             message_id,
             accepted,
@@ -4174,7 +4662,12 @@ impl NostrSdkRelayClient {
         let outcome = self
             .publish_prepared_event(request, &unavailable, true, deadline)
             .await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("single-release-start");
         lease.release().await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("single-release-returned");
+
         outcome
     }
 
@@ -4507,8 +5000,14 @@ impl NostrSdkRelayClient {
         lease_endpoints: &mut Vec<RelayUrl>,
     ) -> Result<(), TransportEndpointFailure> {
         let transport_endpoint = TransportEndpoint(endpoint.to_string());
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("retain-lock-start");
         let mut state = self.publish_relay_cache.lifecycle.lock().await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("retain-lock-acquired");
         self.publish_relay_cache.evict_idle(&mut state).await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("retain-eviction-returned");
         if let Some(entry) = state.relays.get_mut(endpoint) {
             entry.leases += 1;
             entry.idle_since = None;
@@ -4621,7 +5120,12 @@ impl NostrSdkRelayClient {
     }
 
     async fn release_publish_relay(&self, endpoints: &mut Vec<RelayUrl>, cancelled: bool) {
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-lock-start");
         let mut state = self.publish_relay_cache.lifecycle.lock().await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-lock-acquired");
+
         #[cfg(test)]
         let mut attempts = self.publish_release_attempts.lock().await;
         // Once popped, the cache owns cleanup. There must be no await between
@@ -4650,7 +5154,11 @@ impl NostrSdkRelayClient {
         }
         entry.idle_since = Some(tokio::time::Instant::now());
         self.publish_relay_cache.start_expiration(&mut state);
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-eviction-start");
         self.publish_relay_cache.evict_idle(&mut state).await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-eviction-returned");
     }
 
     /// Invalidate sockets whose publish result cannot establish whether the
@@ -4924,6 +5432,14 @@ impl NostrRelayClient for NostrSdkRelayClient {
         self.subscribe_scoped_reporting(subscription, subscription_id)
             .await
             .map(drop)
+    }
+
+    async fn subscribe_scoped_reporting(
+        &self,
+        subscription: NostrSubscription,
+        subscription_id: String,
+    ) -> Result<NostrSubscribeReport, TransportAdapterError> {
+        NostrSdkRelayClient::subscribe_scoped_reporting(self, subscription, subscription_id).await
     }
 
     async fn unsubscribe(
@@ -9467,6 +9983,1079 @@ mod tests {
         relay.shutdown();
     }
 
+    /// Real SDK REQs and signed relay carriers; the wrapper only stalls the
+    /// caller's completion after the actual private subscription was issued.
+    #[cfg(feature = "experimental-device-sync")]
+    struct PausedPrivateIssue {
+        sdk: NostrSdkRelayClient,
+        paused: AtomicBool,
+        entered: tokio::sync::Notify,
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[async_trait]
+    impl NostrRelayClient for PausedPrivateIssue {
+        async fn subscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.subscribe(subscription).await
+        }
+        async fn unsubscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe(subscription).await
+        }
+        fn supports_scoped_subscriptions(&self) -> bool {
+            true
+        }
+        async fn subscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.subscribe_scoped(subscription, id).await?;
+            if self.paused.load(Ordering::SeqCst) {
+                self.entered.notify_one();
+                std::future::pending::<()>().await;
+            }
+            Ok(())
+        }
+        async fn unsubscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe_scoped(subscription, id).await
+        }
+        async fn unsubscribe_account(
+            &self,
+            account: &MemberId,
+            replacements: &[NostrSubscription],
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe_account(account, replacements).await
+        }
+        async fn publish_event(
+            &self,
+            endpoints: &[TransportEndpoint],
+            event: &NostrTransportEvent,
+            required: usize,
+        ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+            NostrRelayClient::publish_event(&self.sdk, endpoints, event, required).await
+        }
+    }
+
+    /// Independent SDK broadcast observation never replaces the production
+    /// ordered frontier or dispatches another copy into the adapter.
+    #[cfg(feature = "experimental-device-sync")]
+    async fn observe_private_sdk_eose<S>(
+        notifications: &mut S,
+        capture: &mut crate::LiveNotificationReceiver,
+        endpoint: &TransportEndpoint,
+        actual: &str,
+    ) where
+        S: Stream<Item = ClientNotification> + Unpin,
+    {
+        timeout(Duration::from_secs(20), async {
+            loop {
+                let notification = notifications.next().await.expect("SDK observer remains open");
+                if let ClientNotification::Message { relay_url, message } = notification
+                    && relay_url.to_string() == endpoint.as_str()
+                    && matches!(message.as_ref(), RelayMessage::EndOfStoredEvents(id) if id.as_str() == actual)
+                {
+                    capture.observe_eose(endpoint.clone(), actual).await;
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("independent SDK observer saw the actual private wire EOSE");
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn assert_retired_private_sdk_carrier<S>(
+        notifications: &mut S,
+        capture: &crate::LiveNotificationReceiver,
+        adapter: &NostrTransportAdapter,
+        account: &MemberId,
+        endpoint: &TransportEndpoint,
+        wire: (&str, SubscriptionAttempt),
+        signed: &Event,
+    ) where
+        S: Stream<Item = ClientNotification> + Unpin,
+    {
+        let (actual, attempt) = wire;
+        let event = timeout(Duration::from_secs(20), async {
+            loop {
+                let notification = notifications
+                    .next()
+                    .await
+                    .expect("SDK observer remains open");
+                if let ClientNotification::Message { relay_url, message } = notification
+                    && relay_url.to_string() == endpoint.as_str()
+                    && let RelayMessage::Event {
+                        subscription_id,
+                        event,
+                    } = *message
+                    && subscription_id.as_str() == actual
+                    && event.id == signed.id
+                {
+                    assert!(
+                        event.as_json() == signed.as_json(),
+                        "actual old wire carries exact signed bytes"
+                    );
+                    assert!(
+                        event.verify().is_ok(),
+                        "actual old wire signature remains valid"
+                    );
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("actual signed old-wire carrier must reach the SDK observer");
+        let dto = NostrTransportEvent::from_nostr_event(&event).unwrap();
+        let message = dto.to_transport_message().unwrap();
+        let captured = capture
+            .capture(&NostrRelayEvent {
+                endpoint: endpoint.clone(),
+                subscription_id: Some(actual.to_owned()),
+                event: dto,
+            })
+            .unwrap();
+        {
+            let state = adapter.state.read().await;
+            let wire = state
+                .private_observation_wires
+                .get(account)
+                .expect("retired private wire remains identified");
+            assert!(
+                wire.actual == actual && wire.attempt == attempt && !wire.ready,
+                "failed owner operation leaves this exact private wire ineligible"
+            );
+            assert!(
+                captured
+                    .observations(adapter, &state, &message, Some(account))
+                    .is_empty(),
+                "actual old wire cannot supply an eligible acquisition capture"
+            );
+        }
+        assert!(
+            timeout(Duration::from_millis(30), adapter.receive_observed())
+                .await
+                .is_err(),
+            "retired private request cannot bypass native replay as ordinary delivery"
+        );
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test]
+    async fn enrollment_acquisition_cancelled_issued_request_revokes_freshness_and_can_reactivate()
+    {
+        let relay = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let endpoint = TransportEndpoint(relay.url().await.to_string());
+        let sdk = NostrSdkRelayClient::new(Client::default());
+        let paused = Arc::new(PausedPrivateIssue {
+            sdk: sdk.clone(),
+            paused: AtomicBool::new(true),
+            entered: tokio::sync::Notify::new(),
+        });
+        let adapter = NostrTransportAdapter::new(paused.clone());
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let mut old_wire_notifications = sdk.client.notifications();
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let mut old_wire_capture = adapter.live_notification_receiver(Some(account.clone()));
+        let group = crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![0x71; 16]),
+            transport_group_id: vec![0x82; 32],
+            endpoints: vec![endpoint.clone()],
+            retained_since: None,
+        };
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        let activation = crate::TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![group.clone()],
+            since: None,
+        };
+        let activation_task = tokio::spawn({
+            let adapter = adapter.clone();
+            let activation = activation.clone();
+            async move { adapter.activate_account(activation).await }
+        });
+        timeout(Duration::from_secs(20), paused.entered.notified())
+            .await
+            .expect("actual scoped REQ has completed at the SDK boundary");
+        let attempt = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        let logical = crate::group_subscription(&account, &group, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("actual issued request reached EOSE before cancellation");
+        let old_actual = adapter
+            .state
+            .read()
+            .await
+            .private_observation_wires
+            .get(&account)
+            .expect("actual private wire was issued")
+            .actual
+            .clone();
+        observe_private_sdk_eose(
+            &mut old_wire_notifications,
+            &mut old_wire_capture,
+            &endpoint,
+            &old_actual,
+        )
+        .await;
+        activation_task.abort();
+        assert!(activation_task.await.unwrap_err().is_cancelled());
+        // A cancellation cleanup holding the lifecycle lock must finish before
+        // a subsequent owner operation; this does not manufacture EOSE.
+        drop(adapter.subscription_lock.lock().await);
+        let publisher = Client::default();
+        publisher
+            .add_relay(relay.url().await.to_string())
+            .await
+            .unwrap();
+        publisher.connect().await;
+        let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
+        publisher.send_event(&signed).await.unwrap();
+        assert_retired_private_sdk_carrier(
+            &mut old_wire_notifications,
+            &old_wire_capture,
+            &adapter,
+            &account,
+            &endpoint,
+            (&old_actual, attempt),
+            &signed,
+        )
+        .await;
+        paused.paused.store(false, Ordering::SeqCst);
+        adapter.activate_account(activation).await.unwrap();
+        let next = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        assert!(next > attempt);
+        let next_logical =
+            crate::group_subscription(&account, &group, None, next).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&next_logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("fresh replacement EOSE");
+        while timeout(Duration::from_millis(30), adapter.receive_observed())
+            .await
+            .is_ok()
+        {}
+        let fresh = stored_group_event(&group.transport_group_id, crate::unix_now_seconds() + 1);
+        let fresh_id = fresh.id.to_bytes();
+        publisher.send_event(&fresh).await.unwrap();
+        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(observed.message.id.as_slice() == fresh_id.as_slice());
+        assert!(
+            observed.observation.is_some(),
+            "reactivation preserves genuine live intake"
+        );
+        publisher.shutdown().await;
+        sdk.client.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay.shutdown();
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test]
+    async fn enrollment_acquisition_failed_private_route_sync_burns_freshness_until_valid_reissue()
+    {
+        let relay = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let endpoint = TransportEndpoint(relay.url().await.to_string());
+        let sdk = NostrSdkRelayClient::new(Client::default());
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let mut old_wire_notifications = sdk.client.notifications();
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let mut old_wire_capture = adapter.live_notification_receiver(Some(account.clone()));
+        let group = crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![0x41; 16]),
+            transport_group_id: vec![0x52; 32],
+            endpoints: vec![endpoint.clone()],
+            retained_since: None,
+        };
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![endpoint.clone()],
+                group_subscriptions: vec![group.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        let attempt = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        let logical = crate::group_subscription(&account, &group, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("actual initial private request EOSE");
+        let old_actual = adapter
+            .state
+            .read()
+            .await
+            .private_observation_wires
+            .get(&account)
+            .expect("actual private wire was issued")
+            .actual
+            .clone();
+        observe_private_sdk_eose(
+            &mut old_wire_notifications,
+            &mut old_wire_capture,
+            &endpoint,
+            &old_actual,
+        )
+        .await;
+        let failed = adapter
+            .sync_account_groups(cgka_traits::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![],
+                since: None,
+            })
+            .await;
+        assert!(
+            matches!(failed, Err(TransportAdapterError::Subscription(_))),
+            "a missing protected current route must fail before replacement REQ"
+        );
+        let publisher = Client::default();
+        publisher
+            .add_relay(relay.url().await.to_string())
+            .await
+            .unwrap();
+        publisher.connect().await;
+        let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
+        publisher.send_event(&signed).await.unwrap();
+        assert_retired_private_sdk_carrier(
+            &mut old_wire_notifications,
+            &old_wire_capture,
+            &adapter,
+            &account,
+            &endpoint,
+            (&old_actual, attempt),
+            &signed,
+        )
+        .await;
+        adapter
+            .sync_account_groups(cgka_traits::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![group.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("valid replacement must reach genuine new EOSE");
+        while timeout(Duration::from_millis(30), adapter.receive_observed())
+            .await
+            .is_ok()
+        {}
+        let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds() + 1);
+        let id = signed.id.to_bytes();
+        publisher.send_event(&signed).await.unwrap();
+        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(observed.message.id.as_slice() == id.as_slice());
+        assert!(
+            observed.observation.is_some(),
+            "valid retry must preserve live acquisition"
+        );
+        publisher.shutdown().await;
+        sdk.client.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay.shutdown();
+    }
+
+    /// Genuine SDK/WebSocket replay acquisition, not membership or MLS admission.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test]
+    async fn enrollment_acquisition_reissued_same_wire_scope_cannot_reuse_old_eose() {
+        let relay = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let endpoint = TransportEndpoint(relay.url().await.to_string());
+        let sdk = NostrSdkRelayClient::new(Client::default());
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group_id = cgka_traits::GroupId::new(vec![0xb2; 16]);
+        let old = crate::TransportGroupSubscription {
+            group_id: group_id.clone(),
+            transport_group_id: vec![0xc3; 32],
+            endpoints: vec![endpoint.clone()],
+            retained_since: None,
+        };
+        let now = crate::unix_now_seconds();
+        let stored = stored_group_event(&old.transport_group_id, now - 100);
+        let stored_id = stored.id.to_bytes();
+        relay.add_event(stored).await.unwrap();
+        adapter
+            .configure_private_observation_group(&account, Some(group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![endpoint.clone()],
+                group_subscriptions: vec![old.clone()],
+                since: Some(Timestamp(now)),
+            })
+            .await
+            .unwrap();
+        let attempt = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        let original_id =
+            crate::group_subscription(&account, &old, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&original_id, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("actual original issued route must reach EOSE");
+        assert!(
+            timeout(Duration::from_millis(50), adapter.receive_observed())
+                .await
+                .is_err(),
+            "initial cursor must actually exclude the older stored carrier"
+        );
+        let new = crate::TransportGroupSubscription {
+            transport_group_id: vec![0xd4; 32],
+            ..old.clone()
+        };
+        let retained = crate::TransportGroupSubscription {
+            retained_since: Some(Timestamp(now - 200)),
+            ..old.clone()
+        };
+        adapter
+            .sync_account_groups(cgka_traits::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![new.clone(), retained.clone()],
+                since: Some(Timestamp(now)),
+            })
+            .await
+            .unwrap();
+        assert!(
+            crate::group_subscription(&account, &retained, None, attempt).subscription_id()
+                == original_id,
+            "ordinary retained-floor reissue currently uses the same exact wire scope"
+        );
+        let recovered = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .expect("actual widened relay REQ must recover the excluded carrier")
+            .unwrap()
+            .unwrap();
+        assert!(
+            recovered.message.id.as_slice() == stored_id.as_slice(),
+            "recovery must be the exact older signed carrier"
+        );
+        assert!(
+            recovered.observation.is_none(),
+            "EOSE of the previous same-ID REQ cannot qualify replay backlog of the widened REQ as fresh"
+        );
+        let new_logical =
+            crate::group_subscription(&account, &new, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&new_logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("new exact private issued scope must reach actual EOSE");
+        let new_signed = stored_group_event(&new.transport_group_id, crate::unix_now_seconds());
+        let new_id = new_signed.id.to_bytes();
+        let publisher = Client::default();
+        publisher
+            .add_relay(relay.url().await.to_string())
+            .await
+            .unwrap();
+        publisher.connect().await;
+        publisher.send_event(&new_signed).await.unwrap();
+        let fresh = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .expect("post-EOSE real publisher must remain live after route replacement")
+            .unwrap()
+            .unwrap();
+        assert!(
+            fresh.message.id.as_slice() == new_id.as_slice(),
+            "actual new signed carrier must match"
+        );
+        assert!(
+            fresh.observation.is_some(),
+            "reissue must preserve positive acquisition on the newly issued scope"
+        );
+        publisher.shutdown().await;
+        sdk.client.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .expect("forwarder exits")
+            .unwrap();
+        relay.shutdown();
+    }
+
+    // Actual SDK routing/acquisition metadata; opaque carriers grant no Core policy.
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    mod private_sdk_replay_regressions {
+        use super::*;
+
+        struct Fixture {
+            wires: Vec<ReplayWire>,
+            root: NostrSdkRelayClient,
+            sdk: NostrSdkRelayClient,
+            adapter: NostrTransportAdapter,
+            account: MemberId,
+            selected: cgka_traits::GroupId,
+            alias: cgka_traits::GroupId,
+            route: Vec<u8>,
+            private: String,
+            ordinary: Option<String>,
+            ingress: Option<crate::ReplayIngress>,
+            updates: Option<
+                Pin<Box<dyn Stream<Item = NotificationUpdate<NostrSdkNotification>> + Send>>,
+            >,
+            forwarder: Option<JoinHandle<()>>,
+        }
+
+        impl Fixture {
+            async fn new(endpoints: usize, alias: bool) -> Self {
+                let mut wires = Vec::new();
+                for _ in 0..endpoints {
+                    wires.push(ReplayWire::new().await);
+                }
+                let root = NostrSdkRelayClient::multi_account();
+                let keys = Keys::generate();
+                let account = MemberId::new(keys.public_key().to_bytes().to_vec());
+                let sdk = root
+                    .register_account(account.clone(), Arc::new(keys))
+                    .await
+                    .unwrap();
+                assert!(
+                    sdk.account_id.as_ref() == Some(&account),
+                    "actual account reader must be bound"
+                );
+                let adapter = NostrTransportAdapter::new(Arc::new(root.clone()));
+                let updates = if alias {
+                    None
+                } else {
+                    Some(sdk.notifications())
+                };
+                let forwarder = if alias {
+                    Some(sdk.spawn_notification_forwarder(adapter.clone()))
+                } else {
+                    None
+                };
+                let selected = cgka_traits::GroupId::new(vec![0x91; 16]);
+                let alias_id = cgka_traits::GroupId::new(vec![0x92; 16]);
+                let route = vec![0x93; 32];
+                adapter
+                    .configure_private_observation_group(&account, Some(selected.clone()))
+                    .await;
+                let group = crate::TransportGroupSubscription {
+                    group_id: selected.clone(),
+                    transport_group_id: route.clone(),
+                    endpoints: wires.iter().map(|wire| wire.endpoint.clone()).collect(),
+                    retained_since: None,
+                };
+                let mut groups = vec![group.clone()];
+                if alias {
+                    groups.push(crate::TransportGroupSubscription {
+                        group_id: alias_id.clone(),
+                        ..group
+                    });
+                }
+                let ingress = if alias {
+                    Some(
+                        adapter
+                            .open_replay_ingress(&account, Vec::new())
+                            .await
+                            .unwrap(),
+                    )
+                } else {
+                    None
+                };
+                adapter
+                    .activate_account(crate::TransportAccountActivation {
+                        account_id: account.clone(),
+                        inbox_endpoints: vec![wires[0].endpoint.clone()],
+                        group_subscriptions: groups,
+                        since: None,
+                    })
+                    .await
+                    .unwrap();
+                let private = adapter
+                    .state
+                    .read()
+                    .await
+                    .private_observation_wires
+                    .get(&account)
+                    .expect("normal activation issued the private wire")
+                    .actual
+                    .clone();
+                let mut ordinary = None;
+                for (index, wire) in wires.iter_mut().enumerate() {
+                    let count = 1 + usize::from(index == 0) + usize::from(alias);
+                    let mut saw_private = false;
+                    for _ in 0..count {
+                        let req = wire.recv_kind("REQ").await;
+                        let id = req[1].as_str().unwrap().to_owned();
+                        if id == private {
+                            saw_private = true;
+                        } else if req[2]["#h"].is_array() {
+                            ordinary = Some(id);
+                        } else {
+                            wire.send(serde_json::json!(["EOSE", id])).await;
+                        }
+                    }
+                    assert!(saw_private, "actual private REQ must reach each endpoint");
+                }
+                assert!(
+                    ordinary.is_some() == alias,
+                    "ordinary alias must have its own actual REQ"
+                );
+                Self {
+                    wires,
+                    root,
+                    sdk,
+                    adapter,
+                    account,
+                    selected,
+                    alias: alias_id,
+                    route,
+                    private,
+                    ordinary,
+                    ingress,
+                    updates,
+                    forwarder,
+                }
+            }
+
+            fn event(&self) -> Event {
+                stored_group_event(&self.route, crate::unix_now_seconds())
+            }
+
+            async fn close(self) -> bool {
+                self.root.shutdown_accounts().await;
+                self.root.client.shutdown().await;
+                // ReplayWire owns actual WebSocket task handles. Abort and JOIN
+                // each only after all SDK contexts have shut down.
+                for wire in &self.wires {
+                    wire.server.abort();
+                }
+                // Cannot move server out of a type implementing Drop; await
+                // each task through a mutable borrowed JoinHandle instead.
+                let mut wires = self.wires;
+                let mut closed = true;
+                for wire in &mut wires {
+                    closed &=
+                        matches!((&mut wire.server).await, Err(error) if error.is_cancelled());
+                }
+                closed
+            }
+        }
+
+        struct Reader {
+            updates: Pin<Box<dyn Stream<Item = NotificationUpdate<NostrSdkNotification>> + Send>>,
+            capture: SdkLiveNotificationReceiver,
+        }
+        impl Reader {
+            fn new(f: &mut Fixture) -> Self {
+                Self {
+                    updates: f.updates.take().unwrap(),
+                    capture: SdkLiveNotificationReceiver::new(
+                        f.adapter.clone(),
+                        Some(f.account.clone()),
+                    ),
+                }
+            }
+            async fn next(&mut self) -> NostrSdkNotification {
+                timeout(Duration::from_secs(20), async {
+                    match self
+                        .updates
+                        .next()
+                        .await
+                        .expect("actual SDK reader remains open")
+                    {
+                        NotificationUpdate::Notification(input) => input,
+                        NotificationUpdate::Lagged { .. } => {
+                            panic!("bounded real SDK fixture must not lag")
+                        }
+                    }
+                })
+                .await
+                .expect("actual SDK notification must arrive")
+            }
+            async fn dispatch(&mut self, f: &Fixture, input: NostrSdkNotification) {
+                // Match the production source forwarder: dedup twins grant no capture.
+                if matches!(&input, NostrSdkNotification::Payload {
+                    notification: ClientNotification::Event { event, .. }, ..
+                } if event.kind == Kind::MlsGroupMessage)
+                {
+                    return;
+                }
+                let capture = self.capture.capture(&input).await;
+                let sdk = &f.sdk;
+                NostrSdkRelayClient::dispatch_sdk_replay_captured(
+                    input,
+                    &f.adapter,
+                    Some(&f.account),
+                    capture,
+                    &|reason| sdk.subscription_refusal(reason),
+                    None,
+                )
+                .await;
+            }
+            async fn eose(&mut self, f: &Fixture, endpoint: usize) -> [u64; 2] {
+                f.wires[endpoint]
+                    .send(serde_json::json!(["EOSE", f.private]))
+                    .await;
+                loop {
+                    let input = self.next().await;
+                    let matched = match &input {
+                        NostrSdkNotification::Payload {
+                            notification: ClientNotification::Message { relay_url, message },
+                            epoch,
+                            ..
+                        } if relay_url.to_string() == f.wires[endpoint].endpoint.as_str()
+                            && matches!(message.as_ref(), RelayMessage::EndOfStoredEvents(id) if id.as_str() == f.private) =>
+                        {
+                            Some(*epoch)
+                        }
+                        _ => None,
+                    };
+                    self.dispatch(f, input).await;
+                    if let Some(epoch) = matched {
+                        return epoch;
+                    }
+                }
+            }
+            async fn raw(
+                &mut self,
+                f: &Fixture,
+                endpoint: usize,
+                event: &Event,
+            ) -> (
+                NostrSdkNotification,
+                Option<crate::CapturedLiveRelayEvent>,
+                [u64; 2],
+            ) {
+                event.verify().unwrap();
+                f.wires[endpoint]
+                    .send(serde_json::json!(["EVENT", f.private, event]))
+                    .await;
+                loop {
+                    let input = self.next().await;
+                    let matched = match &input {
+                        NostrSdkNotification::Payload {
+                            notification: ClientNotification::Message { relay_url, message },
+                            epoch,
+                            ..
+                        } if relay_url.to_string() == f.wires[endpoint].endpoint.as_str()
+                            && matches!(message.as_ref(), RelayMessage::Event { subscription_id, event: actual }
+                                if subscription_id.as_str() == f.private && actual.id == event.id) =>
+                        {
+                            Some(*epoch)
+                        }
+                        _ => None,
+                    };
+                    if let Some(epoch) = matched {
+                        let capture = self.capture.capture(&input).await;
+                        return (input, capture, epoch);
+                    }
+                    self.dispatch(f, input).await;
+                }
+            }
+            async fn release(
+                &mut self,
+                f: &Fixture,
+                pair: (
+                    NostrSdkNotification,
+                    Option<crate::CapturedLiveRelayEvent>,
+                    [u64; 2],
+                ),
+                event: &Event,
+            ) -> bool {
+                let sdk = &f.sdk;
+                NostrSdkRelayClient::dispatch_sdk_replay_captured(
+                    pair.0,
+                    &f.adapter,
+                    Some(&f.account),
+                    pair.1,
+                    &|reason| sdk.subscription_refusal(reason),
+                    None,
+                )
+                .await;
+                let observed = timeout(Duration::from_secs(20), f.adapter.receive_observed())
+                    .await
+                    .expect("actual private raw copy must be delivered")
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    observed.account_id == f.account
+                        && observed.group_id_hint.as_ref() == Some(&f.selected)
+                        && observed.message.id.as_slice() == event.id.as_bytes(),
+                    "actual source account/group/carrier must match"
+                );
+                observed.observation.as_ref().is_some_and(|observation| {
+                    observation.deadline_for(&observed.delivery).is_some()
+                })
+            }
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn private_sdk_capture_requires_new_endpoint_epoch_eose() {
+            let mut f = Fixture::new(2, false).await;
+            let mut reader = Reader::new(&mut f);
+            let old = f.event();
+            let pair = reader.raw(&f, 0, &old).await;
+            let initial_epoch = reader.eose(&f, 0).await;
+            let delayed_negative = !reader.release(&f, pair, &old).await;
+            let event = f.event();
+            let pair = reader.raw(&f, 0, &event).await;
+            let initial_live = reader.release(&f, pair, &event).await;
+            let event = f.event();
+            let pair = reader.raw(&f, 1, &event).await;
+            let endpoint_negative = !reader.release(&f, pair, &event).await;
+            reader.eose(&f, 1).await;
+            let event = f.event();
+            let pair = reader.raw(&f, 1, &event).await;
+            let endpoint_live = reader.release(&f, pair, &event).await;
+            f.wires[0]
+                .sender
+                .send(ReplayWireCmd::Disconnect)
+                .await
+                .unwrap();
+            // The SDK actually reconnects/resubscribes; no synthetic generation.
+            loop {
+                let input = reader.next().await;
+                let changed = matches!(&input, NostrSdkNotification::Replay { endpoint, epoch, reason: ReplayRestart::Connection }
+                    if *endpoint == f.wires[0].endpoint && epoch[1] > initial_epoch[1]);
+                reader.dispatch(&f, input).await;
+                if changed {
+                    break;
+                }
+            }
+            loop {
+                let req = f.wires[0].recv_kind("REQ").await;
+                if req[1].as_str() == Some(f.private.as_str()) {
+                    break;
+                }
+            }
+            let event = f.event();
+            let pair = reader.raw(&f, 0, &event).await;
+            let connection_epoch = pair.2;
+            let connection_negative = !reader.release(&f, pair, &event).await;
+            reader.eose(&f, 0).await;
+            let event = f.event();
+            let pair = reader.raw(&f, 0, &event).await;
+            let connection_live = reader.release(&f, pair, &event).await;
+            // Replace the actual account stream, retaining its source-owned
+            // endpoint wrapper; replacement itself supplies the next boundary.
+            let previous =
+                std::mem::replace(&mut reader.updates, Box::pin(futures::stream::empty()));
+            drop(previous);
+            reader.updates = f.sdk.notifications();
+            let event = f.event();
+            let pair = reader.raw(&f, 0, &event).await;
+            let reader_epoch = pair.2;
+            let reader_negative = !reader.release(&f, pair, &event).await;
+            reader.eose(&f, 0).await;
+            let event = f.event();
+            let pair = reader.raw(&f, 0, &event).await;
+            let reader_live = reader.release(&f, pair, &event).await;
+            let prerequisites = initial_live
+                && endpoint_live
+                && connection_live
+                && reader_live
+                && connection_epoch[1] > initial_epoch[1]
+                && reader_epoch[0] > connection_epoch[0];
+            drop(reader);
+            let closed = f.close().await;
+            crate::test_support::emit_line(format_args!(
+                "private-sdk-epoch {{\"prerequisites\":{},\"delayed_negative\":{},\"endpoint_negative\":{},\"connection_negative\":{},\"reader_negative\":{},\"closed\":{}}}",
+                prerequisites,
+                delayed_negative,
+                endpoint_negative,
+                connection_negative,
+                reader_negative,
+                closed
+            ));
+            assert!(
+                prerequisites && delayed_negative && endpoint_negative && closed,
+                "actual SDK epoch fixture prerequisites and positive closes must hold"
+            );
+            assert!(
+                connection_negative && reader_negative,
+                "actual SDK epoch change must require new endpoint EOSE"
+            );
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn private_sdk_wire_routes_only_selected_mls_group_while_alias_uses_native_replay() {
+            let mut f = Fixture::new(1, true).await;
+            let mut ingress = f.ingress.take().unwrap();
+            let forwarder = f.forwarder.take().unwrap();
+            let packet = f.event();
+            packet.verify().unwrap();
+            let barrier = f.event();
+            barrier.verify().unwrap();
+            f.wires[0]
+                .send(serde_json::json!(["EOSE", f.private]))
+                .await;
+            f.wires[0]
+                .send(serde_json::json!(["EVENT", f.private, packet]))
+                .await;
+            f.wires[0]
+                .send(serde_json::json!(["EVENT", f.private, barrier]))
+                .await;
+            let (selected_once, private_alias_absent, live_bound) =
+                timeout(Duration::from_secs(20), async {
+                    let mut selected = 0;
+                    let mut alias = 0;
+                    let mut live = false;
+                    loop {
+                        let row = f.adapter.receive_observed().await.unwrap().unwrap();
+                        assert!(
+                            row.account_id == f.account,
+                            "private account context must not change"
+                        );
+                        if row.message.id.as_slice() == packet.id.as_bytes() {
+                            selected +=
+                                usize::from(row.group_id_hint.as_ref() == Some(&f.selected));
+                            alias += usize::from(row.group_id_hint.as_ref() == Some(&f.alias));
+                            live |= row
+                                .observation
+                                .as_ref()
+                                .is_some_and(|o| o.deadline_for(&row.delivery).is_some());
+                        }
+                        if row.message.id.as_slice() == barrier.id.as_bytes()
+                            && row.group_id_hint.as_ref() == Some(&f.selected)
+                        {
+                            break;
+                        }
+                    }
+                    (selected == 1, alias == 0, live)
+                })
+                .await
+                .expect("actual later private carrier fences earlier queue placements");
+            // Same signed body on the ACTUAL ordinary REQ is separate source
+            // evidence. Its SDK dedup twin must never replace raw native ingress.
+            let ordinary = f.ordinary.as_ref().unwrap();
+            f.wires[0]
+                .send(serde_json::json!(["EVENT", ordinary, packet]))
+                .await;
+            f.wires[0].send(serde_json::json!(["EOSE", ordinary])).await;
+            let ordinary_native = timeout(Duration::from_secs(20), async {
+                loop {
+                    if let crate::ReplayBatchTake::Ready(mut batch) =
+                        ingress.take_batch(Some(&f.alias)).await
+                    {
+                        while let Some(row) = batch.delivery() {
+                            let matched = row.account_id == f.account
+                                && row.group_id_hint.as_ref() == Some(&f.alias)
+                                && row.message.id.as_slice() == packet.id.as_bytes();
+                            batch.acknowledge().await;
+                            if matched {
+                                return true;
+                            }
+                        }
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("ordinary alias must retain actual ordered native replay");
+            drop(ingress);
+            let closed = f.close().await;
+            let forwarder_closed = timeout(Duration::from_secs(5), forwarder)
+                .await
+                .is_ok_and(|r| r.is_ok());
+            let prerequisites =
+                selected_once && live_bound && ordinary_native && closed && forwarder_closed;
+            crate::test_support::emit_line(format_args!(
+                "private-sdk-alias {{\"prerequisites\":{},\"private_alias_absent\":{}}}",
+                prerequisites, private_alias_absent
+            ));
+            assert!(
+                prerequisites,
+                "real SDK private and ordinary native replay prerequisites must hold"
+            );
+            assert!(
+                private_alias_absent,
+                "private SDK wire must not bypass native replay for another MLS group"
+            );
+        }
+    }
+
     fn relay(url: &str) -> RelayUrl {
         RelayUrl::parse(url).expect("relay url")
     }
@@ -12443,5 +14032,1132 @@ mod tests {
                 relay.shutdown();
             }
         }
+    }
+
+    /// The private route's exact SDK id must retain the same real owed report
+    /// and reconnect lifecycle as an ordinary route. No MLS approval is made.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn selected_private_scoped_route_preserves_owed_report_and_reconnect_id() {
+        let healthy = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let healthy_url = healthy.url().await;
+        let (addr, down) = unreachable_endpoint().await;
+        let sdk = fast_retry_sdk();
+        wait_until_refusing(&sdk, &down).await;
+        let mut notifications = sdk.notifications();
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![0xb2; 16]),
+            transport_group_id: vec![0xc3; 32],
+            endpoints: vec![
+                TransportEndpoint(healthy_url.to_string()),
+                TransportEndpoint(down.to_string()),
+            ],
+            retained_since: None,
+        };
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(healthy_url.to_string())],
+                group_subscriptions: vec![group],
+                since: None,
+            })
+            .await
+            .expect("the real unreachable selected route stays active and owed");
+        let (actual, logical) = {
+            let state = adapter.state.read().await;
+            let wire = state
+                .private_observation_wires
+                .get(&account)
+                .expect("actual selected private issuance exists");
+            (
+                SubscriptionId::new(wire.actual.clone()),
+                SubscriptionId::new(wire.logical.clone()),
+            )
+        };
+        let healthy_relay = sdk
+            .client()
+            .relay(healthy_url.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        let real_sdk_id = actual != logical
+            && healthy_relay.subscription(&actual).await.is_some()
+            && healthy_relay.subscription(&logical).await.is_none();
+        let (account_tracks_actual, account_tracks_logical_plan) = {
+            let subscriptions = sdk.account_subscriptions.read().await;
+            let ids = subscriptions.get(&account);
+            (
+                ids.is_some_and(|ids| ids.contains(&actual)),
+                ids.is_some_and(|ids| ids.contains(&logical)),
+            )
+        };
+        // Replacement plans retain logical socket ownership. Actual SDK and
+        // owed registries above/below must still contain only the scoped wire.
+        let tracked_actual = account_tracks_actual && account_tracks_logical_plan;
+        let owed_actual = {
+            let owed = sdk.owed.relays();
+            owed.get(&down)
+                .is_some_and(|ids| ids.contains_key(&actual) && !ids.contains_key(&logical))
+        };
+        let metrics = adapter.metrics().await;
+        let stored = group_event(0xc3);
+        let server = relay_on(addr, std::slice::from_ref(&stored)).await;
+        receive_owed_replay(&mut notifications, &down, &actual, stored.id).await;
+        timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("actual private owed REQ reaches EOSE after reconnect");
+        adapter.deactivate_account(&account).await.unwrap();
+        let cleanup_complete = adapter.metrics().await.active_accounts == 0
+            && healthy_relay.subscription(&actual).await.is_none()
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty());
+        sdk.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        server.shutdown();
+        healthy.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-scoped-report-prerequisites {}",
+            serde_json::json!({
+                "actual_id_distinct": actual != logical,
+                "real_sdk_id": real_sdk_id,
+                "account_tracks_actual": account_tracks_actual,
+                "account_tracks_logical_plan": account_tracks_logical_plan,
+                "tracking_prerequisite": tracked_actual,
+                "owed_actual": owed_actual,
+                "actual_reconnect_replay_and_eose": true,
+                "cleanup_complete": cleanup_complete,
+                "active_account_before": metrics.active_accounts == 1,
+                "activations_degraded": metrics.activations_degraded,
+                "activations_full": metrics.activations_full,
+                "activations_failed": metrics.activations_failed,
+            })
+        ));
+        assert!(
+            real_sdk_id
+                && tracked_actual
+                && owed_actual
+                && cleanup_complete
+                && metrics.active_accounts == 1,
+            "real scoped issuance, owed replay and teardown are required prerequisites"
+        );
+        assert!(
+            metrics.activations_degraded == 1
+                && metrics.activations_full == 0
+                && metrics.activations_failed == 0,
+            "selected private scoped subscription must preserve the actual degraded activation report"
+        );
+    }
+
+    /// An unrelated ordinary family change must preserve the private actual
+    /// REQ and an untouched ordinary family's live wire. This exercises SDK
+    /// subscriptions and native EOSE, not MLS enrollment or sharing authority.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unrelated_family_sync_preserves_private_and_untouched_wire_ids() {
+        let relay_a = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let relay_b = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let url_a = relay_a.url().await;
+        let url_b = relay_b.url().await;
+        let sdk = fast_retry_sdk();
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = |byte: u8, url: &RelayUrl| crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![byte; 16]),
+            transport_group_id: vec![byte; 32],
+            endpoints: vec![TransportEndpoint(url.to_string())],
+            retained_since: None,
+        };
+        let selected = group(0xc3, &url_a);
+        let untouched = group(0xc4, &url_a);
+        let existing_b = group(0xc5, &url_b);
+        let added_b = group(0xc6, &url_b);
+        let initial = vec![selected.clone(), untouched.clone(), existing_b.clone()];
+        adapter
+            .configure_private_observation_group(&account, Some(selected.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url_a.to_string())],
+                group_subscriptions: initial,
+                since: None,
+            })
+            .await
+            .expect("the real initial private and ordinary REQs activate");
+        timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("initial native SDK EOSE covers the actual routes");
+        let (private_before, ordinary_before, initial_private_exact_index) = {
+            let state = adapter.state.read().await;
+            let routes = state.accounts.get(&account).unwrap();
+            let wire = state.private_observation_wires.get(&account).unwrap();
+            (
+                wire.actual.clone(),
+                state
+                    .observation_wire_id(&account, &untouched, routes.attempt)
+                    .unwrap(),
+                state.observation_wire_id(&account, &selected, routes.attempt)
+                    == Some(wire.actual.clone()),
+            )
+        };
+        let sdk_a = sdk.client().relay(url_a.clone()).await.unwrap().unwrap();
+        let sdk_b = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
+        let initial_private_registered = sdk_a
+            .subscription(&SubscriptionId::new(private_before.clone()))
+            .await
+            .is_some();
+        let initial_ordinary_registered = sdk_a
+            .subscription(&SubscriptionId::new(ordinary_before.clone()))
+            .await
+            .is_some();
+        let sync_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![
+                    selected.clone(),
+                    untouched.clone(),
+                    existing_b,
+                    added_b.clone(),
+                ],
+                since: None,
+            })
+            .await
+            .is_ok();
+        let final_coverage_complete = timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .is_ok();
+        let (private_after, ordinary_after, added_after, original_private_wire_current) = {
+            let state = adapter.state.read().await;
+            let routes = state.accounts.get(&account).unwrap();
+            let wire = state.private_observation_wires.get(&account).unwrap();
+            (
+                wire.actual.clone(),
+                state.observation_wire_id(&account, &untouched, routes.attempt),
+                state.observation_wire_id(&account, &added_b, routes.attempt),
+                state.observation_wire_id(&account, &selected, routes.attempt)
+                    == Some(private_before.clone()),
+            )
+        };
+        let final_private_registered = sdk_a
+            .subscription(&SubscriptionId::new(private_after.clone()))
+            .await
+            .is_some();
+        let changed_family_registered = if let Some(id) = &added_after {
+            sdk_b
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        let private_actual_unchanged = private_after == private_before
+            && sdk_a
+                .subscription(&SubscriptionId::new(private_before))
+                .await
+                .is_some();
+        let untouched_family_wire_unchanged = ordinary_after.as_ref() == Some(&ordinary_before)
+            && sdk_a
+                .subscription(&SubscriptionId::new(ordinary_before))
+                .await
+                .is_some();
+        adapter.deactivate_account(&account).await.unwrap();
+        let cleanup_complete = adapter.metrics().await.active_accounts == 0
+            && sdk_a.subscriptions().await.is_empty()
+            && sdk_b.subscriptions().await.is_empty()
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty());
+        sdk.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay_a.shutdown();
+        relay_b.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-family-stability-prerequisites {}",
+            serde_json::json!({
+                "initial_private_registered": initial_private_registered,
+                "initial_ordinary_registered": initial_ordinary_registered,
+                "initial_private_exact_index": initial_private_exact_index,
+                "sync_succeeded": sync_succeeded,
+                "final_coverage_complete": final_coverage_complete,
+                "final_private_registered": final_private_registered,
+                "changed_family_registered": changed_family_registered,
+                "cleanup_complete": cleanup_complete,
+                "distinct_ordinary_families": url_a != url_b,
+                "private_actual_unchanged": private_actual_unchanged,
+                "untouched_family_wire_unchanged": untouched_family_wire_unchanged,
+                "original_private_wire_current": original_private_wire_current,
+            })
+        ));
+        assert!(
+            initial_private_registered
+                && initial_ordinary_registered
+                && initial_private_exact_index
+                && sync_succeeded
+                && final_coverage_complete
+                && final_private_registered
+                && changed_family_registered
+                && cleanup_complete
+                && url_a != url_b,
+            "real SDK family change, native EOSE and teardown are required prerequisites"
+        );
+        assert!(
+            private_actual_unchanged
+                && untouched_family_wire_unchanged
+                && original_private_wire_current,
+            "unrelated family sync must preserve private actual and untouched ordinary wire identities"
+        );
+    }
+    /// A terminal SDK ban fails one real family; a disconnected relay would
+    /// instead be owed, so it is not a valid failure fixture here.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn private_family_survives_partial_ordinary_failure_and_retry() {
+        let relay_a = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let relay_b = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let url_a = relay_a.url().await;
+        let url_b = relay_b.url().await;
+        let sdk = fast_retry_sdk();
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = |byte: u8, url: &RelayUrl| crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![byte; 16]),
+            transport_group_id: vec![byte; 32],
+            endpoints: vec![TransportEndpoint(url.to_string())],
+            retained_since: None,
+        };
+        let private = group(0xd1, &url_a);
+        let a1 = group(0xd2, &url_a);
+        let a2 = group(0xd3, &url_a);
+        let b1 = group(0xd4, &url_b);
+        let b2 = group(0xd5, &url_b);
+        adapter
+            .configure_private_observation_group(&account, Some(private.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url_a.to_string())],
+                group_subscriptions: vec![private.clone(), a1.clone(), b1.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("initial real SDK native EOSE");
+        let (private_before, a_before, b_before) = {
+            let state = adapter.state.read().await;
+            let attempt = state.accounts[&account].attempt;
+            (
+                state
+                    .observation_wire_id(&account, &private, attempt)
+                    .unwrap(),
+                state.observation_wire_id(&account, &a1, attempt).unwrap(),
+                state.observation_wire_id(&account, &b1, attempt).unwrap(),
+            )
+        };
+        let sdk_a = sdk.client().relay(url_a.clone()).await.unwrap().unwrap();
+        let sdk_b = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
+        let initial_registered = sdk_a
+            .subscription(&SubscriptionId::new(private_before.clone()))
+            .await
+            .is_some()
+            && sdk_a
+                .subscription(&SubscriptionId::new(a_before.clone()))
+                .await
+                .is_some()
+            && sdk_b
+                .subscription(&SubscriptionId::new(b_before.clone()))
+                .await
+                .is_some();
+        sdk_b.ban();
+        let terminal_ban = sdk_b.status() == RelayStatus::Banned;
+        let desired = vec![
+            private.clone(),
+            a1.clone(),
+            a2.clone(),
+            b1.clone(),
+            b2.clone(),
+        ];
+        let partial_failed = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .is_err();
+        let (private_partial, a_partial, a2_partial, b_partial, b2_partial) = {
+            let state = adapter.state.read().await;
+            let attempt = state.accounts[&account].attempt;
+            (
+                state.observation_wire_id(&account, &private, attempt),
+                state.observation_wire_id(&account, &a1, attempt),
+                state.observation_wire_id(&account, &a2, attempt),
+                state.observation_wire_id(&account, &b1, attempt),
+                state.observation_wire_id(&account, &b2, attempt),
+            )
+        };
+        let healthy_native_eose = if let Some(id) = &a2_partial {
+            timeout(Duration::from_secs(10), async {
+                while adapter
+                    .subscription_endpoint_eose(id, &TransportEndpoint(url_a.to_string()))
+                    .await
+                    != Some(true)
+                {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .is_ok()
+        } else {
+            false
+        };
+        let healthy_committed = a2_partial
+            .as_ref()
+            .is_some_and(|id| a_partial.as_ref() == Some(id) && id != &a_before);
+        let healthy_registered = if let Some(id) = &a2_partial {
+            sdk_a
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        let failed_family_retained = b_partial.as_ref() == Some(&b_before) && b2_partial.is_none();
+        let private_partial_unchanged = private_partial.as_ref() == Some(&private_before)
+            && sdk_a
+                .subscription(&SubscriptionId::new(private_before.clone()))
+                .await
+                .is_some();
+        // Remove the actual banned SDK relay, then let the normal subscription
+        // path add a new readable instance. No status mutation or fake ACK.
+        sdk.client().remove_relay(url_b.clone()).await.unwrap();
+        let retry_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired,
+                since: None,
+            })
+            .await
+            .is_ok();
+        let final_native_eose = timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .is_ok();
+        let (private_final, a_final, b_final, b2_final) = {
+            let state = adapter.state.read().await;
+            let attempt = state.accounts[&account].attempt;
+            (
+                state.observation_wire_id(&account, &private, attempt),
+                state.observation_wire_id(&account, &a2, attempt),
+                state.observation_wire_id(&account, &b1, attempt),
+                state.observation_wire_id(&account, &b2, attempt),
+            )
+        };
+        let retry_keeps_successful_carriers = private_final.as_ref() == Some(&private_before)
+            && a_final == a2_partial
+            && a_final.is_some();
+        let retried_family_committed = b2_final
+            .as_ref()
+            .is_some_and(|id| b_final.as_ref() == Some(id) && id != &b_before);
+        let sdk_b_retry = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
+        let retried_registered = if let Some(id) = &b2_final {
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        let old_b_absent_from_retry_instance = sdk_b_retry
+            .subscription(&SubscriptionId::new(b_before))
+            .await
+            .is_none();
+        adapter.deactivate_account(&account).await.unwrap();
+        let cleanup_complete = adapter.metrics().await.active_accounts == 0
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty())
+            && sdk_a.subscriptions().await.is_empty()
+            && sdk_b_retry.subscriptions().await.is_empty();
+        sdk.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay_a.shutdown();
+        relay_b.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-family-partial-prerequisites {}",
+            serde_json::json!({
+                "distinct_relays": url_a != url_b, "initial_registered": initial_registered,
+                "terminal_ban": terminal_ban, "partial_failed": partial_failed,
+                "retry_succeeded": retry_succeeded, "final_native_eose": final_native_eose,
+                "retried_registered": retried_registered, "cleanup_complete": cleanup_complete,
+                "healthy_committed": healthy_committed, "healthy_registered": healthy_registered,
+                "healthy_native_eose": healthy_native_eose, "failed_family_retained": failed_family_retained,
+                "private_partial_unchanged": private_partial_unchanged,
+                "retry_keeps_successful_carriers": retry_keeps_successful_carriers,
+                "retried_family_committed": retried_family_committed, "old_b_absent_from_retry_instance": old_b_absent_from_retry_instance,
+            })
+        ));
+        assert!(
+            url_a != url_b
+                && initial_registered
+                && terminal_ban
+                && partial_failed
+                && retry_succeeded
+                && final_native_eose
+                && retried_registered
+                && cleanup_complete,
+            "real SDK terminal failure, recovery, native EOSE and teardown are prerequisites"
+        );
+        assert!(
+            healthy_committed
+                && healthy_registered
+                && healthy_native_eose
+                && failed_family_retained
+                && private_partial_unchanged
+                && retry_keeps_successful_carriers
+                && retried_family_committed
+                && old_b_absent_from_retry_instance,
+            "a failed ordinary family must preserve private and independently committed healthy carriers through retry"
+        );
+    }
+
+    /// A failed replacement retains the former standalone carrier as
+    /// private-negative, then a successful role commit can make it ordinary.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn failed_private_selection_never_exposes_prior_logical_wire() {
+        let relay_a = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let relay_b = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let relay_c = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let url_a = relay_a.url().await;
+        let url_b = relay_b.url().await;
+        let url_c = relay_c.url().await;
+        let sdk = fast_retry_sdk();
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = |byte: u8, url: &RelayUrl| crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![byte; 16]),
+            transport_group_id: vec![byte; 32],
+            endpoints: vec![TransportEndpoint(url.to_string())],
+            retained_since: None,
+        };
+        let a = group(0xe1, &url_a);
+        let b = group(0xe2, &url_b);
+        let c = group(0xe3, &url_c);
+        let c2 = group(0xe4, &url_c);
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url_c.to_string())],
+                group_subscriptions: vec![a.clone(), b.clone(), c.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("initial native SDK EOSE");
+        let (old_actual, old_logical) = {
+            let state = adapter.state.read().await;
+            let wire = &state.private_observation_wires[&account];
+            (wire.actual.clone(), wire.logical.clone())
+        };
+        let sdk_a = sdk.client().relay(url_a.clone()).await.unwrap().unwrap();
+        let sdk_b = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
+        let sdk_c = sdk.client().relay(url_c.clone()).await.unwrap().unwrap();
+        let initial_actual_registered = sdk_a
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_some();
+        sdk_b.ban();
+        let terminal_ban = sdk_b.status() == RelayStatus::Banned;
+        adapter
+            .configure_private_observation_group(&account, Some(b.group_id.clone()))
+            .await;
+        let desired = vec![a.clone(), b.clone(), c.clone(), c2.clone()];
+        let replacement_failed = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .is_err();
+        let (
+            prior_negative,
+            successor_negative,
+            prior_standalone_retained,
+            successor_not_ready,
+            c2_id,
+        ) = {
+            let state = adapter.state.read().await;
+            let routes = &state.accounts[&account];
+            let wire = &state.private_observation_wires[&account];
+            (state.observation_wire_id(&account, &a, routes.attempt).is_none(),
+             state.observation_wire_id(&account, &b, routes.attempt).is_none(),
+             routes.batches.iter().any(|batch| matches!(batch, NostrSubscription::Group { group_id, .. } if group_id == &a.group_id)),
+             wire.group == b.group_id && !wire.ready && !wire.completed,
+             state.observation_wire_id(&account, &c2, routes.attempt))
+        };
+        let predecessor_closed = sdk_a
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_none();
+        let healthy_registered = if let Some(id) = &c2_id {
+            sdk_c
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        let healthy_native_eose = if let Some(id) = &c2_id {
+            timeout(Duration::from_secs(10), async {
+                while adapter
+                    .subscription_endpoint_eose(id, &TransportEndpoint(url_c.to_string()))
+                    .await
+                    != Some(true)
+                {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .is_ok()
+        } else {
+            false
+        };
+        sdk.client().remove_relay(url_b.clone()).await.unwrap();
+        let retry_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .is_ok();
+        let retry_native_eose = timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .is_ok();
+        let (a_ordinary, b_actual, b_logical, healthy_unchanged) = {
+            let state = adapter.state.read().await;
+            let routes = &state.accounts[&account];
+            let wire = &state.private_observation_wires[&account];
+            (
+                state.observation_wire_id(&account, &a, routes.attempt),
+                state.observation_wire_id(&account, &b, routes.attempt),
+                wire.logical.clone(),
+                state.observation_wire_id(&account, &c2, routes.attempt) == c2_id,
+            )
+        };
+        let prior_ordinary_is_new_batch = a_ordinary
+            .as_ref()
+            .is_some_and(|id| id != &old_actual && id != &old_logical);
+        let sdk_b_retry = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
+        let replacement_registered = if let Some(id) = &b_actual {
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        adapter
+            .configure_private_observation_group(&account, None)
+            .await;
+        let demotion_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired,
+                since: None,
+            })
+            .await
+            .is_ok();
+        let demotion_native_eose = timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .is_ok();
+        let (b_ordinary, demotion_has_no_standalone, healthy_after_demotion) = {
+            let state = adapter.state.read().await;
+            let routes = &state.accounts[&account];
+            (
+                state.observation_wire_id(&account, &b, routes.attempt),
+                !routes
+                    .batches
+                    .iter()
+                    .any(|batch| matches!(batch, NostrSubscription::Group { .. })),
+                state.observation_wire_id(&account, &c2, routes.attempt) == c2_id,
+            )
+        };
+        let held_demoted_registration = if let Some(id) = &b_ordinary {
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        let demotion_uses_new_batch = b_ordinary
+            .as_ref()
+            .is_some_and(|id| Some(id) != b_actual.as_ref() && id != &b_logical);
+        let replacement_actual_closed = if let Some(id) = &b_actual {
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_none()
+        } else {
+            false
+        };
+        // Demotion can release the last private owner and recreate the relay.
+        // Keep the held-handle observation, but qualify the current SDK pool.
+        let current_pool_lookup = sdk.client().relay(url_b.clone()).await;
+        let current_pool_lookup_succeeded = current_pool_lookup.is_ok();
+        let current_pool = current_pool_lookup.ok().flatten();
+        let current_pool_relay_present = current_pool.is_some();
+        let current_pool_demoted_registration =
+            if let (Some(relay), Some(id)) = (&current_pool, &b_ordinary) {
+                relay
+                    .subscription(&SubscriptionId::new(id.clone()))
+                    .await
+                    .is_some()
+            } else {
+                false
+            };
+        let current_pool_old_private_actual_absent =
+            if let (Some(relay), Some(id)) = (&current_pool, &b_actual) {
+                relay
+                    .subscription(&SubscriptionId::new(id.clone()))
+                    .await
+                    .is_none()
+            } else {
+                false
+            };
+        let demoted_batch_registered = current_pool_demoted_registration;
+        let replacement_actual_closed =
+            replacement_actual_closed && current_pool_old_private_actual_absent;
+        adapter.deactivate_account(&account).await.unwrap();
+        let cleanup_complete = adapter.metrics().await.active_accounts == 0
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty())
+            && sdk_a.subscriptions().await.is_empty()
+            && sdk_b_retry.subscriptions().await.is_empty()
+            && sdk_c.subscriptions().await.is_empty();
+        let post_deactivation_lookup = sdk.client().relay(url_b.clone()).await;
+        let post_deactivation_pool_lookup_succeeded = post_deactivation_lookup.is_ok();
+        let post_deactivation_pool_empty = match post_deactivation_lookup {
+            Ok(Some(relay)) => relay.subscriptions().await.is_empty(),
+            Ok(None) => true,
+            Err(_) => false,
+        };
+        let mut post_deactivation_all_pools_empty = true;
+        for url in [&url_a, &url_b, &url_c] {
+            match sdk.client().relay((*url).clone()).await {
+                Ok(Some(relay)) => {
+                    post_deactivation_all_pools_empty &= relay.subscriptions().await.is_empty();
+                }
+                Ok(None) => {}
+                Err(_) => post_deactivation_all_pools_empty = false,
+            }
+        }
+        let cleanup_complete = cleanup_complete
+            && post_deactivation_pool_lookup_succeeded
+            && post_deactivation_pool_empty
+            && post_deactivation_all_pools_empty;
+        sdk.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay_a.shutdown();
+        relay_b.shutdown();
+        relay_c.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-role-registry-diagnostic {}",
+            serde_json::json!({
+                "held_demoted_registration": held_demoted_registration,
+                "current_pool_lookup_succeeded": current_pool_lookup_succeeded,
+                "current_pool_relay_present": current_pool_relay_present,
+                "current_pool_demoted_registration": current_pool_demoted_registration,
+                "current_pool_old_private_actual_absent": current_pool_old_private_actual_absent,
+                "post_deactivation_pool_lookup_succeeded": post_deactivation_pool_lookup_succeeded,
+                "post_deactivation_pool_empty": post_deactivation_pool_empty,
+                "post_deactivation_all_pools_empty": post_deactivation_all_pools_empty,
+            })
+        ));
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-role-transition-prerequisites {}",
+            serde_json::json!({
+                "distinct_relays": url_a != url_b && url_a != url_c && url_b != url_c,
+                "initial_actual_registered": initial_actual_registered, "terminal_ban": terminal_ban,
+                "replacement_failed": replacement_failed, "prior_standalone_retained": prior_standalone_retained,
+                "successor_not_ready": successor_not_ready, "predecessor_closed": predecessor_closed,
+                "healthy_registered": healthy_registered, "healthy_native_eose": healthy_native_eose,
+                "retry_succeeded": retry_succeeded, "retry_native_eose": retry_native_eose,
+                "replacement_registered": replacement_registered, "demotion_succeeded": demotion_succeeded,
+                "demotion_native_eose": demotion_native_eose, "demoted_batch_registered": demoted_batch_registered,
+                "cleanup_complete": cleanup_complete, "prior_negative": prior_negative,
+                "successor_negative": successor_negative, "prior_ordinary_is_new_batch": prior_ordinary_is_new_batch,
+                "healthy_unchanged": healthy_unchanged, "healthy_after_demotion": healthy_after_demotion,
+                "demotion_has_no_standalone": demotion_has_no_standalone,
+                "demotion_uses_new_batch": demotion_uses_new_batch, "replacement_actual_closed": replacement_actual_closed,
+            })
+        ));
+        assert!(
+            url_a != url_b
+                && url_a != url_c
+                && url_b != url_c
+                && initial_actual_registered
+                && terminal_ban
+                && replacement_failed
+                && prior_standalone_retained
+                && successor_not_ready
+                && predecessor_closed
+                && healthy_registered
+                && healthy_native_eose
+                && retry_succeeded
+                && retry_native_eose
+                && replacement_registered
+                && demotion_succeeded
+                && demotion_native_eose
+                && demoted_batch_registered
+                && cleanup_complete,
+            "real failed replacement, healthy sibling, native retry/demotion and teardown are prerequisites"
+        );
+        assert!(
+            prior_negative
+                && successor_negative
+                && prior_ordinary_is_new_batch
+                && healthy_unchanged
+                && healthy_after_demotion
+                && demotion_has_no_standalone
+                && demotion_uses_new_batch
+                && replacement_actual_closed,
+            "failed private roles stay negative and become ordinary only through their own committed batch"
+        );
+    }
+
+    /// This wrapper gates only completion of an actual private CLOSE. Every
+    /// subscribe/report and actual CLOSE still goes through the real SDK.
+    #[cfg(feature = "experimental-device-sync")]
+    struct HeldConfigurationClose {
+        sdk: NostrSdkRelayClient,
+        hold: AtomicBool,
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[async_trait]
+    impl NostrRelayClient for HeldConfigurationClose {
+        async fn subscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.subscribe(subscription).await
+        }
+        async fn subscribe_reporting(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<NostrSubscribeReport, TransportAdapterError> {
+            self.sdk.subscribe_reporting(subscription).await
+        }
+        async fn unsubscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe(subscription).await
+        }
+        fn supports_scoped_subscriptions(&self) -> bool {
+            true
+        }
+        async fn subscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.subscribe_scoped(subscription, id).await
+        }
+        async fn subscribe_scoped_reporting(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<NostrSubscribeReport, TransportAdapterError> {
+            NostrRelayClient::subscribe_scoped_reporting(&self.sdk, subscription, id).await
+        }
+        async fn unsubscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
+            if self.hold.load(Ordering::SeqCst) {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            self.sdk.unsubscribe_scoped(subscription, id).await
+        }
+        async fn unsubscribe_account(
+            &self,
+            account: &MemberId,
+            replacements: &[NostrSubscription],
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe_account(account, replacements).await
+        }
+        async fn publish_event(
+            &self,
+            endpoints: &[TransportEndpoint],
+            event: &NostrTransportEvent,
+            required: usize,
+        ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+            NostrRelayClient::publish_event(&self.sdk, endpoints, event, required).await
+        }
+    }
+
+    /// Separate regression scope: an intervening configuration change must
+    /// invalidate an in-flight replacement even when the selected group
+    /// returns to its original value before the actual CLOSE completes.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn configuration_aba_during_private_close_cannot_reauthorise_replacement() {
+        let relay = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let url = relay.url().await;
+        let sdk = fast_retry_sdk();
+        let held = Arc::new(HeldConfigurationClose {
+            sdk: sdk.clone(),
+            hold: AtomicBool::new(false),
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        });
+        let adapter = NostrTransportAdapter::new(held.clone());
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = |byte: u8| crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![byte; 16]),
+            transport_group_id: vec![byte; 32],
+            endpoints: vec![TransportEndpoint(url.to_string())],
+            retained_since: None,
+        };
+        let a = group(0xf1);
+        let b = group(0xf2);
+        let desired = vec![a.clone(), b.clone()];
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url.to_string())],
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(10), async {
+            while !adapter.account_subscription_eose(&account).await.complete() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("initial native EOSE");
+        let old_actual = adapter.state.read().await.private_observation_wires[&account]
+            .actual
+            .clone();
+        let sdk_relay = sdk.client().relay(url.clone()).await.unwrap().unwrap();
+        let initial_actual_registered = sdk_relay
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_some();
+        // Deliberately revoke the completed operation first. The next sync
+        // must therefore prepare a replacement even with identical routes.
+        adapter
+            .configure_private_observation_group(&account, None)
+            .await;
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
+        let initially_revoked = {
+            let state = adapter.state.read().await;
+            let wire = &state.private_observation_wires[&account];
+            !wire.ready && !wire.completed
+        };
+        held.hold.store(true, Ordering::SeqCst);
+        let sync_adapter = adapter.clone();
+        let sync_account = account.clone();
+        let sync = tokio::spawn(async move {
+            sync_adapter
+                .sync_account_groups(crate::TransportGroupSync {
+                    account_id: sync_account,
+                    group_subscriptions: desired,
+                    since: None,
+                })
+                .await
+        });
+        timeout(Duration::from_secs(10), held.entered.notified())
+            .await
+            .expect("replacement reached the real predecessor CLOSE boundary");
+        let successor_actual = adapter.state.read().await.private_observation_wires[&account]
+            .actual
+            .clone();
+        let predecessor_still_registered = sdk_relay
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_some();
+        let successor_absent_while_held = sdk_relay
+            .subscription(&SubscriptionId::new(successor_actual.clone()))
+            .await
+            .is_none();
+        adapter
+            .configure_private_observation_group(&account, Some(b.group_id.clone()))
+            .await;
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
+        let held_revocation = {
+            let state = adapter.state.read().await;
+            let wire = &state.private_observation_wires[&account];
+            wire.actual == successor_actual
+                && !wire.ready
+                && !wire.completed
+                && state.private_observation_groups.get(&account) == Some(&a.group_id)
+        };
+        held.hold.store(false, Ordering::SeqCst);
+        held.release.notify_one();
+        let sync_result = timeout(Duration::from_secs(10), sync)
+            .await
+            .expect("released replacement settles")
+            .expect("sync task does not panic");
+        let sync_rejected = sync_result.is_err();
+        let preparation_not_reauthorised = {
+            let state = adapter.state.read().await;
+            let routes = &state.accounts[&account];
+            let wire = &state.private_observation_wires[&account];
+            !wire.ready
+                && !wire.completed
+                && state
+                    .observation_wire_id(&account, &a, routes.attempt)
+                    .is_none()
+        };
+        let predecessor_closed = sdk_relay
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_none();
+        let successor_not_registered = sdk_relay
+            .subscription(&SubscriptionId::new(successor_actual.clone()))
+            .await
+            .is_none();
+        adapter.deactivate_account(&account).await.unwrap();
+        let cleanup_complete = adapter.metrics().await.active_accounts == 0
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty())
+            && sdk_relay.subscriptions().await.is_empty();
+        sdk.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-configuration-aba-prerequisites {}",
+            serde_json::json!({
+                "initial_actual_registered": initial_actual_registered, "initially_revoked": initially_revoked,
+                "distinct_successor_actual": successor_actual != old_actual,
+                "predecessor_still_registered": predecessor_still_registered,
+                "successor_absent_while_held": successor_absent_while_held,
+                "held_revocation": held_revocation, "predecessor_closed": predecessor_closed,
+                "cleanup_complete": cleanup_complete, "sync_rejected": sync_rejected,
+                "preparation_not_reauthorised": preparation_not_reauthorised,
+                "successor_not_registered": successor_not_registered,
+            })
+        ));
+        assert!(
+            initial_actual_registered
+                && initially_revoked
+                && successor_actual != old_actual
+                && predecessor_still_registered
+                && successor_absent_while_held
+                && held_revocation
+                && predecessor_closed
+                && cleanup_complete,
+            "real SDK held CLOSE, intervening revocation and teardown are prerequisites"
+        );
+        assert!(
+            sync_rejected && preparation_not_reauthorised && successor_not_registered,
+            "configuration ABA must not reauthorise the private replacement prepared before revocation"
+        );
     }
 }

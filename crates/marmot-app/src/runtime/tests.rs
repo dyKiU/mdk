@@ -23,6 +23,10 @@ async fn worker_lookup_skips_reconcile() {
     manager.workers.lock().await.insert(
         account.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle: tokio::spawn(async move {
                 let _ = stopped.await;
@@ -933,6 +937,10 @@ async fn managed_account_worker_shutdown_aborts_unresponsive_task_after_timeout(
         std::future::pending::<()>().await;
     });
     let worker = ManagedAccountWorker {
+        #[cfg(feature = "experimental-device-sync")]
+        publication_control: std::sync::Arc::new(
+            crate::runtime::private_commit::PublicationControl::default(),
+        ),
         ready: true,
         media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
             crate::runtime::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2366,6 +2374,10 @@ async fn account_manager_shutdown_drains_worker_inserted_by_in_flight_catch_up()
         workers.lock().await.insert(
             "replacement".to_owned(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     crate::runtime::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2796,6 +2808,10 @@ async fn finished_worker_is_replaced_on_first_requested_lookup() {
     manager.workers.lock().await.insert(
         account.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands: old_commands.clone(),
@@ -2833,6 +2849,10 @@ async fn finished_worker_is_replaced_on_first_batch_reconcile() {
     manager.workers.lock().await.insert(
         account.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands: old_commands.clone(),
@@ -3340,6 +3360,10 @@ async fn stuck_worker_reap_does_not_block_a_healthy_account() {
     manager.workers.lock().await.insert(
         alice.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: false,
             handle: tokio::task::spawn_blocking(move || {
                 let _ = release_rx.recv();
@@ -3415,6 +3439,10 @@ async fn deactivation_waits_for_worker_abort_before_committing_sign_out() {
     manager.workers.lock().await.insert(
         alice.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle: tokio::spawn(async {
                 std::future::pending::<()>().await;
@@ -3671,6 +3699,10 @@ async fn catch_up_error_from_ready_account_takes_precedence_over_sibling_backoff
     manager.workers.lock().await.insert(
         bob.account_id_hex,
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands,
@@ -4357,4 +4389,118 @@ fn generated_setup_profile_adopts_a_selected_profile_only_before_local_readiness
         );
         assert!(store, "{phase:?}");
     }
+}
+
+// Account-scoped cold reads must not acquire the session of an unrelated account.
+// These use real account workers and group state, not stand-in command channels.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cold_selected_group_read_leaves_foreign_account_available_to_another_runtime() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = MarmotApp::with_relay(dir.path(), "wss://test.example")
+        .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
+    app.account_home().create_account("alice").expect("alice");
+    app.account_home().create_account("bob").expect("bob");
+    let alice_group = {
+        let mut client = app.client("alice").await.expect("alice setup client");
+        client
+            .create_group("alice local group", &[])
+            .await
+            .expect("alice group")
+    };
+    let bob_group = {
+        let mut client = app.client("bob").await.expect("bob setup client");
+        client
+            .create_group("bob local group", &[])
+            .await
+            .expect("bob group")
+    };
+    let alice_runtime = app.runtime();
+    let bob_runtime = app.runtime();
+    let alice_read = timeout(
+        ACCOUNT_OPEN_TEST_DEADLINE,
+        alice_runtime.group_mls_state("alice", &alice_group),
+    )
+    .await;
+    let bob_read = timeout(
+        ACCOUNT_OPEN_TEST_DEADLINE,
+        bob_runtime.group_mls_state("bob", &bob_group),
+    )
+    .await;
+    // Capture the behavioral verdict, then release both actual owners before asserting it.
+    let alice_ok = matches!(alice_read, Ok(Ok(_)));
+    let bob_ok = matches!(&bob_read, Ok(Ok(_)));
+    let bob_session_busy = matches!(&bob_read, Ok(Err(AppError::AccountSessionBusy)));
+    let mut shutdown_returns = 0_u8;
+    alice_runtime.shutdown().await;
+    shutdown_returns += 1;
+    bob_runtime.shutdown().await;
+    shutdown_returns += 1;
+    // The App is shared: close it only after both managers have stopped their workers.
+    let terminal_close_ok = alice_runtime.shutdown_and_close().await.is_ok();
+    let storage_closed = app.storage_is_closed();
+    eprintln!(
+        "[account-isolation] selected_read={alice_ok} foreign_read={bob_ok} foreign_session_busy={bob_session_busy} shutdown_returns={shutdown_returns} terminal_close_ok={terminal_close_ok} storage_closed={storage_closed}"
+    );
+    assert!(
+        terminal_close_ok && storage_closed,
+        "shared account storage must close after both runtime shutdowns"
+    );
+    assert!(alice_ok, "selected account cold group read must succeed");
+    assert!(
+        bob_ok,
+        "selected account cold read must not claim foreign account session"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_batch_reconcile_still_owns_all_eligible_accounts() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = MarmotApp::with_relay(dir.path(), "wss://test.example")
+        .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
+    app.account_home().create_account("alice").expect("alice");
+    app.account_home().create_account("bob").expect("bob");
+    let bob_group = {
+        let mut client = app.client("bob").await.expect("bob setup client");
+        client
+            .create_group("bob local group", &[])
+            .await
+            .expect("bob group")
+    };
+    let batch_runtime = app.runtime();
+    let independent_runtime = app.runtime();
+    let batch = timeout(
+        ACCOUNT_OPEN_TEST_DEADLINE,
+        batch_runtime.reconcile_accounts(),
+    )
+    .await;
+    let own_read = timeout(
+        ACCOUNT_OPEN_TEST_DEADLINE,
+        batch_runtime.group_mls_state("bob", &bob_group),
+    )
+    .await;
+    let competing_read = timeout(
+        ACCOUNT_OPEN_TEST_DEADLINE,
+        independent_runtime.group_mls_state("bob", &bob_group),
+    )
+    .await;
+    let batch_ok = matches!(batch, Ok(Ok(())));
+    let own_ok = matches!(own_read, Ok(Ok(_)));
+    let protected = matches!(competing_read, Ok(Err(AppError::AccountSessionBusy)));
+    independent_runtime.shutdown().await;
+    batch_runtime.shutdown().await;
+    let terminal_close_ok = batch_runtime.shutdown_and_close().await.is_ok();
+    let storage_closed = app.storage_is_closed();
+    assert!(
+        terminal_close_ok && storage_closed,
+        "shared account storage must close after both runtime shutdowns"
+    );
+    assert!(
+        batch_ok,
+        "explicit batch reconcile must open eligible accounts"
+    );
+    assert!(own_ok, "batch owner must serve the real group read");
+    assert!(
+        protected,
+        "independent runtime must respect the live account owner"
+    );
 }

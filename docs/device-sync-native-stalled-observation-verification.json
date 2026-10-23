@@ -1,0 +1,102 @@
+{
+  "base": "23fba00e057d5277a841e92e1ffb5098612cfab6",
+  "scope": "Only typed native observational RPC timeout preserves latest cached snapshot; no new owner, permission, deadline, serialized state or transport behavior.",
+  "evidence": {
+    "red-v1": {
+      "head": "23fba00e057d5277a841e92e1ffb5098612cfab6",
+      "behavioral_fixture_sha256": "abd037d63e5847b9c9b76798f30e0e1ff3902ad453a8055ec7581a24c8c2a8b1",
+      "input_count": 2398,
+      "source_manifest_sha256": "a2bf534aa047629271a5c4dc22d2d685766f0c45f29a9bbb9e4e941c1c75b0d2",
+      "gates": [
+        {
+          "gate": "native",
+          "exit_code": 101,
+          "seconds": 174.02,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "7a12d957fac4ea40b2a05045bd6070c00589c9a9297ac1d6c68fe499172a2cbb"
+        }
+      ]
+    },
+    "green-v1": {
+      "head": "23fba00e057d5277a841e92e1ffb5098612cfab6",
+      "behavioral_fixture_sha256": "abd037d63e5847b9c9b76798f30e0e1ff3902ad453a8055ec7581a24c8c2a8b1",
+      "input_count": 2398,
+      "source_manifest_sha256": "f1f0fe58345864b01e7d9a029cf3bf13d2b6cbb123026ce9c32bc60c778ec928",
+      "gates": [
+        {
+          "gate": "native",
+          "exit_code": 0,
+          "seconds": 214.27,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 11,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "39eb4e134fb12664604081fa2279b28c7a4ba92edd795ea668a31b5a090f6695"
+        },
+        {
+          "gate": "default",
+          "exit_code": 0,
+          "seconds": 43.6,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "7c315eb277fde72f3713dffce6e19b10ec3b2311933da20db2b7d3a4ac401851"
+        },
+        {
+          "gate": "clippy",
+          "exit_code": 0,
+          "seconds": 26.19,
+          "counts": [],
+          "log_sha256": "3d8f04f5b3b85933256ff657b03e7c42bbf1667087680574c24a93169d74810c"
+        },
+        {
+          "gate": "check",
+          "exit_code": 0,
+          "seconds": 19.75,
+          "counts": [],
+          "log_sha256": "5631219e045263d357eadc4860bb3877793075bae353760b4a722dc18a9ff84c"
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.35,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "independent_verification": "All2398 final frozen inputs matched local; all6 terminal log hashes independently matched; unchanged actualRED/GREEN behavioral fixture.",
+  "qualified_behavior": [
+    "Actual stock public SDK/human confirmation and original C/A continuation; actual Private110 Dispatching transport stall.",
+    "Real production120-second native observation timeout: RED Failed, GREEN Pending with decimals cleared.",
+    "Exact native cancellation within500ms, no late published Commit/Welcome after release, no Confirmed invite, late continue Closed.",
+    "All11 native feature tests and2 default no-effects controls; production App all-target Clippy/default all-target check/workspacefmt green."
+  ],
+  "postfreeze_documentation_delta": [
+    "crates/marmot-app/AGENTS.md appended timeout invariant",
+    "docs/selected-chat-copy-plan.md replaces discovered issue with qualified fix",
+    "docs/device-sync-native-stalled-observation-verification.json added proof"
+  ],
+  "limitations": [
+    "Observation remains bounded by normal120-second RPC wait during publication; no lower-latency actor observation service added.",
+    "Selected-chat request/consent/delivery and full history remain unimplemented.",
+    "Apple artifact rebuild and native host acceptance are separate."
+  ]
+}

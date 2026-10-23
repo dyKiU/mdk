@@ -583,7 +583,9 @@ wn --account <npub-or-hex> stream verify <group-hex> \
   `stream_watches`, and `messages subscribe` emits it as `stream_preview` updates (individual chunks as
   `agent_stream_delta`).
 - `stream send --broker` publishes ordered `TextDelta` records through the memory-only broker. Without `--broker` it
-  connects directly to a peer receiver (`wn stream receive`).
+  connects directly to a peer receiver (`wn stream receive`). Anchored sends use the account that authored the
+  durable stream start. Automatic discovery skips local recipient accounts; explicitly selecting a different
+  account fails with `not_message_author` before publishing chunks.
 - `stream verify` compares a received QUIC transcript hash and chunk count against the latest durable final payload for
   the same stream id.
 - `stream compose-open|append|finish|cancel` are the daemon-owned live composer used by the TUI and agent connectors,

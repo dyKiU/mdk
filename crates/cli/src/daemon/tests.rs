@@ -2028,3 +2028,34 @@ fn background_stream_watch_requires_account_scope() {
         "background stream watch requires --account"
     );
 }
+
+#[tokio::test]
+async fn hosted_runtime_retains_the_original_app_and_retires_both_handles() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let defaults = DaemonDefaults {
+        home: home.path().to_path_buf(),
+        socket: default_socket_path(home.path()),
+        pid_path: default_pid_path(home.path()),
+        log_path: default_log_path(home.path()),
+        relay: Some("wss://relay.example".to_owned()),
+        discovery_relays: Vec::new(),
+        default_account_relays: Vec::new(),
+        secret_store: Some(crate::SecretStoreKind::File),
+        keychain_service: Some("wn-test-keychain".to_owned()),
+    };
+    let (app, runtime) = open_app_runtime(&defaults).expect("open paired handles");
+    assert!(!runtime.storage_is_closed());
+    // The retained app is the actual runtime owner, not a second app at the
+    // same path. Its lifecycle transition must be visible through the runtime.
+    app.close_storage().expect("close original app storage");
+    assert!(runtime.storage_is_closed());
+    let mut host = AppRuntimeHost {
+        app: Some(app),
+        runtime: Some(runtime),
+        ..AppRuntimeHost::default()
+    };
+    host.abort_all().await;
+    assert!(host.app.is_none());
+    assert!(host.runtime.is_none());
+    assert!(host.bridge.is_none());
+}

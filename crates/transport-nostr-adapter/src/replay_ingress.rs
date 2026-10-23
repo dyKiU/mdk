@@ -34,9 +34,11 @@ pub struct ReplayBatch {
     _consumer: Arc<ReplayConsumer>,
 }
 
-struct ReplayConsumer {
+pub(super) struct ReplayConsumer {
     shared: Weak<ReplayIngressState>,
     serial: u64,
+    #[cfg(feature = "test-policy-overrides")]
+    pub(super) probe: StdMutex<Weak<super::native_frame_probe::Probe>>,
 }
 
 struct ReplayBatchData {
@@ -397,6 +399,13 @@ impl ReplayIngress {
     }
 }
 
+#[cfg(feature = "test-policy-overrides")]
+impl ReplayConsumer {
+    pub(super) fn serial_for_test(&self) -> u64 {
+        self.serial
+    }
+}
+
 impl Drop for ReplayConsumer {
     fn drop(&mut self) {
         let Some(shared) = self.shared.upgrade() else {
@@ -410,7 +419,120 @@ impl Drop for ReplayConsumer {
     }
 }
 
+#[cfg(feature = "test-policy-overrides")]
+impl ReplayIngressState {
+    pub(super) fn queued_frame_for_test(
+        &self,
+        serial: u64,
+        account: &MemberId,
+        group: &GroupId,
+        packet: &[u8],
+    ) -> bool {
+        let queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        queue.consumer == Some(serial)
+            && queue.ready.values().any(|data| {
+                &data.group == group
+                    && data.scope.load(Ordering::Acquire)
+                    && data.gate.load(Ordering::Acquire)
+                    && data.deliveries.iter().any(|frame| {
+                        frame.origin == ReplayFrameOrigin::Remote
+                            && &frame.delivery.account_id == account
+                            && frame.delivery.group_id_hint.as_ref() == Some(group)
+                            && frame.delivery.message.id.as_slice() == packet
+                    })
+            })
+    }
+
+    pub(super) fn consumer_is_current_for_test(&self, serial: u64) -> bool {
+        self.queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .consumer
+            == Some(serial)
+    }
+}
+
+impl ReplayIngress {
+    /// Passive weak identity of this already registered native consumer.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn consumer_identity_for_test(&self) -> super::NativeConsumerIdentityForTest {
+        super::native_frame_probe::identity(
+            &self.consumer,
+            &self.shared,
+            &self.state,
+            &self.account,
+        )
+    }
+}
+
 impl ReplayBatch {
+    /// Weak observation of this exact current remote loan; no registration,
+    /// acknowledgement, source scope, or admission permission is created.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn held_remote_identity_for_test(
+        &self,
+        account: &MemberId,
+        packet: &MessageId,
+    ) -> Option<super::NativeConsumerIdentityForTest> {
+        let data = self.data.as_ref()?;
+        let frame = data.deliveries.front()?;
+        if frame.origin != ReplayFrameOrigin::Remote
+            || !data.scope.load(Ordering::Acquire)
+            || !data.gate.load(Ordering::Acquire)
+            || &self.account != account
+            || &frame.delivery.account_id != account
+            || &frame.delivery.message.id != packet
+            || frame.delivery.group_id_hint.as_ref() != Some(&data.group)
+            || frame.delivery.source.plane != TransportDeliveryPlane::Group
+            || self
+                .shared
+                .queue
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .consumer
+                != Some(self._consumer.serial)
+        {
+            return None;
+        }
+        Some(super::native_frame_probe::identity(
+            &self._consumer,
+            &self.shared,
+            &self.state,
+            &self.account,
+        ))
+    }
+
+    /// Read-only test observation; never opens or acknowledges a delivery.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn observe_frame_for_test(&self, ingested: bool) {
+        let Some(data) = self.data.as_ref() else {
+            return;
+        };
+        let Some(frame) = data.deliveries.front() else {
+            return;
+        };
+        let current = self
+            .shared
+            .queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .consumer
+            == Some(self._consumer.serial);
+        if current
+            && data.scope.load(Ordering::Acquire)
+            && data.gate.load(Ordering::Acquire)
+            && frame.origin == ReplayFrameOrigin::Remote
+        {
+            super::native_frame_probe::record(
+                &self._consumer,
+                &self.state,
+                &self.account,
+                &frame.delivery,
+                if ingested { 1 } else { 0 },
+            );
+        }
+    }
+
     /// Current oldest frame. The batch owns it throughout asynchronous ingest.
     /// A closed scope or newly recovered historical range returns no frame.
     /// Drop a revoked loan to merge its suffix at the next complete boundary.
@@ -438,6 +560,8 @@ impl ReplayBatch {
         let Some(frame) = data.deliveries.pop_front() else {
             return;
         };
+        #[cfg(feature = "test-policy-overrides")]
+        let remote = frame.origin == ReplayFrameOrigin::Remote;
         let delivery = frame.delivery;
         data.bytes -= delivery.message.payload.len();
         {
@@ -454,6 +578,27 @@ impl ReplayBatch {
                 .and_then(|state| state.account_replay_coverage.get_mut(&self.account))
         {
             coverage.ack_placement(&delivery.message.id);
+            // Record only the actual checked removal/coverage branch, not ACK
+            // method return. Test facts cannot change this branch or its result.
+            #[cfg(feature = "test-policy-overrides")]
+            {
+                let current = self
+                    .shared
+                    .queue
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .consumer
+                    == Some(self._consumer.serial);
+                if remote && data.gate.load(Ordering::Acquire) && current {
+                    super::native_frame_probe::record(
+                        &self._consumer,
+                        &self.state,
+                        &self.account,
+                        &delivery,
+                        2,
+                    );
+                }
+            }
         }
         self.shared.changed.store(true, Ordering::Release);
         self.shared.wake.notify_waiters();
@@ -619,6 +764,8 @@ impl NostrTransportAdapter {
             consumer: Arc::new(ReplayConsumer {
                 shared: Arc::downgrade(&shared),
                 serial: consumer,
+                #[cfg(feature = "test-policy-overrides")]
+                probe: StdMutex::new(Weak::new()),
             }),
             shared,
             state: Arc::downgrade(&self.state),
@@ -965,6 +1112,8 @@ mod tests {
             consumer: Arc::new(ReplayConsumer {
                 shared: Arc::downgrade(&shared),
                 serial: 1,
+                #[cfg(feature = "test-policy-overrides")]
+                probe: StdMutex::new(Weak::new()),
             }),
             shared,
             state: Arc::downgrade(&state),

@@ -1,0 +1,282 @@
+{
+  "scope": "Two ABI smoke-test changes only. First seven binding/C/Swift ABI gates passed. Full App experimental library FAILED; full fifteen-gate qualification and SDK adoption are NOT achieved.",
+  "exact_frozen_candidate_stash": "f3f5f6de3056f118034d7cbefd9d9b53fb1ae95d",
+  "verified_input_count": 2438,
+  "results": {
+    "head": "37cefc3061fe1a95039af798c82ad7c179d0e45a",
+    "input_count": 2438,
+    "source_manifest_sha256": "1d9ee92c3bc11c60ba254a5ea5fdfe616b2b7b5295b512a9dce3c77b7f36b8c2",
+    "gates": [
+      {
+        "gate": "uniffi-feature-full",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-uniffi",
+          "--features",
+          "experimental-device-sync"
+        ],
+        "exit_code": 0,
+        "seconds": 156.71,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 199,
+            "failed": 0,
+            "ignored": 2
+          },
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 29,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "b56aad61165ff31501f4c38b46d40b0f147279e21cb34fb0388e85c227098497"
+      },
+      {
+        "gate": "c-feature-full",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-c",
+          "--features",
+          "experimental-device-sync,alloc-audit"
+        ],
+        "exit_code": 0,
+        "seconds": 93.26,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 86,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "bcea35f6ef974b09d55b1e57f67850cd21c5521032345b6b8f417a7ced90e648"
+      },
+      {
+        "gate": "uniffi-default-full",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-uniffi"
+        ],
+        "exit_code": 0,
+        "seconds": 130.71,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 199,
+            "failed": 0,
+            "ignored": 2
+          },
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 29,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "0eecf60549dfa05833a386d3e5b07551b6986e5ffe3ecbe121bf6ad8c9fcc274"
+      },
+      {
+        "gate": "c-default-full",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-c",
+          "--features",
+          "alloc-audit"
+        ],
+        "exit_code": 0,
+        "seconds": 56.4,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 86,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "c5ed91d55381ac2d9b8574e965a5ffea6bd2a33390fc1595c2c253b725f8e9cb"
+      },
+      {
+        "gate": "external-c-default",
+        "command": [
+          "bash",
+          "crates/marmot-c/c-smoke.sh",
+          "--debug"
+        ],
+        "exit_code": 0,
+        "seconds": 12.73,
+        "counts": [],
+        "log_sha256": "2354155f5b8aa825750c61198f94befa8f0d032b50e26a032f75b26a0e295c31"
+      },
+      {
+        "gate": "swift-default",
+        "command": [
+          "bash",
+          "crates/marmot-uniffi/device-linking-smoke.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 48.42,
+        "counts": [],
+        "log_sha256": "bf12e7b15936efdf3aadebfe61b0098ff0c804addd0182ef33c20fc99615deac"
+      },
+      {
+        "gate": "swift-feature",
+        "command": [
+          "env",
+          "EXPERIMENTAL_DEVICE_SYNC=1",
+          "bash",
+          "crates/marmot-uniffi/device-linking-smoke.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 50.39,
+        "counts": [],
+        "log_sha256": "b4c9ba0c348b19b153ff3437649d8e7c2fb32403ba0d3ce19229cba874f2965d"
+      },
+      {
+        "gate": "app-feature-full-lib",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-app",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--lib"
+        ],
+        "exit_code": 101,
+        "seconds": 3528.8,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "FAILED",
+            "passed": 2067,
+            "failed": 6,
+            "ignored": 6
+          }
+        ],
+        "log_sha256": "248f53fc453e4b308dca2404c8a0c3a9441f57bb632d2d2c4d3f32ce85fccd85"
+      }
+    ]
+  },
+  "not_run": [
+    "App default full",
+    "production Clippy",
+    "default all-target check",
+    "fmt",
+    "binding documentation",
+    "documentation regressions",
+    "binding parity"
+  ],
+  "reported_failures": [
+    "device_linking_original_sdk_collects_actual_b_encrypted_endorsement",
+    "device_linking_third_device_cannot_publish_without_existing_sibling_approval",
+    "device_linking_third_device_settles_from_completed_predecessor_without_chat",
+    "a_drained_disband_performs_the_terminal_push_sweep",
+    "account_reconcile_returns_local_readiness_before_relay_subscription_registration",
+    "real_departure_then_disband_projects_after_mls_deletion"
+  ],
+  "post_freeze_delta": "This qualification document only; both tested ABI source files unchanged."
+}

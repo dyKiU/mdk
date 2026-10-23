@@ -21,7 +21,7 @@ use cgka_traits::{
     GroupId, MemberId, TransportAccountActivation, TransportAdapter, TransportAdapterError,
     TransportEndpoint, TransportGroupSubscription, TransportGroupSync,
 };
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use limit_relay::{LimitConfig, LimitRelay, LimitStats, NegFault, RejectStyle, ReqOutcome, reason};
 use nostr_relay_builder::prelude::{
     MemoryDatabase, MemoryDatabaseOptions, NostrDatabase, RateLimit,
@@ -51,7 +51,12 @@ const SMALL_REQ_LIMIT: usize = 5;
 const UNTIL: u64 = 1_700_200_000;
 const RETAINED_EVENT_CAPACITY: usize = 8_192;
 
+#[cfg(feature = "test-policy-overrides")]
+type ForwarderSnapshot = Box<dyn Fn() -> [u64; 15] + Send + Sync>;
+
 enum FixtureNotifications {
+    #[cfg(feature = "test-policy-overrides")]
+    Observed,
     Forwarded,
     Manual,
 }
@@ -64,6 +69,8 @@ struct Fixture {
     sdk: NostrSdkRelayClient,
     adapter: NostrTransportAdapter,
     forwarder: Option<JoinHandle<()>>,
+    #[cfg(feature = "test-policy-overrides")]
+    forwarder_snapshot: Option<ForwarderSnapshot>,
     account: MemberId,
 }
 
@@ -107,6 +114,20 @@ impl Fixture {
         // `from_builder` (an owned relay pool).
         let sdk = NostrSdkRelayClient::from_builder(Client::builder());
         let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        #[cfg(feature = "test-policy-overrides")]
+        let (forwarder, forwarder_snapshot) = match notifications {
+            FixtureNotifications::Forwarded => (
+                Some(sdk.spawn_notification_forwarder(adapter.clone())),
+                None,
+            ),
+            FixtureNotifications::Observed => {
+                let (task, snapshot) =
+                    sdk.spawn_notification_forwarder_observed_for_test(adapter.clone());
+                (Some(task), Some(snapshot))
+            }
+            FixtureNotifications::Manual => (None, None),
+        };
+        #[cfg(not(feature = "test-policy-overrides"))]
         let forwarder = match notifications {
             FixtureNotifications::Forwarded => {
                 Some(sdk.spawn_notification_forwarder(adapter.clone()))
@@ -122,6 +143,8 @@ impl Fixture {
             sdk,
             adapter,
             forwarder,
+            #[cfg(feature = "test-policy-overrides")]
+            forwarder_snapshot,
             account,
         }
     }
@@ -151,6 +174,52 @@ impl Fixture {
                 .await
                 .unwrap();
         }
+    }
+
+    async fn with_replay_diagnostics(config: LimitConfig) -> Self {
+        #[cfg(feature = "test-policy-overrides")]
+        {
+            Self::with_forwarder(config, FixtureNotifications::Observed).await
+        }
+        #[cfg(not(feature = "test-policy-overrides"))]
+        {
+            Self::new(config, false).await
+        }
+    }
+
+    #[cfg(feature = "test-policy-overrides")]
+    async fn emit_replay_diagnostic(
+        &self,
+        case: u8,
+        clamp: Option<u64>,
+        expected: usize,
+        delivered: usize,
+        eose: transport_nostr_adapter::AccountSubscriptionEose,
+        stats: &LimitStats,
+    ) {
+        let forwarder = self.forwarder_snapshot.as_ref().map(|snapshot| snapshot());
+        let loss = self.sdk.notification_loss().ok().and_then(|receiver| {
+            let observed = receiver.borrow();
+            observed
+                .as_ref()
+                .map(|loss| [loss.receiver_generation, loss.cumulative_skipped])
+        });
+        let replay = self
+            .adapter
+            .replay_progress_snapshot_for_test(&self.account)
+            .await;
+        eprintln!(
+            "sdk-replay-forwarder-diagnostic {}",
+            serde_json::json!({
+                "case": case, "clamp": clamp, "expected": expected, "delivered": delivered,
+                "forwarder_finished": self.forwarder.as_ref().is_some_and(|task| task.is_finished()),
+                "forwarder": forwarder, "loss": loss, "replay": replay,
+                "coverage": [eose.subscriptions, eose.with_eose, eose.relay_subscription_attempts,
+                    eose.relay_subscription_attempts_with_eose, eose.relay_subscription_attempts_refused,
+                    eose.subscriptions_refused],
+                "relay_requests": [stats.total_reqs, stats.clamped_filters],
+            })
+        );
     }
 
     async fn shutdown(self) {
@@ -309,7 +378,7 @@ async fn activation_of_250_groups_sends_only_production_shaped_reqs() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_thousand_groups_fit_in_a_few_reqs_and_every_group_delivers() {
     const G: usize = 1_000;
-    let fx = Fixture::new(LimitConfig::default(), false).await;
+    let fx = Fixture::with_replay_diagnostics(LimitConfig::default()).await;
     fx.store_group_events(G).await;
     let url = fx.limit.url();
     fx.adapter
@@ -325,6 +394,9 @@ async fn a_thousand_groups_fit_in_a_few_reqs_and_every_group_delivers() {
         eose.complete(),
         stats.summary()
     );
+    #[cfg(feature = "test-policy-overrides")]
+    fx.emit_replay_diagnostic(1, None, G, delivered.len(), eose, &stats)
+        .await;
     assert_filter_shapes(&stats);
     assert_eq!(stats.total_reqs, live_reqs(G));
     assert_eq!(stats.rejections_total(), 0);
@@ -2970,17 +3042,39 @@ async fn maintenance_replay_is_ordered() {
 async fn distinct_deliveries(adapter: &NostrTransportAdapter, wait: Duration) -> usize {
     const IDLE: Duration = Duration::from_millis(1_500);
     let deadline = tokio::time::Instant::now() + wait;
+    let started = deadline - wait;
     let mut seen = HashSet::new();
     loop {
         let next = deadline.min(tokio::time::Instant::now() + IDLE);
-        match tokio::time::timeout_at(next, adapter.receive()).await {
+        let exit_reason = match tokio::time::timeout_at(next, adapter.receive()).await {
             Ok(Ok(Some(delivery))) => {
                 adapter
                     .ack_replay_delivery(&delivery.account_id, &delivery.message.id)
                     .await;
                 seen.insert(delivery.message.id);
+                None
             }
-            _ => return seen.len(),
+            Ok(Ok(None)) => Some("stream_closed"),
+            Ok(Err(_)) => Some("receive_error"),
+            Err(_) => Some(if next == deadline {
+                "deadline_timeout"
+            } else {
+                "quiet_timeout"
+            }),
+        };
+        if let Some(reason) = exit_reason {
+            let returned_at = tokio::time::Instant::now();
+            eprintln!(
+                "adapter-distinct-deliveries-exit {}",
+                serde_json::json!({
+                    "reason": reason,
+                    "delivered": seen.len(),
+                    "wait_ms": u64::try_from(wait.as_millis()).ok(),
+                    "elapsed_ms": u64::try_from(returned_at.saturating_duration_since(started).as_millis()).ok(),
+                    "remaining_ms": u64::try_from(deadline.saturating_duration_since(returned_at).as_millis()).ok(),
+                })
+            );
+            return seen.len();
         }
     }
 }
@@ -3540,13 +3634,10 @@ async fn replay_one_group_at(
     timestamps: impl IntoIterator<Item = u64>,
     clamp: Option<u64>,
 ) -> (usize, bool, LimitStats) {
-    let fx = Fixture::new(
-        LimitConfig {
-            req_limit_clamp: clamp,
-            ..LimitConfig::default()
-        },
-        false,
-    )
+    let fx = Fixture::with_replay_diagnostics(LimitConfig {
+        req_limit_clamp: clamp,
+        ..LimitConfig::default()
+    })
     .await;
     let timestamps = timestamps.into_iter().collect::<Vec<_>>();
     let stored = timestamps.len();
@@ -3557,18 +3648,67 @@ async fn replay_one_group_at(
         .await
         .unwrap();
     let delivered = distinct_deliveries(&fx.adapter, Duration::from_secs(15)).await;
-    let complete = fx
-        .adapter
-        .account_subscription_eose(&fx.account)
-        .await
-        .complete();
+    let eose = fx.adapter.account_subscription_eose(&fx.account).await;
+    let complete = eose.complete();
     let stats = fx.limit.stats();
     eprintln!(
         "[h] clamp={clamp:?} stored={stored} delivered={delivered} complete={complete} {}",
         stats.summary()
     );
+    #[cfg(feature = "test-policy-overrides")]
+    fx.emit_replay_diagnostic(2, clamp, stored, delivered, eose, &stats)
+        .await;
     fx.shutdown().await;
     (delivered, complete, stats)
+}
+
+async fn replay_one_group_success(stored: usize, clamp: Option<u64>) -> (usize, bool, LimitStats) {
+    let fx = Fixture::with_replay_diagnostics(LimitConfig {
+        req_limit_clamp: clamp,
+        ..LimitConfig::default()
+    })
+    .await;
+    let timestamps = (0..stored as u64)
+        .map(|index| 1_700_000_000 + index)
+        .collect::<Vec<_>>();
+    let stored = timestamps.len();
+    store_events_at(&fx.database, timestamps).await;
+    let url = fx.limit.url();
+    fx.adapter
+        .activate_account(fx.activation(std::slice::from_ref(&url), groups(1, &url)))
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let mut recorded = Vec::with_capacity(stored);
+    let collection = std::panic::AssertUnwindSafe(success_expected_replay_deliveries(
+        &fx.adapter,
+        &fx.account,
+        stored,
+        deadline,
+        &mut recorded,
+    ))
+    .catch_unwind()
+    .await;
+    // A failed collector has no successful count; these are actual unique ACKs.
+    let delivered = match &collection {
+        Ok(delivered) => *delivered,
+        Err(_) => recorded.len(),
+    };
+    let eose = fx.adapter.account_subscription_eose(&fx.account).await;
+    let complete = eose.complete();
+    let stats = fx.limit.stats();
+    eprintln!(
+        "[h] clamp={clamp:?} stored={stored} delivered={delivered} complete={complete} {}",
+        stats.summary()
+    );
+    #[cfg(feature = "test-policy-overrides")]
+    fx.emit_replay_diagnostic(2, clamp, stored, delivered, eose, &stats)
+        .await;
+    fx.shutdown().await;
+    match collection {
+        Ok(delivered) => (delivered, complete, stats),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }
 
 /// A live group REQ carries no `limit`, so strfry serves at most 500 stored
@@ -3579,7 +3719,7 @@ async fn replay_one_group_at(
 async fn stored_replay_beyond_500_is_paged_before_counting_complete() {
     const STORED: usize = 1_200;
     for clamp in [None, Some(limit_relay::REQ_LIMIT_CLAMP)] {
-        let (delivered, complete, stats) = replay_one_group(STORED, clamp).await;
+        let (delivered, complete, stats) = replay_one_group_success(STORED, clamp).await;
         assert_eq!(
             delivered, STORED,
             "clamp={clamp:?}: every stored event arrives"
@@ -3717,4 +3857,255 @@ async fn prompt_relay_refusals_fail_in_round_trips() {
         "{full_socket:?}"
     );
     fx.shutdown().await;
+}
+
+/// Full-success collection is explicit; quiet-only partial callers stay unchanged.
+async fn success_expected_replay_deliveries(
+    adapter: &NostrTransportAdapter,
+    account: &MemberId,
+    expected: usize,
+    deadline: tokio::time::Instant,
+    recorded: &mut Vec<cgka_traits::TransportDelivery>,
+) -> usize {
+    // SUCCESS_EXPECTED_COLLECTOR_BEGIN
+    collect_authoritative_replay(adapter, account, expected, deadline, recorded).await
+    // SUCCESS_EXPECTED_COLLECTOR_END
+}
+
+/// Subscribe before checking state so last-ACK progress cannot be missed.
+/// An idle interval is necessary but never substitutes for replay completion.
+async fn collect_authoritative_replay(
+    adapter: &NostrTransportAdapter,
+    account: &MemberId,
+    expected: usize,
+    deadline: tokio::time::Instant,
+    recorded: &mut Vec<cgka_traits::TransportDelivery>,
+) -> usize {
+    const IDLE: Duration = Duration::from_millis(1_500);
+    let started = tokio::time::Instant::now();
+    let wait = deadline.saturating_duration_since(started);
+    tokio::time::timeout_at(deadline, async {
+        let mut changes = adapter.replay_changes(account).await.expect("active replay has a progress watch");
+        let mut seen = HashSet::new();
+        let mut quiet_at = started + IDLE;
+        let mut quiet_elapsed = false;
+        loop {
+            let (pending, spill_pending, loss_absent) = {
+                let status = adapter.take_replay_status(account).await;
+                (status.pending, status.spill_pending, status.loss.is_none())
+            };
+            assert!(loss_absent, "full-success replay must not consume loss as completion");
+            let coverage_complete = adapter.account_subscription_eose(account).await.complete();
+            let complete = seen.len() == expected && coverage_complete && !pending && !spill_pending;
+            let reason = tokio::select! {
+                biased;
+                delivery = adapter.receive() => {
+                    let delivery = delivery.expect("full-success replay receive stays healthy")
+                        .expect("full-success replay receiver stays open");
+                    assert!(delivery.account_id == *account, "only the requested account can supply a full-success receipt");
+                    adapter.ack_replay_delivery(account, &delivery.message.id).await;
+                    if seen.insert(delivery.message.id.clone()) {
+                        recorded.push(delivery);
+                    }
+                    assert!(seen.len() <= expected, "full-success replay must not exceed its exact inventory");
+                    quiet_at = tokio::time::Instant::now() + IDLE;
+                    quiet_elapsed = false;
+                    None
+                }
+                _ = std::future::ready(()), if quiet_elapsed && complete && tokio::time::Instant::now() < deadline => {
+                    Some("authoritative_complete")
+                }
+                changed = changes.changed() => {
+                    changed.expect("the original active replay progress watch stays open");
+                    None
+                }
+                _ = tokio::time::sleep_until(quiet_at), if !quiet_elapsed => {
+                    quiet_elapsed = true;
+                    None
+                }
+                _ = tokio::time::sleep_until(deadline) => Some("deadline_timeout"),
+            };
+            if let Some(reason) = reason {
+                let returned_at = tokio::time::Instant::now();
+                eprintln!(
+                    "adapter-distinct-deliveries-exit {}",
+                    serde_json::json!({
+                        "reason": reason, "delivered": seen.len(),
+                        "wait_ms": u64::try_from(wait.as_millis()).ok(),
+                        "elapsed_ms": u64::try_from(returned_at.saturating_duration_since(started).as_millis()).ok(),
+                        "remaining_ms": u64::try_from(deadline.saturating_duration_since(returned_at).as_millis()).ok(),
+                    })
+                );
+                assert!(reason == "authoritative_complete", "full-success replay must complete inside its original absolute deadline");
+                return seen.len();
+            }
+        }
+    }).await.expect("full-success replay work stays inside its original absolute deadline")
+}
+
+/// Under-page contract only: quiet does not establish authoritative completion.
+/// Actual EOSE release is independent of the collector's return, so corrected
+/// success collection can pass without any change to these fixture actions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn quiet_gap_does_not_finish_success_expected_native_replay() {
+    const STORED: usize = 12;
+    const START: u64 = 1_700_000_000;
+    let fx = Fixture::with_forwarder(LimitConfig::default(), FixtureNotifications::Manual).await;
+    let mut source = fx.sdk.notifications();
+    let keys = Keys::generate();
+    let mut expected = Vec::with_capacity(STORED);
+    for index in 0..STORED {
+        let timestamp = START + index as u64 / 2;
+        let event = EventBuilder::new(Kind::MlsGroupMessage, format!("quiet-contract-{index}"))
+            .tags([Tag::custom("h", [hex::encode(route(0))])])
+            .custom_created_at(nostr_sdk::prelude::Timestamp::from_secs(timestamp))
+            .finalize(&keys)
+            .unwrap();
+        fx.database
+            .save_event(&serde_json::from_str(event.as_json().as_str()).unwrap())
+            .await
+            .unwrap();
+        expected.push((timestamp, event.id.to_bytes()));
+    }
+    expected.sort_unstable();
+    // Includes activation, capture, collection, release and positive cleanup.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let (facts, complete_at_return) = tokio::time::timeout_at(deadline, async {
+        let url = fx.limit.url();
+        let group = groups(1, &url).remove(0);
+        let mut activation = fx.activation(std::slice::from_ref(&url), vec![group.clone()]);
+        activation.since = Some(cgka_traits::Timestamp(SINCE));
+        fx.adapter.activate_account(activation).await.unwrap();
+        let mut held_eose = Vec::new();
+        let mut captured = HashSet::new();
+        let mut raw_count = 0;
+        while held_eose.len() < live_reqs(1) {
+            let update = source.next().await.expect("the original native receiver remains open");
+            let NotificationUpdate::Notification(notification) = update else {
+                panic!("the small real SDK source must not lose notifications");
+            };
+            if matches!(
+                &notification,
+                NostrSdkNotification::Payload {
+                    notification: ClientNotification::Message { message, .. }, ..
+                } if matches!(message.as_ref(), RelayMessage::EndOfStoredEvents(_))
+            ) {
+                held_eose.push(notification);
+                continue;
+            }
+            if let NostrSdkNotification::Payload {
+                notification: ClientNotification::Message { message, .. }, ..
+            } = &notification
+                && let RelayMessage::Event { event, .. } = message.as_ref()
+                && event.kind == Kind::MlsGroupMessage
+            {
+                raw_count += 1;
+                captured.insert(event.id.to_bytes());
+            }
+            assert!(!dispatch_sdk_replay(notification, &fx.adapter, None, &|reason| fx
+                .sdk.subscription_refusal(reason)).await);
+        }
+        let captured_exact = raw_count == STORED
+            && captured == expected.iter().map(|(_, id)| *id).collect::<HashSet<_>>();
+        assert!(captured_exact, "all real signed raw copies entered the held source");
+        let held_eose_exact = held_eose.len() == live_reqs(1);
+        let initial_coverage_incomplete = !fx.adapter.account_subscription_eose(&fx.account).await.complete();
+        {
+            let status = fx.adapter.take_replay_status(&fx.account).await;
+            assert!(status.pending && status.loss.is_none(), "actual captured input awaits its EOSE without loss");
+        }
+        assert!(initial_coverage_incomplete);
+        // A fixed owned release after the unchanged 1.5s quiet edge. It does not
+        // inspect expected values, collector return, or a Rust scheduling branch.
+        let release_at = tokio::time::Instant::now() + Duration::from_secs(2);
+        assert!(release_at < deadline);
+        let release_adapter = fx.adapter.clone();
+        let release_sdk = fx.sdk.clone();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep_until(release_at).await;
+            for notification in held_eose {
+                if dispatch_sdk_replay(notification, &release_adapter, None, &|reason| release_sdk
+                    .subscription_refusal(reason)).await {
+                    return false;
+                }
+            }
+            true
+        });
+        let mut recorded = Vec::with_capacity(STORED);
+        let collected = success_expected_replay_deliveries(
+            &fx.adapter, &fx.account, STORED, deadline, &mut recorded,
+        ).await;
+        // Freeze the collector verdict before joining release or draining its
+        // remaining deliveries. A successful collection must record its ACKs.
+        let returned_before_deadline = tokio::time::Instant::now() < deadline;
+        let coverage_incomplete_at_return = !fx.adapter.account_subscription_eose(&fx.account).await.complete();
+        let (pending_at_return, spill_pending_at_return, loss_absent_at_return) = {
+            let status = fx.adapter.take_replay_status(&fx.account).await;
+            (status.pending, status.spill_pending, status.loss.is_none())
+        };
+        let returned_zero = collected == 0;
+        let collected_exact = collected == STORED;
+        let complete_at_return = returned_before_deadline && collected_exact
+            && !coverage_incomplete_at_return && !pending_at_return
+            && !spill_pending_at_return && loss_absent_at_return;
+        assert!(collected == recorded.len(), "every collected body has its actual ACKed receipt");
+        let release_completed = release.await.unwrap();
+        assert!(release_completed, "the original EOSE release completes once under owned cleanup");
+        while recorded.len() < STORED {
+            tokio::select! {
+                update = source.next() => {
+                    let NotificationUpdate::Notification(notification) = update.expect("the original receiver remains open during release") else {
+                        panic!("actual release cannot lose native input");
+                    };
+                    assert!(!dispatch_sdk_replay(notification, &fx.adapter, None, &|reason| fx.sdk.subscription_refusal(reason)).await);
+                }
+                delivery = fx.adapter.receive() => {
+                    let delivery = delivery.unwrap().unwrap();
+                    fx.adapter.ack_replay_delivery(&fx.account, &delivery.message.id).await;
+                    recorded.push(delivery);
+                }
+            }
+        }
+        let released_exact_order = recorded.len() == expected.len()
+            && recorded.iter().zip(&expected).all(|(delivery, (timestamp, id))| {
+                delivery.message.timestamp.0 == *timestamp
+                    && delivery.message.id.as_slice() == id.as_slice()
+                    && delivery.account_id == fx.account
+                    && delivery.group_id_hint.as_ref() == Some(&group.group_id)
+            });
+        assert!(released_exact_order, "real ACKed release preserves exact account, group and timestamp/id order");
+        let (final_coverage_complete, final_placement_complete) = loop {
+            let complete = fx.adapter.account_subscription_eose(&fx.account).await.complete();
+            let status = fx.adapter.take_replay_status(&fx.account).await;
+            assert!(status.loss.is_none(), "owned release and ACK placement create no loss");
+            let placed = !status.pending && !status.spill_pending;
+            drop(status);
+            if complete && placed { break (complete, placed); }
+            tokio::task::yield_now().await;
+        };
+        assert!(deadline.saturating_duration_since(tokio::time::Instant::now()) >= QUIET,
+            "the full original duplicate observation must fit inside the same absolute budget");
+        let no_extra_after_release = tokio::time::timeout(QUIET, fx.adapter.receive()).await.is_err();
+        assert!(no_extra_after_release, "no duplicate real history follows exact placement");
+        drop(source);
+        fx.shutdown().await;
+        let facts = serde_json::json!({
+            "captured_exact": captured_exact, "held_eose_exact": held_eose_exact,
+            "initial_coverage_incomplete": initial_coverage_incomplete,
+            "returned_before_deadline": returned_before_deadline, "returned_zero": returned_zero,
+            "collected_exact": collected_exact, "pending_at_return": pending_at_return,
+            "spill_pending_at_return": spill_pending_at_return,
+            "coverage_incomplete_at_return": coverage_incomplete_at_return,
+            "loss_absent_at_return": loss_absent_at_return,
+            "release_completed": release_completed, "released_exact_order": released_exact_order,
+            "final_coverage_complete": final_coverage_complete, "final_placement_complete": final_placement_complete,
+            "no_extra_after_release": no_extra_after_release, "owned_shutdown_returned": true
+        });
+        (facts, complete_at_return)
+    }).await.expect("capture, collection, real EOSE release and owned cleanup stay inside one original 15s budget");
+    eprintln!("adapter-quiet-pending-contract {facts}");
+    assert!(
+        complete_at_return,
+        "quiet delivery gap must not finish success-expected replay while its actual source is pending"
+    );
 }

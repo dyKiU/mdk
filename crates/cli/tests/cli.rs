@@ -3912,8 +3912,14 @@ fn stream_start_quic_chunks_and_final_payload_verify_through_mls_messages() {
     let home = tempfile::tempdir().expect("tempdir");
     let broker = spawn_quic_broker();
 
-    let alice = create_account(home.path());
-    let bob = create_account(home.path());
+    let first = create_account(home.path());
+    let second = create_account(home.path());
+    // Automatic account discovery sees the receiver before the stream author.
+    let (alice, bob) = if first > second {
+        (first, second)
+    } else {
+        (second, first)
+    };
     run_json(home.path(), &["--account", &bob, "keys", "publish"]);
     let created_group = run_json(
         home.path(),
@@ -3963,6 +3969,28 @@ fn stream_start_quic_chunks_and_final_payload_verify_through_mls_messages() {
         bob_start_message["agent_text_stream"]["quic_candidates"],
         serde_json::json!([broker_candidate])
     );
+
+    let foreign_publish = run_json_error(
+        home.path(),
+        &[
+            "--account",
+            &bob,
+            "stream",
+            "send",
+            "--broker",
+            "--connect",
+            &broker.addr.to_string(),
+            "--server-name",
+            "localhost",
+            "--insecure-local",
+            "--stream-id",
+            stream_id,
+            "--start-event-id",
+            start_message_id,
+            "foreign publisher",
+        ],
+    );
+    assert_eq!(foreign_publish["code"], "not_message_author");
 
     let mut watcher = wn(home.path());
     watcher
@@ -4392,6 +4420,62 @@ fn messages_subscribe_streams_messages_and_quic_previews_from_daemon() {
     assert_eq!(
         preview["result"]["stream_preview"]["transcript_hash"],
         sent["transcript_hash"]
+    );
+
+    // The daemon retains this account's live runtime through start, preview,
+    // final publication and verification. None of these commands may reopen a
+    // competing account database through a per-request app.
+    let finished = run_json(
+        home.path(),
+        &[
+            "--account",
+            &alice,
+            "stream",
+            "finish",
+            group_id,
+            "--stream-id",
+            stream_id,
+            "--start-event-id",
+            start_message_id,
+            "--transcript-hash",
+            sent["transcript_hash"].as_str().expect("transcript hash"),
+            "--chunk-count",
+            &sent["chunk_count"].to_string(),
+            "daemon",
+            "preview",
+            "line",
+        ],
+    );
+    assert_eq!(finished["agent_text_stream"]["kind"], "final");
+    assert_eq!(
+        finished["agent_text_stream"]["start_event_id"],
+        start_message_id
+    );
+    subscription.wait_for(Duration::from_secs(20), |line| {
+        line["result"]["message"]["agent_text_stream"]["kind"] == "final"
+            && line["result"]["message"]["agent_text_stream"]["stream_id"] == stream_id
+    });
+    let verified = run_json(
+        home.path(),
+        &[
+            "--account",
+            &bob,
+            "stream",
+            "verify",
+            group_id,
+            "--stream-id",
+            stream_id,
+            "--transcript-hash",
+            sent["transcript_hash"].as_str().expect("transcript hash"),
+            "--chunk-count",
+            &sent["chunk_count"].to_string(),
+        ],
+    );
+    assert_eq!(verified["verified"], true);
+    assert_eq!(verified["final_message"]["stream_id"], stream_id);
+    assert_eq!(
+        verified["final_message"]["message_id"],
+        finished["message_ids"][0]
     );
 
     drop(subscription);
@@ -7399,8 +7483,110 @@ fn groups_set_avatar_url_round_trips_through_sync_and_show() {
     );
     assert_eq!(cleared["group"]["avatar_url"]["present"], false);
 
-    run_json(home.path(), &["--account", &bob, "sync"]);
+    // The same final sync, with an opt-in read of its already-owned Core after
+    // synchronization. Do not reopen a client, reconcile, retry or add a command.
+    let sync_output = wn(home.path())
+        .args(["--account", &bob, "sync"])
+        .env("WN_TEST_AVATAR_SYNC_GROUP", group_id)
+        .env(
+            "WN_TEST_AVATAR_CLEAR_EVENT",
+            cleared["message_ids"][0].as_str().unwrap_or(""),
+        )
+        .output()
+        .expect("final sync starts");
+    assert!(
+        sync_output.status.success(),
+        "final avatar sync command succeeds"
+    );
+    let sync_json: Value = serde_json::from_slice(&sync_output.stdout).expect("sync JSON");
+    assert_eq!(sync_json["ok"], true);
+    let cleared_sync = sync_json["result"].clone();
+    let sync_stderr = String::from_utf8_lossy(&sync_output.stderr);
+    let core_lines: Vec<_> = sync_stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("avatar-core-control "))
+        .collect();
+    let core_observation = if core_lines.len() == 1 {
+        serde_json::from_str::<Value>(core_lines[0]).ok()
+    } else {
+        None
+    };
+    // Retain only fixed closed facts from the SAME final-sync stderr. More
+    // than eight rows or any malformed row makes collection incomplete; never
+    // echo arbitrary JSON, errors, identities or event bytes into this marker.
+    let mut ingest_rows = Vec::new();
+    let mut ingest_complete = true;
+    for (index, line) in sync_stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("avatar-ingest-control "))
+        .take(9)
+        .enumerate()
+    {
+        if index == 8 {
+            ingest_complete = false;
+            break;
+        }
+        let value = (line.len() <= 512)
+            .then(|| serde_json::from_str::<Value>(line).ok())
+            .flatten();
+        let valid = value.as_ref().is_some_and(|value| {
+            let Some(row) = value.as_object() else {
+                return false;
+            };
+            if row.len() != 3
+                || !row.keys().all(|key| {
+                    matches!(
+                        key.as_str(),
+                        "boundary" | "outcome" | "left_object_unpersisted"
+                    )
+                })
+            {
+                return false;
+            }
+            let boundary = row["boundary"].as_str();
+            let outcome = row["outcome"].as_str();
+            let left = &row["left_object_unpersisted"];
+            match boundary {
+                Some("account_ingest") => match outcome {
+                    Some("error") => left.is_null(),
+                    Some(
+                        "processed" | "buffered" | "transport_deferred" | "local_state" | "stale"
+                        | "rejected" | "ignored_duplicate" | "ignored_own_echo" | "ignored_other"
+                        | "resource_refused",
+                    ) => left.is_boolean(),
+                    _ => false,
+                },
+                Some("receive_receipt_skip" | "recovery_receipt_skip" | "drain_receipt_skip") => {
+                    outcome == Some("cached_receipt") && left.is_null()
+                }
+                _ => false,
+            }
+        });
+        if valid {
+            ingest_rows.push(value.unwrap());
+        } else {
+            ingest_complete = false;
+        }
+    }
+    let ingest_observation = serde_json::json!({"rows": ingest_rows, "complete": ingest_complete});
     let bob_cleared = run_json(home.path(), &["--account", &bob, "chats", "show", group_id]);
+    // Copy closed facts from the existing outputs only; no additional command,
+    // protocol operation, retry or wait can alter the original assertion.
+    eprintln!(
+        "avatar-clear-control {}",
+        serde_json::json!({
+            "sender_clear_present": cleared["group"]["avatar_url"]["present"].as_bool(),
+            "receiver_present": bob_cleared["group"]["avatar_url"]["present"].as_bool(),
+            "sync_events": cleared_sync["events"].as_u64(),
+            "sync_projection_updates": cleared_sync["projection_updates"].as_u64(),
+            "sync_epoch_stall_escalations": cleared_sync["epoch_stall_escalations"].as_u64(),
+            "clear_published": cleared["published"].as_u64(),
+            "clear_message_count": cleared["message_ids"].as_array()
+                .and_then(|ids| u64::try_from(ids.len()).ok()),
+            "core_observation": core_observation,
+            "ingest_observation": ingest_observation,
+        })
+    );
     assert_eq!(bob_cleared["group"]["avatar_url"]["present"], false);
 
     // A non-HTTPS URL surfaces the stable typed error code.

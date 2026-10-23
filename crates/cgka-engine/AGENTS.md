@@ -39,11 +39,23 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 | Module | Owns |
 | --- | --- |
 | `engine.rs` | `Engine<S>`, `EngineBuilder`, `CgkaEngine` impl, `drain_events` / `drain_auto_publish` / `drain_auto_proposals` queues |
+| `account_chat_catalog.rs` | Experimental read-only paged discovery and exact-group observation from fresh Completed protected roster and actual local ordinary membership; observations only, no automatic sharing policy, transport or remote membership |
+| `account_chat_sharing.rs` | Experimental original fixed-lease two-device signed policy transcript and recipient-only HPKE bodies; actual Completed roster/generation/Engine custody, bounded exact retries and actual protected MLS carrier/source-leaf intake; no automatic actor or ordinary membership grant |
+| `history_transfer.rs` | Default-off original fixed-lease recipient-only HPKE channel; exact signed request/consent/context and Engine ownership; one immutable archive/ACK body, no MLS transport or history import permission |
 | `identity.rs` | Local signer + credential bundle; `member_id_of_processed_message` / `member_id_of_sender` chokepoints |
+| `device_group_lineage.rs` | Default-off permanent109/confirmed110 denial from the actual applied indexed tree, scoped owner/group/generation and full successor; no probe revocation or permission |
+| `device_group_genesis.rs` | Default-off atomic private-profile MLS birth factory, fresh protected original-tree evidence, permanent active-denial fencing; no SDK/settlement/chat/history permission |
+| `device_group_snapshot.rs` | Default-off bounded same-account candidate from actual indexed MLS leaves, local epoch/convergence gates and private commitment; no settled roster or grants |
+| `private_linking_join.rs` | Default-off complete private batch route and purpose/full-tree successor validation; live lease transport checks before private consumption;105/106/109 plus crypto/group/dispositions atomic; raw private bypass denied; injected-policy tests separate from genuine SDK consent |
+| `private_device_invite.rs`, `private_device_invite/preparation.rs`, `private_device_invite/confirmation.rs` | Default-off actual single-use KP/single-Add validators and trusted owned-lease preparation; raw/final110-only bytes, no ordinary Sent replay; dedicated exact-confirmed Welcome dispatch checks the original live lease; generic confirm/fail stay denied; sealed exact own-echo reconciles atomically, with exclusive actual-receipt retained verification or stock legacy verification; no error fallback/consent reconstruction |
+| `private_enrollment_predecessor.rs` | Default-off fresh protected Completed read plus actual signed GroupInfo/ratchet-tree export, bounded256KiB; metadata only, no SDK/sibling approval/recipient admission; portable verification uses separate scratch storage |
+| `private_enrollment_endorsement.rs` | Default-off explicit request-bound current-leaf signatures, complete indexed-leaf verification and engine-owned cancellation/expiry fencing; packets remain metadata, no SAS/join/native grants |
+| `private_device_invite_prepare_tests.rs` | Genuine isolated MLS Add, injected encrypted SQL rollback/exact retry, original-lease cancellation and dedicated commit-only dispatch; injected policy is not the App SDK proof |
 | `provider.rs` | Ad-hoc `OpenMlsProvider` adapter composed from crypto + storage |
 | `feature_registry.rs` | Runtime feature → capability-requirement registry |
 | `capabilities.rs` | `cgka_traits::Capability` ↔ OpenMLS `Capabilities` translation |
 | `capability_manager.rs` | `feature_status`, `upgradeable_capabilities`, write-through per-leaf cache population |
+| `linking_welcome_policy.rs` | Default-off trusted runtime lease injection; authenticated staged facts, original deadline/one-shot memory consumption, no enrollment/history grants |
 | `leaf_advertisement.rs` | What the own leaf advertises: `own_leaf_refresh_extensions` (a self-update re-advertises every supported component, keeping every other leaf byte), `own_leaf_missing_app_components` (stale only when a self-update would change the leaf), per-component leaf-support blockers |
 | `key_package.rs` | `fresh_key_package`, KeyPackage parse-time lifetime / OpenMLS accepted-range checks (refresh scheduling is a higher-layer concern) |
 | `group_lifecycle.rs` | `do_create_group`, `do_join_welcome`, `retry_rejoins_after_trusted_removal` |
@@ -83,6 +95,11 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 
 Features (`Cargo.toml`): `test-policy-overrides`, `test-crash-hooks`, `test-conformance-snapshot`. All three are
 test-only; production/app consumers must not enable them.
+
+The default-off `experimental-device-sync` feature additionally captures accepted-Welcome
+facts through an optional storage capability and exposes a read-only receipt query. It is
+not enrollment, settled-roster authorization, or adopted wire framing. `tests/accepted_welcome_receipts.rs`
+owns exact signer/KPref bindings, failure rollback/retry, and encrypted reopen.
 
 ## Design deviations
 
@@ -484,3 +501,226 @@ just simulator-smoke
 
 Benchmarks and per-file targets are in [`README.md`](README.md#tests-and-measurements) and
 [`tests/AGENTS.md`](tests/AGENTS.md).
+
+Borrowed private dispatch must retain the caller's original opaque lease on a
+pre-intent SQL error; never recreate that lease from110 or restart. Durable
+Dispatching/Unknown state rejects a second invocation. Actual SDK/NIP59/SQLCipher
+regression in App covers exact retry and expiry/cancel/shutdown without network
+effects after terminal consent.
+
+Unexpected actual selected-tree transitions deny accepted109 and confirmed110
+inside the adopting crypto/SQL unit. Candidate materialization must restore the
+original tree without touching these denial facts. Expected dedicated private
+confirmation writes its successor before merge in the same unit; that exact new
+confirmed successor remains live. Denial writes must roll back with failed MLS
+apply and survive return to an older genuine crypto snapshot/reopen. Coverage:
+`tests/accepted_welcome_receipts/private_batch.rs` private_lineage tests. They use
+injected Engine policies/pass-through batch transport, not genuine SDK consent.
+
+Dedicated private Welcome delivery must independently match confirmed110, actual
+selected MLS successor/profile, exact owned scope and the original live lease.
+Check negative lease controls on every publisher poll. No ordinary replay row,
+receipt, snapshot or restart can reconstruct delivery consent or settle a roster.
+
+
+Predecessor GroupInfo export must freshly validate actual protected completed
+settlement and serialize the real MLS public tree in the same read snapshot.
+Its bytes are metadata, never an enrollment token. Standard ExternalPub presence
+does not authorize external joins. Do not install portable PublicGroup scratch
+state in account MLS storage, skip account proof/private-profile validation,
+infer the secret epoch authenticator, or append artifact authority after SDK
+confirmation. The original live SDK context must bind any future artifact digest
+before verification, with explicit all-current-leaf approvals and atomic trusted
+successor handoff independently required.
+
+
+Portable predecessor validation (`validate_private_device_predecessor`) uses a
+fresh scratch `MemoryStorage` and real `PublicGroup::from_external` authentication.
+It requires exact TLS framing, at most 256 KiB, 1..128 canonical occupied leaves,
+Current profile and per-leaf account proof, exact required F574 payload, and exact
+known account/group/epoch/indexed signer expectations. Its opaque result contains
+only authenticated public metadata and the artifact digest; it has no constructor,
+serialization or admission authority. Never install scratch public state in
+account storage or infer completed settlement, sibling consent, secret epoch
+authenticator or an enrollment grant from this result. Tests additionally use
+actual signed ordinary/Legacy/mixed-account/wrong-payload trees, not positive
+approval rows. No Session/native export is provided by this checkpoint.
+
+## Private enrollment-request metadata inlet (experimental)
+
+Kind 38175 / `whitenoise.experimental.enrollment-request.v1` is a separate private, default-off control. It does not reuse capture 38173 or settlement 38174. `ingest_private_enrollment_delivery` accepts newly delivered encrypted input through the same audited MLS ingest pipeline; ordinary ingest, history and reconstructed rows supply no fresh eligibility. Metadata is sealed from actual Member source and Current/F574 tree plus freshly validated Completed predecessor, then queued only after the crypto/disposition/projection transaction commits. It supplies no enrollment consent, SDK admission, artifact validation, protected sibling transition, native API or chat/history grant.
+
+The intake has at most 128 exact live identities and 128 opaque observations. Its initial 600-second monotonic observation deadline is not SDK consent, never renews on retry or drain, and is not serialized. Request correlation nonce is metadata only; enrollment nonce remains the original SDK context nonce. Queue overflow is typed/transient and commits no positive disposition. Unpersisted expired identities remain bounded negative-only until exact terminal classification or owner close; only durable/obsolete entries can be reclaimed without renewing a clock. `drain_authenticated_enrollment_requests` is fallible, and proofs have no Clone/Serde/constructor. Ordinary account routing has not been wired to this dedicated live inlet.
+
+Exact encrypted request content aliases share the earliest original observation deadline under one intake lock. Created/retryable expired rows retain that negative clock until terminal classification; a new transport wrapper cannot renew it. This is metadata freshness only, never SDK approval.
+
+The separately versioned v2 enrollment-request metadata frame carries bounded
+base64 artifact and canonical-context declarations within the unchanged16KiB
+complete payload limit. V1 must omit proposal parts; v2 must include both. Each
+version has its own binding domain. Received parts remain opaque metadata until
+App canonical/context validation and Core portable artifact authentication;
+neither decoding, receipt nor a digest constructs owner consent or Add permission.
+Larger proposals require separately qualified transport/aggregate byte bounds.
+
+
+## Original local enrollment proposal owner
+
+`private_enrollment_request/producer.rs` derives metadata from the installed
+trusted private invite lease and fresh Completed actual tree, selected generation,
+purpose package and own signed artifact. Its default-deny lease accessor provides
+only original context/artifact/clock metadata. Retain the exact nonclone lease and
+weak originating Core lifetime; neither shared policy Arc nor reopened protected
+SQL state may transfer the owned proposal. Core teardown permanently ends it.
+Recheck actual tree/generation/origin, policy identity, cancellation and original
+deadline even for cached wrapper retries. Commit the real send ratchet once and
+keep exact cipher/wrapper bytes in the owner. The proposal producer never stages Add or ordinary Sent work, and cannot
+reconstruct consent. Only the dedicated original-lease handoff below may stage
+an endorsed Add. App must separately supply genuine
+original SDK metadata, explicit all-current-leaf approval and guarded publication.
+The three Core tests inject policy and minimal context; they are not SDK proof.
+
+## Received endorsement fences
+
+`private_enrollment_request.rs` seals the actual protected origin and Completed generation into each opaque observation. `private_enrollment_predecessor.rs::validate_private_enrollment_request_predecessor` authenticates the artifact against that original selection and its occupied carrier via public OpenMLS `Verifiable` APIs. `private_enrollment_endorsement.rs` requires the same fresh selection before creating or validating an owned action. Keep the portable signature test separate from original-SDK local approval; its test-only signer creates no owned continuation.
+
+## Private endorsement publication and original local collection
+
+Kind38176 is the separately classified encrypted endorsement control. Its actual
+MLS receipt shares the bounded128 intake queue and transactional direct/replay
+effect seam with requests; ordinary/history ingestion cannot mint receipts.
+`wrap_private_enrollment_endorsement` retains exact ciphertext after wrap failure,
+rolls ratchets back on SQL failure and rechecks the original protected selection
+after awaits/cached retry. The exact-generation cancellation handle only revokes
+and wakes a stalled wrap; stale handles must not cancel later generations.
+`endorse_owned_local_enrollment_proposal` signs only through the original trusted
+lease. Collection accepts actual received sibling receipts plus that local signature
+under fresh origin/generation/tree checks. It returns authentication metadata,
+never an Add, sibling transition or recipient admission capability. Core fixture
+policies are not stock SDK proof; App publication and ABC settlement are separate.
+
+
+## Original endorsed proposal to Add handoff
+
+`producer/add_handoff.rs` authenticates actual sealed sibling receipts plus the
+original local signature, then borrows the same SDK-owned lease slot through
+shared private preparation. Never swap policy, drop/recreate the lease, begin a
+second verifier or turn collection counts into permission. The nonclone guard
+retains original owner/policy, protected Completed generation/origin, exact
+predecessor/artifact/binding and original observation clocks. Pending MLS is
+allowed only for its remembered exact raw staging scope/digests; the internal
+predecessor-tree helper does not widen public Completed/candidate queries.
+Raw SQL rollback preserves original custody; cache failure retries the same raw
+ciphertexts/generation. On success the same guard moves into Prepared and the
+producer loses its lease. Dispatch rechecks inside intent SQL and network polls;
+Welcome delivery retains original owner/clocks plus actual110 confirmation.
+`preparation_has_started` and the retained minimum deadline are observation-only
+metadata, never positive capabilities. Core expiry fixtures inject a trusted
+policy/attempt; stock SDK proof lives in the separate real App worker tests.
+
+Original recipient evidence never replaces the SDK lease. Check the same Core
+lifetime/exact purpose before and after peeling and inside actual join SQL;
+compare the declared predecessor to the original lease-approved descriptor.
+Preserve the existing atomic crypto/109/purpose transaction.
+
+Protected successor and route reads also recognize the distinct private11
+Existing origin, always under exact actual indexed tree/owner checks. A matching
+Existing origin conflicts with any other matching live successor origin; no
+precedence grants settlement. Actual changed-tree apply permanently denies its
+retained generation in the adopting crypto SQL unit. Retained provenance may
+exclude hidden groups from chat, including denied rows, without granting a route.
+
+The sealed original B endorsement continuation checks exact original owner,
+generation, deadline, protected Completed predecessor and all-leaf evidence.
+Only canonical actual single-Add apply installs private11 before old-origin
+fences in the same crypto/SQL transaction. Preserve Storage error classification
+through replay so App can retain that same live action after rollback.
+
+Original existing-member Add apply stages its settlement admission inside the crypto SQL transaction and installs memory authority only after commit. Maintenance reuses a round only with the identical original live guard, deadline, anchor and protected generation. ACKs may arrive before the coordinator Challenge: retain bounded sealed receipt metadata without binding nonce or counting a fact; promote matching receipts only under the same live admission and genuine coordinator Challenge in crypto SQL. Cancellation and rollback cannot reconstruct authority.
+
+### Selected-chat consent observations
+
+`selected_chat_consent` exposes only bounded canonical request/response metadata signed by the actual protected indexed device leaf. Fresh completed protected full-tree checks and exact source signatures authenticate observations, not membership. Request export also derives the actual Current/admin ordinary anchor. No arbitrary signing API, account-shared signer, MLS mutation or SQL permission is added. Future recipient joining must check its original live purpose and the actual decrypted Current/admin/full tree through the transaction tail; signed remote ordinary claims alone cannot grant admission.
+
+Selected-chat private packages use a trusted original process lease, with bundle, independent purpose row, bounded signed offer and final lease check in one transaction. Scan all exact selected Welcome refs including terminal tombstones before generic usable-bundle fallback. SQL metadata never grants admission; package-only success is not chat delivery. Exact cleanup must verify actual bundle bytes/account/device/ref before deletion.
+
+
+Selected ordinary-chat staging and joining require a separately retained original request/consent lease, fresh exact protected full tree plus device-local Completed generation, actual Current/admin ordinary state, exact consecutive two-Add successor and unchanged indexed predecessor identities. The source's signed protected generation is local to that source; receivers independently capture/recheck their own local generation. Private KeyPackage transport identity is a default-denying trusted lease accessor, never a constructor/grant from imported metadata. Scan all Welcome references for independent terminal/pending purposes before generic bundle fallback; keep actual private bundle consumption, purpose transition, full decrypted Current/admin/tree validation and original lease tail in one SQL transaction. Selected guarded staging creates no generic durable Welcome fanout. Preserve ordinary unguarded Invite behavior. Actual four-leaf delivery is qualified through the App regression; broader current-source conformance and fault retry remain independent gates.
+
+## Opt-in history channel foundation
+
+HistoryScope and authenticated requests are observations, never consent grants.
+Retain each original trusted lease, deadline and originating Engine identity; check
+fresh actual protected Completed generation/full tree and ordinary Current epoch
+and authenticator before and after crypto. Every frame binds the complete original
+context plus the exact signed request/consent transcript. Device-local generations
+remain independent. Same-body encryption retries return frozen bytes; a different
+body is refused. HpkePrivateKey contains pinned SecretVLBytes with ZeroizeOnDrop;
+explicit channel retirement drops the retained key. Never serialize or clone an
+owned channel or restore its original lease from history rows. This checkpoint is
+one-body inner encryption only; real MLS transport, third-member privacy, ordered
+manifest/chunks, committed import ACK and native adoption remain separate gates.
+
+History control MLS wrapping freezes its actual ratchet in the crypto SQL unit
+with the original lease tail, invalidates loaded group caches on both outcomes,
+and retains exact ciphertext across wrapping retries. At most two own controls
+per original channel; every cached/awaited return rechecks the same actual scope.
+Never create ordinary Sent, generic fanout or restart-reconstructed publication
+permission. Pair controls qualify MLS framing only, not committed history import.
+
+### Ordered history original-state bounds
+
+`history_transfer/chunks.rs` retains at most128 sealed/opened indexed chunks and
+129 exact outbound controls per original (request/consent plus chunks/receipts).
+Each plaintext chunk is at most2048 bytes, each canonical wire at most16KiB.
+This process-local owner resource is separate from convergence policy: fixed
+original lease/Engine ownership, no SQL resurrection, renewal or per-chunk new
+consent. Retire/drop clears ciphertext/peer state and zeroizes the HPKE secret.
+Core receipt framing cannot prove committed import; trusted App importer must
+validate manifest/count/receipt semantics. Production Nostr size remains a
+separate actual-wrapper gate; Passthrough tests do not qualify relay envelopes.
+
+Exact device-leaf review capture derives the Current/Stable ordinary full indexed tree, actual admin/own leaf, epoch authenticator and same-account non-self target under a fresh protected Completed roster/generation read. The opaque selection is tied to the originating Engine; every review read revalidates all captured state. Public review metadata grants no Remove and cannot reconstruct the original. Reuse the canonical selected-chat indexed leaf validator rather than inventing a host tree inlet.
+
+Exact ordinary sibling removal now stages one real Remove under a fresh Core selection and trusted original runtime lease. Pending and confirmed validators require exact indexed successor, unchanged survivor identities/leaf commitments (sender path may refresh), original protected Completed generation and originating Engine. The generic account removal path remains separate; no selected Invite or protected-group removal grant is created.
+
+
+### Exact-device captured-scope removal checkpoint
+
+Device-wide exact-leaf removal captures fresh protected Completed generation and actual indexed trees. Ordinary groups precede the protected group; ordinary-only selection still refuses protected groups. Pending protected predecessor validation requires the same original memory lease and exact staged single Remove. It never fabricates Existing/Add provenance. Fresh successor settlement is a separate required step.
+
+### Original protected Remove successor settlement
+
+`device_leaf_revocation/transition.rs` stages Revoked metadata and the actual live settlement admission atomically with the authenticated sole Remove. Source admission retains the explicitly approved original admin action; recipient admission requires its exact live transport receipt and canonical MLS digest after durable content dedup. Stored canonical replay after Engine/encrypted reopen can apply negative membership but cannot allocate a new positive deadline/guard. Every old origin remains permanently denied. The actual public survivor history import and restart refusal pass; same-client transient storage retry and post-revocation new-device enrollment remain separate. See `docs/device-sync-revocation-successor-settlement-verification.json`.
+
+Same-client protected Remove storage retry is now qualified: a negative observer requires the already captured live received intent plus its exact retained receipt/deadline, unresolved input, and actual Completed predecessor/tree/generation. It creates no permission. The worker preserves this originating Engine across typed Storage rollback; encrypted reopen still cannot reconstruct its original receipt. See `docs/device-sync-revocation-storage-retry-verification.json`.
+
+### Original enrollment sharing terms
+
+`private_enrollment_endorsement` keeps ordinary v1 byte shape and a distinct
+signed sharing protocol/domain for the named broader received-request action.
+Bind fixed policy version/capabilities, exact request and indexed signer; preserve
+the same original owner/deadline/cancellation. Changing terms requires a new
+protocol/domain, not reinterpretation of old signatures. All-leaf and original
+recipient `sharing_devices()` are authenticated observations only, never policy
+or admission. `private_enrollment_sharing_tests.rs` reuses genuine received B
+fixtures and real private carrier; portable A signatures are explicitly metadata.
+
+Initial-bootstrap recovery is negative only: require a Denied original settlement,
+no live admission, no retained sharing policy (including revoked), an exact fresh
+private successor matching that round, and genuine epoch-0 one-leaf → epoch-1
+two-leaf provenance. Retire the accepted/confirmed selection in that same SQL
+transaction; never delete MLS/chat state, reconstruct consent, retire Completed
+or larger rosters, or infer recovery eligibility from native/wire fields.
+Core controls use genuine MLS with injected policies; App interrupted enrollment
+acceptance supplies actual SDK, encrypted relay and restart coverage.
+
+Switching roles after cancelled setup may leave an unchanged epoch-0 singleton
+genesis on the new recipient. Only the authenticated private join may retire
+that selection: validate the live lease and incoming full tree first, revalidate
+the original local birth, refuse any historical sharing policy or settlement for
+that birth, then deny it in the same SQL transaction as accepted-anchor admission.
+Preserve all competing-origin/pending-invite checks and rollback on later failure
+or expiry. Keep old MLS state and immutable provenance; never extend this path to
+an established or advanced group. Hydration before the transaction is observation
+only. Controls live in `accepted_welcome_receipts/private_batch.rs`; the genuine
+App regression reverses roles after actual public setup and cancellation.

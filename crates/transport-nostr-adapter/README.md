@@ -383,3 +383,9 @@ cargo test -p transport-nostr-adapter --features sdk
 ```
 
 See [`AGENTS.md`](AGENTS.md) for the file map, routing invariants, and telemetry rules.
+
+
+The experimental device-sync profile keeps the selected current private observation
+route on one separately scoped subscription. Ordinary routes still use batched
+REQs, including retained historical routes. A batch's EOSE cannot grant freshness
+for that private wire; replacement and cancellation preserve the exact wire ID.

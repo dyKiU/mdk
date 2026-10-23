@@ -218,6 +218,136 @@ mod migration_0100_attachment_explicit_priority;
 mod migration_0101_outgoing_attachment_uploads;
 #[path = "migrations/0102_attachment_emoji_role.rs"]
 mod migration_0102_attachment_emoji_role;
+#[path = "migrations/0103_synchronized_history.rs"]
+mod migration_0103_synchronized_history;
+#[path = "migrations/0104_device_linking_attempt.rs"]
+mod migration_0104_device_linking_attempt;
+#[path = "migrations/0105_accepted_welcome_receipts.rs"]
+mod migration_0105_accepted_welcome_receipts;
+#[path = "migrations/0106_device_linking_key_package.rs"]
+mod migration_0106_device_linking_key_package;
+
+#[path = "migrations/0107_roster_ack_capture.rs"]
+mod migration_0107_roster_ack_capture;
+#[path = "migrations/0108_device_group_genesis.rs"]
+mod migration_0108_device_group_genesis;
+#[path = "migrations/0109_accepted_device_group_anchor.rs"]
+mod migration_0109_accepted_device_group_anchor;
+#[path = "migrations/0110_private_device_invite.rs"]
+mod migration_0110_private_device_invite;
+
+#[cfg(test)]
+mod synchronized_history_schema_tests {
+    #[test]
+    fn private_roster_settlement_has_separate_ledger_storage() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM private_roster_settlement",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        let revision: i64 = conn
+            .query_row(
+                "SELECT max(version) FROM cgka_experimental_device_sync_schema_migrations",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(revision, super::latest_private_migration_version());
+        #[cfg(not(feature = "experimental-device-sync"))]
+        assert!(
+            cgka_traits::storage::StorageProvider::private_roster_settlement_storage(&storage)
+                .is_none()
+        );
+    }
+    #[test]
+    fn roster_ack_capture_is_separate_bounded_fact_storage() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM roster_ack_capture_facts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        #[cfg(not(feature = "experimental-device-sync"))]
+        assert!(
+            cgka_traits::storage::StorageProvider::roster_ack_capture_storage(&storage).is_none()
+        );
+    }
+    #[test]
+    fn linking_private_key_package_needs_atomic_purpose_ownership() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM device_linking_key_package",
+                [],
+                |row| row.get(0),
+            )
+            .expect("private linking packages need generation ownership before offers");
+        assert_eq!(count, 0);
+        #[cfg(not(feature = "experimental-device-sync"))]
+        assert!(
+            cgka_traits::storage::StorageProvider::device_linking_key_package_storage(&storage)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn accepted_welcome_needs_exact_device_bound_receipt() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM accepted_welcome_receipts",
+                [],
+                |row| row.get(0),
+            )
+            .expect(
+                "accepted device enrollment needs exact Welcome and consumed KeyPackage evidence",
+            );
+        assert_eq!(count, 0);
+        #[cfg(not(feature = "experimental-device-sync"))]
+        assert!(
+            cgka_traits::storage::StorageProvider::accepted_welcome_storage(&storage).is_none()
+        );
+    }
+
+    #[test]
+    fn device_linking_needs_a_durable_generation_fence() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM device_linking_attempt", [], |row| {
+                row.get(0)
+            })
+            .expect("verification attempts need durable generation fencing before emitting offers");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn synchronized_history_has_separate_provenance_storage() {
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        let conn = storage.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM synchronized_history_records",
+                [],
+                |row| row.get(0),
+            )
+            .expect("accepted account history needs its own provenance-bearing table");
+        assert_eq!(count, 0);
+        let evidence: i64 = conn
+            .query_row("SELECT count(*) FROM cgka_messages", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(evidence, 0);
+    }
+}
 #[path = "migrations/0103_outgoing_attachment_upload_bodies.rs"]
 mod migration_0103_outgoing_attachment_upload_bodies;
 #[path = "migrations/0104_file_attachment_retention.rs"]
@@ -965,7 +1095,242 @@ const MIGRATIONS: &[Migration] = &[
     },
 ];
 
-/// Test fixtures use the same default-registry entry point as production with observation disabled.
+#[path = "../private_migrations/0009_private_group_chat_exclusion.rs"]
+mod private_migration_0009_chat_exclusion;
+
+#[path = "../private_migrations/0010_private_roster_settlement.rs"]
+mod private_migration_0010_settlement;
+
+#[path = "../private_migrations/0011_existing_device_group_anchor.rs"]
+mod private_migration_0011_existing_anchor;
+
+#[path = "../private_migrations/0012_selected_chat_key_packages.rs"]
+mod private_migration_0012_selected_packages;
+
+#[path = "../private_migrations/0013_selected_chat_reference_guards.rs"]
+mod private_migration_0013_selected_reference_guards;
+
+#[path = "../private_migrations/0014_history_archive_staging.rs"]
+mod private_migration_0014_history_staging;
+
+#[path = "../private_migrations/0016_revoked_device_group_anchor.rs"]
+mod private_migration_0016_revoked_anchor;
+
+#[path = "../private_migrations/0017_mirrored_chat_catalog.rs"]
+mod private_migration_0017_mirrored_catalog;
+
+#[path = "../private_migrations/0018_approved_account_sharing_policy.rs"]
+mod private_migration_0018_sharing_policy;
+
+#[path = "../private_migrations/0019_mirrored_chat_messages.rs"]
+mod private_migration_0019_mirrored_messages;
+
+#[path = "../private_migrations/0020_account_chat_send_queue.rs"]
+mod private_migration_0020_chat_send_queue;
+
+#[path = "../private_migrations/0021_account_chat_record_stream.rs"]
+mod private_migration_0021_record_stream;
+
+#[path = "../private_migrations/0022_account_chat_record_generation_receipts.rs"]
+mod private_migration_0022_record_generation_receipts;
+
+#[path = "../private_migrations/0023_account_chat_source_acceptance.rs"]
+mod private_migration_0023_chat_source_acceptance;
+
+#[path = "../private_migrations/0024_explicit_legacy_chat_acceptance.rs"]
+mod private_migration_0024_legacy_chat_acceptance;
+#[path = "../private_migrations/0025_mirrored_chat_origins.rs"]
+mod private_migration_0025_mirrored_chat_origins;
+#[path = "../private_migrations/0026_account_chat_departure.rs"]
+mod private_migration_0026_account_chat_departure;
+
+#[path = "../private_migrations/0027_mirrored_direct_peer.rs"]
+mod private_migration_0027_mirrored_direct_peer;
+#[path = "../private_migrations/0028_mirrored_chat_edits.rs"]
+mod private_migration_0028_mirrored_chat_edits;
+
+const PRIVATE_MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "0001_synchronized_history",
+        suspend_foreign_keys: &[],
+        apply: migration_0103_synchronized_history::apply,
+    },
+    Migration {
+        version: 2,
+        name: "0002_device_linking_attempt",
+        suspend_foreign_keys: &[],
+        apply: migration_0104_device_linking_attempt::apply,
+    },
+    Migration {
+        version: 3,
+        name: "0003_accepted_welcome_receipts",
+        suspend_foreign_keys: &[],
+        apply: migration_0105_accepted_welcome_receipts::apply,
+    },
+    Migration {
+        version: 4,
+        name: "0004_device_linking_key_package",
+        suspend_foreign_keys: &[],
+        apply: migration_0106_device_linking_key_package::apply,
+    },
+    Migration {
+        version: 5,
+        name: "0005_roster_ack_capture",
+        suspend_foreign_keys: &[],
+        apply: migration_0107_roster_ack_capture::apply,
+    },
+    Migration {
+        version: 6,
+        name: "0006_device_group_genesis",
+        suspend_foreign_keys: &[],
+        apply: migration_0108_device_group_genesis::apply,
+    },
+    Migration {
+        version: 7,
+        name: "0007_accepted_device_group_anchor",
+        suspend_foreign_keys: &[],
+        apply: migration_0109_accepted_device_group_anchor::apply,
+    },
+    Migration {
+        version: 8,
+        name: "0008_private_device_invite",
+        suspend_foreign_keys: &[],
+        apply: migration_0110_private_device_invite::apply,
+    },
+    Migration {
+        version: 9,
+        name: "0009_private_group_chat_exclusion",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0009_chat_exclusion::apply,
+    },
+    Migration {
+        version: 10,
+        name: "0010_private_roster_settlement",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0010_settlement::apply,
+    },
+    Migration {
+        version: 11,
+        name: "0011_existing_device_group_anchor",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0011_existing_anchor::apply,
+    },
+    Migration {
+        version: 12,
+        name: "0012_selected_chat_key_packages",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0012_selected_packages::apply,
+    },
+    Migration {
+        version: 13,
+        name: "0013_selected_chat_reference_guards",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0013_selected_reference_guards::apply,
+    },
+    Migration {
+        version: 14,
+        name: "0014_history_archive_staging",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0014_history_staging::apply,
+    },
+    Migration {
+        version: 15,
+        name: "0015_history_request_observations",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0015_history_requests::apply,
+    },
+    Migration {
+        version: 16,
+        name: "0016_revoked_device_group_anchor",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0016_revoked_anchor::apply,
+    },
+    Migration {
+        version: 17,
+        name: "0017_mirrored_chat_catalog",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0017_mirrored_catalog::apply,
+    },
+    Migration {
+        version: 18,
+        name: "0018_approved_account_sharing_policy",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0018_sharing_policy::apply,
+    },
+    Migration {
+        version: 19,
+        name: "0019_mirrored_chat_messages",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0019_mirrored_messages::apply,
+    },
+    Migration {
+        version: 20,
+        name: "0020_account_chat_send_queue",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0020_chat_send_queue::apply,
+    },
+    Migration {
+        version: 21,
+        name: "0021_account_chat_record_stream",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0021_record_stream::apply,
+    },
+    Migration {
+        version: 22,
+        name: "0022_account_chat_record_generation_receipts",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0022_record_generation_receipts::apply,
+    },
+    Migration {
+        version: 23,
+        name: "0023_account_chat_source_acceptance",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0023_chat_source_acceptance::apply,
+    },
+    Migration {
+        version: 24,
+        name: "0024_explicit_legacy_chat_acceptance",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0024_legacy_chat_acceptance::apply,
+    },
+    Migration {
+        version: 25,
+        name: "0025_mirrored_chat_origins",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0025_mirrored_chat_origins::apply,
+    },
+    Migration {
+        version: 26,
+        name: "0026_account_chat_departure",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0026_account_chat_departure::apply,
+    },
+    Migration {
+        version: 27,
+        name: "0027_mirrored_direct_peer",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0027_mirrored_direct_peer::apply,
+    },
+    Migration {
+        version: 28,
+        name: "0028_mirrored_chat_edits",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0028_mirrored_chat_edits::apply,
+    },
+];
+
+#[path = "../private_migrations/0015_history_request_observations.rs"]
+mod private_migration_0015_history_requests;
+
+#[path = "../private_migration_ledger.rs"]
+mod private_migration_ledger;
+
+#[cfg(test)]
+pub(crate) fn latest_private_migration_version() -> i64 {
+    PRIVATE_MIGRATIONS.last().unwrap().version
+}
+
 #[cfg(test)]
 pub(crate) fn run_all(connection: &mut Connection) -> StorageResult<usize> {
     run_all_observed(connection, None)
@@ -987,7 +1352,7 @@ pub(crate) fn run_all_observed(
     connection: &mut Connection,
     observer: Option<&dyn Fn(crate::StorageOpenProgress)>,
 ) -> StorageResult<usize> {
-    run_with_summary_observed(connection, MIGRATIONS, observer)
+    private_migration_ledger::run_all(connection, observer)
 }
 /// Validate ledger history before any body runs, then report each migration's returned outcome.
 /// Observation faults cannot replace a storage error or allow a failed ledger entry to commit.
@@ -1120,8 +1485,18 @@ fn reconcile_legacy_migration_names(
     }
 
     let tx = connection.transaction().storage()?;
-    add_column_if_missing(&tx, "app_events", "source_epoch", "INTEGER")?;
-    add_column_if_missing(&tx, "message_timeline", "source_epoch", "INTEGER")?;
+    reconcile_legacy_name_in_transaction(&tx)?;
+    tx.commit().storage()
+}
+
+fn reconcile_legacy_name_in_transaction(tx: &Transaction<'_>) -> StorageResult<()> {
+    const LEGACY_CHAT_LIST_AVATAR_URL: &str = "0009_chat_list_avatar_url";
+    const APP_EVENT_SOURCE_EPOCH: &str = "0009_app_event_source_epoch";
+    if applied_name(tx, 9)?.as_deref() != Some(LEGACY_CHAT_LIST_AVATAR_URL) {
+        return Ok(());
+    }
+    add_column_if_missing(tx, "app_events", "source_epoch", "INTEGER")?;
+    add_column_if_missing(tx, "message_timeline", "source_epoch", "INTEGER")?;
     tx.execute(
         "UPDATE cgka_schema_migrations
             SET name = ?1
@@ -1130,7 +1505,7 @@ fn reconcile_legacy_migration_names(
         params![APP_EVENT_SOURCE_EPOCH, LEGACY_CHAT_LIST_AVATAR_URL],
     )
     .storage()?;
-    tx.commit().storage()
+    Ok(())
 }
 
 fn add_column_if_missing(
@@ -1180,20 +1555,7 @@ fn apply_migration(connection: &mut Connection, migration: &Migration) -> Storag
     let result = (|| {
         let tx = mode.connection.transaction().storage()?;
         (migration.apply)(&tx)?;
-        for table in migration.suspend_foreign_keys {
-            let violations: i64 = tx
-                .query_row(
-                    "SELECT count(*) FROM pragma_foreign_key_check(?1)",
-                    [table],
-                    |r| r.get(0),
-                )
-                .storage()?;
-            if violations != 0 {
-                return Err(StorageError::Backend(
-                    "migration would violate foreign keys".into(),
-                ));
-            }
-        }
+        validate_migration_foreign_keys(&tx, migration)?;
         tx.execute(
             "INSERT INTO cgka_schema_migrations (version, name, applied_at_unix_seconds)
              VALUES (?1, ?2, CAST(strftime('%s', 'now') AS INTEGER))",
@@ -1206,6 +1568,27 @@ fn apply_migration(connection: &mut Connection, migration: &Migration) -> Storag
     })();
     let restored = mode.restore();
     result.and(restored)
+}
+
+fn validate_migration_foreign_keys(
+    tx: &Transaction<'_>,
+    migration: &Migration,
+) -> StorageResult<()> {
+    for table in migration.suspend_foreign_keys {
+        let violations: i64 = tx
+            .query_row(
+                "SELECT count(*) FROM pragma_foreign_key_check(?1)",
+                [table],
+                |r| r.get(0),
+            )
+            .storage()?;
+        if violations != 0 {
+            return Err(StorageError::Backend(
+                "migration would violate foreign keys".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A panic or transaction error also restores the original connection setting.
@@ -4475,3 +4858,177 @@ mod poll_response_edge_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod device_group_genesis_tests {
+    use super::*;
+
+    #[test]
+    fn private_device_group_genesis_schema_is_separate_fact_storage() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_all(&mut connection).unwrap();
+        let count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM device_group_genesis_selection",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        // Birth provenance is separate from MLS messages or application evidence.
+        run_all(&mut connection).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod accepted_device_group_anchor_tests {
+    use super::*;
+    use cgka_traits::storage::StorageProvider;
+    #[test]
+    fn accepted_device_group_anchor_schema_is_separate_and_bounded() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_all(&mut connection).unwrap();
+        let count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM accepted_device_group_anchor",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        run_all(&mut connection).unwrap();
+        let storage = crate::SqliteAccountStorage::in_memory().unwrap();
+        assert_eq!(
+            storage.accepted_device_group_anchor_storage().is_some(),
+            cfg!(feature = "experimental-device-sync")
+        );
+    }
+}
+
+#[cfg(test)]
+mod private_device_invite_tests {
+    use super::*;
+
+    #[test]
+    fn private_device_invite_schema_preserves_confirmed_anchor_separately() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_all(&mut connection).unwrap();
+        for table in [
+            "private_device_invite_counter",
+            "private_device_invite_staging",
+            "private_device_invite_confirmed",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0);
+        }
+        run_all(&mut connection).unwrap();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(2,1)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(1,-1)",
+                    []
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO private_device_invite_counter(singleton,generation) VALUES(1,2)",
+                    []
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_all(&mut connection).unwrap();
+        connection.execute_batch("INSERT INTO cgka_groups(id,epoch,record) VALUES(X'03',0,X'7b7d');
+            INSERT INTO private_device_invite_staging(singleton,generation,account,local_device,group_id,binding,raw_commit,raw_welcome,phase)
+            VALUES(1,1,zeroblob(32),zeroblob(32),X'03',X'01',X'02',X'03',0);
+            INSERT INTO private_device_invite_confirmed(singleton,generation,account,local_device,group_id,binding)
+            VALUES(1,1,zeroblob(32),zeroblob(32),X'03',X'04');").unwrap();
+        assert!(
+            connection
+                .execute("UPDATE private_device_invite_staging SET phase=2", [])
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET raw_commit=zeroblob(262145)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET raw_welcome=zeroblob(2097153)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET binding=zeroblob(131073)",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE private_device_invite_staging SET transport=zeroblob(16777217)",
+                    []
+                )
+                .is_err()
+        );
+        connection
+            .execute("UPDATE private_device_invite_staging SET phase=4", [])
+            .unwrap();
+        let (binding, denied): (Vec<u8>, bool) = connection
+            .query_row(
+                "SELECT binding,denied FROM private_device_invite_confirmed",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(binding == [4] && !denied);
+        connection
+            .execute("DELETE FROM cgka_groups WHERE id=X'03'", [])
+            .unwrap();
+        let (binding, denied): (Vec<u8>, bool) = connection
+            .query_row(
+                "SELECT binding,denied FROM private_device_invite_confirmed",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(binding == [4] && denied);
+    }
+}
+
+#[cfg(test)]
+#[path = "../private_migration_ledger_tests.rs"]
+mod private_migration_ledger_tests;

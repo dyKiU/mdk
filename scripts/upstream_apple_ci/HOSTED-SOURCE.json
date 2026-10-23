@@ -1,0 +1,143 @@
+{
+  "workspace_commit": "eead00a4ae6214fc624199bcae04a1fb426ae2f5",
+  "files": {
+    "native/revocation_probe.py": {
+      "source": "tools/native-sync-acceptance/revocation_probe.py",
+      "sha256": "39bf6da670fcb24412abc9ccd6a71ee6639fb956dbb2b9d5c1529e2c2a7cde3f"
+    },
+    "hosted_archive.py": {
+      "source": "tools/native-sync-acceptance/cross_host.py:selected_chat",
+      "workspace_commit": "3048d444ffe681fbae2dc1fb8e4f49d2a1c14372",
+      "original_file_sha256": "ecde36dcf38a5d2963592f2caa29c13c58cdb76983146dc2f70b9957e0766808",
+      "sha256": "f65aba60ac29673de6d2a32bff510ad8d166f5c270e721f9f5fac299457c6c1a",
+      "adaptation": "Add explicit ordinary invitation wait/accept after create-chat; retain every original membership, consent, no-history and delivery assertion."
+    },
+    "hosted_pagination.py": {
+      "source": "new hosted-only native fixture using frozen selected-chat consent actions",
+      "sha256": "7cbda7cd690067cf03646fa85e68be4eff83fa6644235233ad1aeadd665ede3a",
+      "scope": "199 actual prejoin records plus one live record at existing 200-record source cap; fixed37 cursor pages, no SDK behavior changes"
+    },
+    "hosted_automatic_history.py": {
+      "source": "new hosted-only automatic AccountRecords history observation fixture",
+      "sha256": "401286d9aca0de036951d1d9a123a0954ae76c7d0d09b7cb9ff38ddb98226f34",
+      "scope": "Actual205prepairmessages; read-only chronological paired pagination/catalog source bindings; existing explicit archive200cap unchanged"
+    },
+    "automatic-history-commands.swift.txt": {
+      "source": "new hosted-only automatic AccountRecords history observation fixture",
+      "sha256": "e2f55baa508bfec21063eb509ce27f5adf2b5c56c291e857c04b453b727eb9bc",
+      "scope": "Actual205prepairmessages; read-only chronological paired pagination/catalog source bindings; existing explicit archive200cap unchanged"
+    },
+    "hosted-app-fixtures.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "f144f6de0871461e5ec156e9cc56a24836f0c67616618b7be48aec978bd9a375",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "hosted-app-unit.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "92f9a1a768a97d9b3e0711c36c093a7173b38a48c86bb10e03daffaf428c850f",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "hosted-app-ui.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "5b13dd5b22670fec484dd498459bfa476ac9b5ee86cc8a6cd0532bda2e166a22",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "run-hosted-app-acceptance.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "5bbed6d602d34529afbb5e2d055c97ccc0310b86aa4d8a0fd0190d218b3f99bd",
+      "scope": "Genuine source-only paired recipient app acceptance; separate per-platform whole-old-adapter mutation scopes and immutable-cohort fan-in, no normal source/SDK guard overrides"
+    },
+    "paired_direct_mutation.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "fd04c89936d5bec35254597b99a7bc227597ae40ecd6d73e11bf978ccf80f65e",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "paired-direct-mutations.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "4578edd5b9d7a7a7f8f9ecc2aea419a57c59c9f9e38f4821b0bc1b042ca1d6e6",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "public-enrollment.py": {
+      "source": "new additional manual public deployment gate over exact signed be04 native harness",
+      "sha256": "3c10d37ae4702c69b62934ca37ed8ca0440097fb949356b5173b31f15cd32e4b",
+      "scope": "Both90s frozen two-direction third-device/history/contact/direct-reuse journeys;10positive native process closes per route; no change to existinglocal22+setup1 or7supplement lanes"
+    },
+    "sdk_profiles.py": {
+      "source": "new closed SDK profile and trusted Git F provenance validator",
+      "sha256": "15c176c3b049032d857c05c0ff5e86952dbc81cb06efbff81f8dcf3efabfdd7f",
+      "scope": "Default two-feature and experimental three-feature Apple artifacts; no private sync authority or release adoption"
+    },
+    "native/Acceptance.swift": {
+      "source": "tools/native-sync-acceptance/Acceptance.swift",
+      "workspace_commit": "be04fc60b6a4c40bd85423fbf9e35e8982ae4b84",
+      "original_file_sha256": "ac82ce3266c1da5589eea71588bb6a9090084e6b5f89f510f9b28db30c4c939b",
+      "sha256": "5a9ae01bc401086dfa9cbc370b034d44aaa2f733252ba67cd021c72724216953",
+      "adaptation": "Explicit White Noise deployment required by integrated E18 UniFFI options; preserve secret store, pairing relay selection, relay policy, protocol actions, assertions and deadlines."
+    },
+    "native/Agent.swift": {
+      "source": "tools/native-sync-acceptance/Agent.swift",
+      "workspace_commit": "be04fc60b6a4c40bd85423fbf9e35e8982ae4b84",
+      "original_file_sha256": "c5fc93bb6796feb2e71aaf9e39c8e54b19d254a59c887008acccfebe597ea22d",
+      "sha256": "e152273246d2a9792b22cadbc0c643a16de4d8957add0253a6be70f8ed3629a3",
+      "adaptation": "Explicit White Noise deployment required by integrated E18 UniFFI options; preserve secret store, pairing relay selection, relay policy, protocol actions, assertions and deadlines."
+    },
+    "published-interop.sh": {
+      "source": "existing hosted historical/default/experimental interop route",
+      "original_file_sha256": "a2849a1f0ca4b94f3a48cde23e2314a204d394b96da3c7834b7aa29b3c703c5b",
+      "sha256": "faeb8f68bd0cf310b3df2781c5bd1eae9518c0b56536bcf8854f1e036c59f680",
+      "adaptation": "Build current default/experimental public workers through real installer-created isolated app overlays and validated current-API compiler mode; historical0.13 four-argument worker build and original transport/runtime oracles unchanged."
+    },
+    "app-sdk-cohort.py": {
+      "source": "existing authenticated SDK profile cohort helper",
+      "sha256": "80d7918b1b2268cac023d6dea6f1dff6ee89aed9f8e99f15a6b0b8e78ba03301",
+      "scope": "Shared authenticated experimental app guard and exact compiler array; no SDK or historical cohort behavior change"
+    },
+    "current-factory-commands.swift.txt": {
+      "sha256": "239cc291b36c7c3941f0dd2eb0dcf262098eae814789abfc91cf2ab443777430",
+      "purpose": "Separate current automatic factory public-mode source; no frozen native source replacement."
+    },
+    "current_factory_one_scan.py": {
+      "sha256": "598e811ba82195c09b23f16aa9a316d398956bc76ee4783e405a5be16c19efa2",
+      "purpose": "Separate current automatic factory public-mode source; no frozen native source replacement."
+    },
+    "public-current-factories.py": {
+      "sha256": "90c554c891e4bcea900a0dbddd38b02c8fd6a8a3318690e65edd1ffe945c6a08",
+      "purpose": "Separate current automatic factory public-mode source; no frozen native source replacement."
+    },
+    "test_current_factory_metadata.py": {
+      "source": "new source-only hosted current-factory metadata guard",
+      "sha256": "0005d96e7d60eecefd3976b9f08f2f9cb79a97463cbf1a61ae6a4d66d831a77c"
+    },
+    "factory_semantic_runner.py": {
+      "source": "new hosted current automatic factory causal mutation qualification",
+      "sha256": "d1228894cca8c8f600cbe03c8f96ec6262510b25694308979398b17e217c2317",
+      "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
+    },
+    "factory_xcresult.py": {
+      "source": "new hosted current automatic factory causal mutation qualification",
+      "sha256": "6487594187b0c5902442f4cb1f7d8892d2e3ed152e9c11edaa82aa1824e655b6",
+      "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
+    },
+    "factory_semantic_mutation.py": {
+      "source": "new hosted current automatic factory causal mutation qualification",
+      "sha256": "eb57d92ca51394c2d5cbbc06b80b6209587c549d8c790a2211090ef8eda5a969",
+      "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
+    },
+    "factory-semantic-sources.json": {
+      "source": "new hosted current automatic factory causal mutation qualification",
+      "sha256": "e2da7a2f6b6388d33fd1c6672551b03584ec47ed3b26e0a24b6e4952b7baa267",
+      "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
+    },
+    "test_factory_semantics.py": {
+      "source": "new hosted current automatic factory causal mutation qualification",
+      "sha256": "a053460eb6adab83a3aea2668fd8220fcc43e63228f1f9efddf37a018faa3d0b",
+      "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
+    },
+    "factory_semantic_oracle.py": {
+      "source": "new hosted current automatic factory causal mutation qualification",
+      "sha256": "19fd7937bde8e22d792383b61448f20fd826c9fcfdf2a97ae50d0484396886c8",
+      "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
+    }
+  },
+  "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."
+}

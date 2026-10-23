@@ -1,0 +1,977 @@
+"""Run remotely: source fixtures only, zero Rust compilation/runtime bodies."""
+from pathlib import Path
+import json
+import unittest
+
+from upstream_publication_mutation_anchors import (
+    publication_mutant, publication_mutation_anchor,
+    publication_runtime_oracle, FIXTURE,
+)
+
+CASES = {
+    'automatic-publication': 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs',
+    'sibling-publication': 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs',
+}
+
+
+class PublicationAnchors(unittest.TestCase):
+    def test_actual_owned_source_has_one_exact_insertion_and_restores(self):
+        for case, path in CASES.items():
+            with self.subTest(case=case):
+                source = Path(path).read_text()
+                old, new = publication_mutation_anchor(case)
+                self.assertEqual(source.count(old), 1)
+                mutant = publication_mutant(source, case)
+                offset = source.index(old) + len(old)
+                addition = new[len(old):]
+                self.assertEqual(mutant, source[:offset] + addition + source[offset:])
+                self.assertEqual(mutant.replace(new, old, 1), source)
+                self.assertEqual(mutant.count(addition), 1)
+                self.assertIn('.publication.as_ref().expect(', addition)
+                self.assertIn('.task.is_finished()', addition)
+                self.assertIn('tokio::task::yield_now().await;', addition)
+                # Every original byte remains in its original order; no future,
+                # semaphore, retry, deadline, ACK or guard expression is removed.
+
+    def test_automatic_wait_covers_the_generic_transport_hold(self):
+        old, new = publication_mutation_anchor('automatic-publication')
+        addition = new[len(old):]
+        self.assertNotIn('if ', addition)
+        self.assertNotIn('AccountSharingControl::', addition)
+        self.assertIn('.task.is_finished()', addition)
+
+    def test_bounded_runtime_envelope_preserves_exact_assertion_binding(self):
+        fixture = Path(FIXTURE).read_text()
+        case = 'sibling-publication'
+        test = 'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'
+        line = publication_runtime_oracle('', case, test, fixture)['expected_panic_line']
+        marker = 'automatic-enrollment-control stage=sibling-consent-held-before-peer-progress'
+        message = 'one blocked consent publication must not starve another approved sibling'
+        for indent in ['', '  ', '        ', '\t']:
+            for newline in ['\n', '\r\n']:
+                raw = (marker + newline + indent + f"thread '{test}' (17) panicked at {FIXTURE}:{line}:9:" + newline
+                       + indent + message + newline)
+                row = publication_runtime_oracle(raw, case, test, fixture)
+                self.assertTrue(row['intended_runtime_assertion'])
+                self.assertEqual(row['actual_panic_facts'][0]['message_kind'], 'held_fairness')
+        self.assertEqual(row['parsed_panic_header_count'], 1)
+        self.assertFalse(row['unsupported_panic_format'])
+        plain = marker + '\n' + f"thread '{test}' (17) panicked at {FIXTURE}:{line}:9:\n" + message + '\n'
+        for bad in [plain.replace('thread ', '         thread '),
+                    plain.replace('\n' + message, '\n         ' + message),
+                    plain.replace('thread ', 'untrusted-prefix thread '),
+                    plain.replace(test, 'unrelated_test'),
+                    plain.replace(FIXTURE, 'crates/unrelated.rs'),
+                    plain.replace(f':{line}:9:', f':{line + 1}:9:'),
+                    plain.replace(message, message + ' PRIVATE-PAYLOAD'),
+                    plain + plain,
+                    plain + 'error[E0308]: mismatched types\n']:
+            self.assertFalse(publication_runtime_oracle(bad, case, test, fixture)['intended_runtime_assertion'])
+
+    def test_absent_duplicate_format_drift_and_already_mutated_refused(self):
+        for case in CASES:
+            old, new = publication_mutation_anchor(case)
+            for bad in ['', old + '\n' + old, old.replace('outcome: None', 'outcome: Some(())'), new]:
+                with self.subTest(case=case, invalid=bad[:30]):
+                    with self.assertRaises(ValueError):
+                        publication_mutant(bad, case)
+
+    def test_unsupported_case_refused(self):
+        with self.assertRaises(ValueError):
+            publication_mutation_anchor('worker-spawn-stack')
+
+    def test_named_runtime_assertions_and_unrelated_failure_refusal(self):
+        fixture = Path(FIXTURE).read_text()
+        for case in CASES:
+            test = 'native_device_linking::automatic_pairing_acceptance::' + (
+                'automatic_sync_does_not_block_foreground_enrollment_completion'
+                if case == 'automatic-publication' else
+                'blocked_sibling_consent_does_not_starve_another_approved_peer')
+            meta = publication_runtime_oracle('', case, test, fixture)
+            line = meta['expected_panic_line']
+            marker = 'automatic-enrollment-control stage=' + (
+                'automatic-publication-held-before-completion' if case == 'automatic-publication'
+                else 'sibling-consent-held-before-peer-progress')
+            message = ('automatic pairing did not reach required phase: expected=EnrollmentComplete observed=SharingPending'
+                       if case == 'automatic-publication' else
+                       'one blocked consent publication must not starve another approved sibling')
+            panic = f"thread '{test}' (17) panicked at {FIXTURE}:{line}:9:\n{message}\n"
+            raw = marker + '\n' + panic
+            self.assertTrue(publication_runtime_oracle(raw, case, test, fixture)['intended_runtime_assertion'])
+            negatives = [
+                panic, panic + marker, raw + panic, raw + marker,
+                raw.replace(test, 'unrelated_test'),
+                raw.replace(FIXTURE, 'crates/unrelated.rs'),
+                raw.replace(f':{line}:9:', f':{line + 1}:9:'),
+                raw.replace(message, 'unrelated runtime assertion'),
+                raw + 'error[E0308]: mismatched types\n',
+                raw + 'error: could not compile\n',
+            ]
+            if case == 'automatic-publication':
+                negatives.append(raw.replace('expected=EnrollmentComplete', 'expected=Comparison'))
+            for bad in negatives:
+                with self.subTest(case=case, invalid=bad[:30]):
+                    self.assertFalse(publication_runtime_oracle(bad, case, test, fixture)['intended_runtime_assertion'])
+            with self.assertRaises(ValueError):
+                publication_runtime_oracle(raw, case, test, fixture + '\n' + fixture)
+
+    def test_nextest_terminal_wrapper_is_not_a_rust_compiler_error(self):
+        fixture = Path(FIXTURE).read_text()
+        case = 'sibling-publication'
+        test = 'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'
+        line = publication_runtime_oracle('', case, test, fixture)['expected_panic_line']
+        raw = ('automatic-enrollment-control stage=sibling-consent-held-before-peer-progress\n'
+               f"thread '{test}' panicked at {FIXTURE}:{line}:9:\n"
+               'one blocked consent publication must not starve another approved sibling\n')
+        for terminal in ['error: test run failed\n', 'error: test run failed\r\n']:
+            row = publication_runtime_oracle(raw + terminal, case, test, fixture)
+            self.assertEqual(row['compiler_error_count'], 0)
+            self.assertTrue(row['intended_runtime_assertion'])
+        for compiler in ['error[E0308]: mismatched types\n', 'error: could not compile\n',
+                         'error: test run failed: this is not the terminal wrapper\n']:
+            row = publication_runtime_oracle(raw + compiler, case, test, fixture)
+            self.assertEqual(row['compiler_error_count'], 1)
+            self.assertFalse(row['intended_runtime_assertion'])
+
+    def test_closed_actual_panic_facts_never_export_private_raw_values(self):
+        fixture = Path(FIXTURE).read_text()
+        case = 'automatic-publication'
+        test = 'native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion'
+        raw = ("thread 'PRIVATE-THREAD-SECRET' panicked at /PRIVATE/PATH/SECRET.rs:99887766:9:\n"
+               'PRIVATE-PAYLOAD-SECRET account=PRIVATE-ACCOUNT-SECRET\n')
+        row = publication_runtime_oracle(raw, case, test, fixture)
+        self.assertEqual(row['actual_panic_facts'], [{
+            'expected_fixture_file': False, 'expected_test_thread': False,
+            'line': None, 'message_kind': 'other',
+        }])
+        exported = json.dumps(row)
+        for secret in ['PRIVATE-THREAD-SECRET', '/PRIVATE/PATH/SECRET.rs',
+                       'PRIVATE-PAYLOAD-SECRET', 'PRIVATE-ACCOUNT-SECRET', '99887766']:
+            self.assertNotIn(secret, exported)
+        self.assertFalse(row['intended_runtime_assertion'])
+        self.assertEqual(row['panic_header_count'], 1)
+
+    def test_actual_known_failures_are_closed_classifications_not_kills(self):
+        fixture = Path(FIXTURE).read_text()
+        test = 'native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion'
+        hold = 'the actual automatic publication must be held before completion'
+        self.assertEqual(fixture.count('"' + hold + '"'), 1)
+        line = fixture[:fixture.index('"' + hold + '"')].count('\n') + 1
+        messages = [
+            (hold + ': Elapsed(())', 'hold_precondition'),
+            ('genuine sibling consent publication did not reach its hold', 'hold_precondition'),
+            ('one blocked consent publication must not starve another approved sibling', 'held_fairness'),
+            ('automatic pairing did not reach required phase: expected=EnrollmentComplete observed=PRIVATE-OBSERVED-STATE', 'enrollment_complete_timeout'),
+            ('automatic pairing did not reach required phase: expected=Comparison observed=PRIVATE-OBSERVED-STATE', 'other'),
+        ]
+        for message, kind in messages:
+            raw = f"thread '{test}' (17) panicked at {FIXTURE}:{line}:9:\n{message}\n"
+            row = publication_runtime_oracle(raw, 'automatic-publication', test, fixture)
+            self.assertEqual(row['actual_panic_facts'], [{
+                'expected_fixture_file': True, 'expected_test_thread': True,
+                'line': line, 'message_kind': kind,
+            }])
+            self.assertNotIn('PRIVATE-OBSERVED-STATE', json.dumps(row))
+            self.assertFalse(row['intended_runtime_assertion'])
+        unknown_line = f"thread '{test}' panicked at {FIXTURE}:9999999:9:\nprivate\n"
+        row = publication_runtime_oracle(unknown_line * 5, 'automatic-publication', test, fixture)
+        self.assertEqual(len(row['actual_panic_facts']), 4)
+        self.assertTrue(row['actual_panic_facts_truncated'])
+        self.assertTrue(all(fact['line'] is None for fact in row['actual_panic_facts']))
+
+
+    def priority_output(self, phase, indent='', newline='\n'):
+        # New fixture-specific evidence only; historical reporter methods above
+        # remain independently runnable against their actual old helper modules.
+        from upstream_publication_mutation_anchors import (
+            retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME,
+            PRIORITY_MESSAGE, PRIORITY_FACT_NAMES,
+        )
+        fixture = Path(PRIORITY_FIXTURE).read_text()
+        line = retry_priority_oracle('', phase, fixture)['expected_line']
+        marker = 'recipient-retry-priority ' + ' '.join(name + '=true' for name in PRIORITY_FACT_NAMES)
+        selected = 'false' if phase == 'mutant' else 'true'
+        marker += ' selected_proof=' + selected + ' runtime_closes=3 storage_closes=3 planes_shutdown=3 relay_closed=true attempt_completed=true'
+        status, summary = ('FAIL', '0 passed, 1 failed') if phase == 'mutant' else ('PASS', '1 passed')
+        output = indent + marker + newline
+        if phase == 'mutant':
+            output += indent + f"thread '{PRIORITY_NAME}' (17) panicked at {PRIORITY_FIXTURE}:{line}:5:" + newline
+            output += indent + PRIORITY_MESSAGE + newline
+        output += indent + status + ' [1.0s] (1/1) marmot-app ' + PRIORITY_NAME + newline
+        output += 'Summary [1.0s] 1 test run: ' + summary + ', 103 skipped' + newline
+        return fixture, output
+
+    def test_recipient_priority_pinned_nextest_library_binary_id(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle, PRIORITY_NAME
+        # nextest 0.9.132 metadata TestBinaryId::from_parts uses the package
+        # name for a library target; Rust's underscore crate name is not its id.
+        for phase in ('baseline', 'mutant', 'restored-control'):
+            fixture, output = self.priority_output(phase)
+            rendered = output.replace('marmot-app::marmot_app ', 'marmot-app ')
+            self.assertTrue(retry_priority_oracle(
+                rendered, phase, fixture, capture_complete=True)['evidence_passed'])
+            for other in ('marmot_app', 'marmot-app::marmot_app', 'wrong-package'):
+                wrong = rendered.replace('marmot-app ' + PRIORITY_NAME, other + ' ' + PRIORITY_NAME)
+                self.assertFalse(retry_priority_oracle(
+                    wrong, phase, fixture, capture_complete=True)['evidence_passed'])
+
+    def test_recipient_priority_actual_source_route_and_exact_omission(self):
+        from upstream_publication_mutation_anchors import PRIORITY_NAME
+        runner = Path('scripts/verify_upstream_boundary_mutations.py').read_text()
+        branch = runner.split("elif args.case == 'sibling-retry-priority':", 1)[1].split('    else:', 1)[0]
+        self.assertIn('test = PRIORITY_NAME', branch)
+        self.assertIn("--final-status-level', 'none'", runner)
+        self.assertIn('retry_priority_oracle(output, phase, Path(PRIORITY_FIXTURE).read_text(), capture_complete=True)', runner)
+        self.assertIn("mutant['exit_code'] == 100 and mutant['evidence_passed']", runner)
+        self.assertIn("proof['restored_control_passed'] &= control['evidence_passed']", runner)
+        source = Path('crates/marmot-app/src/client/device_linking/sibling_sharing.rs').read_text()
+        old = ('                && (!entry.ready\n'
+               '                    || (entry.proof_published\n'
+               '                        && entry.handshake_retry_at <= entry.proof_retry_at)))')
+        self.assertEqual(source.count(old), 1)
+        new = '                )'
+        offset = source.index(old)
+        mutant = source[:offset] + new + source[offset + len(old):]
+        self.assertEqual(mutant[:offset] + old + mutant[offset + len(new):], source)
+        self.assertNotIn('third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts', branch)
+        self.assertEqual(PRIORITY_NAME.rsplit('::', 1)[-1], 'older_recipient_proof_retry_precedes_later_consent_retry')
+
+    def test_recipient_priority_controls_accept_real_source_shaped_envelopes(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle
+        for phase in ['baseline', 'restored-control']:
+            for indent in ['', '  ', '\t', '        ']:
+                for newline in ['\n', '\r\n']:
+                    fixture, output = self.priority_output(phase, indent, newline)
+                    for counter in ['(1/1)', '( 1/1)', '(        1/1)', '(\t1/1)']:
+                        decorated = output.replace('(1/1)', counter)
+                        row = retry_priority_oracle(decorated, phase, fixture, capture_complete=True)
+                        self.assertTrue(row['evidence_passed'])
+                    self.assertTrue(row['named_case_observed'])
+                    self.assertEqual(row['summary_counts'], [1, 1, 0])
+                    self.assertFalse(row['product_qualification'])
+
+    def test_recipient_priority_intended_mutant_requires_actual_final_assertion(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle
+        fixture, output = self.priority_output('mutant', '  ', '\r\n')
+        row = retry_priority_oracle(output, 'mutant', fixture, capture_complete=True)
+        self.assertTrue(row['evidence_passed'])
+        self.assertTrue(row['exact_intended_panic'])
+        self.assertEqual(row['summary_counts'], [1, 0, 1])
+        self.assertTrue(row['prerequisites_and_closure_known'])
+
+    def test_recipient_priority_every_prerequisite_and_closure_is_required(self):
+        from upstream_publication_mutation_anchors import retry_priority_oracle, PRIORITY_FACT_NAMES
+        fixture, output = self.priority_output('mutant')
+        bad = [output.replace(name + '=true', name + '=false') for name in PRIORITY_FACT_NAMES]
+        bad += [output.replace(name + '=3', name + '=' + value) for name in
+                ['runtime_closes', 'storage_closes', 'planes_shutdown'] for value in ['0', '2', '4', '03']]
+        bad += [output.replace(name + '=true', name + '=false') for name in ['relay_closed', 'attempt_completed']]
+        bad += [output.replace(' real_frontier=true', ''),
+                output.replace('real_frontier=true', 'real_frontier=PRIVATE'),
+                output.replace(' selected_proof=false', ' selected_proof=true'),
+                output.replace(' attempt_completed=true', ' attempt_completed=true private=PRIVATE'),
+                output + output.splitlines()[0] + '\n',
+                output.replace('recipient-retry-priority ', '         recipient-retry-priority ')]
+        for value in bad:
+            row = retry_priority_oracle(value, 'mutant', fixture, capture_complete=True)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(row))
+        self.assertFalse(retry_priority_oracle(output, 'mutant', fixture)['evidence_passed'])
+
+    def test_recipient_priority_wrong_named_body_panic_and_compiler_are_not_kills(self):
+        from upstream_publication_mutation_anchors import (
+            retry_priority_oracle, PRIORITY_NAME, PRIORITY_FIXTURE, PRIORITY_MESSAGE,
+        )
+        fixture, output = self.priority_output('mutant')
+        line = retry_priority_oracle(output, 'mutant', fixture)['expected_line']
+        bad = [output.replace(PRIORITY_NAME, 'wrong_test'),
+               output.replace(PRIORITY_FIXTURE, 'private/path.rs'),
+               output.replace(f':{line}:5:', f':{line+1}:5:'),
+               output.replace(PRIORITY_MESSAGE, 'real recipient retry prerequisites and cleanup must complete'),
+               output.replace(PRIORITY_MESSAGE, PRIORITY_MESSAGE + ' PRIVATE'),
+               output.replace("thread '", "         thread '"),
+               output.replace('1 test run:', '0 tests run:'),
+               output.replace('1 test run:', '2 tests run:'),
+               output.replace('0 passed, 1 failed', '0 passed, 1 failed, 1 failed'),
+               output.replace('FAIL [1.0s]', 'PASS [1.0s]'),
+               output.replace('(1/1)', '(2/2)'),
+               output.replace('(1/1)', '(2/1)'),
+               output.replace('(1/1)', '(1/2)'),
+               output.replace('(1/1)', '(         1/1)'),
+               output + 'error[E0308]: PRIVATE\n',
+               output + output[output.index("thread '"):output.index('FAIL [')]]
+        for value in bad:
+            row = retry_priority_oracle(value, 'mutant', fixture, capture_complete=True)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(row))
+        for terminal in ['error: test run failed\n', 'error: test failed, to rerun pass `--lib`\n']:
+            self.assertTrue(retry_priority_oracle(output + terminal, 'mutant', fixture, capture_complete=True)['evidence_passed'])
+        with self.assertRaises(ValueError):
+            retry_priority_oracle(output, 'mutant', fixture + '\n' + fixture, capture_complete=True)
+
+
+class SecondarySchedulerOracles(unittest.TestCase):
+    def test_finite_predecessor_insertion_is_the_only_runtime_omission(self):
+        from upstream_publication_mutation_anchors import (
+            SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission,
+        )
+        source = Path('crates/marmot-app/src/runtime/account_worker.rs').read_text()
+        self.assertEqual(source.count(SECONDARY_PREFIX_INSERT), 1)
+        changed = secondary_prefix_omission(source)
+        self.assertEqual(changed.replace(SECONDARY_PREFIX_OMISSION, SECONDARY_PREFIX_INSERT), source)
+        self.assertEqual(changed.count(SECONDARY_PREFIX_OMISSION), 1)
+        for bad in (source.replace(SECONDARY_PREFIX_INSERT, ''), source + '\n' + SECONDARY_PREFIX_INSERT,
+                    changed, source + '\n' + SECONDARY_PREFIX_OMISSION):
+            with self.assertRaises(ValueError):
+                secondary_prefix_omission(bad)
+
+    def test_actual_timeout_case_and_closed_metadata_oracles(self):
+        from upstream_publication_mutation_anchors import (
+            SECONDARY_CASES, SECONDARY_FIXTURE, SECONDARY_ASSERTION,
+            SECONDARY_MARKER, secondary_scheduler_oracle,
+        )
+        fixture = Path(SECONDARY_FIXTURE).read_text()
+        line = fixture[:fixture.index(SECONDARY_ASSERTION)].count('\n') + 1
+        for case, name in SECONDARY_CASES.items():
+            facts = {'deferred_count': 2 if case == 'secondary-deferred' else 0,
+                     'drain_count': 1, 'pass_count': 3, 'turn_count': 12, 'predecessor_command_count': 4,
+                     'last_turn': {'pending': 0, 'buffered': 0, 'yielded': False,
+                                   'due': True, 'owed': False, 'retry_ready': True}}
+            marker = SECONDARY_MARKER + json.dumps(facts) + '\n'
+            raw = (f'test {name} ... FAILED\n' + marker + f"thread '{name}' (123) panicked at "
+                   f'{SECONDARY_FIXTURE}:{line}:6:\n'
+                   'the held admission gate makes the durable drain retry: Elapsed(())\n'
+                   'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+            self.assertTrue(secondary_scheduler_oracle(raw, case, fixture, True)['evidence_passed'])
+            self.assertEqual(secondary_scheduler_oracle(raw, case, fixture, True)['timeout_observation'], facts)
+            passing = f'test {name} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'
+            self.assertTrue(secondary_scheduler_oracle(passing, case, fixture, False)['evidence_passed'])
+            bad = [raw.replace(name, 'PRIVATE'), raw.replace(f':{line}:6:', f':{line+1}:6:'),
+                   raw.replace('the held admission gate makes the durable drain retry', 'PRIVATE'),
+                   raw.replace(SECONDARY_MARKER, 'PRIVATE '), raw + raw,
+                   raw.replace(marker, '') + marker,
+                   raw.replace('0 passed; 1 failed', '0 passed; 0 failed'),
+                   raw + 'error[E0308]: PRIVATE\n',
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, private='PRIVATE'))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, drain_count=True))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, deferred_count=1))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=None))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=dict(facts['last_turn'], private='PRIVATE')))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=dict(facts['last_turn'], owed=1)))),
+                   raw.replace(json.dumps(facts), json.dumps(dict(facts, last_turn=dict(facts['last_turn'], pending=True)))),
+                   raw.replace(SECONDARY_MARKER, 'PRIVATE ' + SECONDARY_MARKER)]
+            for output in bad:
+                result = secondary_scheduler_oracle(output, case, fixture, True)
+                self.assertFalse(result['evidence_passed'])
+                self.assertNotIn('PRIVATE', json.dumps(result))
+
+
+class CancelMaintenanceOracles(unittest.TestCase):
+    def test_real_scope_retirement_requires_own_cancel_failure(self):
+        from upstream_publication_mutation_anchors import (
+            CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME,
+            CANCEL_MAINTENANCE_MARKER, CANCEL_MAINTENANCE_CHAIN,
+            CANCEL_MAINTENANCE_FIELDS, CANCEL_MAINTENANCE_MESSAGE,
+            cancel_maintenance_oracle,
+        )
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        start = fixture.index(CANCEL_MAINTENANCE_MARKER)
+        position = fixture.index(CANCEL_MAINTENANCE_CHAIN, start)
+        line = fixture[:position + CANCEL_MAINTENANCE_CHAIN.index('.unwrap();')].count('\n') + 1
+        facts = {key: True for key in CANCEL_MAINTENANCE_FIELDS}
+        marker = CANCEL_MAINTENANCE_MARKER + json.dumps(facts) + '\n'
+        raw = (f'test {CANCEL_MAINTENANCE_NAME} ... FAILED\n' + marker
+               + f"thread '{CANCEL_MAINTENANCE_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n"
+               + CANCEL_MAINTENANCE_MESSAGE + '\n'
+               + 'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+        self.assertTrue(cancel_maintenance_oracle(raw, fixture)['evidence_passed'])
+        negatives = [raw.replace(CANCEL_MAINTENANCE_NAME, 'PRIVATE'),
+                     raw.replace(f':{line}:26:', f':{line+1}:26:'),
+                     raw.replace(CANCEL_MAINTENANCE_MESSAGE, 'PRIVATE'),
+                     raw.replace(marker, ''), raw + raw,
+                     raw.replace(marker, '') + marker,
+                     raw.replace('0 passed; 1 failed', '0 passed; 0 failed'),
+                     raw.replace('0 passed; 1 failed', '1 passed; 0 failed'),
+                     raw + 'error[E0308]: PRIVATE\n',
+                     raw.replace(json.dumps(facts), json.dumps(dict(facts, private='PRIVATE'))),
+                     raw.replace(json.dumps(facts), json.dumps(dict(facts, wrapped_owned=False))),
+                     raw.replace(json.dumps(facts), json.dumps(dict(facts, same_retired_owned=1))),
+                     raw.replace(CANCEL_MAINTENANCE_MARKER, 'PRIVATE ' + CANCEL_MAINTENANCE_MARKER)]
+        for output in negatives:
+            result = cancel_maintenance_oracle(output, fixture)
+            self.assertFalse(result['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(result))
+        with self.assertRaises(ValueError):
+            cancel_maintenance_oracle(raw, fixture.replace(CANCEL_MAINTENANCE_CHAIN, 'PRIVATE'))
+
+class CancelMaintenanceGreenOracle(unittest.TestCase):
+    def test_exact_green_marker_and_named_pass(self):
+        from upstream_publication_mutation_anchors import (CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, CANCEL_MAINTENANCE_MARKER, CANCEL_MAINTENANCE_FIELDS, cancel_maintenance_oracle)
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        marker = CANCEL_MAINTENANCE_MARKER + json.dumps({key: True for key in CANCEL_MAINTENANCE_FIELDS}) + '\n'
+        raw = f'test {CANCEL_MAINTENANCE_NAME} ... ok\n' + marker + 'test result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'
+        self.assertTrue(cancel_maintenance_oracle(raw, fixture, False)['evidence_passed'])
+        for bad in [raw + raw, raw.replace(marker, ''), raw.replace('... ok', '... FAILED'), raw.replace('1 passed; 0 failed', '0 passed; 0 failed'), raw + 'error[E0308]: PRIVATE\n', raw + "thread 'PRIVATE' panicked at PRIVATE:1:1:\n", raw.replace('true', 'false'), raw.replace('true', '1'), raw.replace(CANCEL_MAINTENANCE_MARKER, 'PRIVATE ' + CANCEL_MAINTENANCE_MARKER)]:
+            row = cancel_maintenance_oracle(bad, fixture, False)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE', json.dumps(row))
+
+    def test_cancellation_mutation_parent_replacement_is_rejected(self):
+        import tempfile
+        from upstream_publication_mutation_anchors import ExactCancellationMutation
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            parent = root / 'owned'
+            outside = root / 'outside'
+            parent.mkdir(); outside.mkdir()
+            target = parent / 'source.rs'; target.write_bytes(b'ORIGINAL')
+            foreign = outside / 'source.rs'; foreign.write_bytes(b'OUTSIDE')
+            leaf = ExactCancellationMutation(target)
+            leaf.write(b'MUTANT')
+            parent.rename(root / 'moved')
+            parent.symlink_to(outside, target_is_directory=True)
+            try:
+                with self.assertRaises(ValueError): leaf.write(b'ORIGINAL')
+                self.assertEqual(foreign.read_bytes(), b'OUTSIDE')
+            finally:
+                leaf.close()
+
+    def test_cancellation_mutation_exact_inode_and_mode_restored(self):
+        import tempfile
+        from upstream_publication_mutation_anchors import ExactCancellationMutation
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory).resolve() / 'source.rs'
+            target.write_bytes(b'ORIGINAL'); target.chmod(0o600)
+            inode = target.stat().st_ino
+            leaf = ExactCancellationMutation(target)
+            try:
+                leaf.write(b'MUTANT'); leaf.write(b'ORIGINAL')
+                self.assertEqual(target.read_bytes(), b'ORIGINAL')
+                self.assertEqual(target.stat().st_ino, inode)
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            finally:
+                leaf.close()
+
+class RealGuardPointerOracle(unittest.TestCase):
+    def test_real_guard_green_and_exact_pointer_omission(self):
+        from upstream_publication_mutation_anchors import REAL_GUARD_NAME, REAL_GUARD_EXPECT, REAL_GUARD_FIELDS, real_guard_oracle, CANCEL_MAINTENANCE_FIXTURE
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        literal = fixture.index('"' + REAL_GUARD_EXPECT + '"')
+        line = fixture[:fixture.rfind('.expect', 0, literal)].count('\n') + 1
+        marker = 'cancel-real-guard-control ' + json.dumps({key: True for key in REAL_GUARD_FIELDS}) + '\n'
+        result = 'cancel-real-guard-result {"foreign_cancel_returned_ok":true}\n'
+        failure = (f'test {REAL_GUARD_NAME} ... FAILED\n' + marker + result
+                   + f"thread '{REAL_GUARD_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n"
+                   + REAL_GUARD_EXPECT + ': Gate(NoLiveVerifier)\n'
+                   + 'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+        green = f'test {REAL_GUARD_NAME} ... ok\n' + marker + result.replace('true','false') + 'test result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'
+        self.assertTrue(real_guard_oracle(failure, fixture, True)['evidence_passed'])
+        self.assertTrue(real_guard_oracle(green, fixture, False)['evidence_passed'])
+        negatives = [failure + failure, failure.replace(marker, ''), failure.replace(result, ''), failure.replace(result, result.replace('true','false')),
+                     failure.replace(marker, marker.replace('true','false')), failure.replace(marker, marker.replace('true','1')),
+                     failure.replace(marker, marker.replace('}', ',"PRIVATE":true}')), failure.replace(marker, marker.replace('{', '{"selected_original":true,')),
+                     failure.replace(result, '{PRIVATE}'), failure.replace(marker, '') + marker, failure.replace('1 failed','0 failed'),
+                     failure.replace(': Gate(NoLiveVerifier)', ': PRIVATE'), failure.replace(f':{line}:26:',f':{line+1}:26:'),
+                     failure.replace(REAL_GUARD_NAME,'PRIVATE'), failure + 'error[E0308]: PRIVATE\n',
+                     failure.replace('cancel-real-guard-control ', 'PRIVATE cancel-real-guard-control '), failure.replace(marker,marker+marker)]
+        for raw in negatives:
+            row = real_guard_oracle(raw, fixture, True)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE',json.dumps(row))
+        self.assertFalse(real_guard_oracle(green + green, fixture, False)['evidence_passed'])
+        self.assertFalse(real_guard_oracle(green.replace('false','true'), fixture, False)['evidence_passed'])
+        with self.assertRaises(ValueError): real_guard_oracle(failure, fixture, 'mutant')
+
+class LateFirstRevokeOracle(unittest.TestCase):
+    def test_actual_late_first_ack_requires_real_prerequisites_and_own_assertion(self):
+        from upstream_publication_mutation_anchors import LATE_FIRST_NAME, LATE_FIRST_ASSERT, LATE_FIRST_PREREQS, late_first_revoke_oracle, CANCEL_MAINTENANCE_FIXTURE
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        literal = fixture.index('"' + LATE_FIRST_ASSERT + '"')
+        line = fixture[:fixture.rfind('assert!(', 0, literal)].count('\n') + 1
+        first = 'cancel-late-first-prerequisites ' + json.dumps({name: True for name in LATE_FIRST_PREREQS}) + '\n'
+        second = 'cancel-late-first-result ' + json.dumps({'old_acknowledged':True,'old_stale_rejected':False,'current_revision_unchanged':False,'owned_runtimes_closed':True}) + '\n'
+        raw = (f'test {LATE_FIRST_NAME} ... FAILED\n' + first + second
+               + f"thread '{LATE_FIRST_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n"
+               + LATE_FIRST_ASSERT + '\n' + 'test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n')
+        self.assertTrue(late_first_revoke_oracle(raw, fixture)['evidence_passed'])
+        bad = [raw + raw, raw.replace(first,''), raw.replace(second,''), raw.replace(first,first.replace('true','false')),
+               raw.replace(first,first.replace('true','1')), raw.replace(second,second.replace('true','false')),
+               raw.replace(second,second.replace('false','true')), raw.replace(first,first.replace('}', ',"PRIVATE":true}')),
+               raw.replace(first,first.replace('{', '{"old_slot_unrevoked":true,')), raw.replace(first,'')+first,
+               raw.replace('0 passed; 1 failed','0 passed; 0 failed'), raw + 'error[E0308]: PRIVATE\n',
+               raw.replace(LATE_FIRST_NAME,'PRIVATE'), raw.replace(LATE_FIRST_ASSERT,'PRIVATE'),
+               raw.replace(f':{line}:26:',f':{line+1}:26:'), raw.replace('cancel-late-first-result ','PRIVATE cancel-late-first-result ')]
+        for output in bad:
+            row = late_first_revoke_oracle(output, fixture)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE',json.dumps(row))
+
+
+    def test_fixed_late_first_counter_inverse_requires_rejection_and_exact_unchanged_revision(self):
+        from upstream_publication_mutation_anchors import LATE_FIRST_NAME, LATE_FIRST_ASSERT, LATE_FIRST_PREREQS, late_first_fixed_oracle, late_first_counter_inverse, CANCEL_MAINTENANCE_FIXTURE
+        fixture = Path(CANCEL_MAINTENANCE_FIXTURE).read_text()
+        literal = fixture.index('"' + LATE_FIRST_ASSERT + '"')
+        line = fixture[:fixture.rfind('assert!(', 0, literal)].count('\n') + 1
+        first = 'cancel-late-first-prerequisites ' + json.dumps({name: True for name in LATE_FIRST_PREREQS}) + '\n'
+        def sample(mutant):
+            second = 'cancel-late-first-result ' + json.dumps({'old_acknowledged':False,'old_stale_rejected':True,'current_revision_unchanged':not mutant,'owned_runtimes_closed':True}) + '\n'
+            return (f'test {LATE_FIRST_NAME} ... ' + ('FAILED' if mutant else 'ok') + '\n' + first + second
+                    + (f"thread '{LATE_FIRST_NAME}' (123) panicked at {CANCEL_MAINTENANCE_FIXTURE}:{line}:26:\n" + LATE_FIRST_ASSERT + '\n' if mutant else '')
+                    + ('test result: FAILED. 0 passed; 1 failed; 0 ignored; 999 filtered out\n' if mutant else 'test result: ok. 1 passed; 0 failed; 0 ignored; 999 filtered out\n'))
+        green, mutant = sample(False), sample(True)
+        self.assertTrue(late_first_fixed_oracle(green, fixture, False)['evidence_passed'])
+        self.assertTrue(late_first_fixed_oracle(mutant, fixture, True)['evidence_passed'])
+        for output, phase in [(green,True),(mutant,False),(mutant+mutant,True),(mutant.replace(first,''),True),
+                              (mutant.replace('"old_acknowledged": false','"old_acknowledged": true'),True),
+                              (mutant.replace('"old_stale_rejected": true','"old_stale_rejected": false'),True),
+                              (mutant.replace('"owned_runtimes_closed": true','"owned_runtimes_closed": false'),True),
+                              (mutant.replace(first,first.replace('true','1')),True),
+                              (mutant.replace(first,first.replace('}', ',"PRIVATE":true}')),True),
+                              (mutant.replace(first,first.replace('{','{"old_slot_unrevoked":true,')),True),
+                              (mutant.replace(first,'')+first,True),(mutant+'error[E0308]: PRIVATE\n',True),
+                              (mutant.replace(LATE_FIRST_NAME,'PRIVATE'),True),(mutant.replace(LATE_FIRST_ASSERT,'PRIVATE'),True),
+                              (mutant.replace(f':{line}:26:',f':{line+1}:26:'),True),
+                              (mutant.replace('0 passed; 1 failed','0 passed; 0 failed'),True)]:
+            row = late_first_fixed_oracle(output, fixture, phase)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE',json.dumps(row))
+        with self.assertRaises(ValueError): late_first_fixed_oracle(mutant, fixture, 'mutant')
+        # Exercise the actual pure transform on the admitted product source, not a toy anchor.
+        source = Path('crates/marmot-app/src/runtime/private_commit.rs').read_text()
+        old, new = late_first_counter_inverse(source)
+        self.assertEqual(new, old[:len(old)-len(old.lstrip(' '))] + 'gate.cancel();\n' + old)
+        self.assertEqual(source.replace(old,new,1).replace(new,old,1),source)
+        wrapped = old.replace('active.original_invite_revision', 'active\n' + ' ' * 20 + '.original_invite_revision')
+        wrapped_old, wrapped_new = late_first_counter_inverse(wrapped)
+        self.assertEqual(wrapped_new, wrapped_old[:len(wrapped_old)-len(wrapped_old.lstrip(' '))] + 'gate.cancel();\n' + wrapped_old)
+        with self.assertRaises(ValueError): late_first_counter_inverse(source + '\n' + old)
+
+
+
+class CanonicalLeafCleanup(unittest.TestCase):
+    def fixture(self):
+        from upstream_publication_mutation_anchors import CANONICAL_FIXTURE
+        return Path(CANONICAL_FIXTURE).read_text()
+
+    def shape(self, phase):
+        from upstream_publication_mutation_anchors import CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_FIXTURE, CANONICAL_LABEL, canonical_leaf_assertion_line
+        failed = phase == 'mutant'
+        names = CANONICAL_SIBLINGS if failed else CANONICAL_NAMES
+        site = canonical_leaf_assertion_line(self.fixture())
+        text = f'running {len(names)} tests\n' + ''.join(f'test {name} ... {"FAILED" if failed else "ok"}\n' for name in names)
+        if failed:
+            text += ''.join(f"thread '{name}' (3) panicked at {CANONICAL_FIXTURE}:{site}:5:\nassertion `left == right` failed: {CANONICAL_LABEL}\n  left: 2\n right: 1\n" for name in names)
+        return text + f'test result: {"FAILED" if failed else "ok"}. {0 if failed else 3} passed; {2 if failed else 0} failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.1s\n'
+
+    def test_source_exact_one_empty_leaf_slice_inverse(self):
+        from upstream_publication_mutation_anchors import CANONICAL_CLEANUP, CANONICAL_EMPTY
+        source = Path('crates/marmot-app/src/client/sync.rs').read_text()
+        self.assertEqual(source.count(CANONICAL_CLEANUP), 1)
+        mutant = source.replace(CANONICAL_CLEANUP, CANONICAL_EMPTY, 1)
+        self.assertEqual(mutant.replace(CANONICAL_EMPTY, CANONICAL_CLEANUP, 1), source)
+        self.assertEqual(CANONICAL_CLEANUP.replace('                    leaves,', '                    &leaves[..0],'), CANONICAL_EMPTY)
+
+    def test_three_positive_controls_and_two_owned_failures(self):
+        from upstream_publication_mutation_anchors import canonical_leaf_oracle
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            self.assertTrue(canonical_leaf_oracle(self.shape(phase), self.fixture(), phase)['evidence_passed'])
+        for gap in ['\n', '\n\n', '\n\n\n']:
+            raw = self.shape('mutant').replace(':5:\nassertion', ':5:' + gap + 'assertion')
+            self.assertTrue(canonical_leaf_oracle(raw, self.fixture(), 'mutant')['evidence_passed'])
+
+    def test_unknown_compile_duplicate_and_wrong_assertion_fail_closed(self):
+        from upstream_publication_mutation_anchors import canonical_leaf_oracle, CANONICAL_FIXTURE, CANONICAL_SIBLINGS, CANONICAL_LABEL
+        good = self.shape('mutant')
+        for bad in [good + good, good.replace('2 failed;', '1 failed;'), good.replace('0 ignored;', '1 ignored;'),
+                    good.replace(CANONICAL_SIBLINGS[0], 'private::unreviewed'), good.replace(CANONICAL_FIXTURE, 'private.rs'),
+                    good.replace(CANONICAL_LABEL, 'PRIVATE_VALUE'), good.replace('left: 2', 'left: 3'),
+                    good.replace('right: 1', 'right: 2'), good.replace('running 2 tests', 'running 0 tests'),
+                    good + 'error[E0308]: PRIVATE_VALUE\n', good.replace('panicked at ', 'panic at ', 1),
+                    good.replace(':5:\nassertion', ':5:\n\n\n\nassertion')]:
+            row = canonical_leaf_oracle(bad, self.fixture(), 'mutant')
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+    def test_terminal_libtest_wrapper_does_not_hide_real_compile_errors(self):
+        from upstream_publication_mutation_anchors import canonical_leaf_oracle
+        raw = self.shape('mutant')
+        for suffix in ['error: test failed, to rerun pass `--lib`\n', 'error: test failed, to rerun pass `-p marmot-app --lib`\n']:
+            self.assertTrue(canonical_leaf_oracle(raw + suffix, self.fixture(), 'mutant')['evidence_passed'])
+        self.assertFalse(canonical_leaf_oracle(raw + 'error: unknown compilation failure\n', self.fixture(), 'mutant')['evidence_passed'])
+
+
+
+
+class PeerLeaveTimerControls(unittest.TestCase):
+    def shape(self):
+        from upstream_publication_mutation_anchors import PEER_TIMER_NAMES
+        return ('running 2 tests\n' + ''.join('test ' + name + ' ... ok\n' for name in PEER_TIMER_NAMES)
+                + 'test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.1s\n')
+
+    def test_exact_two_timer_controls_are_positive_only(self):
+        from upstream_publication_mutation_anchors import peer_leave_timer_control_oracle
+        row = peer_leave_timer_control_oracle(self.shape())
+        self.assertTrue(row['evidence_passed'])
+        self.assertEqual(row['compiler_error_count'], 0)
+        self.assertEqual(row['panic_header_count'], 0)
+
+    def test_missing_duplicate_ignored_failure_compile_and_private_are_not_positive(self):
+        from upstream_publication_mutation_anchors import PEER_TIMER_NAMES, peer_leave_timer_control_oracle
+        raw = self.shape()
+        for bad in [raw + raw, raw.replace('2 passed;', '1 passed;'), raw.replace('0 ignored;', '1 ignored;'),
+                    raw.replace(PEER_TIMER_NAMES[0], 'private::unknown'), raw.replace('... ok', '... FAILED', 1),
+                    raw.replace('running 2 tests', 'running 0 tests'), raw + 'error[E0308]: PRIVATE_VALUE\n',
+                    raw + 'thread private panicked at PRIVATE_VALUE\n']:
+            row = peer_leave_timer_control_oracle(bad)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+
+
+
+class AutomaticBodyComplementaryPfp(unittest.TestCase):
+    def shape(self, failed):
+        from qualify_upstream_automatic_body import NAME, FILE, MESSAGE, STAGES, expected_panic
+        lines = ['running 1 test', 'test ' + NAME + ' ... ' + ('FAILED' if failed else 'ok')]
+        for index, stage in enumerate(STAGES):
+            lines.append('automatic-body-control stage=' + stage + (' responsive=' + ('false' if failed else 'true') if index == 4 else ' index=' + str(index - 8) if index in [8, 9] else ''))
+        if failed:
+            lines += ["thread '" + NAME + "' panicked at " + FILE + ':' + str(expected_panic()['line']) + ':5:', MESSAGE]
+        lines.append('test result: ' + ('FAILED. 0 passed; 1 failed;' if failed else 'ok. 1 passed; 0 failed;') + ' 0 ignored; 0 measured; 0 filtered out; finished in 0.1s')
+        return '\n'.join(lines) + '\n'
+
+    def test_actual_body_parser_green_own_red_restored(self):
+        from upstream_publication_mutation_anchors import automatic_body_pfp_oracle
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            row = automatic_body_pfp_oracle(self.shape(phase == 'mutant'), phase, 101 if phase == 'mutant' else 0)
+            self.assertTrue(row['evidence_passed'])
+            self.assertEqual(row['actual_body_counts'], [0, 1, 0] if phase == 'mutant' else [1, 0, 0])
+
+    def test_body_oracle_rejects_unknown_wrong_thread_site_duplicate_compile_and_nonown(self):
+        from upstream_publication_mutation_anchors import automatic_body_pfp_oracle
+        from qualify_upstream_automatic_body import NAME, FILE, MESSAGE, expected_panic
+        raw = self.shape(True)
+        bad = [raw + raw, raw.replace(NAME, 'private::unknown', 1),
+               raw.replace("thread '" + NAME + "'", "thread 'private::unknown'"),
+               raw.replace(FILE + ':' + str(expected_panic()['line']), FILE + ':' + str(expected_panic()['line'] + 1)),
+               raw.replace(MESSAGE, 'PRIVATE_VALUE'), raw + 'error[E0308]: PRIVATE_VALUE\n',
+               raw.replace('stage=peer-progress-control', 'stage=PRIVATE_VALUE'),
+               raw.replace('stage=positive-runtime-close index=1', 'stage=positive-runtime-close index=0'),
+               raw.replace('0 ignored;', '1 ignored;'), raw.replace('1 failed;', '0 failed;'),
+               raw.replace('running 1 test', 'running 0 tests'),
+               raw.replace('stage=actual-body-released', 'stage=PRIVATE_VALUE'),
+               raw.replace('responsive=false', 'responsive=true')]
+        for text in bad:
+            row = automatic_body_pfp_oracle(text, 'mutant', 101)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        start = raw.index("thread '")
+        end = raw.index('test result:', start)
+        moved_panic = raw[start:end] + raw[:start] + raw[end:]
+        self.assertFalse(automatic_body_pfp_oracle(moved_panic, 'mutant', 101)['evidence_passed'])
+        self.assertFalse(automatic_body_pfp_oracle(raw, 'mutant', 0)['evidence_passed'])
+        self.assertFalse(automatic_body_pfp_oracle(raw, 'baseline', 101)['evidence_passed'])
+
+
+
+class ExplicitSyncLifecycleBoundary(unittest.TestCase):
+    def lifecycle(self, failed):
+        from upstream_publication_mutation_anchors import EXPLICIT_LIFECYCLE_NAME as name, EXPLICIT_LIFECYCLE_FIXTURE as file, EXPLICIT_LIFECYCLE_LABEL as label, explicit_lifecycle_assertion_line
+        site = explicit_lifecycle_assertion_line(Path(file).read_text())
+        raw = 'running 1 test\ntest ' + name + ' ... ' + ('FAILED' if failed else 'ok') + '\n'
+        from upstream_publication_mutation_anchors import EXPLICIT_LIFECYCLE_PRIOR_FIELDS, EXPLICIT_LIFECYCLE_RESULT_FIELDS
+        raw += 'explicit-sync-lifecycle-prerequisites ' + json.dumps(dict.fromkeys(EXPLICIT_LIFECYCLE_PRIOR_FIELDS, True), separators=(',', ':')) + '\n'
+        values = dict.fromkeys(EXPLICIT_LIFECYCLE_RESULT_FIELDS, not failed)
+        values.update(one_member_after_retry=True, storage_closed=True)
+        raw += 'explicit-sync-lifecycle-result ' + json.dumps(values, separators=(',', ':')) + '\n'
+        if failed: raw += "thread '" + name + "' panicked at " + file + ':' + str(site) + ':5:\n\n' + label + '\n'
+        return raw + 'test result: ' + ('FAILED. 0 passed; 1 failed;' if failed else 'ok. 1 passed; 0 failed;') + ' 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n'
+
+    def test_lifecycle_due_green_own_red_restored_and_lib_terminal_wrapper(self):
+        from upstream_publication_mutation_anchors import explicit_sync_lifecycle_oracle, EXPLICIT_LIFECYCLE_FIXTURE
+        fixture = Path(EXPLICIT_LIFECYCLE_FIXTURE).read_text()
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            raw = self.lifecycle(phase == 'mutant')
+            if phase == 'mutant': raw += 'error: test failed, to rerun pass `--lib`\n'
+            self.assertTrue(explicit_sync_lifecycle_oracle(raw, fixture, phase)['evidence_passed'])
+
+    def test_lifecycle_no_unrelated_or_compiler_or_empty_or_duplicate_credit(self):
+        from upstream_publication_mutation_anchors import explicit_sync_lifecycle_oracle, EXPLICIT_LIFECYCLE_FIXTURE, EXPLICIT_LIFECYCLE_NAME, EXPLICIT_LIFECYCLE_LABEL, explicit_lifecycle_assertion_line
+        fixture = Path(EXPLICIT_LIFECYCLE_FIXTURE).read_text();raw = self.lifecycle(True)
+        for bad in [raw + raw, raw.replace(EXPLICIT_LIFECYCLE_NAME, 'private::unknown', 1),
+                    raw.replace("thread '" + EXPLICIT_LIFECYCLE_NAME + "'", "thread 'private::unknown'"),
+                    raw.replace(EXPLICIT_LIFECYCLE_LABEL, 'PRIVATE_VALUE'),
+                    raw.replace(':' + str(explicit_lifecycle_assertion_line(fixture)) + ':5:', ':1:5:'),
+                    raw + 'error[E0308]: PRIVATE_VALUE\n', raw.replace('0 ignored;', '1 ignored;'),
+                    raw.replace('running 1 test', 'running 0 tests'), raw.replace('1 failed;', '0 failed;'),
+                    raw + 'error: test failed, to rerun pass `--test PRIVATE_VALUE`\n',
+                    raw + 'error: test failed, to rerun pass `--lib`\nPRIVATE_VALUE\n',
+                    raw.replace('\"timer_already_due\":true', '\"timer_already_due\":false'),
+                    raw.replace('\"storage_closed\":true', '\"storage_closed\":false'),
+                    raw.replace('explicit-sync-lifecycle-prerequisites ', 'PRIVATE_VALUE '),
+                    raw.replace('\"timer_already_due\":true', '\"timer_already_due\":true,\"timer_already_due\":true')]:
+            row = explicit_sync_lifecycle_oracle(bad, fixture, 'mutant')
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+    def test_progress_exact_five_positives_and_missing_duplicate_extra_failure(self):
+        from upstream_publication_mutation_anchors import explicit_sync_progress_oracle, EXPLICIT_PROGRESS_NAMES
+        raw = 'running 5 tests\n' + ''.join('test ' + name + ' ... ok\n' for name in EXPLICIT_PROGRESS_NAMES) + 'test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n'
+        self.assertTrue(explicit_sync_progress_oracle(raw)['evidence_passed'])
+        for bad in [raw + raw, raw.replace(EXPLICIT_PROGRESS_NAMES[0], 'private::unknown'),
+                    raw.replace('5 passed;', '4 passed;'), raw.replace('0 ignored;', '1 ignored;'),
+                    raw.replace('... ok', '... FAILED', 1), raw + 'error[E0308]: PRIVATE_VALUE\n']:
+            row = explicit_sync_progress_oracle(bad)
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+class OriginalRelayPositiveControl(unittest.TestCase):
+    def test_original_relay_positive_is_not_mutation_credit(self):
+        from upstream_publication_mutation_anchors import explicit_sync_original_relay_positive_oracle
+        raw = 'running 1 test\ntest relay_app_runtime_publishes_member_leave ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.1s\n'
+        row = explicit_sync_original_relay_positive_oracle(raw)
+        self.assertTrue(row['evidence_passed']);self.assertTrue(row['original_relay_positive_only'])
+        for bad in [raw + raw, raw.replace(' ... ok', ' ... FAILED'), raw.replace('1 passed;', '0 passed;'),
+                    raw.replace('0 ignored;', '1 ignored;'), raw.replace('relay_app_runtime_publishes_member_leave', 'private::unknown'),
+                    raw + 'error[E0308]: PRIVATE_VALUE\n', raw + 'thread private panicked at PRIVATE_VALUE\n']:
+            row = explicit_sync_original_relay_positive_oracle(bad)
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+
+
+class ProposalOnlyCancellationObservation(unittest.TestCase):
+    def shape(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_CANCEL_NAME as name, PROPOSAL_CANCEL_FILE as file, PROPOSAL_CANCEL_MESSAGE as message, proposal_only_cancel_assertion_line
+        fixture=Path(file).read_text();site=proposal_only_cancel_assertion_line(fixture)
+        row={'owned_proposal':True,'retired_proposal':True,'fallback_entered':True,'context_rejected':False,'scope_check_entered':True,'scope_check_passed':False,'durable_query_completed':False,'durable_phase':None,'exact_retired':None,'cancel_ok':False,'cancel_stale':True}
+        raw='running 1 test\ntest '+name+' ... FAILED\n'+''.join('proposal-only-cancel-close index='+str(i)+'\n'for i in range(3))+'proposal-only-cancel-control '+json.dumps(row,separators=(',',':'))+'\n'+"thread '"+name+"' panicked at "+file+':'+str(site)+':5:\n'+message+'\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out;\n'
+        return fixture,raw
+    def test_exact_proposal_only_runtime_red_and_unknowns_rejected(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_oracle
+        fixture,raw=self.shape();self.assertTrue(proposal_only_cancel_oracle(raw,fixture)['evidence_passed'])
+        for good in [raw+"error: test failed, to rerun pass `-p marmot-app --lib`\n",raw.replace("' panicked at ","' (123) panicked at ")]:
+            self.assertTrue(proposal_only_cancel_oracle(good,fixture)['evidence_passed'])
+        for bad in [raw+'proposal-only-cancel-close index=PRIVATE_VALUE\n',raw+'proposal-only-cancel-controlPRIVATE_VALUE\n',raw.replace("thread '","thread 'private::",1),raw.replace('proposal-only-cancel-control ', 'PRIVATE_VALUE '),raw.replace('"owned_proposal":true','"owned_proposal":true,"owned_proposal":true'),raw+raw,raw.replace('"retired_proposal":true','"retired_proposal":false'),raw.replace('"cancel_stale":true','"cancel_stale":false'),raw.replace('"durable_phase":null','"durable_phase":"PRIVATE_VALUE"'),raw.replace('"scope_check_passed":false','"scope_check_passed":true'),raw.replace('proposal-only-cancel-close index=2','proposal-only-cancel-close index=1'),raw.replace('0 ignored;','1 ignored;'),raw.replace('running 1 test','running 0 tests'),raw+'error[E0308]: PRIVATE_VALUE\n',raw.replace('1 failed;','0 failed;'),raw.replace('"cancel_ok":false','"cancel_ok":true')]:
+            row=proposal_only_cancel_oracle(bad,fixture);self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE',json.dumps(row))
+
+    def test_assertion_locator_accepts_rustfmt_and_rejects_changed_condition(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_assertion_line, PROPOSAL_CANCEL_MESSAGE
+        for prefix in ['assert!(cancel_ok, "','assert!(\n    cancel_ok,\n    "']:
+            self.assertEqual(proposal_only_cancel_assertion_line(prefix+PROPOSAL_CANCEL_MESSAGE+'"\n);'),1)
+        for prefix in ['assert!(cancel_ok && true, "','assert!(!cancel_ok, "']:
+            with self.assertRaises(ValueError):
+                proposal_only_cancel_assertion_line(prefix+PROPOSAL_CANCEL_MESSAGE+'"\n);')
+
+
+class ProposalOnlyCancellationPositiveAndInverse(unittest.TestCase):
+    def good(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_CANCEL_NAME
+        fixture,raw=ProposalOnlyCancellationObservation().shape()
+        start=raw.index("thread '");end=raw.index('test result:',start)
+        raw=raw[:start]+raw[end:]
+        raw=raw.replace(' ... FAILED',' ... ok').replace('FAILED. 0 passed; 1 failed;','ok. 1 passed; 0 failed;')
+        raw=raw.replace('"cancel_ok":false','"cancel_ok":true').replace('"cancel_stale":true','"cancel_stale":false')
+        raw=raw.replace('"scope_check_passed":false','"scope_check_passed":true').replace('"durable_query_completed":false','"durable_query_completed":true').replace('"exact_retired":null','"exact_retired":false')
+        return fixture,raw
+    def test_unchanged_fixture_green_and_exact_own_red_restored(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_oracle
+        fixture,good=self.good();_,historical_red=ProposalOnlyCancellationObservation().shape()
+        red=historical_red.replace('"scope_check_passed":false','"scope_check_passed":true').replace('"durable_query_completed":false','"durable_query_completed":true').replace('"exact_retired":null','"exact_retired":false')
+        self.assertTrue(proposal_only_cancel_oracle(good,fixture,False,True)['evidence_passed'])
+        self.assertTrue(proposal_only_cancel_oracle(red,fixture,True,True)['evidence_passed'])
+        self.assertTrue(proposal_only_cancel_oracle(good,fixture,False,True)['evidence_passed'])
+        for bad in [good+good,good.replace('"cancel_ok":true','"cancel_ok":false'),good.replace('"scope_check_passed":true','"scope_check_passed":false'),good.replace('"durable_phase":null','"durable_phase":"retired"'),good.replace('"exact_retired":false','"exact_retired":true'),good.replace('"retired_proposal":true','"retired_proposal":false'),good+'error[E0308]: PRIVATE_VALUE\n',red]:
+            row=proposal_only_cancel_oracle(bad,fixture,False,True)
+            self.assertFalse(row['evidence_passed']);self.assertNotIn('PRIVATE_VALUE',json.dumps(row))
+    def test_pfp_does_not_credit_other_real_denial_boundaries(self):
+        from upstream_publication_mutation_anchors import proposal_only_cancel_oracle
+        fixture,scope_denial=ProposalOnlyCancellationObservation().shape()
+        no_fact=scope_denial.replace('"scope_check_passed":false','"scope_check_passed":true').replace('"durable_query_completed":false','"durable_query_completed":true').replace('"exact_retired":null','"exact_retired":false')
+        context_denial=scope_denial.replace('"context_rejected":false','"context_rejected":true').replace('"scope_check_entered":true','"scope_check_entered":false')
+        self.assertTrue(proposal_only_cancel_oracle(scope_denial,fixture,True)['evidence_passed'])
+        for other in [scope_denial,context_denial,no_fact.replace('"durable_phase":null','"durable_phase":"confirmed"'),no_fact.replace('"durable_phase":null','"durable_phase":"raw_staged"'),no_fact.replace('"durable_phase":null','"durable_phase":"retired"').replace('"exact_retired":false','"exact_retired":true')]:
+            row=proposal_only_cancel_oracle(other,fixture,True,True)
+            self.assertFalse(row['evidence_passed']);self.assertFalse(row['actual_exact_no_fact_route'])
+
+    def test_actual_inverse_preserves_every_other_byte(self):
+        from upstream_publication_mutation_anchors import proposal_retirement_inverse,PROPOSAL_RECEIPT_PATH,PROPOSAL_RECEIPT_CONDITION,PROPOSAL_RECEIPT_INVERSE
+        source=Path(PROPOSAL_RECEIPT_PATH).read_text();mutant=proposal_retirement_inverse(source)
+        self.assertEqual(mutant,source.replace(PROPOSAL_RECEIPT_CONDITION,PROPOSAL_RECEIPT_INVERSE,1))
+        for bad in [source+source,source.replace(PROPOSAL_RECEIPT_CONDITION,'PRIVATE_VALUE'),mutant]:
+            with self.assertRaises(ValueError):proposal_retirement_inverse(bad)
+
+
+    def test_original_unapproved_proposal_body_is_independent_positive(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_ORIGINAL_NAME, proposal_original_positive_oracle
+        good = ('running 1 test\ntest ' + PROPOSAL_ORIGINAL_NAME + ' ... ok\n'
+            'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.00s\n')
+        self.assertTrue(proposal_original_positive_oracle(good)['evidence_passed'])
+        for bad in [good + good, good.replace(PROPOSAL_ORIGINAL_NAME, 'PRIVATE_VALUE'),
+                    good.replace(' ... ok', ' ... FAILED'), good.replace('1 passed', '0 passed'),
+                    good.replace('0 ignored', '1 ignored'), good + 'error[E0308]: PRIVATE_VALUE\n',
+                    good + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n"]:
+            row = proposal_original_positive_oracle(bad)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+    def test_strict_route_option_does_not_change_other_oracle_signatures(self):
+        import inspect
+        from upstream_publication_mutation_anchors import real_guard_oracle, late_first_revoke_oracle, late_first_fixed_oracle
+        for oracle in [real_guard_oracle, late_first_revoke_oracle, late_first_fixed_oracle]:
+            self.assertNotIn('require_no_fact_route', inspect.getsource(oracle))
+
+
+
+class ProposalFailedHandoffSafetyObservation(unittest.TestCase):
+    def shape(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_HANDOFF_EXPECTED, PROPOSAL_HANDOFF_NAME
+        marker = 'proposal-failed-handoff-control ' + json.dumps(PROPOSAL_HANDOFF_EXPECTED, separators=(',', ':')) + '\n'
+        raw = ('running 1 test\ntest ' + PROPOSAL_HANDOFF_NAME + ' ... ok\n'
+            'proposal-failed-handoff-close index=0\nproposal-failed-handoff-close index=1\n'
+            'proposal-failed-handoff-close index=2\n' + marker
+            + 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.00s\n')
+        return marker, raw
+
+    def test_real_handoff_control_exact_positive_only(self):
+        from upstream_publication_mutation_anchors import proposal_handoff_control_oracle
+        _, raw = self.shape()
+        row = proposal_handoff_control_oracle(raw)
+        self.assertTrue(row['evidence_passed'])
+        self.assertFalse(row['runtime_mutation_qualification'])
+        self.assertTrue(proposal_handoff_control_oracle(raw.replace('\nproposal-', '\n   proposal-'))['evidence_passed'])
+
+    def test_handoff_control_rejects_every_changed_fact_and_unknown_payload(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_HANDOFF_EXPECTED, proposal_handoff_control_oracle
+        marker, raw = self.shape()
+        for key, value in PROPOSAL_HANDOFF_EXPECTED.items():
+            changed = dict(PROPOSAL_HANDOFF_EXPECTED)
+            changed[key] = not value if type(value) is bool else 'PRIVATE_VALUE'
+            row = proposal_handoff_control_oracle(raw.replace(marker, 'proposal-failed-handoff-control ' + json.dumps(changed) + '\n'))
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        bads = [raw + raw, raw.replace(marker, ''), raw + marker,
+            raw.replace(' ... ok', ' ... FAILED'), raw.replace('1 passed', '0 passed'), raw.replace('0 ignored', '1 ignored'),
+            raw.replace('index=1', 'index=0'), raw.replace('index=1', 'index=PRIVATE_VALUE'),
+            raw + 'proposal-failed-handoff-close index=PRIVATE_VALUE\n', raw + 'proposal-failed-handoff-controlPRIVATE_VALUE\n',
+            raw.replace(marker, marker.replace('{', '{"PRIVATE_VALUE":true,', 1)),
+            raw.replace(marker, marker.replace('{', '{"actual_handoff":true,', 1)),
+            raw.replace('"actual_handoff":true', '"actual_handoff":1'), raw.replace('"exact_retired":false', '"exact_retired":null'),
+            raw.replace('proposal-failed-handoff-close index=0\n', '').replace(marker, marker + 'proposal-failed-handoff-close index=0\n'),
+            raw + 'error[E0308]: PRIVATE_VALUE\n', raw + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n"]
+        for bad in bads:
+            row = proposal_handoff_control_oracle(bad)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+
+
+
+class ProposalReceiptSafetyControls(unittest.TestCase):
+    def shape(self, case):
+        from upstream_publication_mutation_anchors import PROPOSAL_RECEIPT_SAFETY_SPECS
+        name, prefix, close, expected = PROPOSAL_RECEIPT_SAFETY_SPECS[case]
+        marker = prefix + ' ' + json.dumps(expected, separators=(',', ':')) + '\n'
+        raw = ('running 1 test\ntest ' + name + ' ... ok\n'
+            + close + ' index=0\n' + close + ' index=1\n' + close + ' index=2\n' + marker
+            + 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.00s\n')
+        return marker, raw
+
+    def test_exact_three_genuine_safety_controls_positive_only(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_RECEIPT_SAFETY_SPECS, proposal_receipt_safety_oracle
+        self.assertEqual(len(PROPOSAL_RECEIPT_SAFETY_SPECS), 3)
+        for case in PROPOSAL_RECEIPT_SAFETY_SPECS:
+            _, raw = self.shape(case)
+            row = proposal_receipt_safety_oracle(raw, case)
+            self.assertTrue(row['evidence_passed'])
+            self.assertFalse(row['runtime_mutation_qualification'])
+
+    def test_each_safety_fact_and_unknown_envelope_fail_closed(self):
+        from upstream_publication_mutation_anchors import PROPOSAL_RECEIPT_SAFETY_SPECS, proposal_receipt_safety_oracle
+        for case, (_, prefix, close, expected) in PROPOSAL_RECEIPT_SAFETY_SPECS.items():
+            marker, raw = self.shape(case)
+            for key, value in expected.items():
+                changed = dict(expected); changed[key] = not value if type(value) is bool else 'PRIVATE_VALUE'
+                row = proposal_receipt_safety_oracle(raw.replace(marker, prefix + ' ' + json.dumps(changed) + '\n'), case)
+                self.assertFalse(row['evidence_passed']); self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+            bads = [raw + raw, raw.replace(marker, ''), raw + marker,
+                raw.replace(' ... ok', ' ... FAILED'), raw.replace('1 passed', '0 passed'), raw.replace('0 ignored', '1 ignored'),
+                raw.replace('index=1', 'index=0'), raw.replace('index=1', 'index=PRIVATE_VALUE'),
+                raw + close + ' index=PRIVATE_VALUE\n', raw + prefix + 'PRIVATE_VALUE\n',
+                raw + 'proposal-receipt-PRIVATE_VALUE\n', raw + 'proposal-sql-cancel-PRIVATE_VALUE\n',
+                raw.replace(marker, marker.replace('{', '{"PRIVATE_VALUE":true,', 1)),
+                raw.replace(marker, marker.replace('{', '{"owned_proposal":true,', 1)),
+                raw.replace('"owned_proposal":true', '"owned_proposal":1'),
+                raw.replace(close + ' index=0\n', '').replace(marker, marker + close + ' index=0\n'),
+                raw + 'error[E0308]: PRIVATE_VALUE\n', raw + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n"]
+            for other in PROPOSAL_RECEIPT_SAFETY_SPECS:
+                if other != case: bads.append(self.shape(other)[1])
+            for bad in bads:
+                row = proposal_receipt_safety_oracle(bad, case)
+                self.assertFalse(row['evidence_passed']); self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        marker, raw = self.shape('proposal-receipt-sql-read-error')
+        unexpected = raw.replace('"durable_phase":null', '"durable_phase":"retired"').replace('"exact_retired":null', '"exact_retired":true')
+        row = proposal_receipt_safety_oracle(unexpected, 'proposal-receipt-sql-read-error')
+        self.assertTrue(row['closed_marker_valid'])
+        self.assertEqual(row['observation']['durable_phase'], 'retired')
+        self.assertTrue(row['observation']['exact_retired'])
+        self.assertFalse(row['evidence_passed'])
+        with self.assertRaises(ValueError): proposal_receipt_safety_oracle('', 'PRIVATE_VALUE')
+
+
+
+class LocalHideRestorationControls(unittest.TestCase):
+    """Synthetic parser metadata only; no SDK or protocol qualification."""
+    def shape(self, phase):
+        from upstream_publication_mutation_anchors import LOCAL_HIDE_NAMES, LOCAL_HIDE_FIXTURE, LOCAL_HIDE_MESSAGE
+        red = phase == 'mutant'
+        names = LOCAL_HIDE_NAMES[:1] if red else LOCAL_HIDE_NAMES
+        fixture = '// synthetic metadata fixture\n.expect("' + LOCAL_HIDE_MESSAGE + '");\n'
+        marker = ('local-hide-restoration-control message_present=true group_present='
+                  + ('false frontier_retained=true wait_completed=false' if red
+                     else 'true frontier_retained=false wait_completed=true') + '\n')
+        raw = 'running ' + str(len(names)) + (' test\n' if red else ' tests\n')
+        raw += marker * len(names)
+        if red:
+            raw += ("thread '" + LOCAL_HIDE_NAMES[0] + "' panicked at " + LOCAL_HIDE_FIXTURE + ':2:17:\n'
+                    + LOCAL_HIDE_MESSAGE + ': Elapsed(())\n')
+        raw += ''.join('test ' + name + ' ... ' + ('FAILED' if red else 'ok') + '\n' for name in names)
+        raw += ('test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.00s\n'
+                if red else 'test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.00s\n')
+        return fixture, raw
+
+    def test_actual_count_and_owned_restoration_shapes(self):
+        from upstream_publication_mutation_anchors import local_hide_restoration_oracle
+        for phase in ['baseline', 'mutant', 'restored-control']:
+            fixture, raw = self.shape(phase)
+            self.assertTrue(local_hide_restoration_oracle(raw, fixture, phase, 101 if phase == 'mutant' else 0)['evidence_passed'])
+        fixture, raw = self.shape('mutant')
+        numeric = raw.replace("' panicked at", "' (123) panicked at")
+        self.assertTrue(local_hide_restoration_oracle(numeric, fixture, 'mutant', 101)['evidence_passed'])
+
+    def test_missing_wrong_setup_or_foreign_failure_never_qualifies(self):
+        from upstream_publication_mutation_anchors import local_hide_restoration_oracle, LOCAL_HIDE_NAMES, LOCAL_HIDE_MESSAGE
+        fixture, raw = self.shape('mutant')
+        bads = [raw.replace('message_present=true', 'message_present=false'),
+                raw.replace('group_present=false', 'group_present=true'),
+                raw.replace('frontier_retained=true', 'frontier_retained=false'),
+                raw.replace('wait_completed=false', 'wait_completed=true'),
+                raw.replace('message_present=true', 'message_present=PRIVATE_VALUE'),
+                raw.replace(LOCAL_HIDE_NAMES[0], 'foreign_test'),
+                raw.replace("thread '", "PRIVATE_VALUE thread '"),
+                raw.replace('Elapsed(())', 'PRIVATE_VALUE'),
+                raw.replace(':2:17:', ':3:17:'),
+                raw.replace(LOCAL_HIDE_MESSAGE + ': Elapsed(())', 'PRIVATE_VALUE'),
+                raw.replace('0 passed; 1 failed', '0 passed; 0 failed'),
+                raw.replace('0 ignored', '1 ignored'), raw + raw,
+                raw + "thread 'PRIVATE_VALUE' panicked at PRIVATE_VALUE\n",
+                raw + 'error[E0308]: PRIVATE_VALUE\n',
+                raw + 'PRIVATE_VALUE local-hide-restoration-control message_present=true\n',
+                raw + ' local-hide-restoration-control message_present=true\n',
+                raw + 'local-hide-restoration-controlUNKNOWN PRIVATE_VALUE\n']
+        for bad in bads:
+            row = local_hide_restoration_oracle(bad, fixture, 'mutant', 101)
+            self.assertFalse(row['evidence_passed'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        self.assertFalse(local_hide_restoration_oracle(raw, fixture, 'mutant', 0)['evidence_passed'])
+        fixture, green = self.shape('baseline')
+        self.assertFalse(local_hide_restoration_oracle(green.replace('group_present=true', 'group_present=false', 1), fixture, 'baseline', 0)['evidence_passed'])
+
+if __name__ == '__main__':
+    unittest.main()

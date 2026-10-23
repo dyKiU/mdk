@@ -724,6 +724,7 @@ impl TransportRoutingPolicy for MismatchedPendingGroupRouting {
 }
 
 include!("runtime/frozen_fanout.rs");
+include!("runtime/superseded_profile.rs");
 include!("runtime/key_package_generation_upgrade.rs");
 include!("runtime/component_migration.rs");
 
@@ -7334,4 +7335,80 @@ async fn periodic_fault_keeps_effects() {
             vec![complete]
         );
     }
+}
+
+#[tokio::test]
+async fn companion_does_not_publish_or_generate_public_key_packages() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = SqlCipherKey::new("companion publication test").unwrap();
+    let publisher = RecordingKeyPackages::default();
+    let runtime = AccountDeviceRuntime::new(
+        session(dir.path().join("companion.sqlite"), &key, b"companion"),
+        RecordingAdapter::default(),
+        StaticTransportRouting::new(vec![])
+            .key_package_endpoints(vec![TransportEndpoint("wss://keys.example".into())]),
+        publisher.clone(),
+    );
+    assert!(runtime.key_package_maintenance_requires_catch_up().unwrap());
+    let mut runtime = runtime.with_public_key_package_publication_disabled();
+    assert!(matches!(
+        runtime.publish_fresh_key_package().await,
+        Err(marmot_account::AccountError::PublicKeyPackagePublicationDisabled)
+    ));
+    assert!(matches!(
+        runtime.republish_key_package().await,
+        Err(marmot_account::AccountError::PublicKeyPackagePublicationDisabled)
+    ));
+    assert!(!runtime.key_package_network_maintenance_due().unwrap());
+    assert!(!runtime.key_package_maintenance_requires_catch_up().unwrap());
+    runtime.run_due_maintenance().await.unwrap();
+    runtime.resume_maintenance();
+    runtime.run_due_maintenance().await.unwrap();
+    assert!(publisher.publications().is_empty());
+    assert!(runtime.durably_owned_key_packages().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn companion_hold_fences_retained_public_key_package_fanout_after_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = SqlCipherKey::new("companion retained fanout").unwrap();
+    let database = dir.path().join("companion.sqlite");
+    let publisher = PartialFanoutKeyPackages::default();
+    let wall = Arc::new(TestWallClock::new(70_000));
+    let routing = StaticTransportRouting::new(vec![]).key_package_endpoints(vec![
+        TransportEndpoint("wss://keys-a.example".into()),
+        TransportEndpoint("wss://keys-b.example".into()),
+    ]);
+    let mut original = AccountDeviceRuntime::new(
+        session(database.clone(), &key, b"companion"),
+        RecordingAdapter::default(),
+        routing.clone(),
+        publisher.clone(),
+    )
+    .with_maintenance_sources(
+        wall.clone(),
+        Arc::new(TestMonotonicClock::default()),
+        Arc::new(TestRandom::new(23)),
+    );
+    original.publish_fresh_key_package().await.unwrap();
+    assert!(original.key_package_has_pending_fanout().unwrap());
+    let retained = original.key_package_maintenance_status().unwrap();
+    drop(original);
+    wall.set(70_030);
+    let mut reopened = AccountDeviceRuntime::new(
+        session(database, &key, b"companion"),
+        RecordingAdapter::default(),
+        routing,
+        publisher.clone(),
+    )
+    .with_maintenance_sources(
+        wall,
+        Arc::new(TestMonotonicClock::default()),
+        Arc::new(TestRandom::new(23)),
+    )
+    .with_public_key_package_publication_disabled();
+    assert!(!reopened.key_package_has_pending_fanout().unwrap());
+    reopened.run_due_maintenance().await.unwrap();
+    assert_eq!(publisher.publications().len(), 1);
+    assert_eq!(reopened.key_package_maintenance_status().unwrap(), retained);
 }

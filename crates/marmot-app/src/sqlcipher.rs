@@ -32,6 +32,20 @@ use crate::{AppError, MarmotApp};
 mod open_lock;
 pub(crate) use open_lock::{DatabaseOpenGuard, database_open_lock};
 
+#[cfg(test)]
+std::thread_local! {
+    static DIRECTORY_CLEANUP_TEST_GATE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+pub(crate) fn run_directory_cleanup_test_gate() {
+    let gate = DIRECTORY_CLEANUP_TEST_GATE.with(|gate| gate.borrow_mut().take());
+    if let Some(gate) = gate {
+        gate();
+    }
+}
+
 const SQLCIPHER_SALT_SUFFIX: &str = ".salt";
 const SQLCIPHER_MIGRATION_MARKER_SUFFIX: &str = ".salt-migrating";
 const SQLCIPHER_RAW_MARKER_SUFFIX: &str = ".raw-key-migrating";
