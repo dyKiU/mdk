@@ -11,8 +11,15 @@ use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 // Fixed, process-wide Linux counters only. Never export /proc contents or ids.
 // Each read is capped; unavailable/malformed data remains unknown, not zero.
 const PROCESS_COUNTERS: [&str; 9] = [
-    "user_ticks", "system_ticks", "rchar", "wchar", "syscr", "syscw",
-    "read_bytes", "write_bytes", "cancelled_write_bytes",
+    "user_ticks",
+    "system_ticks",
+    "rchar",
+    "wchar",
+    "syscr",
+    "syscw",
+    "read_bytes",
+    "write_bytes",
+    "cancelled_write_bytes",
 ];
 
 fn process_window_snapshot() -> [Option<u64>; 9] {
@@ -21,13 +28,16 @@ fn process_window_snapshot() -> [Option<u64>; 9] {
         use std::io::Read as _;
         fn read_fixed(path: &str) -> Option<String> {
             let mut bytes = Vec::new();
-            std::fs::File::open(path).ok()?.take(8_193).read_to_end(&mut bytes).ok()?;
+            std::fs::File::open(path)
+                .ok()?
+                .take(8_193)
+                .read_to_end(&mut bytes)
+                .ok()?;
             (bytes.len() <= 8_192).then_some(())?;
             String::from_utf8(bytes).ok()
         }
         fn decimal(text: &str) -> Option<u64> {
-            (!text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()))
-                .then_some(())?;
+            (!text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())).then_some(())?;
             text.parse().ok()
         }
         let mut result = [None; 9];
@@ -66,10 +76,17 @@ fn process_window_snapshot() -> [Option<u64>; 9] {
 }
 
 fn process_window_delta(start: [Option<u64>; 9], end: [Option<u64>; 9]) -> Value {
-    PROCESS_COUNTERS.iter().enumerate().map(|(index, name)| {
-        let delta = start[index].zip(end[index]).and_then(|(a, b)| b.checked_sub(a));
-        ((*name).to_owned(), json!([start[index], end[index], delta]))
-    }).collect::<serde_json::Map<_, _>>().into()
+    PROCESS_COUNTERS
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let delta = start[index]
+                .zip(end[index])
+                .and_then(|(a, b)| b.checked_sub(a));
+            ((*name).to_owned(), json!([start[index], end[index], delta]))
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 #[derive(Default)]
