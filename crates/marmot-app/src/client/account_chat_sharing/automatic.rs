@@ -633,7 +633,11 @@ impl AppClient {
             let pending_restart_probe = self.pending_restart_probe_for_test();
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(probe) = &pending_restart_probe {
-                probe.request(request.scope(), wire, crate::account_chat_sharing::enabled::PendingRestartStage::AutomaticEntered);
+                probe.request(
+                    request.scope(),
+                    wire,
+                    crate::account_chat_sharing::enabled::PendingRestartStage::AutomaticEntered,
+                );
             }
             if policy.local_device < policy.peer_device {
                 // An authenticated higher-device request is a restart signal,
@@ -687,11 +691,18 @@ impl AppClient {
                 .map_err(|_| AccountSharingError::NotReady)?;
             #[cfg(all(test, feature = "test-policy-overrides"))]
             let previous_was_x = pending_restart_probe.as_ref().is_some_and(|probe| {
-                self.account_sharing_owner.automatic.get(&id).is_some_and(|entry| probe.is_x(entry.channel.scope()))
+                self.account_sharing_owner
+                    .automatic
+                    .get(&id)
+                    .is_some_and(|entry| probe.is_x(entry.channel.scope()))
             });
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(probe) = &pending_restart_probe {
-                probe.request(request.scope(), wire, crate::account_chat_sharing::enabled::PendingRestartStage::CoreApproved);
+                probe.request(
+                    request.scope(),
+                    wire,
+                    crate::account_chat_sharing::enabled::PendingRestartStage::CoreApproved,
+                );
             }
             let progress = self
                 .account_sharing_owner

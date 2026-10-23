@@ -305,11 +305,17 @@ pub(crate) struct PendingRestartProbe {
 impl PendingRestartProbe {
     pub(crate) fn new(scope: AccountSharingScope, request: &[u8]) -> Self {
         use sha2::Digest as _;
-        Self { scope, request_digest: sha2::Sha256::digest(request).into(), progress: Mutex::default() }
+        Self {
+            scope,
+            request_digest: sha2::Sha256::digest(request).into(),
+            progress: Mutex::default(),
+        }
     }
     fn same_policy(&self, scope: &AccountSharingScope) -> bool {
-        scope.protected == self.scope.protected && scope.source == self.scope.source
-            && scope.recipient == self.scope.recipient && scope.approval_id == self.scope.approval_id
+        scope.protected == self.scope.protected
+            && scope.source == self.scope.source
+            && scope.recipient == self.scope.recipient
+            && scope.approval_id == self.scope.approval_id
             && scope.approved_policy_identity == self.scope.approved_policy_identity
     }
     pub(crate) fn is_x(&self, scope: &AccountSharingScope) -> bool {
@@ -320,7 +326,9 @@ impl PendingRestartProbe {
         <[u8; 32]>::from(sha2::Sha256::digest(wire)) == self.request_digest
     }
     fn count(&self, index: usize) {
-        let Ok(mut progress) = self.progress.lock() else { return; };
+        let Ok(mut progress) = self.progress.lock() else {
+            return;
+        };
         if progress.observations >= 64 {
             progress.overflow = true;
             return;
@@ -328,20 +336,37 @@ impl PendingRestartProbe {
         progress.observations += 1;
         progress.counts[index] += 1;
     }
-    pub(crate) fn wire(&self, group: &cgka_traits::GroupId, wire: &[u8], stage: PendingRestartStage) {
+    pub(crate) fn wire(
+        &self,
+        group: &cgka_traits::GroupId,
+        wire: &[u8],
+        stage: PendingRestartStage,
+    ) {
         if group == &self.scope.protected.group_id && self.wire_is_x(wire) {
             self.count(stage as usize);
         }
     }
-    pub(crate) fn received(&self, received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl,
-        wire: &[u8], stage: PendingRestartStage) {
-        if received.nonce == self.scope.nonce && received.source == self.scope.source
-            && received.recipient == self.scope.recipient && received.approval_id == self.scope.approval_id
-            && self.wire_is_x(wire) {
+    pub(crate) fn received(
+        &self,
+        received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl,
+        wire: &[u8],
+        stage: PendingRestartStage,
+    ) {
+        if received.nonce == self.scope.nonce
+            && received.source == self.scope.source
+            && received.recipient == self.scope.recipient
+            && received.approval_id == self.scope.approval_id
+            && self.wire_is_x(wire)
+        {
             self.count(stage as usize);
         }
     }
-    pub(crate) fn request(&self, scope: &AccountSharingScope, wire: &[u8], stage: PendingRestartStage) {
+    pub(crate) fn request(
+        &self,
+        scope: &AccountSharingScope,
+        wire: &[u8],
+        stage: PendingRestartStage,
+    ) {
         if self.is_x(scope) && self.wire_is_x(wire) {
             self.count(stage as usize);
         }
@@ -350,13 +375,24 @@ impl PendingRestartProbe {
         if self.is_x(scope) && self.wire_is_x(wire) {
             self.count(PendingRestartStage::Inserted as usize);
         } else if self.same_policy(scope) && scope.nonce != self.scope.nonce {
-            let installed_x = self.progress.lock().ok().is_some_and(|progress| progress.counts[6] != 0);
-            if previous_was_x { self.count(8); }
-            if installed_x { self.count(9); }
+            let installed_x = self
+                .progress
+                .lock()
+                .ok()
+                .is_some_and(|progress| progress.counts[6] != 0);
+            if previous_was_x {
+                self.count(8);
+            }
+            if installed_x {
+                self.count(9);
+            }
         }
     }
     pub(crate) fn snapshot(&self) -> Option<([u32; 10], bool)> {
-        self.progress.lock().ok().map(|progress| (progress.counts, progress.overflow))
+        self.progress
+            .lock()
+            .ok()
+            .map(|progress| (progress.counts, progress.overflow))
     }
 }
 

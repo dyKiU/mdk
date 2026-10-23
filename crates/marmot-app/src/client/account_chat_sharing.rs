@@ -101,8 +101,13 @@ impl AppClient {
         Ok(original)
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    fn pending_restart_probe_for_test(&self) -> Option<Arc<crate::account_chat_sharing::enabled::PendingRestartProbe>> {
-        self.account_sharing_owner.pending_restart_probe.as_ref().and_then(std::sync::Weak::upgrade)
+    fn pending_restart_probe_for_test(
+        &self,
+    ) -> Option<Arc<crate::account_chat_sharing::enabled::PendingRestartProbe>> {
+        self.account_sharing_owner
+            .pending_restart_probe
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
     }
     pub(crate) fn observe_account_sharing_control(
         &mut self,
@@ -128,7 +133,11 @@ impl AppClient {
         let wire = app.content.as_bytes();
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(probe) = self.pending_restart_probe_for_test() {
-            probe.wire(group_id, wire, crate::account_chat_sharing::enabled::PendingRestartStage::QualifiedEvent);
+            probe.wire(
+                group_id,
+                wire,
+                crate::account_chat_sharing::enabled::PendingRestartStage::QualifiedEvent,
+            );
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage("outer_intake", "private_control", None);
@@ -155,8 +164,15 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(probe) = self.pending_restart_probe_for_test() {
             use crate::account_chat_sharing::enabled::PendingRestartStage;
-            probe.wire(group_id, wire, if received.is_ok() { PendingRestartStage::Authenticated }
-                else { PendingRestartStage::AuthenticationRefused });
+            probe.wire(
+                group_id,
+                wire,
+                if received.is_ok() {
+                    PendingRestartStage::Authenticated
+                } else {
+                    PendingRestartStage::AuthenticationRefused
+                },
+            );
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         automatic::consent_delivery_probe::authenticated(
@@ -259,8 +275,14 @@ impl AppClient {
     ) -> Result<(), AccountSharingError> {
         let sibling = self.observe_sibling_sharing_control(received, wire);
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if matches!(&sibling, Ok(true)) && let Some(probe) = self.pending_restart_probe_for_test() {
-            probe.received(received, wire, crate::account_chat_sharing::enabled::PendingRestartStage::SiblingConsumed);
+        if matches!(&sibling, Ok(true))
+            && let Some(probe) = self.pending_restart_probe_for_test()
+        {
+            probe.received(
+                received,
+                wire,
+                crate::account_chat_sharing::enabled::PendingRestartStage::SiblingConsumed,
+            );
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage(

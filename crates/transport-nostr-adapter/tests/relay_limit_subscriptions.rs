@@ -3585,16 +3585,15 @@ async fn replay_one_group_at(
     (delivered, complete, stats)
 }
 
-async fn replay_one_group_success(
-    stored: usize,
-    clamp: Option<u64>,
-) -> (usize, bool, LimitStats) {
+async fn replay_one_group_success(stored: usize, clamp: Option<u64>) -> (usize, bool, LimitStats) {
     let fx = Fixture::with_replay_diagnostics(LimitConfig {
         req_limit_clamp: clamp,
         ..LimitConfig::default()
     })
     .await;
-    let timestamps = (0..stored as u64).map(|index| 1_700_000_000 + index).collect::<Vec<_>>();
+    let timestamps = (0..stored as u64)
+        .map(|index| 1_700_000_000 + index)
+        .collect::<Vec<_>>();
     let stored = timestamps.len();
     store_events_at(&fx.database, timestamps).await;
     let url = fx.limit.url();
@@ -3605,8 +3604,14 @@ async fn replay_one_group_success(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     let mut recorded = Vec::with_capacity(stored);
     let collection = std::panic::AssertUnwindSafe(success_expected_replay_deliveries(
-        &fx.adapter, &fx.account, stored, deadline, &mut recorded,
-    )).catch_unwind().await;
+        &fx.adapter,
+        &fx.account,
+        stored,
+        deadline,
+        &mut recorded,
+    ))
+    .catch_unwind()
+    .await;
     // A failed collector has no successful count; these are actual unique ACKs.
     let delivered = match &collection {
         Ok(delivered) => *delivered,
