@@ -95,6 +95,8 @@ jobs:
       - name: Syntax preparation only; no SDK or product inputs
         run: |
           python3 -m py_compile scripts/upstream_apple_ci/app-sdk-cohort.py \
+            scripts/upstream_apple_ci/summarize.py \
+            scripts/upstream_apple_ci/test_summarize.py \
             scripts/upstream_apple_ci/test_app_sdk_cohort.py \
             scripts/upstream_apple_ci/attachment-storage-mutation.py \
             scripts/upstream_apple_ci/ios-storage-mutations.py \
@@ -106,6 +108,8 @@ jobs:
           bash -n scripts/upstream_apple_ci/published-interop.sh
       - name: Synthetic routing and strict evidence-boundary metadata controls; no SDK/product execution
         run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_app_sdk_cohort.py -v
+      - name: Closed test and skip metadata controls; no Xcode or SDK execution
+        run: python3 -B scripts/upstream_apple_ci/test_summarize.py
       - name: Six synthetic cross-profile receipt/parser controls; no SDK or fixture execution
         run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_profile_interop_evidence.py -v
   sdk:

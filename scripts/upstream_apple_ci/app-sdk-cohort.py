@@ -10,7 +10,7 @@ import subprocess
 import stat
 import sys
 
-from summarize import summary_counts, test_inventory, export_tests
+from summarize import summary_counts, test_inventory, export_tests, skip_reason_evidence, export_skip_details
 
 HISTORICAL_SOURCE = '891ab34980ee9dc2ef45bf690733a6e31d3e6778'
 HISTORICAL_CHECKSUMS = {'macos': 'a5b74c4ad8b5da6bd00b24173fa6628cc6aba1dfb9a13ee4d5ff0af1d2081366',
@@ -216,6 +216,26 @@ def physical_tracked_snapshot(app):
             'tracked_count': len(rows)}
 
 
+def skip_reason_catalog(app, platform, commit):
+    # The existing source-owned allowlist is unchanged. Literal reasons are
+    # internal until an actual skipped node reports the exact same string.
+    folder = 'whitenoise-macTests' if platform == 'macos' else 'whitenoise-iosTests'
+    modules = ('whitenoise_macTests', 'whitenoise-macTests') if platform == 'macos' else ('whitenoise_iosTests', 'whitenoise-iosTests')
+    catalog = {}
+    for identifier, (file, category) in KNOWN_SKIPS[platform].items():
+        source = git_output(app, 'show', commit + ':' + folder + '/' + file)
+        method = identifier.split('/')[1][:-2].encode()
+        require(b'func ' + method + b'(' in source, 'Source-owned skipped method required')
+        reasons = [value.decode('ascii') for value in re.findall(
+            rb'(?:XCTSkip|\.disabled)\("([^"\\\n]{1,256})"\)', source)
+                   if value.isascii()]
+        row = {'identifier': identifier, 'category': category,
+               'source_sha256': hashlib.sha256(source).hexdigest(), 'reasons': reasons}
+        for alias in [identifier] + [module + separator + identifier for module in modules for separator in ('/', '.')]:
+            catalog[alias] = row
+    return catalog
+
+
 def verify_source_owned_skips(app, platform, skips, commit):
     folder = 'whitenoise-macTests' if platform == 'macos' else 'whitenoise-iosTests'
     result = []
@@ -360,10 +380,29 @@ def summary(args):
     counts = summary_counts(raw)
     require(counts is not None and counts['totalTestCount'] > 0, 'Actual nonempty XCTest counts required')
     proof['full_suite_counts'] = counts
+    args.output.write_text(json.dumps(proof, indent=2) + '\n')  # Keep actual counts before optional metadata.
+    tree = None
     try:
-        proof['test_inventory'] = test_inventory(export_tests(bundle), raw)
+        tree = export_tests(bundle)
+        proof['test_inventory'] = test_inventory(tree, raw)
     except (OSError, ValueError, subprocess.SubprocessError):
         proof['test_inventory'] = {'status': 'unknown', 'summary_counts': counts}
+    app = Path('mac' if args.platform == 'macos' else 'ios').resolve(strict=True)
+    try:
+        catalog = skip_reason_catalog(app, args.platform, args.app_sha)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        catalog = {}
+    try:
+        proof['skip_evidence'] = skip_reason_evidence(tree, proof['test_inventory'], catalog)
+        if proof['skip_evidence']['unknown_reasons']:
+            details, details_proof = export_skip_details(bundle, proof['test_inventory'], catalog)
+            proof['skip_evidence'] = skip_reason_evidence(tree, proof['test_inventory'], catalog, details)
+            proof['skip_evidence']['details_export'] = details_proof
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, subprocess.SubprocessError):
+        proof['skip_evidence'] = {'status': 'unknown', 'reason_export_complete': False,
+                                  'unknown_schema': True}
+    proof['skip_evidence'].update(app_sha=args.app_sha, app_tree=proof['app_tree'],
+                                  tooling_sha=os.environ['GITHUB_SHA'])
     # Persist actual failure/unknown evidence before rejecting it. Unknown case
     # inventory cannot qualify even if aggregate counts look green.
     proof['inventory_qualified'] = False

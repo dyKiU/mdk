@@ -1,6 +1,6 @@
 """Pure metadata fixtures; executed only by remote controller preflight."""
 import unittest
-from summarize import summary_counts, test_inventory
+from summarize import summary_counts, test_inventory, skip_reason_evidence
 
 
 class InventoryTests(unittest.TestCase):
@@ -79,6 +79,94 @@ class InventoryTests(unittest.TestCase):
         tree = self.case()
         for _ in range(70): tree = {'children': [tree]}
         self.assertEqual(test_inventory({'testNodes': [tree]}, self.counts())['status'], 'schema_limit_exceeded')
+
+
+class SkipEvidenceTests(unittest.TestCase):
+    tree = InventoryTests.tree
+    case = InventoryTests.case
+    counts = InventoryTests.counts
+    def evidence(self, *nodes):
+        tree = self.tree(self.case(), *nodes)
+        inventory = test_inventory(tree, self.counts(skipped=len(nodes)))
+        catalog = {'Suite/testSkipped()': {'identifier': 'Suite/testSkipped()',
+                   'category': 'external_ui_driver', 'source_sha256': 'a' * 64,
+                   'reasons': ['Requires the separate public XCTest UI driver']}}
+        return skip_reason_evidence(tree, inventory, catalog)
+
+    def test_actual_exact_source_literal_is_closed_and_complete(self):
+        result = self.evidence(self.case('Suite/testSkipped()', 'Skipped',
+                              skipReason='Requires the separate public XCTest UI driver'))
+        self.assertEqual(result['status'], 'complete')
+        self.assertEqual(result['skips'][0]['reason_status'], 'observed_source_literal')
+
+    def test_missing_or_private_reason_never_complete_or_disclosed(self):
+        for fields in [{}, {'skipReason': 'PRIVATE'}, {'skipReason': False}, {'reason': 'PRIVATE'}]:
+            result = self.evidence(self.case('Suite/testSkipped()', 'Skipped', **fields))
+            self.assertEqual(result['status'], 'unknown')
+            self.assertIsNone(result['skips'][0]['reason'])
+            self.assertNotIn('PRIVATE', str(result))
+            self.assertEqual(result['unknown_reasons'], 1)
+
+    def test_unknown_duplicate_ids_and_count_mismatch_stay_unknown(self):
+        known = self.case('Suite/testSkipped()', 'Skipped',
+                          skipReason='Requires the separate public XCTest UI driver')
+        for nodes in [(self.case('Unknown/test()', 'Skipped'),), (known, known)]:
+            self.assertEqual(self.evidence(*nodes)['status'], 'unknown')
+        tree = self.tree(self.case(), known)
+        inventory = test_inventory(tree, self.counts(skipped=2))
+        self.assertEqual(skip_reason_evidence(tree, inventory, {})['status'], 'unknown')
+
+    def test_source_inference_is_separate_from_actual_apple_reason(self):
+        result = self.evidence(self.case('Suite/testSkipped()', 'Skipped'))
+        self.assertEqual(result['skips'][0]['source_inferred_reason'],
+                         'Requires the separate public XCTest UI driver')
+        self.assertIsNone(result['skips'][0]['reason'])
+        self.assertFalse(result['reason_export_complete'])
+        self.assertTrue(result['coverage_inventory_complete'])
+
+    def test_details_wrong_identity_or_unattributed_literal_never_proves_reason(self):
+        tree = self.tree(self.case(), self.case('Suite/testSkipped()', 'Skipped'))
+        inventory = test_inventory(tree, self.counts(skipped=1))
+        catalog = {'Suite/testSkipped()': {'identifier': 'Suite/testSkipped()',
+                   'category': 'external_ui_driver', 'source_sha256': 'a' * 64,
+                   'reasons': ['Fixed source reason']}}
+        valid = {'testIdentifier': 'Suite/testSkipped()', 'testResult': 'Skipped',
+                 'skipReason': 'Fixed source reason'}
+        result = skip_reason_evidence(tree, inventory, catalog, {'Suite/testSkipped()': valid})
+        self.assertTrue(result['reason_export_complete'])
+        for value in [dict(valid, testIdentifier='Unknown/test()'), dict(valid, testResult='Passed'),
+                      {'details': 'Fixed source reason'}, dict(valid, skipReason='PRIVATE')]:
+            result = skip_reason_evidence(tree, inventory, catalog, {'Suite/testSkipped()': value})
+            self.assertFalse(result['reason_export_complete'])
+            self.assertNotIn('PRIVATE', str(result))
+
+    def test_details_help_is_verified_before_known_skip_only_query(self):
+        import json
+        import summarize
+        from pathlib import Path
+        from unittest.mock import patch
+        inventory = {'skipped_tests': [{'identifier': 'Suite/testSkipped()'},
+                                       {'identifier': 'Unknown/test()'}]}
+        catalog = {'Suite/testSkipped()': {'identifier': 'Suite/testSkipped()', 'reasons': ['Fixed source reason']}}
+        with patch.object(summarize, 'export_metadata', return_value=b'unknown tool help') as command:
+            details, proof = summarize.export_skip_details(Path('/unused'), inventory, catalog)
+        self.assertFalse(proof['help_support_confirmed'])
+        self.assertEqual(details, {})
+        self.assertEqual(command.call_count, 1)
+        raw = json.dumps({'testIdentifier': 'Suite/testSkipped()', 'testResult': 'Skipped',
+                          'skipReason': 'Fixed source reason'}).encode()
+        with patch.object(summarize, 'export_metadata', side_effect=[b'test-details --path --test-id', raw]) as command:
+            details, proof = summarize.export_skip_details(Path('/unused'), inventory, catalog)
+        self.assertTrue(proof['help_support_confirmed'])
+        self.assertEqual(list(details), ['Suite/testSkipped()'])
+        self.assertEqual(command.call_count, 2)
+        self.assertNotIn('Unknown/test()', str(command.call_args_list))
+
+    def test_zero_actual_skips_needs_complete_nonempty_inventory(self):
+        tree = self.tree(self.case())
+        inventory = test_inventory(tree, self.counts())
+        self.assertEqual(skip_reason_evidence(tree, inventory, {})['status'], 'complete')
+        self.assertEqual(skip_reason_evidence({}, inventory, {})['status'], 'unknown')
 
 
 class HostedVerifiedSettingsTests(unittest.TestCase):
