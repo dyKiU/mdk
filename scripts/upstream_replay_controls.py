@@ -676,6 +676,11 @@ def snapshot():
 
 
 PFP = {
+    'sdk-private-capture-control': ('crates/transport-nostr-adapter/src/live_delivery.rs',
+              '    pub(crate) async fn observe_private_sdk_eose(\n        &mut self,\n        endpoint: cgka_traits::TransportEndpoint,\n        subscription: &str,\n    ) {\n        let state = self.adapter.state.read().await;\n        self.eose.retain(|token| token.matches_current(&state));\n        let parsed_endpoint = nostr::prelude::RelayUrl::parse(endpoint.as_str()).ok();\n        for (account_id, wire) in &state.private_observation_wires {\n            if self\n                .account\n                .as_ref()\n                .is_some_and(|wanted| wanted != account_id)\n                || !wire.ready\n                || wire.actual != subscription\n                || !state\n                    .accounts\n                    .get(account_id)\n                    .is_some_and(|account| account.attempt == wire.attempt)\n            {\n                continue;\n            }\n            let crate::NostrSubscription::Group {\n                group_id,\n                transport_group_id,\n                endpoints,\n                ..\n            } = &wire.subscription\n            else {\n                continue;\n            };\n            if &wire.group != group_id\n                || !endpoints.iter().any(|candidate| {\n                    crate::CanonicalEndpoint::new(candidate)\n                        .matches(&endpoint, parsed_endpoint.as_ref())\n                })\n            {\n                continue;\n            }\n            let token = ReceiverEose {\n                account: account_id.clone(),\n                group: group_id.clone(),\n                transport_group: transport_group_id.clone(),\n                endpoint: endpoint.clone(),\n                subscription: subscription.to_owned(),\n                attempt: wire.attempt,\n            };\n            // Reuse the existing full route/attempt/current-wire validation.\n            if token.matches_current(&state)\n                && !self.eose.iter().any(|old| {\n                    old.account == token.account\n                        && old.group == token.group\n                        && old.endpoint == token.endpoint\n                        && old.subscription == token.subscription\n                })\n            {\n                self.eose.push(token);\n            }\n        }\n    }\n\n',
+              '    pub(crate) async fn observe_private_sdk_eose(\n        &mut self,\n        endpoint: cgka_traits::TransportEndpoint,\n        subscription: &str,\n    ) {\n        self.observe_eose(endpoint, subscription).await;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n    }\n\n',
+              'ordinary SDK copies must skip private capture while generic capture remains available',
+              'assert!\\(\\s*sdk_skipped\\s*&&\\s*generic_preserved,\\s*"{message}"\\s*\\);'),
     'worker-input-offer': ('crates/marmot-app/src/runtime/account_worker.rs',
               '    if owed {\n        tokio::select! {\n            biased;\n            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),\n            changed = &mut replay => futures::future::Either::Left(changed),\n        }\n',
               '    if owed {\n        tokio::select! {\n            biased;\n            changed = &mut replay => futures::future::Either::Left(changed),\n            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),\n        }\n',
@@ -699,12 +704,25 @@ PFP = {
 }
 
 
+def validate_sdk_capture_inverse(text, old, new):
+    start = text.index('    pub(crate) async fn observe_private_sdk_eose(')
+    end = text.index('    /// No captured private EOSE', start)
+    signature = old[:old.index('    ) {\n') + len('    ) {\n')]
+    allowed = re.escape(signature) + '[ \\t\\n]*self\\.observe_eose\\(endpoint, subscription\\)\\.await;[ \\t\\n]*\\}\\n\\n'
+    if (text.count(old) != 1 or text[start:end] != old
+            or old.count('\n') != new.count('\n')
+            or re.fullmatch(allowed, new) is None):
+        raise ValueError('inverse-sdk-capture-owner-or-lines')
+
+
 def inverse(case):
     path, old, new, message, pattern = PFP[case]
     original = Path(path).read_bytes()
     text = original.decode('utf-8')
     if text.count(old) != 1:
         raise ValueError('inverse-anchor')
+    if case == 'sdk-private-capture-control':
+        validate_sdk_capture_inverse(text, old, new)
     if case == 'inline':
         start = text.index('    fn retain_effect_projection(')
         end = text.index('    fn enqueue_effect_projection(', start)
@@ -755,6 +773,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == 'sdk-private-capture-control':
+        return (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
     return ((LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
             if case in {'watch-pressure', 'worker-input-offer'} else (LIB_FEATURES, 'ci', None))
 
@@ -837,6 +857,59 @@ def worker_input_controls(site):
             'compiler_rejection_controls': 1, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+def sdk_private_capture_controls(site):
+    case = 'sdk-private-capture-control'
+    path, old, new, message, pattern = PFP[case]
+    assert pfp_configuration(case) == (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
+    assert package_for(case) == 'transport-nostr-adapter' and case in ADAPTER_CASES and case not in INTEGRATION_CASES
+    assert pfp_configuration('inline') == pfp_configuration('spill') == (LIB_FEATURES, 'ci', None)
+    assert pfp_configuration('watch-pressure') == pfp_configuration('worker-input-offer') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
+    assert old.count('\n') == new.count('\n') and new.count('self.observe_eose(endpoint, subscription).await;') == 1
+    fixture = Path(path).read_text()
+    validate_sdk_capture_inverse(fixture, old, new)
+    scope_negatives = [
+        (fixture + old, new),
+        (fixture.replace('    pub(crate) async fn observe_private_sdk_eose(', '    pub(crate) async fn PRIVATE('), new),
+        (fixture, new + '\n'),
+        (fixture, new.replace('self.observe_eose(endpoint, subscription).await;', 'self.observe_eose(endpoint, subscription).await; self.eose.clear();')),
+    ]
+    for changed_source, changed_inverse in scope_negatives:
+        try:
+            validate_sdk_capture_inverse(changed_source, old, changed_inverse)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('sdk-capture-scope-negative-accepted')
+    changed = fixture.replace(old, new, 1)
+    expression = pattern.replace('{message}', re.escape(message))
+    original_sites = list(re.finditer(expression, fixture))
+    mutant_sites = list(re.finditer(expression, changed))
+    assert len(original_sites) == len(mutant_sites) == 1
+    assert fixture[:original_sites[0].start()].count('\n') == changed[:mutant_sites[0].start()].count('\n') == site['line'] - 1
+    prefix = "FAIL [ 0.001s] (1/1) transport-nostr-adapter " + CASES[case][1]
+    status = (prefix + "\nSummary [ 0.01s] 1 test run: 0 passed, 1 failed, 0 skipped\n").encode()
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at " + path
+              + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    raw = status + (header + message + '\n').encode()
+    assert counts(raw, case)['failed'] == 1 and own_failure(raw, case, site)
+    negatives = 0
+    for bad in [raw.replace(CASES[case][1].encode(), b'PRIVATE'),
+                raw.replace(path.encode(), b'PRIVATE.rs'), raw.replace(message.encode(), b'PRIVATE'),
+                raw + (header + message + '\n').encode(),
+                raw.replace((':' + str(site['line']) + ':').encode(), b':999999:')]:
+        assert not own_failure(bad, case, site)
+        negatives += 1
+    try:
+        counts(raw.replace(b'transport-nostr-adapter ', b'marmot-app '), case)
+    except ValueError:
+        negatives += 1
+    else:
+        raise AssertionError('sdk-pfp-wrong-package-accepted')
+    assert compiler(raw + b'error[E0308]: PRIVATE\n', {})['header_count'] == 1
+    return {'positive': 5, 'negative': negatives, 'configuration_controls': 4, 'scope_negative_controls': len(scope_negatives),
+            'compiler_rejection_controls': 1, 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 def pfp(args):
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -847,6 +920,9 @@ def pfp(args):
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
     if args.case in WORKER_INPUT_CASES:
         report.update(evidence_scope='worker-input-selection-mechanism-only', native_protocol_qualification=False)
+    if args.case == 'sdk-private-capture-control':
+        report.update(evidence_scope='sdk-private-capture-component-only',
+                      native_protocol_qualification=False, queue_overflow_remedy_qualified=False)
     before, fd, original, identity, parents = None, None, None, None, None
     stage, result = 'admission', 1
     def save():
@@ -880,8 +956,9 @@ def pfp(args):
                'source_manifest_sha256': hashlib.sha256(json.dumps(expected['inputs'], sort_keys=True).encode()).hexdigest()}
         report['phases'].append(row)
         save()
-        flags = ['-p', 'marmot-app', '--lib', '--features', ','.join(features), '--locked', '--profile', profile]
-        selection = 'package(marmot-app) & test(=' + CASES[args.case][1] + ')'
+        package = package_for(args.case)
+        flags = ['-p', package, '--lib', '--features', ','.join(features), '--locked', '--profile', profile]
+        selection = 'package(' + package + ') & test(=' + CASES[args.case][1] + ')'
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                             'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
@@ -947,6 +1024,8 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case == 'sdk-private-capture-control':
+            report['sdk_private_capture_controls'] = sdk_private_capture_controls(site)
         if args.case == 'worker-input-offer':
             report['worker_input_controls'] = worker_input_controls(site)
         if args.case == 'watch-pressure':
@@ -1051,6 +1130,9 @@ def main():
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'expected_test': CASES[args.case][1]}
     if args.case in WORKER_INPUT_CASES:
         report.update(evidence_scope='worker-input-selection-mechanism-only', native_protocol_qualification=False)
+    if args.case == 'sdk-private-capture-control':
+        report.update(evidence_scope='sdk-private-capture-component-only',
+                      native_protocol_qualification=False, queue_overflow_remedy_qualified=False)
     before = None
     stage = 'admission'
     result = 1
