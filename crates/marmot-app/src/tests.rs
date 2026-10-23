@@ -21866,23 +21866,33 @@ pub(crate) fn assert_mutation_admitted(summary: &crate::SendSummary) {
     );
 }
 
-#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn actual_runtime_edit_completion_unknown_preserves_exact_canonical_identity() {
     use cgka_traits::storage::OutboundFanoutStorage;
 
     let dir = tempfile::tempdir().unwrap();
-    AccountHome::open(dir.path()).create_account("sender").unwrap();
+    AccountHome::open(dir.path())
+        .create_account("sender")
+        .unwrap();
     let relay = Arc::new(ScriptedPushRelayClient::default());
     let app = MarmotApp::with_relay(dir.path(), "wss://scripted-edit-admission.example")
         .with_test_relay_client(relay.clone());
     let mut setup = app.client("sender").await.unwrap();
-    let group = setup.create_group("Synthetic edit admission", &[]).await.unwrap();
+    let group = setup
+        .create_group("Synthetic edit admission", &[])
+        .await
+        .unwrap();
     drop(setup);
     let runtime = MarmotAppRuntime::new(app.clone());
     runtime.reconcile_accounts().await.unwrap();
-    let original = runtime.send_message("sender", &group, b"Synthetic prior original".to_vec())
-        .await.unwrap();
+    let original = runtime
+        .send_message("sender", &group, b"Synthetic prior original".to_vec())
+        .await
+        .unwrap();
     let healthy_original_published = original.published == 1
         && original.message_ids.len() == 1
         && original.accept_disposition == cgka_traits::SendAcceptDisposition::Published;
@@ -21893,10 +21903,17 @@ async fn actual_runtime_edit_completion_unknown_preserves_exact_canonical_identi
     relay.fail_publishes_as_unavailable();
     // The real worker, Engine, SQL and signed publication path make the summary.
     // Only the existing relay seam returns a retryable transport failure.
-    let edited = runtime.edit_message("sender", &group, &original_id,
-        "Synthetic corrected original").await.unwrap();
-    let actual_unknown = edited.accept_disposition
-        == cgka_traits::SendAcceptDisposition::CompletionUnknown;
+    let edited = runtime
+        .edit_message(
+            "sender",
+            &group,
+            &original_id,
+            "Synthetic corrected original",
+        )
+        .await
+        .unwrap();
+    let actual_unknown =
+        edited.accept_disposition == cgka_traits::SendAcceptDisposition::CompletionUnknown;
     let actual_zero_published = edited.published == 0;
     assert!(actual_unknown && actual_zero_published);
     assert_eq!(edited.message_ids.len(), 1);
@@ -21905,17 +21922,26 @@ async fn actual_runtime_edit_completion_unknown_preserves_exact_canonical_identi
     assert!(exact_one_distinct_edit_id);
 
     let storage = app.account_storage("sender").unwrap();
-    let retained = storage.list_outbound_fanouts_for_group(&group).unwrap()
-        .into_iter().filter(|row| row.application_message().is_some_and(|message|
-            message.group_id == group && message.app_event_id == edit_id))
+    let retained = storage
+        .list_outbound_fanouts_for_group(&group)
+        .unwrap()
+        .into_iter()
+        .filter(|row| {
+            row.application_message()
+                .is_some_and(|message| message.group_id == group && message.app_event_id == edit_id)
+        })
         .collect::<Vec<_>>();
     let durable_edit_bound = retained.len() == 1;
     assert!(durable_edit_bound);
     let frozen = retained[0].clone();
-    let frozen_event = NostrTransportEvent::from_transport_message(&frozen.request().message).unwrap();
+    let frozen_event =
+        NostrTransportEvent::from_transport_message(&frozen.request().message).unwrap();
     let frozen_transport_verified = frozen_event.to_verified_nostr_event().is_ok();
     assert!(frozen_transport_verified);
-    let attempted_exact_frozen = relay.attempted_events().iter().any(|event| event == &frozen_event);
+    let attempted_exact_frozen = relay
+        .attempted_events()
+        .iter()
+        .any(|event| event == &frozen_event);
     assert!(attempted_exact_frozen);
 
     relay.allow_publishes();
@@ -21943,9 +21969,16 @@ async fn actual_runtime_edit_completion_unknown_preserves_exact_canonical_identi
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
     }).await;
-    assert!(recovery.is_ok(), "actual retained edit must recover its exact canonical identity");
-    let (canonical_edit_exact_once, no_standalone_edit_row,
-        recovered_exact_transport_once, fanout_retired) = recovery.unwrap();
+    assert!(
+        recovery.is_ok(),
+        "actual retained edit must recover its exact canonical identity"
+    );
+    let (
+        canonical_edit_exact_once,
+        no_standalone_edit_row,
+        recovered_exact_transport_once,
+        fanout_retired,
+    ) = recovery.unwrap();
     drop(retained);
     drop(frozen);
     drop(storage);
