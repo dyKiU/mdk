@@ -155,21 +155,34 @@ impl LiveNotificationReceiver {
         self.eose.retain(|token| token.matches_current(&state));
         let parsed_endpoint = nostr::prelude::RelayUrl::parse(endpoint.as_str()).ok();
         for (account_id, wire) in &state.private_observation_wires {
-            if self.account.as_ref().is_some_and(|wanted| wanted != account_id)
+            if self
+                .account
+                .as_ref()
+                .is_some_and(|wanted| wanted != account_id)
                 || !wire.ready
                 || wire.actual != subscription
-                || !state.accounts.get(account_id).is_some_and(|account| account.attempt == wire.attempt)
+                || !state
+                    .accounts
+                    .get(account_id)
+                    .is_some_and(|account| account.attempt == wire.attempt)
             {
                 continue;
             }
             let crate::NostrSubscription::Group {
-                group_id, transport_group_id, endpoints, ..
-            } = &wire.subscription else {
+                group_id,
+                transport_group_id,
+                endpoints,
+                ..
+            } = &wire.subscription
+            else {
                 continue;
             };
-            if &wire.group != group_id || !endpoints.iter().any(|candidate| {
-                crate::CanonicalEndpoint::new(candidate).matches(&endpoint, parsed_endpoint.as_ref())
-            }) {
+            if &wire.group != group_id
+                || !endpoints.iter().any(|candidate| {
+                    crate::CanonicalEndpoint::new(candidate)
+                        .matches(&endpoint, parsed_endpoint.as_ref())
+                })
+            {
                 continue;
             }
             let token = ReceiverEose {
@@ -181,10 +194,14 @@ impl LiveNotificationReceiver {
                 attempt: wire.attempt,
             };
             // Reuse the existing full route/attempt/current-wire validation.
-            if token.matches_current(&state) && !self.eose.iter().any(|old| {
-                old.account == token.account && old.group == token.group
-                    && old.endpoint == token.endpoint && old.subscription == token.subscription
-            }) {
+            if token.matches_current(&state)
+                && !self.eose.iter().any(|old| {
+                    old.account == token.account
+                        && old.group == token.group
+                        && old.endpoint == token.endpoint
+                        && old.subscription == token.subscription
+                })
+            {
                 self.eose.push(token);
             }
         }
@@ -451,14 +468,19 @@ mod tests {
         };
         let subscription = event.subscription_id.as_deref().unwrap();
         let mut sdk = adapter.live_notification_receiver(Some(account.clone()));
-        sdk.observe_private_sdk_eose(event.endpoint.clone(), subscription).await;
-        let sdk_skipped = sdk.eose.is_empty()
-            && sdk.capture_private_sdk_event(&event).unwrap().is_none();
+        sdk.observe_private_sdk_eose(event.endpoint.clone(), subscription)
+            .await;
+        let sdk_skipped =
+            sdk.eose.is_empty() && sdk.capture_private_sdk_event(&event).unwrap().is_none();
         let mut generic = adapter.live_notification_receiver(Some(account.clone()));
-        generic.observe_eose(event.endpoint.clone(), subscription).await;
+        generic
+            .observe_eose(event.endpoint.clone(), subscription)
+            .await;
         let generic_preserved = generic.capture(&event).unwrap().eose.len() == 1;
         adapter.deactivate_account(&account).await.unwrap();
-        assert!(sdk_skipped && generic_preserved,
-            "ordinary SDK copies must skip private capture while generic capture remains available");
+        assert!(
+            sdk_skipped && generic_preserved,
+            "ordinary SDK copies must skip private capture while generic capture remains available"
+        );
     }
 }
