@@ -3965,14 +3965,20 @@ impl TransportAdapter for NostrTransportAdapter {
                 // coverage, while repacking every family re-sent and coupled
                 // relay sets the change never touched.
                 #[cfg(feature = "experimental-device-sync")]
-                let selected = match state.private_observation_groups.get(&sync.account_id).cloned() {
+                let selected = match state
+                    .private_observation_groups
+                    .get(&sync.account_id)
+                    .cloned()
+                {
                     Some(group) => {
                         let Some(route) = sync.group_subscriptions.iter().find(|route| {
                             route.group_id == group && route.retained_since.is_none()
                         }) else {
                             // Failure must revoke the predecessor even when
                             // planning rejects the route before preparation.
-                            if let Some(wire) = state.private_observation_wires.get_mut(&sync.account_id) {
+                            if let Some(wire) =
+                                state.private_observation_wires.get_mut(&sync.account_id)
+                            {
                                 wire.ready = false;
                                 wire.completed = false;
                             }

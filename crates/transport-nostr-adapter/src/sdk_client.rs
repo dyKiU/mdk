@@ -14365,114 +14365,212 @@ mod tests {
         let a2 = group(0xd3, &url_a);
         let b1 = group(0xd4, &url_b);
         let b2 = group(0xd5, &url_b);
-        adapter.configure_private_observation_group(&account, Some(private.group_id.clone())).await;
-        adapter.activate_account(crate::TransportAccountActivation {
-            account_id: account.clone(),
-            inbox_endpoints: vec![TransportEndpoint(url_a.to_string())],
-            group_subscriptions: vec![private.clone(), a1.clone(), b1.clone()],
-            since: None,
-        }).await.unwrap();
+        adapter
+            .configure_private_observation_group(&account, Some(private.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url_a.to_string())],
+                group_subscriptions: vec![private.clone(), a1.clone(), b1.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
         timeout(Duration::from_secs(10), async {
             while !adapter.account_subscription_eose(&account).await.complete() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-        }).await.expect("initial real SDK native EOSE");
+        })
+        .await
+        .expect("initial real SDK native EOSE");
         let (private_before, a_before, b_before) = {
             let state = adapter.state.read().await;
             let attempt = state.accounts[&account].attempt;
-            (state.observation_wire_id(&account, &private, attempt).unwrap(),
-             state.observation_wire_id(&account, &a1, attempt).unwrap(),
-             state.observation_wire_id(&account, &b1, attempt).unwrap())
+            (
+                state
+                    .observation_wire_id(&account, &private, attempt)
+                    .unwrap(),
+                state.observation_wire_id(&account, &a1, attempt).unwrap(),
+                state.observation_wire_id(&account, &b1, attempt).unwrap(),
+            )
         };
         let sdk_a = sdk.client().relay(url_a.clone()).await.unwrap().unwrap();
         let sdk_b = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
-        let initial_registered = sdk_a.subscription(&SubscriptionId::new(private_before.clone())).await.is_some()
-            && sdk_a.subscription(&SubscriptionId::new(a_before.clone())).await.is_some()
-            && sdk_b.subscription(&SubscriptionId::new(b_before.clone())).await.is_some();
+        let initial_registered = sdk_a
+            .subscription(&SubscriptionId::new(private_before.clone()))
+            .await
+            .is_some()
+            && sdk_a
+                .subscription(&SubscriptionId::new(a_before.clone()))
+                .await
+                .is_some()
+            && sdk_b
+                .subscription(&SubscriptionId::new(b_before.clone()))
+                .await
+                .is_some();
         sdk_b.ban();
         let terminal_ban = sdk_b.status() == RelayStatus::Banned;
-        let desired = vec![private.clone(), a1.clone(), a2.clone(), b1.clone(), b2.clone()];
-        let partial_failed = adapter.sync_account_groups(crate::TransportGroupSync {
-            account_id: account.clone(), group_subscriptions: desired.clone(), since: None,
-        }).await.is_err();
+        let desired = vec![
+            private.clone(),
+            a1.clone(),
+            a2.clone(),
+            b1.clone(),
+            b2.clone(),
+        ];
+        let partial_failed = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .is_err();
         let (private_partial, a_partial, a2_partial, b_partial, b2_partial) = {
             let state = adapter.state.read().await;
             let attempt = state.accounts[&account].attempt;
-            (state.observation_wire_id(&account, &private, attempt),
-             state.observation_wire_id(&account, &a1, attempt),
-             state.observation_wire_id(&account, &a2, attempt),
-             state.observation_wire_id(&account, &b1, attempt),
-             state.observation_wire_id(&account, &b2, attempt))
+            (
+                state.observation_wire_id(&account, &private, attempt),
+                state.observation_wire_id(&account, &a1, attempt),
+                state.observation_wire_id(&account, &a2, attempt),
+                state.observation_wire_id(&account, &b1, attempt),
+                state.observation_wire_id(&account, &b2, attempt),
+            )
         };
         let healthy_native_eose = if let Some(id) = &a2_partial {
             timeout(Duration::from_secs(10), async {
-                while adapter.subscription_endpoint_eose(id, &TransportEndpoint(url_a.to_string())).await != Some(true) {
+                while adapter
+                    .subscription_endpoint_eose(id, &TransportEndpoint(url_a.to_string()))
+                    .await
+                    != Some(true)
+                {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-            }).await.is_ok()
-        } else { false };
-        let healthy_committed = a2_partial.as_ref().is_some_and(|id| a_partial.as_ref() == Some(id) && id != &a_before);
+            })
+            .await
+            .is_ok()
+        } else {
+            false
+        };
+        let healthy_committed = a2_partial
+            .as_ref()
+            .is_some_and(|id| a_partial.as_ref() == Some(id) && id != &a_before);
         let healthy_registered = if let Some(id) = &a2_partial {
-            sdk_a.subscription(&SubscriptionId::new(id.clone())).await.is_some()
-        } else { false };
+            sdk_a
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
         let failed_family_retained = b_partial.as_ref() == Some(&b_before) && b2_partial.is_none();
         let private_partial_unchanged = private_partial.as_ref() == Some(&private_before)
-            && sdk_a.subscription(&SubscriptionId::new(private_before.clone())).await.is_some();
+            && sdk_a
+                .subscription(&SubscriptionId::new(private_before.clone()))
+                .await
+                .is_some();
         // Remove the actual banned SDK relay, then let the normal subscription
         // path add a new readable instance. No status mutation or fake ACK.
         sdk.client().remove_relay(url_b.clone()).await.unwrap();
-        let retry_succeeded = adapter.sync_account_groups(crate::TransportGroupSync {
-            account_id: account.clone(), group_subscriptions: desired, since: None,
-        }).await.is_ok();
+        let retry_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired,
+                since: None,
+            })
+            .await
+            .is_ok();
         let final_native_eose = timeout(Duration::from_secs(10), async {
             while !adapter.account_subscription_eose(&account).await.complete() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-        }).await.is_ok();
+        })
+        .await
+        .is_ok();
         let (private_final, a_final, b_final, b2_final) = {
             let state = adapter.state.read().await;
             let attempt = state.accounts[&account].attempt;
-            (state.observation_wire_id(&account, &private, attempt),
-             state.observation_wire_id(&account, &a2, attempt),
-             state.observation_wire_id(&account, &b1, attempt),
-             state.observation_wire_id(&account, &b2, attempt))
+            (
+                state.observation_wire_id(&account, &private, attempt),
+                state.observation_wire_id(&account, &a2, attempt),
+                state.observation_wire_id(&account, &b1, attempt),
+                state.observation_wire_id(&account, &b2, attempt),
+            )
         };
         let retry_keeps_successful_carriers = private_final.as_ref() == Some(&private_before)
-            && a_final == a2_partial && a_final.is_some();
-        let retried_family_committed = b2_final.as_ref().is_some_and(|id| b_final.as_ref() == Some(id) && id != &b_before);
+            && a_final == a2_partial
+            && a_final.is_some();
+        let retried_family_committed = b2_final
+            .as_ref()
+            .is_some_and(|id| b_final.as_ref() == Some(id) && id != &b_before);
         let sdk_b_retry = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
         let retried_registered = if let Some(id) = &b2_final {
-            sdk_b_retry.subscription(&SubscriptionId::new(id.clone())).await.is_some()
-        } else { false };
-        let old_b_absent_from_retry_instance = sdk_b_retry.subscription(&SubscriptionId::new(b_before)).await.is_none();
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        let old_b_absent_from_retry_instance = sdk_b_retry
+            .subscription(&SubscriptionId::new(b_before))
+            .await
+            .is_none();
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
-            && sdk.account_subscriptions.read().await.get(&account).is_none_or(|ids| ids.is_empty())
-            && sdk_a.subscriptions().await.is_empty() && sdk_b_retry.subscriptions().await.is_empty();
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty())
+            && sdk_a.subscriptions().await.is_empty()
+            && sdk_b_retry.subscriptions().await.is_empty();
         sdk.shutdown().await;
-        timeout(Duration::from_secs(2), forwarder).await.unwrap().unwrap();
-        relay_a.shutdown(); relay_b.shutdown();
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay_a.shutdown();
+        relay_b.shutdown();
         #[cfg(feature = "test-policy-overrides")]
-        crate::test_support::emit_line(format_args!("private-family-partial-prerequisites {}", serde_json::json!({
-            "distinct_relays": url_a != url_b, "initial_registered": initial_registered,
-            "terminal_ban": terminal_ban, "partial_failed": partial_failed,
-            "retry_succeeded": retry_succeeded, "final_native_eose": final_native_eose,
-            "retried_registered": retried_registered, "cleanup_complete": cleanup_complete,
-            "healthy_committed": healthy_committed, "healthy_registered": healthy_registered,
-            "healthy_native_eose": healthy_native_eose, "failed_family_retained": failed_family_retained,
-            "private_partial_unchanged": private_partial_unchanged,
-            "retry_keeps_successful_carriers": retry_keeps_successful_carriers,
-            "retried_family_committed": retried_family_committed, "old_b_absent_from_retry_instance": old_b_absent_from_retry_instance,
-        })));
-        assert!(url_a != url_b && initial_registered && terminal_ban && partial_failed
-            && retry_succeeded && final_native_eose && retried_registered && cleanup_complete,
-            "real SDK terminal failure, recovery, native EOSE and teardown are prerequisites");
-        assert!(healthy_committed && healthy_registered && healthy_native_eose
-            && failed_family_retained && private_partial_unchanged
-            && retry_keeps_successful_carriers && retried_family_committed && old_b_absent_from_retry_instance,
-            "a failed ordinary family must preserve private and independently committed healthy carriers through retry");
+        crate::test_support::emit_line(format_args!(
+            "private-family-partial-prerequisites {}",
+            serde_json::json!({
+                "distinct_relays": url_a != url_b, "initial_registered": initial_registered,
+                "terminal_ban": terminal_ban, "partial_failed": partial_failed,
+                "retry_succeeded": retry_succeeded, "final_native_eose": final_native_eose,
+                "retried_registered": retried_registered, "cleanup_complete": cleanup_complete,
+                "healthy_committed": healthy_committed, "healthy_registered": healthy_registered,
+                "healthy_native_eose": healthy_native_eose, "failed_family_retained": failed_family_retained,
+                "private_partial_unchanged": private_partial_unchanged,
+                "retry_keeps_successful_carriers": retry_keeps_successful_carriers,
+                "retried_family_committed": retried_family_committed, "old_b_absent_from_retry_instance": old_b_absent_from_retry_instance,
+            })
+        ));
+        assert!(
+            url_a != url_b
+                && initial_registered
+                && terminal_ban
+                && partial_failed
+                && retry_succeeded
+                && final_native_eose
+                && retried_registered
+                && cleanup_complete,
+            "real SDK terminal failure, recovery, native EOSE and teardown are prerequisites"
+        );
+        assert!(
+            healthy_committed
+                && healthy_registered
+                && healthy_native_eose
+                && failed_family_retained
+                && private_partial_unchanged
+                && retry_keeps_successful_carriers
+                && retried_family_committed
+                && old_b_absent_from_retry_instance,
+            "a failed ordinary family must preserve private and independently committed healthy carriers through retry"
+        );
     }
-
 
     /// A failed replacement retains the former standalone carrier as
     /// private-negative, then a successful role commit can make it ordinary.
@@ -14492,22 +14590,32 @@ mod tests {
         let group = |byte: u8, url: &RelayUrl| crate::TransportGroupSubscription {
             group_id: cgka_traits::GroupId::new(vec![byte; 16]),
             transport_group_id: vec![byte; 32],
-            endpoints: vec![TransportEndpoint(url.to_string())], retained_since: None,
+            endpoints: vec![TransportEndpoint(url.to_string())],
+            retained_since: None,
         };
         let a = group(0xe1, &url_a);
         let b = group(0xe2, &url_b);
         let c = group(0xe3, &url_c);
         let c2 = group(0xe4, &url_c);
-        adapter.configure_private_observation_group(&account, Some(a.group_id.clone())).await;
-        adapter.activate_account(crate::TransportAccountActivation {
-            account_id: account.clone(), inbox_endpoints: vec![TransportEndpoint(url_c.to_string())],
-            group_subscriptions: vec![a.clone(), b.clone(), c.clone()], since: None,
-        }).await.unwrap();
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url_c.to_string())],
+                group_subscriptions: vec![a.clone(), b.clone(), c.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
         timeout(Duration::from_secs(10), async {
             while !adapter.account_subscription_eose(&account).await.complete() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-        }).await.expect("initial native SDK EOSE");
+        })
+        .await
+        .expect("initial native SDK EOSE");
         let (old_actual, old_logical) = {
             let state = adapter.state.read().await;
             let wire = &state.private_observation_wires[&account];
@@ -14516,15 +14624,31 @@ mod tests {
         let sdk_a = sdk.client().relay(url_a.clone()).await.unwrap().unwrap();
         let sdk_b = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
         let sdk_c = sdk.client().relay(url_c.clone()).await.unwrap().unwrap();
-        let initial_actual_registered = sdk_a.subscription(&SubscriptionId::new(old_actual.clone())).await.is_some();
+        let initial_actual_registered = sdk_a
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_some();
         sdk_b.ban();
         let terminal_ban = sdk_b.status() == RelayStatus::Banned;
-        adapter.configure_private_observation_group(&account, Some(b.group_id.clone())).await;
+        adapter
+            .configure_private_observation_group(&account, Some(b.group_id.clone()))
+            .await;
         let desired = vec![a.clone(), b.clone(), c.clone(), c2.clone()];
-        let replacement_failed = adapter.sync_account_groups(crate::TransportGroupSync {
-            account_id: account.clone(), group_subscriptions: desired.clone(), since: None,
-        }).await.is_err();
-        let (prior_negative, successor_negative, prior_standalone_retained, successor_not_ready, c2_id) = {
+        let replacement_failed = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .is_err();
+        let (
+            prior_negative,
+            successor_negative,
+            prior_standalone_retained,
+            successor_not_ready,
+            c2_id,
+        ) = {
             let state = adapter.state.read().await;
             let routes = &state.accounts[&account];
             let wire = &state.private_observation_wires[&account];
@@ -14534,98 +14658,192 @@ mod tests {
              wire.group == b.group_id && !wire.ready && !wire.completed,
              state.observation_wire_id(&account, &c2, routes.attempt))
         };
-        let predecessor_closed = sdk_a.subscription(&SubscriptionId::new(old_actual.clone())).await.is_none();
+        let predecessor_closed = sdk_a
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_none();
         let healthy_registered = if let Some(id) = &c2_id {
-            sdk_c.subscription(&SubscriptionId::new(id.clone())).await.is_some()
-        } else { false };
+            sdk_c
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
         let healthy_native_eose = if let Some(id) = &c2_id {
             timeout(Duration::from_secs(10), async {
-                while adapter.subscription_endpoint_eose(id, &TransportEndpoint(url_c.to_string())).await != Some(true) {
+                while adapter
+                    .subscription_endpoint_eose(id, &TransportEndpoint(url_c.to_string()))
+                    .await
+                    != Some(true)
+                {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-            }).await.is_ok()
-        } else { false };
+            })
+            .await
+            .is_ok()
+        } else {
+            false
+        };
         sdk.client().remove_relay(url_b.clone()).await.unwrap();
-        let retry_succeeded = adapter.sync_account_groups(crate::TransportGroupSync {
-            account_id: account.clone(), group_subscriptions: desired.clone(), since: None,
-        }).await.is_ok();
+        let retry_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .is_ok();
         let retry_native_eose = timeout(Duration::from_secs(10), async {
             while !adapter.account_subscription_eose(&account).await.complete() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-        }).await.is_ok();
+        })
+        .await
+        .is_ok();
         let (a_ordinary, b_actual, b_logical, healthy_unchanged) = {
             let state = adapter.state.read().await;
             let routes = &state.accounts[&account];
             let wire = &state.private_observation_wires[&account];
-            (state.observation_wire_id(&account, &a, routes.attempt),
-             state.observation_wire_id(&account, &b, routes.attempt), wire.logical.clone(),
-             state.observation_wire_id(&account, &c2, routes.attempt) == c2_id)
+            (
+                state.observation_wire_id(&account, &a, routes.attempt),
+                state.observation_wire_id(&account, &b, routes.attempt),
+                wire.logical.clone(),
+                state.observation_wire_id(&account, &c2, routes.attempt) == c2_id,
+            )
         };
-        let prior_ordinary_is_new_batch = a_ordinary.as_ref().is_some_and(|id| id != &old_actual && id != &old_logical);
+        let prior_ordinary_is_new_batch = a_ordinary
+            .as_ref()
+            .is_some_and(|id| id != &old_actual && id != &old_logical);
         let sdk_b_retry = sdk.client().relay(url_b.clone()).await.unwrap().unwrap();
         let replacement_registered = if let Some(id) = &b_actual {
-            sdk_b_retry.subscription(&SubscriptionId::new(id.clone())).await.is_some()
-        } else { false };
-        adapter.configure_private_observation_group(&account, None).await;
-        let demotion_succeeded = adapter.sync_account_groups(crate::TransportGroupSync {
-            account_id: account.clone(), group_subscriptions: desired, since: None,
-        }).await.is_ok();
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        adapter
+            .configure_private_observation_group(&account, None)
+            .await;
+        let demotion_succeeded = adapter
+            .sync_account_groups(crate::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: desired,
+                since: None,
+            })
+            .await
+            .is_ok();
         let demotion_native_eose = timeout(Duration::from_secs(10), async {
             while !adapter.account_subscription_eose(&account).await.complete() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-        }).await.is_ok();
+        })
+        .await
+        .is_ok();
         let (b_ordinary, demotion_has_no_standalone, healthy_after_demotion) = {
             let state = adapter.state.read().await;
             let routes = &state.accounts[&account];
-            (state.observation_wire_id(&account, &b, routes.attempt),
-             !routes.batches.iter().any(|batch| matches!(batch, NostrSubscription::Group { .. })),
-             state.observation_wire_id(&account, &c2, routes.attempt) == c2_id)
+            (
+                state.observation_wire_id(&account, &b, routes.attempt),
+                !routes
+                    .batches
+                    .iter()
+                    .any(|batch| matches!(batch, NostrSubscription::Group { .. })),
+                state.observation_wire_id(&account, &c2, routes.attempt) == c2_id,
+            )
         };
         let demoted_batch_registered = if let Some(id) = &b_ordinary {
-            sdk_b_retry.subscription(&SubscriptionId::new(id.clone())).await.is_some()
-        } else { false };
-        let demotion_uses_new_batch = b_ordinary.as_ref().is_some_and(|id| Some(id) != b_actual.as_ref() && id != &b_logical);
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_some()
+        } else {
+            false
+        };
+        let demotion_uses_new_batch = b_ordinary
+            .as_ref()
+            .is_some_and(|id| Some(id) != b_actual.as_ref() && id != &b_logical);
         let replacement_actual_closed = if let Some(id) = &b_actual {
-            sdk_b_retry.subscription(&SubscriptionId::new(id.clone())).await.is_none()
-        } else { false };
+            sdk_b_retry
+                .subscription(&SubscriptionId::new(id.clone()))
+                .await
+                .is_none()
+        } else {
+            false
+        };
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
-            && sdk.account_subscriptions.read().await.get(&account).is_none_or(|ids| ids.is_empty())
-            && sdk_a.subscriptions().await.is_empty() && sdk_b_retry.subscriptions().await.is_empty()
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty())
+            && sdk_a.subscriptions().await.is_empty()
+            && sdk_b_retry.subscriptions().await.is_empty()
             && sdk_c.subscriptions().await.is_empty();
         sdk.shutdown().await;
-        timeout(Duration::from_secs(2), forwarder).await.unwrap().unwrap();
-        relay_a.shutdown(); relay_b.shutdown(); relay_c.shutdown();
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay_a.shutdown();
+        relay_b.shutdown();
+        relay_c.shutdown();
         #[cfg(feature = "test-policy-overrides")]
-        crate::test_support::emit_line(format_args!("private-role-transition-prerequisites {}", serde_json::json!({
-            "distinct_relays": url_a != url_b && url_a != url_c && url_b != url_c,
-            "initial_actual_registered": initial_actual_registered, "terminal_ban": terminal_ban,
-            "replacement_failed": replacement_failed, "prior_standalone_retained": prior_standalone_retained,
-            "successor_not_ready": successor_not_ready, "predecessor_closed": predecessor_closed,
-            "healthy_registered": healthy_registered, "healthy_native_eose": healthy_native_eose,
-            "retry_succeeded": retry_succeeded, "retry_native_eose": retry_native_eose,
-            "replacement_registered": replacement_registered, "demotion_succeeded": demotion_succeeded,
-            "demotion_native_eose": demotion_native_eose, "demoted_batch_registered": demoted_batch_registered,
-            "cleanup_complete": cleanup_complete, "prior_negative": prior_negative,
-            "successor_negative": successor_negative, "prior_ordinary_is_new_batch": prior_ordinary_is_new_batch,
-            "healthy_unchanged": healthy_unchanged, "healthy_after_demotion": healthy_after_demotion,
-            "demotion_has_no_standalone": demotion_has_no_standalone,
-            "demotion_uses_new_batch": demotion_uses_new_batch, "replacement_actual_closed": replacement_actual_closed,
-        })));
-        assert!(url_a != url_b && url_a != url_c && url_b != url_c && initial_actual_registered
-            && terminal_ban && replacement_failed && prior_standalone_retained && successor_not_ready
-            && predecessor_closed && healthy_registered && healthy_native_eose
-            && retry_succeeded && retry_native_eose && replacement_registered
-            && demotion_succeeded && demotion_native_eose && demoted_batch_registered && cleanup_complete,
-            "real failed replacement, healthy sibling, native retry/demotion and teardown are prerequisites");
-        assert!(prior_negative && successor_negative && prior_ordinary_is_new_batch
-            && healthy_unchanged && healthy_after_demotion && demotion_has_no_standalone
-            && demotion_uses_new_batch && replacement_actual_closed,
-            "failed private roles stay negative and become ordinary only through their own committed batch");
+        crate::test_support::emit_line(format_args!(
+            "private-role-transition-prerequisites {}",
+            serde_json::json!({
+                "distinct_relays": url_a != url_b && url_a != url_c && url_b != url_c,
+                "initial_actual_registered": initial_actual_registered, "terminal_ban": terminal_ban,
+                "replacement_failed": replacement_failed, "prior_standalone_retained": prior_standalone_retained,
+                "successor_not_ready": successor_not_ready, "predecessor_closed": predecessor_closed,
+                "healthy_registered": healthy_registered, "healthy_native_eose": healthy_native_eose,
+                "retry_succeeded": retry_succeeded, "retry_native_eose": retry_native_eose,
+                "replacement_registered": replacement_registered, "demotion_succeeded": demotion_succeeded,
+                "demotion_native_eose": demotion_native_eose, "demoted_batch_registered": demoted_batch_registered,
+                "cleanup_complete": cleanup_complete, "prior_negative": prior_negative,
+                "successor_negative": successor_negative, "prior_ordinary_is_new_batch": prior_ordinary_is_new_batch,
+                "healthy_unchanged": healthy_unchanged, "healthy_after_demotion": healthy_after_demotion,
+                "demotion_has_no_standalone": demotion_has_no_standalone,
+                "demotion_uses_new_batch": demotion_uses_new_batch, "replacement_actual_closed": replacement_actual_closed,
+            })
+        ));
+        assert!(
+            url_a != url_b
+                && url_a != url_c
+                && url_b != url_c
+                && initial_actual_registered
+                && terminal_ban
+                && replacement_failed
+                && prior_standalone_retained
+                && successor_not_ready
+                && predecessor_closed
+                && healthy_registered
+                && healthy_native_eose
+                && retry_succeeded
+                && retry_native_eose
+                && replacement_registered
+                && demotion_succeeded
+                && demotion_native_eose
+                && demoted_batch_registered
+                && cleanup_complete,
+            "real failed replacement, healthy sibling, native retry/demotion and teardown are prerequisites"
+        );
+        assert!(
+            prior_negative
+                && successor_negative
+                && prior_ordinary_is_new_batch
+                && healthy_unchanged
+                && healthy_after_demotion
+                && demotion_has_no_standalone
+                && demotion_uses_new_batch
+                && replacement_actual_closed,
+            "failed private roles stay negative and become ordinary only through their own committed batch"
+        );
     }
-
 
     /// This wrapper gates only completion of an actual private CLOSE. Every
     /// subscribe/report and actual CLOSE still goes through the real SDK.
@@ -14640,33 +14858,65 @@ mod tests {
     #[cfg(feature = "experimental-device-sync")]
     #[async_trait]
     impl NostrRelayClient for HeldConfigurationClose {
-        async fn subscribe(&self, subscription: NostrSubscription) -> Result<(), TransportAdapterError> {
+        async fn subscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
             self.sdk.subscribe(subscription).await
         }
-        async fn subscribe_reporting(&self, subscription: NostrSubscription) -> Result<NostrSubscribeReport, TransportAdapterError> {
+        async fn subscribe_reporting(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<NostrSubscribeReport, TransportAdapterError> {
             self.sdk.subscribe_reporting(subscription).await
         }
-        async fn unsubscribe(&self, subscription: NostrSubscription) -> Result<(), TransportAdapterError> {
+        async fn unsubscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
             self.sdk.unsubscribe(subscription).await
         }
-        fn supports_scoped_subscriptions(&self) -> bool { true }
-        async fn subscribe_scoped(&self, subscription: NostrSubscription, id: String) -> Result<(), TransportAdapterError> {
+        fn supports_scoped_subscriptions(&self) -> bool {
+            true
+        }
+        async fn subscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
             self.sdk.subscribe_scoped(subscription, id).await
         }
-        async fn subscribe_scoped_reporting(&self, subscription: NostrSubscription, id: String) -> Result<NostrSubscribeReport, TransportAdapterError> {
+        async fn subscribe_scoped_reporting(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<NostrSubscribeReport, TransportAdapterError> {
             NostrRelayClient::subscribe_scoped_reporting(&self.sdk, subscription, id).await
         }
-        async fn unsubscribe_scoped(&self, subscription: NostrSubscription, id: String) -> Result<(), TransportAdapterError> {
+        async fn unsubscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
             if self.hold.load(Ordering::SeqCst) {
                 self.entered.notify_one();
                 self.release.notified().await;
             }
             self.sdk.unsubscribe_scoped(subscription, id).await
         }
-        async fn unsubscribe_account(&self, account: &MemberId, replacements: &[NostrSubscription]) -> Result<(), TransportAdapterError> {
+        async fn unsubscribe_account(
+            &self,
+            account: &MemberId,
+            replacements: &[NostrSubscription],
+        ) -> Result<(), TransportAdapterError> {
             self.sdk.unsubscribe_account(account, replacements).await
         }
-        async fn publish_event(&self, endpoints: &[TransportEndpoint], event: &NostrTransportEvent, required: usize) -> Result<NostrPublishOutcome, TransportAdapterError> {
+        async fn publish_event(
+            &self,
+            endpoints: &[TransportEndpoint],
+            event: &NostrTransportEvent,
+            required: usize,
+        ) -> Result<NostrPublishOutcome, TransportAdapterError> {
             NostrRelayClient::publish_event(&self.sdk, endpoints, event, required).await
         }
     }
@@ -14681,8 +14931,10 @@ mod tests {
         let url = relay.url().await;
         let sdk = fast_retry_sdk();
         let held = Arc::new(HeldConfigurationClose {
-            sdk: sdk.clone(), hold: AtomicBool::new(false),
-            entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(),
+            sdk: sdk.clone(),
+            hold: AtomicBool::new(false),
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
         });
         let adapter = NostrTransportAdapter::new(held.clone());
         let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
@@ -14690,28 +14942,47 @@ mod tests {
         let group = |byte: u8| crate::TransportGroupSubscription {
             group_id: cgka_traits::GroupId::new(vec![byte; 16]),
             transport_group_id: vec![byte; 32],
-            endpoints: vec![TransportEndpoint(url.to_string())], retained_since: None,
+            endpoints: vec![TransportEndpoint(url.to_string())],
+            retained_since: None,
         };
         let a = group(0xf1);
         let b = group(0xf2);
         let desired = vec![a.clone(), b.clone()];
-        adapter.configure_private_observation_group(&account, Some(a.group_id.clone())).await;
-        adapter.activate_account(crate::TransportAccountActivation {
-            account_id: account.clone(), inbox_endpoints: vec![TransportEndpoint(url.to_string())],
-            group_subscriptions: desired.clone(), since: None,
-        }).await.unwrap();
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint(url.to_string())],
+                group_subscriptions: desired.clone(),
+                since: None,
+            })
+            .await
+            .unwrap();
         timeout(Duration::from_secs(10), async {
             while !adapter.account_subscription_eose(&account).await.complete() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-        }).await.expect("initial native EOSE");
-        let old_actual = adapter.state.read().await.private_observation_wires[&account].actual.clone();
+        })
+        .await
+        .expect("initial native EOSE");
+        let old_actual = adapter.state.read().await.private_observation_wires[&account]
+            .actual
+            .clone();
         let sdk_relay = sdk.client().relay(url.clone()).await.unwrap().unwrap();
-        let initial_actual_registered = sdk_relay.subscription(&SubscriptionId::new(old_actual.clone())).await.is_some();
+        let initial_actual_registered = sdk_relay
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_some();
         // Deliberately revoke the completed operation first. The next sync
         // must therefore prepare a replacement even with identical routes.
-        adapter.configure_private_observation_group(&account, None).await;
-        adapter.configure_private_observation_group(&account, Some(a.group_id.clone())).await;
+        adapter
+            .configure_private_observation_group(&account, None)
+            .await;
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
         let initially_revoked = {
             let state = adapter.state.read().await;
             let wire = &state.private_observation_wires[&account];
@@ -14721,60 +14992,110 @@ mod tests {
         let sync_adapter = adapter.clone();
         let sync_account = account.clone();
         let sync = tokio::spawn(async move {
-            sync_adapter.sync_account_groups(crate::TransportGroupSync {
-                account_id: sync_account, group_subscriptions: desired, since: None,
-            }).await
+            sync_adapter
+                .sync_account_groups(crate::TransportGroupSync {
+                    account_id: sync_account,
+                    group_subscriptions: desired,
+                    since: None,
+                })
+                .await
         });
-        timeout(Duration::from_secs(10), held.entered.notified()).await
+        timeout(Duration::from_secs(10), held.entered.notified())
+            .await
             .expect("replacement reached the real predecessor CLOSE boundary");
-        let successor_actual = adapter.state.read().await.private_observation_wires[&account].actual.clone();
-        let predecessor_still_registered = sdk_relay.subscription(&SubscriptionId::new(old_actual.clone())).await.is_some();
-        let successor_absent_while_held = sdk_relay.subscription(&SubscriptionId::new(successor_actual.clone())).await.is_none();
-        adapter.configure_private_observation_group(&account, Some(b.group_id.clone())).await;
-        adapter.configure_private_observation_group(&account, Some(a.group_id.clone())).await;
+        let successor_actual = adapter.state.read().await.private_observation_wires[&account]
+            .actual
+            .clone();
+        let predecessor_still_registered = sdk_relay
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_some();
+        let successor_absent_while_held = sdk_relay
+            .subscription(&SubscriptionId::new(successor_actual.clone()))
+            .await
+            .is_none();
+        adapter
+            .configure_private_observation_group(&account, Some(b.group_id.clone()))
+            .await;
+        adapter
+            .configure_private_observation_group(&account, Some(a.group_id.clone()))
+            .await;
         let held_revocation = {
             let state = adapter.state.read().await;
             let wire = &state.private_observation_wires[&account];
-            wire.actual == successor_actual && !wire.ready && !wire.completed
+            wire.actual == successor_actual
+                && !wire.ready
+                && !wire.completed
                 && state.private_observation_groups.get(&account) == Some(&a.group_id)
         };
         held.hold.store(false, Ordering::SeqCst);
         held.release.notify_one();
-        let sync_result = timeout(Duration::from_secs(10), sync).await
-            .expect("released replacement settles").expect("sync task does not panic");
+        let sync_result = timeout(Duration::from_secs(10), sync)
+            .await
+            .expect("released replacement settles")
+            .expect("sync task does not panic");
         let sync_rejected = sync_result.is_err();
         let preparation_not_reauthorised = {
             let state = adapter.state.read().await;
             let routes = &state.accounts[&account];
             let wire = &state.private_observation_wires[&account];
-            !wire.ready && !wire.completed
-                && state.observation_wire_id(&account, &a, routes.attempt).is_none()
+            !wire.ready
+                && !wire.completed
+                && state
+                    .observation_wire_id(&account, &a, routes.attempt)
+                    .is_none()
         };
-        let predecessor_closed = sdk_relay.subscription(&SubscriptionId::new(old_actual.clone())).await.is_none();
-        let successor_not_registered = sdk_relay.subscription(&SubscriptionId::new(successor_actual.clone())).await.is_none();
+        let predecessor_closed = sdk_relay
+            .subscription(&SubscriptionId::new(old_actual.clone()))
+            .await
+            .is_none();
+        let successor_not_registered = sdk_relay
+            .subscription(&SubscriptionId::new(successor_actual.clone()))
+            .await
+            .is_none();
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
-            && sdk.account_subscriptions.read().await.get(&account).is_none_or(|ids| ids.is_empty())
+            && sdk
+                .account_subscriptions
+                .read()
+                .await
+                .get(&account)
+                .is_none_or(|ids| ids.is_empty())
             && sdk_relay.subscriptions().await.is_empty();
         sdk.shutdown().await;
-        timeout(Duration::from_secs(2), forwarder).await.unwrap().unwrap();
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
         relay.shutdown();
         #[cfg(feature = "test-policy-overrides")]
-        crate::test_support::emit_line(format_args!("private-configuration-aba-prerequisites {}", serde_json::json!({
-            "initial_actual_registered": initial_actual_registered, "initially_revoked": initially_revoked,
-            "distinct_successor_actual": successor_actual != old_actual,
-            "predecessor_still_registered": predecessor_still_registered,
-            "successor_absent_while_held": successor_absent_while_held,
-            "held_revocation": held_revocation, "predecessor_closed": predecessor_closed,
-            "cleanup_complete": cleanup_complete, "sync_rejected": sync_rejected,
-            "preparation_not_reauthorised": preparation_not_reauthorised,
-            "successor_not_registered": successor_not_registered,
-        })));
-        assert!(initial_actual_registered && initially_revoked && successor_actual != old_actual
-            && predecessor_still_registered && successor_absent_while_held && held_revocation
-            && predecessor_closed && cleanup_complete,
-            "real SDK held CLOSE, intervening revocation and teardown are prerequisites");
-        assert!(sync_rejected && preparation_not_reauthorised && successor_not_registered,
-            "configuration ABA must not reauthorise the private replacement prepared before revocation");
+        crate::test_support::emit_line(format_args!(
+            "private-configuration-aba-prerequisites {}",
+            serde_json::json!({
+                "initial_actual_registered": initial_actual_registered, "initially_revoked": initially_revoked,
+                "distinct_successor_actual": successor_actual != old_actual,
+                "predecessor_still_registered": predecessor_still_registered,
+                "successor_absent_while_held": successor_absent_while_held,
+                "held_revocation": held_revocation, "predecessor_closed": predecessor_closed,
+                "cleanup_complete": cleanup_complete, "sync_rejected": sync_rejected,
+                "preparation_not_reauthorised": preparation_not_reauthorised,
+                "successor_not_registered": successor_not_registered,
+            })
+        ));
+        assert!(
+            initial_actual_registered
+                && initially_revoked
+                && successor_actual != old_actual
+                && predecessor_still_registered
+                && successor_absent_while_held
+                && held_revocation
+                && predecessor_closed
+                && cleanup_complete,
+            "real SDK held CLOSE, intervening revocation and teardown are prerequisites"
+        );
+        assert!(
+            sync_rejected && preparation_not_reauthorised && successor_not_registered,
+            "configuration ABA must not reauthorise the private replacement prepared before revocation"
+        );
     }
 }
