@@ -223,6 +223,103 @@ def marker(raw):
     return closed(json.loads(match[1], object_pairs_hook=unique))
 
 
+FIXTURE_OBSERVATION_BASES = {
+    'peer-leave-observation': 'peer-leave-initial-delay-observation',
+    'cursor-promotion-observation': 'cursor-promotion-observation',
+}
+PEER_OPTIONAL_BOOLS = {'same_epoch', 'advanced_epoch', 'regressed_epoch', 'group_terminal',
+                       'group_unrecoverable', 'bob_member', 'own_leave_present'}
+CURSOR_BOOLS = {'first_is_newer', 'first_is_older', 'in_memory_is_newer', 'checkpoint_is_initial',
+                'seal_before', 'seal_after', 'delivery_loss', 'transport_cursor_settled'}
+
+
+def fixture_observation(raw, case):
+    base = FIXTURE_OBSERVATION_BASES[case]
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    if any(other != base and other in text for other in FIXTURE_OBSERVATION_BASES.values()):
+        raise ValueError('fixture-observation-other-namespace')
+    occurrences = text.count(base)
+    if occurrences == 0 and case == 'peer-leave-observation':
+        # Absence is allowed, but proves neither getter Some nor reaching it.
+        return dict(marker_present=False, marker_sha256=None, observation=None)
+    lines = [line for line in text.splitlines() if base in line]
+    if occurrences != 1 or len(lines) != 1 or len(lines[0]) > 2_048:
+        raise ValueError('fixture-observation-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(base) + r' (\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('fixture-observation-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if type(value) is not dict:
+        raise ValueError('fixture-observation-object')
+    if case == 'peer-leave-observation':
+        if (set(value) != PEER_OPTIONAL_BOOLS | {'collected', 'initial_delay_present', 'epoch_state', 'member_count'}
+                or value['collected'] is not True or value['initial_delay_present'] is not False
+                or type(value['epoch_state']) is not str
+                or value['epoch_state'] not in {'unknown', 'stable', 'pending_publish', 'merging',
+                                                'recovering', 'unrecoverable', 'disbanded'}
+                or any(value[key] is not None and type(value[key]) is not bool for key in PEER_OPTIONAL_BOOLS)
+                or value['member_count'] is not None and not uint(value['member_count'])):
+            raise ValueError('fixture-observation-peer-schema')
+    elif (set(value) != CURSOR_BOOLS | {'persisted_relative_to_initial'}
+            or any(type(value[key]) is not bool for key in CURSOR_BOOLS)
+            or value['persisted_relative_to_initial'] is not None
+            and (type(value['persisted_relative_to_initial']) is not int
+                 or not -(2**63) <= value['persisted_relative_to_initial'] < 2**63)):
+        raise ValueError('fixture-observation-cursor-schema')
+    return dict(marker_present=True, marker_sha256=hashlib.sha256(lines[0].encode()).hexdigest(),
+                observation=value)
+
+
+def fixture_observation_controls():
+    peer = dict.fromkeys(PEER_OPTIONAL_BOOLS, None)
+    peer.update(collected=True, initial_delay_present=False, epoch_state='unknown', member_count=None)
+    cursor = dict.fromkeys(CURSOR_BOOLS, False)
+    cursor['persisted_relative_to_initial'] = None
+    positives = negatives = 0
+    for case, value in [('peer-leave-observation', peer), ('cursor-promotion-observation', cursor)]:
+        base = FIXTURE_OBSERVATION_BASES[case]
+        raw = (base + ' ' + json.dumps(value) + '\n').encode()
+        assert fixture_observation(raw, case)['observation'] == value
+        assert fixture_observation(b'\x1b[0m' + b' ' * 8 + raw.replace(b'\n', b'\r\n'), case)['observation'] == value
+        positives += 2
+        bad = [raw + raw, b'PRIVATE ' + raw, b' ' * 9 + raw,
+               raw.replace((base + ' ').encode(), (base + '-unknown ').encode()),
+               raw + (base + '-extra PRIVATE\n').encode(), raw.replace(b'{', b'{"private": true,', 1),
+               (base + ' ' + 'x' * 2_049).encode(), (base + ' []').encode()]
+        if case == 'peer-leave-observation':
+            for key, invalid in [('collected', False), ('initial_delay_present', True),
+                                 ('epoch_state', 'PRIVATE'), ('member_count', True),
+                                 ('member_count', -1), ('member_count', 2**64), ('bob_member', 0)]:
+                bad.append((base + ' ' + json.dumps(dict(value, **{key: invalid}))).encode())
+            known = dict.fromkeys(PEER_OPTIONAL_BOOLS, False)
+            known.update(collected=True, initial_delay_present=False, epoch_state='stable', member_count=3)
+            assert fixture_observation((base + ' ' + json.dumps(known)).encode(), case)['observation'] == known
+            assert fixture_observation(b'no owned marker\n', case)['marker_present'] is False
+            positives += 2
+        else:
+            bad.append(b'no owned marker\n')
+            for delta in [True, 'PRIVATE', -(2**63)-1, 2**63]:
+                bad.append((base + ' ' + json.dumps(dict(value, persisted_relative_to_initial=delta))).encode())
+            bad.append((base + ' ' + json.dumps(dict(value, seal_before=0))).encode())
+            for delta in [-(2**63), 0, 1_120, 2**63-1]:
+                assert fixture_observation((base + ' ' + json.dumps(dict(value, persisted_relative_to_initial=delta))).encode(), case)['marker_present']
+                positives += 1
+        other = next(item for item in FIXTURE_OBSERVATION_BASES.values() if item != base)
+        bad.append(raw + (other + ' {}\n').encode())
+        key = next(iter(value))
+        bad.append(raw.replace(b'{', ('{' + json.dumps(key) + ': ' + json.dumps(value[key]) + ',').encode(), 1))
+        missing = dict(value); missing.pop(key)
+        bad.append((base + ' ' + json.dumps(missing)).encode())
+        for invalid in bad:
+            try:
+                fixture_observation(invalid, case)
+            except (ValueError, TypeError):
+                negatives += 1
+            else:
+                raise AssertionError('malformed-fixed-fixture-observation-accepted')
+    return dict(passed=True, positive=positives, negative=negatives, product_bodies=0)
+
+
 RESTART_PREFIX = 'pending-restart-approval '
 RESTART_OPTIONAL = {'lower_is_recipient', 'lower_ready', 'lower_handshake_published',
                     'lower_original_live', 'lower_nonce_matches_x', 'lower_request_content_exists',
@@ -1987,6 +2084,8 @@ def main():
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.case in FIXTURE_OBSERVATION_BASES:
+            report['fixture_observation_controls'] = fixture_observation_controls()
         if args.case in ENGINE_CLASSIFIER_CASES:
             report['engine_bundle_controls'] = engine_bundle_controls()
         if args.case in UNIFFI_CASES:
@@ -2072,6 +2171,16 @@ def main():
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case in FIXTURE_OBSERVATION_BASES:
+                # Supplemental facts never replace the actual runtime verdict.
+                try:
+                    report['body']['fixture_observation'] = fixture_observation(raw, args.case)
+                    report['body']['fixture_observation_export_complete'] = True
+                except Exception:
+                    report['body']['fixture_observation'] = None
+                    report['body']['fixture_observation_export_complete'] = False
+                    report['body']['fixture_observation_error'] = 'absent-or-invalid-fixed-observation'
+                save()
             if args.case == 'late-commit-extra-epoch':
                 stage = 'diagnostic'
                 report['body']['extra_epoch_observation'] = extra_epoch_marker(raw)
