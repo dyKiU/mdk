@@ -430,11 +430,11 @@ impl AccountManager {
         account_ref: &str,
         code: String,
     ) -> Result<AutomaticDeviceLinkingSession, DeviceLinkingError> {
-        let now = Timestamp::now().as_secs();
         let targets = self.device_linking_targets(account_ref).await?;
         if targets.len() > 1 {
             return Err(DeviceLinkingError::NotReady);
         }
+        let now = Timestamp::now().as_secs();
         if code.starts_with("WNPAIR2:") {
             let rendezvous = Rendezvous::decode(&code, now).map_err(wire_error)?;
             if !targets.is_empty() {
