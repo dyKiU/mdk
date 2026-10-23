@@ -2896,7 +2896,7 @@ impl AppClient {
             pre_send_sync_started_at.elapsed(),
             pre_send_sync.is_ok(),
         );
-        pre_send_sync?;
+        self.tolerate_pre_send_sync_failure("invite_members", pre_send_sync)?;
 
         let engine_publish_started_at = Instant::now();
         let commit = self
@@ -3114,7 +3114,7 @@ impl AppClient {
             .map(|member| hex::encode(member.as_slice()))
             .collect::<Vec<_>>();
 
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("remove_members").await?;
         let wake_snapshot = self.snapshot_group_push_tokens_for_members(group_id, &target_hexes);
         let effects = self
             .runtime
@@ -3189,7 +3189,8 @@ impl AppClient {
             ],
             None,
         );
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("enable_group_disbanding")
+            .await?;
         let effects = self
             .runtime
             .send_with_audit_context(
@@ -3247,7 +3248,7 @@ impl AppClient {
             ],
             None,
         );
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("disband_group").await?;
         let effects = self
             .runtime
             .send_with_audit_context(
@@ -3510,7 +3511,7 @@ impl AppClient {
             .drain_push_registration_removal_before_departure(group_id)
             .await?;
         let effects = match async {
-            self.sync_runtime_groups().await?;
+            self.sync_runtime_groups_for_send("leave_group").await?;
             let effects = self
                 .runtime
                 .send_with_audit_context(
@@ -3941,7 +3942,8 @@ impl AppClient {
         self.ensure_group_change_admitted(group_id)?;
         let component = AppGroupAdminPolicyComponent::new(admins).to_app_component_data()?;
 
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("update_admin_policy")
+            .await?;
         let wake_snapshot = self.snapshot_group_push_tokens_for_members(group_id, wake_targets);
         let effects = self
             .runtime
@@ -4010,7 +4012,8 @@ impl AppClient {
         validate_app_component(component_id, &data)?;
         self.ensure_group(group_id)?;
         self.ensure_group_change_admitted(group_id)?;
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("update_app_component")
+            .await?;
         // `required_capabilities` is read out of the MLS GroupContext, not
         // from local config, so any admin in the group can mark an
         // application component required — including a peer on another
@@ -4092,7 +4095,8 @@ impl AppClient {
             None,
         );
 
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("update_message_retention")
+            .await?;
         let effects = self
             .runtime
             .send_with_audit_context(
@@ -4164,7 +4168,8 @@ impl AppClient {
             Some(endpoint_count),
         );
 
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("replace_encrypted_media_blob_endpoints")
+            .await?;
         let effects = self
             .runtime
             .send_with_audit_context(
@@ -4209,7 +4214,8 @@ impl AppClient {
             None,
         );
 
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("update_group_avatar_url")
+            .await?;
         let effects = self
             .runtime
             .send_with_audit_context(
@@ -4407,7 +4413,8 @@ impl AppClient {
         };
         let (event, payload) = crate::local_submissions::retained_event(submission)?;
         if !request.attachments.is_empty() {
-            self.sync_runtime_groups().await?;
+            self.sync_runtime_groups_for_send("publish_local_submission")
+                .await?;
             self.validate_draft_media_references(&group, &request.attachments)?;
         }
         self.send_app_event_with_context(
@@ -4670,7 +4677,10 @@ impl AppClient {
             self.publish_conversation_captures(group_id);
         }
 
-        let send_result = match self.sync_runtime_groups().await {
+        let send_result = match self
+            .sync_runtime_groups_for_send("send_app_event_with_local_projection")
+            .await
+        {
             Ok(()) => {
                 let send_intent = SendIntent::AppMessage {
                     group_id: group_id.clone(),
@@ -5003,7 +5013,8 @@ impl AppClient {
         self.ensure_group_application_messages_allowed(group_id)?;
         crate::messages::validate_reaction_content(emoji)?;
         if !attachments.is_empty() {
-            self.sync_runtime_groups().await?;
+            self.sync_runtime_groups_for_send("react_to_message_with_local_projection")
+                .await?;
             self.validate_draft_media_references(group_id, &attachments)?;
         }
         let sender = self
@@ -5229,7 +5240,8 @@ impl AppClient {
                 ),
             }
         } else {
-            self.sync_runtime_groups().await?;
+            self.sync_runtime_groups_for_send("send_message_draft_with_local_projection")
+                .await?;
             self.validate_draft_media_references(group, &attachments)?;
             (
                 AppMessageIntent::Media {
@@ -5309,7 +5321,8 @@ impl AppClient {
         message_tags: Vec<Vec<String>>,
     ) -> Result<SendSummary, AppError> {
         self.ensure_group_application_messages_allowed(group_id)?;
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("send_tagged_media")
+            .await?;
         self.validate_draft_media_references(group_id, &attachments)?;
         let (_event, summary) = self
             .send_app_event(
@@ -5335,7 +5348,8 @@ impl AppClient {
         reference: &MediaAttachmentReference,
     ) -> Result<Vec<String>, AppError> {
         self.ensure_group_application_messages_allowed(group_id)?;
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("build_media_imeta_tag")
+            .await?;
         let policy = self.encrypted_media_policy_for_group(group_id)?;
         reference.build_imeta_tag(
             policy.version,
@@ -5386,7 +5400,8 @@ impl AppClient {
         request: crate::media::file_transfer::MediaUploadPayload,
     ) -> Result<(EncryptedMediaUploadHttp, EncryptedMediaUploadFinish), AppError> {
         self.ensure_group_application_messages_allowed(group_id)?;
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("prepare_encrypted_media_upload_payload")
+            .await?;
         let policy = self.encrypted_media_policy_for_group(group_id)?;
         // `upload_encrypted_media` always performs Blossom upload semantics and
         // emits a `blossom-v1` locator, so every default upload candidate MUST be
@@ -5691,7 +5706,8 @@ impl AppClient {
             vec![GROUP_BLOSSOM_IMAGE_COMPONENT_ID],
             None,
         );
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("update_group_image")
+            .await?;
         let input = if plaintext.is_empty() {
             AppGroupImageInput::default()
         } else {
@@ -5744,7 +5760,8 @@ impl AppClient {
         group_id: &GroupId,
     ) -> Result<GroupImageDownloadHttp, AppError> {
         self.ensure_group(group_id)?;
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("prepare_group_image_download")
+            .await?;
         let input = self.image_for_group(group_id);
         if !input.is_present() {
             return Err(AppError::InvalidEncryptedMedia(
@@ -5972,6 +5989,9 @@ impl AppClient {
     ) -> Result<SendSummary, AppError> {
         self.ensure_group(group_id)?;
 
+        // Unlike a send, a convergence retry needs live subscriptions, and its
+        // pass re-syncs routes before checkpointing. Refuse it up front rather
+        // than publish and then fail that checkpoint.
         self.sync_runtime_groups().await?;
         let effects = self.runtime.advance_convergence(group_id).await?;
         self.observe_convergence_retry_effects(group_id, &effects)
@@ -6049,7 +6069,8 @@ impl AppClient {
             None,
         );
 
-        self.sync_runtime_groups().await?;
+        self.sync_runtime_groups_for_send("update_group_profile")
+            .await?;
         let effects = self
             .runtime
             .send_with_audit_context(

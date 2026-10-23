@@ -592,16 +592,15 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # A seven-partition default run finished its selected test bodies but was
-  # cancelled at the 30-minute job limit after archive/setup overhead. Eight
-  # partitions reduce the average allocation; they do not guarantee a runtime.
-  # Keep the same 30-minute bound and verify coverage against the exact archive.
+  # Eight partitions retain the current default split. Archive download and
+  # tests get separate budgets so a slow transfer cannot cut execution short
+  # (#2568); individual test bounds and test concurrency stay unchanged.
   rust-test:
     name: Rust tests (${{ matrix.partition }}/8)
     needs: [changes, rust-test-build]
     if: needs.changes.outputs.ci_mode == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -633,11 +632,13 @@ jobs:
           tool: cargo-nextest@0.9.132
 
       - name: Download test archive
+        timeout-minutes: 25
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: rust-test
 
       - name: Run workspace tests
+        timeout-minutes: 30
         # The subprocess-heavy `wn-cli::cli` suite runs in its own
         # `cli-e2e` job so its fan-out never starves these fast unit tests
         # (issue #103). `relay_runtime` keeps its own serial job.

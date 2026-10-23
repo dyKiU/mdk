@@ -15,6 +15,7 @@ mod relay_plane_runtime;
 mod replaceable_delivery;
 mod report_backfill;
 mod suspension_close;
+mod unreachable_group_relays;
 mod user_blocks;
 
 use super::*;
@@ -526,6 +527,7 @@ pub(crate) struct ScriptedPushRelayClient {
     group_subscribe_attempts: std::sync::atomic::AtomicUsize,
     fail_blocked_subscribe: std::sync::atomic::AtomicBool,
     fail_next_subscribe: std::sync::atomic::AtomicBool,
+    refuse_group_subscribes: std::sync::atomic::AtomicBool,
     block_next_unsubscribe: std::sync::atomic::AtomicBool,
     block_next_publish: std::sync::atomic::AtomicBool,
     block_next_publish_kind: std::sync::Mutex<Option<u64>>,
@@ -867,6 +869,13 @@ impl ScriptedPushRelayClient {
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
+    /// Refuse every group-route `subscribe` until cleared, as the SDK relay
+    /// client does for a relay it currently considers unreachable (mdk#2562).
+    pub(crate) fn refuse_group_subscribes(&self, refuse: bool) {
+        self.refuse_group_subscribes
+            .store(refuse, std::sync::atomic::Ordering::SeqCst);
+    }
+
     pub(crate) fn subscription_count(&self) -> usize {
         self.subscriptions.lock().unwrap().len()
     }
@@ -1198,6 +1207,15 @@ impl NostrRelayClient for ScriptedPushRelayClient {
         {
             return Err(cgka_traits::TransportAdapterError::Subscription(
                 "injected subscribe failure".to_owned(),
+            ));
+        }
+        if subscription.is_group_route()
+            && self
+                .refuse_group_subscribes
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(cgka_traits::TransportAdapterError::Subscription(
+                "subscribe registered on 0 of 1 relays".to_owned(),
             ));
         }
         let block_for_account = {
