@@ -517,6 +517,73 @@ def four_device_diagnostic_controls(site):
             'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+SQLITE_CACHE_CASE = 'storage-modifier-statement-cache'
+SQLITE_CACHE_TEST = 'app::timeline::tests::modifier_lookups_reuse_their_compiled_statements'
+SQLITE_CACHE_PATH = 'crates/storage-sqlite/src/app/timeline/tests.rs'
+SQLITE_CACHE_TEST_SHA256 = '80712a55f215a8710fc5535dd7556f71085c356bba0787d5ee869961c62177db'
+
+
+def sqlite_cache_site():
+    source = Path(SQLITE_CACHE_PATH).read_text()
+    begin = source.index('#[test]\nfn modifier_lookups_reuse_their_compiled_statements()')
+    end = source.index('fn no_mentions(', begin)
+    fixture = source[begin:end]
+    if hashlib.sha256(fixture.encode()).hexdigest() != SQLITE_CACHE_TEST_SHA256:
+        raise ValueError('sqlite-cache-upstream-fixture')
+    final = 'assert_eq!(REPREPARES.load(Ordering::Relaxed), 0);'
+    if fixture.count(final) != 1:
+        raise ValueError('sqlite-cache-final-site')
+    offset = begin + fixture.index(final)
+    return {'line': source[:offset].count('\n') + 1,
+            'column': offset - source.rfind('\n', 0, offset)}
+
+
+def sqlite_cache_failure(raw, site):
+    if type(raw) is not bytes or len(raw) > 2 * 1024 * 1024:
+        return False
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    if text.count('panicked at ') != 1:
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(SQLITE_CACHE_TEST)
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(SQLITE_CACHE_PATH)
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}assertion `left == right` failed[ \t]*\n'
+        + r'[ \t]{0,8}left: ([1-9][0-9]{0,9})[ \t]*\n[ \t]{0,8}right: 0[ \t]*(?:\n|$)')
+    return re.search(pattern, text) is not None
+
+
+def sqlite_cache_controls(site):
+    assert positive_configuration(SQLITE_CACHE_CASE) == ([], 'm5-bounded', None)
+    assert package_for(SQLITE_CACHE_CASE) == 'storage-sqlite'
+    assert SQLITE_CACHE_CASE not in STORAGE_CASES | EXPERIMENTAL_CASES | INTEGRATION_CASES
+    header = ("thread '" + SQLITE_CACHE_TEST + "' (7) panicked at " + SQLITE_CACHE_PATH
+        + ':' + str(site['line']) + ':' + str(site['column']) + ':\n'
+        + 'assertion `left == right` failed\n  left: 42\n right: 0\n').encode()
+    for indent in (b'', b' ', b' ' * 8):
+        assert sqlite_cache_failure(b'\n'.join(indent + line for line in header.split(b'\n')), site)
+    invalid = [b'', header + header, header.replace(SQLITE_CACHE_TEST.encode(), b'PRIVATE'),
+        header.replace(SQLITE_CACHE_PATH.encode(), b'PRIVATE.rs'),
+        header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+        header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n'),
+        header.replace(b'left: 42', b'left: 0'), header.replace(b'left: 42', b'left: -1'),
+        header.replace(b'left: 42', b'left: 0.1'), header.replace(b'right: 0', b'right: 1'),
+        header.replace(b'failed\n', b'failed: PRIVATE\n'),
+        header.replace(b'42', b'1' * 11), b' ' * 9 + header]
+    for raw in invalid:
+        assert not sqlite_cache_failure(raw, site)
+    tests = {SQLITE_CACHE_TEST: SQLITE_CACHE_PATH}
+    good = ('PASS [ 0.1s] storage-sqlite ' + SQLITE_CACHE_TEST + '\n'
+        + 'Summary [ 0.1s] 1 test run: 1 passed, 0 skipped\n').encode()
+    assert automatic_negotiation_runtime(good, tests, 'storage-sqlite')['complete']
+    bad_rows = [b'', good + good, good.replace(b'storage-sqlite', b'PRIVATE'),
+        good.replace(SQLITE_CACHE_TEST.encode(), b'PRIVATE'),
+        good.replace(b'1 test run', b'0 tests run'), good.replace(b'1 passed', b'0 passed')]
+    for raw in bad_rows:
+        assert not automatic_negotiation_runtime(raw, tests, 'storage-sqlite')['complete']
+    return {'positive': 4, 'negative': len(invalid) + len(bad_rows),
+            'product_bodies': 0, 'synthetic_metadata_only': True}
+
+
 MUTATION_ADMISSION_CASE = 'native-mutation-admission-contract'
 MUTATION_ADMISSION_TEST = 'tests::actual_runtime_edit_completion_unknown_preserves_exact_canonical_identity'
 MUTATION_ADMISSION_PATH = 'crates/marmot-app/src/tests.rs'
@@ -1318,7 +1385,12 @@ EXPERIMENTAL_CASES |= AUTOMATIC_NATIVE_CASES
 BOUNDED_CASES |= AUTOMATIC_NATIVE_CASES
 
 
+CASES[SQLITE_CACHE_CASE] = ('storage_sqlite', SQLITE_CACHE_TEST, SQLITE_CACHE_PATH)
+
+
 def package_for(case):
+    if case == SQLITE_CACHE_CASE:
+        return 'storage-sqlite'
     if case in LIVE_SEAL_CASES:
         return 'transport-nostr'
     if case in ENGINE_CASES:
@@ -4819,6 +4891,8 @@ def engine_support_bodies(report, before, flags, save):
 
 
 def positive_configuration(case):
+    if case == SQLITE_CACHE_CASE:
+        return [], 'm5-bounded', None
     if case in LIVE_SEAL_CASES:
         return ((['test-policy-overrides', 'experimental-device-sync'], 'm5-bounded', '4194304')
                 if case == 'live-seal-spill-experimental' else (['test-policy-overrides'], 'ci', None))
@@ -4938,6 +5012,12 @@ def positive(args):
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.case == SQLITE_CACHE_CASE:
+            sqlite_site = sqlite_cache_site()
+            report['sqlite_cache_controls'] = sqlite_cache_controls(sqlite_site)
+            report['evidence_scope'] = 'actual-SQLite-timeline-statement-cache-only'
+            report['full_suite_qualification'] = False
+            report['native_qualification'] = False
         if args.case in PRIVATE_MAINTENANCE_COHORTS:
             maintenance_site = private_hydration_site() if args.case == PRIVATE_HYDRATION_CASE else private_maintenance_site()
             report['private_maintenance_controls'] = (private_hydration_controls(maintenance_site) if args.case == PRIVATE_HYDRATION_CASE else private_maintenance_controls(maintenance_site))
@@ -5032,10 +5112,12 @@ def positive(args):
                 raise ValueError('replay-environment')
             binary, test, _ = CASES[args.case]
             flags = ['-p', package, '--test', binary] if args.case in INTEGRATION_CASES else ['-p', package, '--lib']
-            flags += ['--features', ','.join(features), '--locked', '--profile', profile]
+            flags += (['--features', ','.join(features)] if features else []) + ['--locked', '--profile', profile]
             selection = 'package(' + package + ') & test(=' + test + ')'
             if args.case in INTEGRATION_CASES or args.case in UNIFFI_CASES or args.case in ENGINE_CASES or args.case in LIVE_SEAL_CASES:
                 selection += ' & binary(=' + binary + ')'
+            if args.case == SQLITE_CACHE_CASE:
+                selection += ' & binary(=storage_sqlite)'
             if args.case == AUTOMATIC_NEGOTIATION_CASE:
                 selection = automatic_negotiation_selection()
             if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
@@ -5055,13 +5137,13 @@ def positive(args):
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
-            if args.case in AUTOMATIC_NATIVE_CASES | {PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE} and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+            if args.case in AUTOMATIC_NATIVE_CASES | {SQLITE_CACHE_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE} and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
                 raise ValueError('automatic-native-inventory-compiler')
             if args.case in PRIVATE_MAINTENANCE_COHORTS:
                 report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
             elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
-            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
+            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {SQLITE_CACHE_CASE, PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
                 selected_case(inventory, test)
                 matched_suites = [suite for suite in inventory['rust-suites'].values()
                     if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
@@ -5108,6 +5190,11 @@ def positive(args):
             else:
                 report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == SQLITE_CACHE_CASE:
+                report['body']['sqlite_cache_runtime'] = automatic_negotiation_runtime(raw,
+                    {SQLITE_CACHE_TEST: SQLITE_CACHE_PATH}, 'storage-sqlite')
+                report['body']['own_runtime_failure'] = sqlite_cache_failure(raw, sqlite_site)
+                save()  # Preserve actual body facts before RED interpretation.
             if args.case == MUTATION_ADMISSION_CASE:
                 report['body']['mutation_admission_probe'] = mutation_admission_probe(raw)
                 save()  # Original actual counts/compiler/panic survive later strict decoding.
@@ -5274,6 +5361,21 @@ def positive(args):
                     command_accepted and code == 100 and report['body']['counts']['executed'] == 1
                     and report['body']['counts']['passed'] == 0 and report['body']['counts']['failed'] == 1
                     and private_send_failure(raw, private_send_source_site))
+            if args.case == SQLITE_CACHE_CASE:
+                command_accepted = (report['body']['sqlite_cache_runtime']['complete']
+                    and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                            for part in (report['inventory'], report['body'])))
+                report['expected_sqlite_cache_runtime_red_before_closure'] = (
+                    command_accepted and code == 100
+                    and report['inventory']['selected_nonignored'] == 1
+                    and report['inventory']['selected_ignored'] == 0
+                    and report['body']['counts']['executed'] == 1
+                    and report['body']['counts']['failed'] == 1
+                    and report['body']['counts']['passed'] == 0
+                    and report['body']['own_runtime_failure']
+                    and report['body']['panic'] == {'sites': [{'expected_thread': True,
+                        'expected_source': True, 'line': sqlite_site['line'], 'column': sqlite_site['column']}],
+                        'unknown_or_excess_headers': 0})
             if args.case in AUTOMATIC_NATIVE_CASES:
                 command_accepted = all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
                                        for part in (report['inventory'], report['body']))
@@ -5405,6 +5507,10 @@ def positive(args):
         if args.case in QUIET_CONTRACT_CASES:
             report['expected_contract_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('body', {}).get('expected_contract_runtime_red_before_closure') is True)
+        if args.case == SQLITE_CACHE_CASE:
+            report['expected_sqlite_cache_runtime_red'] = (args.mode == 'run'
+                and report['source_closure_exact'] is True
+                and report.get('expected_sqlite_cache_runtime_red_before_closure') is True)
         if args.case == FAMILY_STABILITY_CASE:
             report['expected_family_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_family_runtime_red_before_closure') is True)
@@ -5604,6 +5710,8 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
+    if args.case == SQLITE_CACHE_CASE and args.stage != 'positive':
+        raise ValueError('sqlite-cache-positive-only')
     if args.case == PENDING_REQUEST_CASE:
         pending_request_stage(args.stage)
     if args.case in QUIET_CONTRACT_CASES:
