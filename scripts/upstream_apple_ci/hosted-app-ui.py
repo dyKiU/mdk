@@ -338,8 +338,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("source", "products", "prefix", "bridge", "sdk-package"):
         parser.add_argument("--" + name, required=True, type=Path)
-    parser.add_argument("--paired-direct-mutation", choices=[paired_direct_mutation.MODE])
+    parser.add_argument("--paired-direct-mutation", choices=paired_direct_mutation.MODES)
     parser.add_argument("--build-input", type=Path)
+    parser.add_argument("--compiler-result-bundle", type=Path)
     parser.add_argument("--stage", choices=["build", "run", "runner-preflight"], default="run")
     parser.add_argument("--case", choices=CASES, default="control")
     parser.add_argument("--environment", type=Path, help="Private fixture environment JSON; never uploaded")
@@ -351,6 +352,10 @@ def main():
     args = parser.parse_args()
     if args.paired_direct_mutation and (args.stage != "build" or os.environ.get("GITHUB_ACTIONS") != "true"):
         raise ValueError("named-direct-mutation-build-only")
+    if args.compiler_result_bundle is not None:
+        if (args.stage != "build" or not args.compiler_result_bundle.is_absolute()
+                or args.compiler_result_bundle.exists()):
+            raise ValueError("fresh-absolute-compiler-result-bundle-build-only")
     runner_preflight = args.stage == "runner-preflight"
     if runner_preflight and (args.platform != "ios" or args.case != "control" or args.environment is not None):
         raise ValueError("owner-free-ios-control-preflight-only")
@@ -399,6 +404,8 @@ def main():
                        "WN_APP_PRODUCT_NAME=White Noise Unit Host", "WN_APP_DISPLAY_NAME=White Noise Unit Host",
                        "WN_APP_URL_SCHEME=marmot-tests", "CODE_SIGNING_ALLOWED=NO",
                        *verified_settings]
+        if args.compiler_result_bundle is not None:
+            command += ["-resultBundlePath", str(args.compiler_result_bundle)]
         with Path(str(prefix) + "-build.log").open("x") as log:
             process = subprocess.Popen(command, cwd=source, env=environment, stdout=log,
                                        stderr=subprocess.STDOUT, start_new_session=True)

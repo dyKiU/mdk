@@ -1,0 +1,66 @@
+{
+  "mdk_pin_snapshot": "c1ae548f2e60c41ade8ca98140fbb05f6c8e6937",
+  "apps": {
+    "macos": {
+      "commit": "047e465f84f1bb36d3edca849cf12855ffe12f90",
+      "test_path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
+      "test_sha256": "30ac71a6451d0777a3fc3632e4db7742089a8c39ae61e354bec2270f6408b2e2",
+      "adapter_path": "whitenoise-mac/Core/MarmotClient.swift",
+      "adapter_sha256": "651a939ef24ed246d8c1fb1c6ef68ebf0d6c2d2eee529705828622e2369e77e4",
+      "assertion_sites": {
+        "begin-not-ready": {
+          "path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
+          "line": 511,
+          "column": 21,
+          "message_token": "factory-semantic-existing-roster-begin-not-ready",
+          "assertion": "XCTFail"
+        },
+        "begin-bootstrap": {
+          "path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
+          "line": 522,
+          "column": 17,
+          "message_token": "factory-semantic-existing-roster-begin-bootstrap",
+          "assertion": "XCTAssertTrue"
+        },
+        "scan-invalid-packet": {
+          "path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
+          "line": 533,
+          "column": 21,
+          "message_token": "factory-semantic-existing-roster-scan-invalid-packet",
+          "assertion": "XCTFail"
+        }
+      }
+    },
+    "ios": {
+      "commit": "1cff30dab6cf96802085fabc08468ade55e6ac0c",
+      "test_path": "whitenoise-iosTests/GenuineAutomaticHostFactoryTests.swift",
+      "test_sha256": "ddb1a4835270442064c090824b061eef3e7bb4d52209d1bc0c84fbdf6204df1d",
+      "adapter_path": "whitenoise-ios/Core/MarmotClient.swift",
+      "adapter_sha256": "6e949a159832d0ace67bac2dc6f5f0460161b0544b267f150088e6348a5c2f9b",
+      "assertion_sites": {
+        "begin-not-ready": {
+          "path": "whitenoise-iosTests/GenuineAutomaticHostFactoryTests.swift",
+          "line": 437,
+          "column": 17,
+          "message_token": "factory-semantic-existing-roster-begin-not-ready",
+          "assertion": "XCTFail"
+        },
+        "begin-bootstrap": {
+          "path": "whitenoise-iosTests/GenuineAutomaticHostFactoryTests.swift",
+          "line": 446,
+          "column": 13,
+          "message_token": "factory-semantic-existing-roster-begin-bootstrap",
+          "assertion": "XCTAssertTrue"
+        },
+        "scan-invalid-packet": {
+          "path": "whitenoise-iosTests/GenuineAutomaticHostFactoryTests.swift",
+          "line": 457,
+          "column": 17,
+          "message_token": "factory-semantic-existing-roster-scan-invalid-packet",
+          "assertion": "XCTFail"
+        }
+      }
+    }
+  },
+  "status": "source-derived exact coordinates only; no actual native failure inventory or runtime claim"
+}

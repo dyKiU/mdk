@@ -122,7 +122,7 @@ def selected_plan(original, target_name, selector, environment):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=SELECTORS, required=True)
-    parser.add_argument('--paired-direct-mutation', choices=[paired_direct_mutation.MODE])
+    parser.add_argument('--paired-direct-mutation', choices=paired_direct_mutation.MODES)
     for name in ('source', 'sdk-package', 'products', 'xctestrun', 'environment', 'prefix', 'result-bundle'):
         parser.add_argument('--' + name, type=Path, required=True)
     for name in ('source-commit', 'sdk-source', 'selector', 'destination', 'developer-dir'):

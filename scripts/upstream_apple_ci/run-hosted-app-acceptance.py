@@ -105,7 +105,9 @@ class Runner:
                            'run-hosted-app-acceptance.py', 'hosted-app-ui.py', 'hosted-app-unit.py',
                            'hosted-app-fixtures.py', 'build-hosted-simulator-agent.sh', 'install.py', 'sdk_profiles.py',
                            'prepare-hosted-agent.py', 'paired_direct_mutation.py', 'paired-direct-mutations.py',
-                           'native/SOURCE.json', 'HOSTED-SOURCE.json')}}
+                           'native/SOURCE.json', 'HOSTED-SOURCE.json', 'factory_semantic_oracle.py',
+                           'factory_semantic_mutation.py', 'factory_xcresult.py', 'factory_semantic_runner.py',
+                           'factory-semantic-sources.json')}}
         if self.state_path.exists():
             self.state = json.loads(self.state_path.read_text())
             require(self.state['cohort'] == self.cohort, 'existing-staged-cohort-must-remain-identical')
@@ -653,7 +655,7 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scope', choices=('ios-control', 'mac', 'ios', 'all', 'adapter-macos', 'adapter-ios'), required=True)
+    parser.add_argument('--scope', choices=('ios-control', 'mac', 'ios', 'all', 'adapter-macos', 'adapter-ios', 'native-factory-macos', 'native-factory-ios'), required=True)
     for name in ('mac-source', 'ios-source', 'packages', 'work', 'output', 'relay'):
         parser.add_argument('--' + name, type=Path, required=True)
     for name in ('mac-products', 'ios-products', 'mac-build-input', 'ios-build-input'):
@@ -683,6 +685,9 @@ def main():
         require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip() == commit,
                 'actual-app-head-must-match-' + platform)
     runner = Runner(args)
+    if args.scope in ('native-factory-macos', 'native-factory-ios'):
+        from factory_semantic_runner import run as run_factory_semantics
+        return run_factory_semantics(runner)
     started = time.monotonic()
     try:
         runner.run()

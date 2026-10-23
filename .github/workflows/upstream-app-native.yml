@@ -11,7 +11,7 @@ on:
       native_scope:
         description: "none=preparation; ios-control=attach-only harness; all=qualified NEW SDK native acceptance"
         type: choice
-        options: [none, ios-control, all, adapter-macos, adapter-ios]
+        options: [none, ios-control, all, adapter-macos, adapter-ios, native-factory-macos, native-factory-ios]
         default: none
       sdk_source:
         description: "Exact SDK SHA; verified 3f18 allowed ONLY for attach-only ios-control"
@@ -68,7 +68,7 @@ jobs:
           native=os.environ.get('REQUESTED_NATIVE_SCOPE') or 'none'
           sdk=os.environ.get('REQUESTED_SDK_SOURCE') or ''
           sdk_run=os.environ.get('REQUESTED_SDK_RUN_ID') or ''
-          assert native in {'none','ios-control','all','adapter-macos','adapter-ios'}
+          assert native in {'none','ios-control','all','adapter-macos','adapter-ios','native-factory-macos','native-factory-ios'}
           if native!='none':
               assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
@@ -195,6 +195,7 @@ jobs:
             scripts/upstream_apple_ci/run-hosted-app-acceptance.py
           python3 scripts/upstream_apple_ci/test_summarize.py
           python3 scripts/upstream_apple_ci/test_current_factory_metadata.py
+          python3 scripts/upstream_apple_ci/test_factory_semantics.py
           bash -n scripts/upstream_apple_ci/build-hosted-simulator-agent.sh
           mkdir -p "$RUNNER_TEMP/tools-preflight"
           python3 - <<'PY'
@@ -207,7 +208,8 @@ jobs:
           names=['acceptance-identity.py','sdk_profiles.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py',
-                 'summarize.py','test_summarize.py']
+                 'summarize.py','test_summarize.py','factory_semantic_oracle.py','factory_semantic_mutation.py',
+                 'factory_xcresult.py','factory_semantic_runner.py','factory-semantic-sources.json','test_factory_semantics.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]
           manifest_path=Path('scripts/upstream_apple_ci/HOSTED-SOURCE.json')
           manifest=json.loads(manifest_path.read_text())
@@ -464,13 +466,13 @@ jobs:
 
   adapter-mutations:
     needs: [identity, tools-preflight, native-sdk]
-    if: contains(fromJSON('["all","adapter-macos","adapter-ios"]'), needs.identity.outputs.native_scope)
+    if: contains(fromJSON('["all","adapter-macos","adapter-ios","native-factory-macos","native-factory-ios"]'), needs.identity.outputs.native_scope)
     runs-on: macos-26
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(needs.identity.outputs.native_scope == 'all' && '["macos","ios"]' || needs.identity.outputs.native_scope == 'adapter-macos' && '["macos"]' || '["ios"]') }}
+        platform: ${{ fromJSON(needs.identity.outputs.native_scope == 'all' && '["macos","ios"]' || contains(fromJSON('["adapter-macos","native-factory-macos"]'), needs.identity.outputs.native_scope) && '["macos"]' || '["ios"]') }}
     env:
       SDK_PROFILE: experimental
       WN_SDK_PROFILE: experimental
@@ -570,6 +572,7 @@ jobs:
               output.write('NATIVE_SIMULATOR='+simulator+'\n')
           PY
       - name: Require one whole-old-adapter runtime mutant and exact restored control
+        if: contains(fromJSON('["all","adapter-macos","adapter-ios"]'), needs.identity.outputs.native_scope)
         run: |
           python3 scripts/upstream_apple_ci/run-hosted-app-acceptance.py \
             --scope "adapter-$ADAPTER_PLATFORM" --mac-source "$GITHUB_WORKSPACE/mac" --mac-commit "$MAC_SHA" \
@@ -578,6 +581,16 @@ jobs:
             --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
             --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
             --work "$RUNNER_TEMP/hosted-adapter-work" --output "$RUNNER_TEMP/native-evidence/adapter-$ADAPTER_PLATFORM.json"
+      - name: Require both current factory semantic mutants and exact restored controls
+        if: contains(fromJSON('["all","native-factory-macos","native-factory-ios"]'), needs.identity.outputs.native_scope)
+        run: |
+          python3 scripts/upstream_apple_ci/run-hosted-app-acceptance.py \
+            --scope "native-factory-$ADAPTER_PLATFORM" --mac-source "$GITHUB_WORKSPACE/mac" --mac-commit "$MAC_SHA" \
+            --ios-source "$GITHUB_WORKSPACE/ios" --ios-commit "$IOS_SHA" \
+            --packages "$RUNNER_TEMP/native-packages" --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" \
+            --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
+            --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
+            --work "$RUNNER_TEMP/hosted-adapter-work" --output "$RUNNER_TEMP/native-evidence/native-factory-$ADAPTER_PLATFORM.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -673,7 +686,26 @@ jobs:
                   assert cleanup['workers_created']==cleanup['workers_closed']>0 and cleanup['cleanup_failures']==0
                   assert row['relay_cleanup']['passed']==1
                   assert row['runtime_red' if index==1 else 'green'] is True
-              summaries[platform]={'runtime_mutants_detected':1,'restored':True,'fresh_phase_bodies':3,
+              factory=read(folder/('native-factory-'+platform+'.json'))
+              same_cohort(factory)
+              for key in ('qualification_sha256','sdk_bundle_sha256','tools','app_trees'):
+                  assert factory['cohort'][key]==native['cohort'][key]
+              assert factory['passed']==1 and factory['expected_factory_semantic_phase_bodies']==factory['executed_factory_semantic_phase_bodies']==5
+              semantic=factory['factory_semantics']
+              assert semantic['passed'] is True and semantic['source_restored'] is True
+              assert semantic['platform']==platform and semantic['sdk_source']==os.environ['SOURCE_SHA']
+              assert str(semantic['sdk_run_id'])==os.environ['SDK_RUN_ID']
+              assert semantic['app_sha']==os.environ['MAC_SHA' if platform=='macos' else 'IOS_SHA']
+              expected=['baseline','begin-legacy-mutant','begin-legacy-restored','scan-legacy-mutant','scan-legacy-restored']
+              assert [row['phase'] for row in semantic['phases']]==expected
+              for index,row in enumerate(semantic['phases']):
+                  assert tuple(row['counts'][field] for field in fields)==((1,0,1,0) if index in (1,3) else (1,1,0,0))
+                  assert row['source_sdk_product_plan_frozen'] is True and row['fixture_cleanup_completed'] is True
+                  assert row['relay_cleanup']['passed']==1
+                  assert row['compiler_inventory_count']==row['compiler_body_count']==0
+                  assert row['verdict']['runtime_detected'] is (index in (1,3))
+                  assert len(row['complete_actual_failures'])==(1 if index in (1,3) else 0)
+              summaries[platform]={'runtime_mutants_detected':1,'restored':True,'fresh_phase_bodies':3,'factory_semantic_bodies':5,'factory_semantic_mutants':2,
                                    'proof_sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
           result={'passed':True,'sdk_source':os.environ['SOURCE_SHA'],'sdk_run_id':os.environ['SDK_RUN_ID'],
                   'mac_sha':os.environ['MAC_SHA'],'ios_sha':os.environ['IOS_SHA'],

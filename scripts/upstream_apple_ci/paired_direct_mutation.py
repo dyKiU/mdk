@@ -1,7 +1,9 @@
 """One reviewed source-only direct-lookup mutant, never a general hash override."""
 import hashlib
+import factory_semantic_mutation as factory
 
 MODE = 'old-direct-lookup'
+MODES = (MODE,) + factory.MODES
 SELECTOR = 'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation'
 DEFINITIONS = {
     'macos': ('whitenoise-mac/Core/MarmotClient.swift',
@@ -40,6 +42,11 @@ def transform(committed, platform):
 
 
 def expected_bytes(relative, committed, mode):
+    if mode in factory.MODES:
+        for platform, cases in factory.DEFINITIONS.items():
+            if relative == cases['begin']['path']:
+                return factory.transform(committed, platform, mode)
+        return committed
     if mode is None:
         return committed
     if mode != MODE:
@@ -51,6 +58,13 @@ def expected_bytes(relative, committed, mode):
 
 
 def identity(platform, mode):
+    if mode in factory.MODES:
+        case = 'begin' if mode == factory.MODES[0] else 'scan'
+        entry = factory.DEFINITIONS[platform][case]
+        return {'mode': mode, 'path': entry['path'],
+                'original_source_sha256': entry['original_sha256'],
+                'intentional_mutant_source_sha256': entry['mutant_sha256'],
+                'scope': 'Exact factory semantic counterfactual only; not qualified app source.'}
     if mode is None:
         return None
     if mode != MODE:
