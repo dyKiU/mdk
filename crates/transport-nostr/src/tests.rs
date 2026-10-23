@@ -6630,11 +6630,17 @@ struct ScopedAcquisitionRelay {
 #[cfg(feature = "experimental-device-sync")]
 #[async_trait]
 impl NostrRelayClient for ScopedAcquisitionRelay {
-    async fn subscribe(&self, subscription: NostrSubscription) -> Result<(), TransportAdapterError> {
+    async fn subscribe(
+        &self,
+        subscription: NostrSubscription,
+    ) -> Result<(), TransportAdapterError> {
         self.recording.subscribe(subscription).await
     }
 
-    async fn unsubscribe(&self, subscription: NostrSubscription) -> Result<(), TransportAdapterError> {
+    async fn unsubscribe(
+        &self,
+        subscription: NostrSubscription,
+    ) -> Result<(), TransportAdapterError> {
         self.recording.unsubscribe(subscription).await
     }
 
