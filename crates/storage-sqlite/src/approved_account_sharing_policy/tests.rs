@@ -244,7 +244,7 @@ fn sharing_policy_encrypted_restart_retains_sequences_revocation_and_closed_owne
             .query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        113 // Core 0113_staged_media; private migration receipts use their own ledger.
+        116 // Core 0116_attachment_keep_media; private migration receipts use their own ledger.
     );
 }
 #[test]
