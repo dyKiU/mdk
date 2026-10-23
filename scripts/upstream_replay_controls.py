@@ -373,6 +373,7 @@ def private_role_controls(case):
 
 
 AUTOMATIC_NEGOTIATION_CASE = 'native-automatic-negotiation-cohort'
+FOUR_DEVICE_MUTATIONS_CASE = 'native-four-device-mutations'
 AUTOMATIC_SCAN_EXPIRY_CASE = 'native-automatic-scan-expiry'
 AUTOMATIC_NEGOTIATION_TESTS = {
     'native_device_linking::enabled::negotiated::tests::cancel_before_activation_retires_the_reserved_original':
@@ -525,7 +526,7 @@ AUTOMATIC_SCAN_EXPIRY_PREREQUISITES = {
 }
 AUTOMATIC_SCAN_EXPIRY_FIELDS = AUTOMATIC_SCAN_EXPIRY_PREREQUISITES | {'expired_scan_rejected'}
 AUTOMATIC_SCAN_EXPIRY_CASES = {AUTOMATIC_SCAN_EXPIRY_CASE, AUTOMATIC_SCAN_EXPIRY_RED_CASE}
-AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE}
+AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE, FOUR_DEVICE_MUTATIONS_CASE}
 
 
 def automatic_scan_expiry_probe(raw):
@@ -1042,6 +1043,9 @@ for _family_pfp_case in FAMILY_PFP_CASES:
 
 CASES[AUTOMATIC_NEGOTIATION_CASE] = ('marmot_app', AUTOMATIC_NEGOTIATION_CASE,
     'crates/marmot-app/src/native_device_linking/enabled/negotiated.rs')
+CASES[FOUR_DEVICE_MUTATIONS_CASE] = ('marmot_app',
+    'native_device_linking::automatic_pairing_acceptance::approved_four_device_messages_edits_and_deletions_converge',
+    'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs')
 for automatic_case in AUTOMATIC_SCAN_EXPIRY_CASES:
     CASES[automatic_case] = ('marmot_app', AUTOMATIC_SCAN_EXPIRY_TEST, AUTOMATIC_SCAN_EXPIRY_PATH)
 EXPERIMENTAL_CASES |= AUTOMATIC_NATIVE_CASES
@@ -4506,6 +4510,11 @@ def positive(args):
             del report['expected_test']
             report['expected_tests'] = list(AUTOMATIC_NEGOTIATION_TESTS)
             report['expected_runtime_count'] = len(AUTOMATIC_NEGOTIATION_TESTS)
+    if args.case == FOUR_DEVICE_MUTATIONS_CASE:
+        report.update(evidence_scope='real-Rust-SDK-four-device-message-mutations-and-disk-reopen-only',
+                      apple_native_acceptance=False, native_host_ui_acceptance=False,
+                      public_relay_qualification=False, full_suite_qualification=False,
+                      mutation_qualification=False)
     if args.case in PRIVATE_MAINTENANCE_COHORTS:
         report.pop('expected_test')
         report.update(expected_tests=list(maintenance_tests_for(args.case)), expected_runtime_count=2,
@@ -4673,7 +4682,7 @@ def positive(args):
                 selection += ' & binary(=' + binary + ')'
             if args.case == AUTOMATIC_NEGOTIATION_CASE:
                 selection = automatic_negotiation_selection()
-            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
+            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {FOUR_DEVICE_MUTATIONS_CASE}:
                 selection += ' & binary(=marmot_app)'
             if args.case in PRIVATE_MAINTENANCE_COHORTS:
                 selection = automatic_negotiation_selection(maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
@@ -4696,7 +4705,7 @@ def positive(args):
                 report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
             elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
-            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE}:
+            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE}:
                 selected_case(inventory, test)
                 matched_suites = [suite for suite in inventory['rust-suites'].values()
                     if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
@@ -4895,7 +4904,7 @@ def positive(args):
                                        for part in (report['inventory'], report['body']))
                 if args.case == AUTOMATIC_NEGOTIATION_CASE:
                     command_accepted = command_accepted and report['body']['automatic_negotiation_runtime']['complete']
-                else:
+                elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
                     probe = report['body']['automatic_scan_expiry_probe']
                     report['expected_automatic_scan_expiry_runtime_red_before_closure'] = (
                         command_accepted and code == 100
