@@ -9,7 +9,7 @@ on:
       scope:
         description: Run remaining unchanged convergence/withdrawal controls or the default backend controls
         type: choice
-        options: [experimental, default, all, current-source, replay-controls]
+        options: [experimental, default, all, current-source, replay-controls, upstream-offline-control]
         default: experimental
       current_case:
         description: Exact reviewed current-source default-CI diagnostic
@@ -405,5 +405,65 @@ jobs:
           path: |
             replay-probe/*.json
             ${{ runner.temp }}/replay-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+
+  trusted-upstream-offline-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'upstream-offline-control'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_TERM_COLOR: never
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact trusted source objects and closed metadata controls
+        run: >-
+          python3 scripts/upstream_trusted_offline_control.py --mode preflight
+          --output trusted-upstream-probe/preflight.json
+      - name: Create pristine fixed upstream source worktree on the disposable runner
+        run: |
+          set -euo pipefail
+          source=d274dd228a3ac8d624073d8f5835e06c7cd7b30d
+          git worktree add --detach "$RUNNER_TEMP/trusted-upstream-offline-source" "$source"
+          test "$(git -C "$RUNNER_TEMP/trusted-upstream-offline-source" rev-parse HEAD)" = "$source"
+      - name: Install exact original source Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: relay-runtime
+          cache-on-failure: true
+      - name: Read-only post-cache capacity guard
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/qualification_build_preflight.py --label trusted-d274-offline-control
+          --output "$RUNNER_TEMP/trusted-upstream-capacity.json"
+      - name: Run one pristine upstream offline body without changing its 60-second verdict
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: >-
+          python3 scripts/upstream_trusted_offline_control.py --mode run
+          --output trusted-upstream-probe/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: trusted-d274-offline-${{ github.sha }}
+          path: |
+            trusted-upstream-probe/*.json
+            ${{ runner.temp }}/trusted-upstream-capacity.json
           if-no-files-found: error
           retention-days: 7
