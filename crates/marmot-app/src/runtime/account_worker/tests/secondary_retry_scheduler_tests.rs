@@ -48,6 +48,10 @@ pub(in crate::runtime::account_worker) fn record_turn(
             retry_ready,
         });
     }
+    #[cfg(feature = "test-policy-overrides")]
+    super::local_submission_queue_tests::passive_bob::record_turn(
+        account, pending, buffered, yielded, due, owed, retry_ready,
+    );
 }
 
 pub(in crate::runtime::account_worker) fn record_command(
@@ -75,6 +79,8 @@ pub(in crate::runtime::account_worker) fn record_drain(account: &str) {
             .unwrap()
             .push(Observation::Drain(TokioInstant::now()));
     }
+    #[cfg(feature = "test-policy-overrides")]
+    super::local_submission_queue_tests::passive_bob::record_drain(account);
 }
 
 pub(in crate::runtime::account_worker) async fn pass_tail(account: &str) {

@@ -15,6 +15,7 @@ from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
 from upstream_offline_fingerprints import controls as fingerprint_controls, snapshot as fingerprint_snapshot
 
 from upstream_sibling_send_observation import parse as sibling_send_observation, controls as sibling_send_controls
+from upstream_sibling_worker_observation import parse as sibling_worker_observation, controls as sibling_worker_controls
 from upstream_adapter_exit_observation import parse as adapter_exit_observation, controls as adapter_exit_controls
 from upstream_fresh_rejoin_observation import fresh_rejoin_observation, controls as fresh_rejoin_controls
 
@@ -2106,6 +2107,7 @@ def main():
             report['fixture_observation_controls'] = fixture_observation_controls()
         if args.case in {'sibling-send-default', 'sibling-send-experimental'}:
             report['sibling_send_parser_controls'] = sibling_send_controls()
+            report['sibling_worker_parser_controls'] = sibling_worker_controls()
         if args.case in ENGINE_CLASSIFIER_CASES:
             report['engine_bundle_controls'] = engine_bundle_controls()
         if args.case in UNIFFI_CASES:
@@ -2202,6 +2204,13 @@ def main():
                 except (ValueError, UnicodeError):
                     report['body']['sibling_send_observation'] = None
                     report['body']['sibling_send_export_complete'] = False
+                save()
+                try:
+                    report['body']['sibling_worker_observation'] = sibling_worker_observation(ANSI.sub('', raw.decode('utf-8', errors='strict')).encode())
+                    report['body']['sibling_worker_export_complete'] = True
+                except (ValueError, UnicodeError):
+                    report['body']['sibling_worker_observation'] = None
+                    report['body']['sibling_worker_export_complete'] = False
                 save()
             if args.case in FIXTURE_OBSERVATION_BASES:
                 # Supplemental facts never replace the actual runtime verdict.
