@@ -2306,9 +2306,17 @@ async fn run_app_runtime_account_worker(
         {
             sibling_maintenance_yielded = sibling_maintenance_due;
         }
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         let watch_select = client.watch_select_recorder_for_test();
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         let watch_debt_before_select = sibling_completion_input_service_owed;
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         use crate::client::device_linking::sibling_sharing::peer_proof_probe::command_backlog::watch_pressure::SelectStage as WatchSelectStage;

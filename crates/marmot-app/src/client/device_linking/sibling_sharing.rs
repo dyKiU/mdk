@@ -3094,7 +3094,11 @@ impl AppClient {
             ok,
         );
     }
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     pub(crate) fn watch_select_recorder_for_test(
         &self,
     ) -> Option<peer_proof_probe::command_backlog::watch_pressure::SelectRecorder> {

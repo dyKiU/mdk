@@ -381,28 +381,31 @@ async fn run_watch_scenario(mode: ScenarioMode) -> ScenarioOutcome {
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
     // Copy only fixed aggregate facts after the original verdict and cleanup.
-    crate::test_support::emit_line(format_args!("watch-selection-observation {}", serde_json::json!({
-        "queued_body": mode == ScenarioMode::QueuedBody,
-        "facts": facts,
-        "completed_before": completed_before,
-        "runtime_closes": runtime_closes,
-        "plane_shutdown_returns": planes_shutdown,
-        "relay_closed": relay_closed,
-        "attempt_completed": attempt.is_ok(),
-        "pressure": pressure_observation,
-        "pause_rx_len": queue_observations.pause_rx_len,
-        "target_queue": queue_observations.target,
-        "own_id_bound": queue_observations.own_id_bound,
-        "own_queue": queue_observations.own,
-        "ingress": queue_observations.ingress.as_ref().map(|value| (
-            [value.armed, value.valid, value.released, value.flushed],
-            value.target_passes, value.held, value.replayed, value.overflow,
-        )),
-        "selection": {
-            "final_snapshot": selection_observation.and_then(|value| value.0),
-            "at_acceptance": selection_observation.and_then(|value| value.1),
-        },
-    })));
+    crate::test_support::emit_line(format_args!(
+        "watch-selection-observation {}",
+        serde_json::json!({
+            "queued_body": mode == ScenarioMode::QueuedBody,
+            "facts": facts,
+            "completed_before": completed_before,
+            "runtime_closes": runtime_closes,
+            "plane_shutdown_returns": planes_shutdown,
+            "relay_closed": relay_closed,
+            "attempt_completed": attempt.is_ok(),
+            "pressure": pressure_observation,
+            "pause_rx_len": queue_observations.pause_rx_len,
+            "target_queue": queue_observations.target,
+            "own_id_bound": queue_observations.own_id_bound,
+            "own_queue": queue_observations.own,
+            "ingress": queue_observations.ingress.as_ref().map(|value| (
+                [value.armed, value.valid, value.released, value.flushed],
+                value.target_passes, value.held, value.replayed, value.overflow,
+            )),
+            "selection": {
+                "final_snapshot": selection_observation.and_then(|value| value.0),
+                "at_acceptance": selection_observation.and_then(|value| value.1),
+            },
+        })
+    ));
     ScenarioOutcome {
         facts,
         completed_before,

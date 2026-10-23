@@ -32,15 +32,24 @@ pub(crate) struct SelectRecorder {
 }
 impl SelectRecorder {
     pub(crate) fn record(&self, stage: SelectStage) {
-        let Some(probe) = self.probe.upgrade() else { return; };
-        let Some(pressure) = probe.watch_pressure.get() else { return; };
-        if pressure.select_closed.load(Ordering::Acquire) { return; }
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
+        let Some(pressure) = probe.watch_pressure.get() else {
+            return;
+        };
+        if pressure.select_closed.load(Ordering::Acquire) {
+            return;
+        }
         let Ok(mut state) = pressure.select_state.try_lock() else {
             pressure.select_unknown.store(true, Ordering::Release);
             return;
         };
         let index = stage as usize;
-        let Some(next) = state.counts[index].checked_add(1).filter(|next| *next <= 256) else {
+        let Some(next) = state.counts[index]
+            .checked_add(1)
+            .filter(|next| *next <= 256)
+        else {
             pressure.select_unknown.store(true, Ordering::Release);
             return;
         };
@@ -125,14 +134,20 @@ impl Pressure {
             self.select_unknown.store(true, Ordering::Release);
             return None;
         };
-        Some((state.counts, state.first_turn, state.first_services, state.turns,
-              self.select_unknown.load(Ordering::Acquire)))
+        Some((
+            state.counts,
+            state.first_turn,
+            state.first_services,
+            state.turns,
+            self.select_unknown.load(Ordering::Acquire),
+        ))
     }
     pub(super) fn accepted(&self, probe: &Probe) {
         // Freeze diagnostics at the same actual authenticated Body acceptance.
         // Original acceptance recording and all test oracles remain below.
         if !self.select_closed.swap(true, Ordering::AcqRel)
-            && let Some(snapshot) = self.select_snapshot() {
+            && let Some(snapshot) = self.select_snapshot()
+        {
             let _ = self.select_at_acceptance.set(snapshot);
         }
         let Ok(mut accepted) = probe.accepted.try_lock() else {
@@ -187,8 +202,13 @@ impl WatchGuard {
             && pressure.errors.load(Ordering::Acquire) == 0
     }
     pub(crate) fn watch_select_snapshot(&self) -> (Option<SelectSnapshot>, Option<SelectSnapshot>) {
-        let Some(pressure) = self.0.0.watch_pressure.get() else { return (None, None); };
-        (pressure.select_snapshot(), pressure.select_at_acceptance.get().copied())
+        let Some(pressure) = self.0.0.watch_pressure.get() else {
+            return (None, None);
+        };
+        (
+            pressure.select_snapshot(),
+            pressure.select_at_acceptance.get().copied(),
+        )
     }
     pub(crate) fn watch_pressure_snapshot(&self) -> (bool, usize, usize, usize) {
         let pressure = self
@@ -225,11 +245,16 @@ pub(in super::super::super) fn service(entries: &[SiblingChannel], ok: bool) {
 // Each ordinal belongs to this exact original/nonce; a missing/busy record is unknown.
 pub(in super::super::super) fn selection(entries: &[SiblingChannel]) -> Option<SelectRecorder> {
     let probe = probe()?;
-    if !entries.iter().any(|entry| target(&probe, entry)
-        && entry.original.live() && entry.state.live()) { return None; }
+    if !entries
+        .iter()
+        .any(|entry| target(&probe, entry) && entry.original.live() && entry.state.live())
+    {
+        return None;
+    }
     let pressure = probe.watch_pressure.get()?;
-    if !pressure.started.load(Ordering::Acquire)
-        || pressure.select_closed.load(Ordering::Acquire) { return None; }
+    if !pressure.started.load(Ordering::Acquire) || pressure.select_closed.load(Ordering::Acquire) {
+        return None;
+    }
     let Ok(mut state) = pressure.select_state.try_lock() else {
         pressure.select_unknown.store(true, Ordering::Release);
         return None;
@@ -239,5 +264,8 @@ pub(in super::super::super) fn selection(entries: &[SiblingChannel]) -> Option<S
         return None;
     };
     state.turns = turn;
-    Some(SelectRecorder { probe: Arc::downgrade(&probe), turn })
+    Some(SelectRecorder {
+        probe: Arc::downgrade(&probe),
+        turn,
+    })
 }
