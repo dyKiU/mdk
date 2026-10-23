@@ -5,7 +5,7 @@ use futures::future::Either;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Duration, timeout};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn owed_offer_selects_ready_delivery_and_preserves_replay() {
     let (delivery_tx, mut delivery_rx) = mpsc::channel::<u8>(1);
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
@@ -26,7 +26,7 @@ async fn owed_offer_selects_ready_delivery_and_preserves_replay() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ordinary_turn_selects_ready_replay_and_preserves_delivery() {
     let (delivery_tx, mut delivery_rx) = mpsc::channel::<u8>(1);
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
@@ -42,7 +42,7 @@ async fn ordinary_turn_selects_ready_replay_and_preserves_delivery() {
     assert!(replay_selected && replay_consumed && delivery_retained);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn owed_pending_receive_allows_replay_and_later_real_delivery() {
     let (delivery_tx, mut delivery_rx) = mpsc::channel::<u8>(1);
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
@@ -59,7 +59,7 @@ async fn owed_pending_receive_allows_replay_and_later_real_delivery() {
     assert!(replay_selected && replay_consumed && later_delivery);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn disabled_receive_selects_replay_and_retains_ready_packet() {
     let (delivery_tx, mut delivery_rx) = mpsc::channel::<u8>(1);
     let (replay_tx, mut replay_rx) = watch::channel(0_u8);
