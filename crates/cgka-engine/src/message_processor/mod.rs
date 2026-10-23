@@ -1292,6 +1292,11 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Ok(false);
         }
+        // Older builds could retain an ordinary SelfUpdate that this private
+        // group can never authorize. Retire only unexposed maintenance work;
+        // normal convergence still owns every actual crypto/input transition.
+        #[cfg(feature = "experimental-device-sync")]
+        self.retire_queued_private_maintenance(group_id)?;
         Ok(true)
     }
 

@@ -26,6 +26,49 @@ use tls_codec::Serialize as _;
 type SelectedInviteCheck<'a, E> = &'a mut (dyn FnMut(&E) -> Result<(), EngineError> + Send + 'a);
 
 impl<S: StorageProvider> Engine<S> {
+    /// Negative recovery for maintenance admitted by the former late-only
+    /// private send gate. Never changes MLS, proposals, consent or user chats.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(super) fn retire_queued_private_maintenance(
+        &mut self,
+        group_id: &GroupId,
+    ) -> Result<(), EngineError> {
+        let retired = self.storage.with_transaction(|storage| {
+            let queued = storage.list_queued_outbound_intents(group_id)?;
+            if !queued.iter().any(|record| {
+                matches!(&record.intent, SendIntent::SelfUpdate { .. })
+                    && !self.queued_outbound_intent_in_flight(group_id, &record.id)
+            }) {
+                return Ok::<_, EngineError>(Vec::new());
+            }
+            if !self.with_mls_group(group_id, |group| {
+                crate::device_group_genesis::has_private_component(group)
+            })? {
+                return Ok::<_, EngineError>(Vec::new());
+            }
+            let mut retired = Vec::new();
+            for record in queued {
+                if matches!(&record.intent, SendIntent::SelfUpdate { .. })
+                    && !self.queued_outbound_intent_in_flight(group_id, &record.id)
+                {
+                    storage.delete_queued_outbound_intent(&record.id)?;
+                    retired.push(record.id);
+                }
+            }
+            Ok(retired)
+        })?;
+        for id in retired {
+            self.audit_group(
+                group_id,
+                marmot_forensics::AuditEventKind::Rejection {
+                    msg_id: hex::encode(id.as_slice()),
+                    reason: "queued_private_maintenance_rejected".into(),
+                },
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) async fn do_send_ready(
         &mut self,
         intent: SendIntent,
