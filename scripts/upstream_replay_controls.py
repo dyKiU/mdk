@@ -1514,8 +1514,12 @@ def scoped_report_ready(value, mutant=False):
 
 
 def validate_scoped_report_inverse(text, old, new):
-    start = text.index('    async fn subscribe_all(')
-    end = text.index('    /// Drain relay unsubscribes queued', start)
+    owner = '    async fn subscribe_each('
+    boundary = '    /// Drain relay unsubscribes queued'
+    if text.count(owner) != 1 or text.count(boundary) != 1:
+        raise ValueError('scoped-report-inverse-owner-cardinality')
+    start = text.index(owner)
+    end = text.index(boundary, start)
     if (old != SCOPED_REPORT_GREEN or new != SCOPED_REPORT_INVERSE
             or text.count(old) != 1 or old not in text[start:end]
             or old.count('\n') != new.count('\n')):
@@ -1583,8 +1587,22 @@ def scoped_report_controls(site):
             pass
         else:
             raise AssertionError('scoped-report-inverse-negative')
+    bad_owners = [
+        product.replace('    async fn subscribe_each(', '    async fn subscribe_all(', 1),
+        SCOPED_REPORT_GREEN + product.replace(SCOPED_REPORT_GREEN, '', 1),
+        product + '\n    async fn subscribe_each(',
+        product + SCOPED_REPORT_GREEN,
+        product.replace('    /// Drain relay unsubscribes queued', '    /// Unknown boundary', 1),
+    ]
+    for changed in bad_owners:
+        try:
+            validate_scoped_report_inverse(changed, SCOPED_REPORT_GREEN, SCOPED_REPORT_INVERSE)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('scoped-report-owner-negative')
     assert pfp_configuration(SCOPED_REPORT_CASE) == positive_configuration(SCOPED_REPORT_CASE)
-    return {'positive': len(positives), 'negative': len(rejected) + len(bad_inverses) + len(wrong_metrics) + len(wrong_metric_panics) + 2,
+    return {'positive': len(positives), 'negative': len(rejected) + len(bad_inverses) + len(wrong_metrics) + len(wrong_metric_panics) + len(bad_owners) + 2,
             'configuration_controls': 1, 'probe_controls': probe_controls,
             'synthetic_metadata_only': True, 'product_bodies': 0}
 

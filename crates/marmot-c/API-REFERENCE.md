@@ -939,6 +939,11 @@ MarmotStatus marmot_begin_onboarding(const struct MarmotClient *client, const ch
 
 Import an identity and persist its onboarding gate without publishing. Free the returned snapshot with `marmot_onboarding_snapshot_free`.
 
+Snapshot findings include typed context, purpose, outcome, declared capability,
+owned actions and optional observation revision. The snapshot free releases
+those nested arrays. See [C diagnostic ownership](README.md#onboarding-relay-repair)
+and the shared evidence limits before interpreting directory-query success.
+
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotbegin_onboarding) · [Header contract](include/marmot.h#L10448)
 
 ### `marmot_block_list_subscription_next`

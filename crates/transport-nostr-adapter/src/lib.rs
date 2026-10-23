@@ -260,10 +260,10 @@ pub enum NostrSubscription {
     /// The live REQ for up to [`GROUP_BATCH_ROUTES`] group routes that share
     /// endpoints and `since`: one filter whose `#h` values are their routing
     /// ids. Activation packs every group route into batches, and a group
-    /// sync that changes the routes repacks them all and closes the batches
-    /// it replaced. `batch` numbers the account's batches within its
-    /// activation attempt, never reused, so an id names one batch's REQ for
-    /// good.
+    /// sync that changes the routes repacks the families it touches and
+    /// closes the batches it replaced. `batch` numbers the account's batches
+    /// within its activation attempt, never reused, so an id names one
+    /// batch's REQ for good.
     GroupBatch {
         account_id: MemberId,
         routes: Vec<GroupBatchRoute>,
@@ -1384,35 +1384,40 @@ impl NostrTransportAdapter {
         caller: &'static str,
         subscriptions: &[NostrSubscription],
     ) -> Result<NostrSubscribeReport, TransportAdapterError> {
+        let mut report = NostrSubscribeReport::default();
+        for issued in self.subscribe_each(caller, subscriptions).await {
+            report.add(issued?);
+        }
+        Ok(report)
+    }
+
+    /// Issue every subscription concurrently and return each one's outcome,
+    /// in `subscriptions` order, once all of them have settled.
+    async fn subscribe_each(
+        &self,
+        caller: &'static str,
+        subscriptions: &[NostrSubscription],
+    ) -> Vec<Result<NostrSubscribeReport, TransportAdapterError>> {
         let mut tasks = DetachOnDrop(JoinSet::new());
         for (sub_index, subscription) in subscriptions.iter().cloned().enumerate() {
             let relay_client = self.relay_client.clone();
             #[cfg(feature = "experimental-device-sync")]
-            let actual = {
+            let (actual, private_unavailable) = {
                 let state = self.state.read().await;
-                let selected = state
-                    .private_observation_groups
-                    .get(subscription.account_id());
-                // Retained routes of the same group remain history-only ordinary
-                // subscriptions. Only the selected current route owns freshness.
-                let private = matches!(&subscription, NostrSubscription::Group { group_id, .. } if selected == Some(group_id))
-                    && state
-                        .private_observation_wires
-                        .get(subscription.account_id())
-                        .is_none_or(|wire| {
-                            wire.subscription.route_key() == subscription.route_key()
-                        });
-                let actual = state
-                    .private_observation_wires
-                    .get(subscription.account_id())
-                    .filter(|wire| wire.ready && wire.logical == subscription.subscription_id())
+                // These lifecycle callers pack every ordinary route. A standalone
+                // Group is the exact selected-current private carrier even if
+                // configure revoked its selection while this caller awaited.
+                let private = matches!(&subscription, NostrSubscription::Group { .. });
+                let actual = state.private_observation_wires.get(subscription.account_id())
+                    .filter(|wire| private && wire.ready
+                        && state.private_observation_groups.get(subscription.account_id()) == Some(&wire.group)
+                        && wire.logical == subscription.subscription_id()
+                        && wire.subscription == subscription)
                     .map(|wire| wire.actual.clone());
-                if private && actual.is_none() {
-                    return Err(TransportAdapterError::Subscription(
-                        "private observation issuance unavailable".into(),
-                    ));
-                }
-                actual
+                let unavailable = (private && actual.is_none()).then(|| {
+                    TransportAdapterError::Subscription("private observation issuance unavailable".into())
+                });
+                (actual, unavailable)
             };
             let state = self.state.clone();
             let lifecycle = self.subscription_lock.clone();
@@ -1421,14 +1426,16 @@ impl NostrTransportAdapter {
             let in_flight = barrier.clone().read_owned().await;
             tasks.0.spawn(async move {
                 #[cfg(feature = "experimental-device-sync")]
-                let result = match &actual {
+                let result = if let Some(error) = private_unavailable {
+                    Err(error)
+                } else { match &actual {
                     Some(actual) => {
                         relay_client
                             .subscribe_scoped_reporting(subscription.clone(), actual.clone())
                             .await
                     }
                     None => relay_client.subscribe_reporting(subscription.clone()).await,
-                };
+                } };
                 #[cfg(not(feature = "experimental-device-sync"))]
                 let result = relay_client.subscribe_reporting(subscription.clone()).await;
                 // A lifecycle operation that gave up waiting for this task
@@ -1513,32 +1520,42 @@ impl NostrTransportAdapter {
         // returning, and the caller's rollback `unsubscribe_account` would then
         // race that REQ. Subscribe calls queue REQs without waiting for relay
         // replies, so draining the rest is short.
-        let mut first_error = None;
-        let mut report = NostrSubscribeReport::default();
+        let mut outcomes = subscriptions.iter().map(|_| None).collect::<Vec<_>>();
+        let mut task_failure = None;
         while let Some(result) = tasks.join_next().await {
             match result {
-                Ok((_sub_index, Ok(issued))) => report.add(issued),
-                Ok((sub_index, Err(err))) => {
-                    tracing::warn!(
-                        target: "transport_nostr_adapter::adapter",
-                        method = caller,
-                        sub_index,
-                        issued_count = subscriptions.len(),
-                        "transport subscription failed"
-                    );
-                    first_error.get_or_insert(err);
+                Ok((sub_index, issued)) => {
+                    if issued.is_err() {
+                        tracing::warn!(
+                            target: "transport_nostr_adapter::adapter",
+                            method = caller,
+                            sub_index,
+                            issued_count = subscriptions.len(),
+                            "transport subscription failed"
+                        );
+                    }
+                    outcomes[sub_index] = Some(issued);
                 }
                 Err(err) => {
-                    first_error.get_or_insert_with(|| {
-                        TransportAdapterError::Subscription(format!(
-                            "subscription task failed: {err}"
-                        ))
-                    });
+                    task_failure.get_or_insert_with(|| format!("subscription task failed: {err}"));
                 }
             }
         }
 
-        first_error.map_or(Ok(report), Err)
+        // A task that panicked returned no index; every subscription without
+        // an outcome is one of those.
+        outcomes
+            .into_iter()
+            .map(|outcome| {
+                outcome.unwrap_or_else(|| {
+                    Err(TransportAdapterError::Subscription(
+                        task_failure
+                            .clone()
+                            .unwrap_or_else(|| "subscription task failed".to_owned()),
+                    ))
+                })
+            })
+            .collect()
     }
 
     /// Drain relay unsubscribes queued in `pending_unsubscribes`. A local
@@ -1677,8 +1694,8 @@ impl NostrTransportAdapter {
     /// batch REQs, with every endpoint retained as an independent proof
     /// obligation.
     ///
-    /// A group sync that changes the routes replaces the batch entries with
-    /// its repack's, staged before their REQs go out; a route it still wants
+    /// A group sync that changes the routes replaces the batch entries of the
+    /// families it repacks, staged before their REQs go out; a route it still wants
     /// is never owed from a later floor, and only a removed route stops being
     /// owed. This lets a caller draining an unfloored
     /// re-activation avoid mistaking a quiet or fast-empty relay for a finished
@@ -2336,6 +2353,7 @@ impl NostrTransportAdapter {
         attempt: SubscriptionAttempt,
         activation_reset: bool,
         force: bool,
+        planned_subscription: Option<&NostrSubscription>,
     ) -> Result<Option<NostrSubscription>, TransportAdapterError> {
         let (old, replacement) = {
             let mut state = self.state.write().await;
@@ -2361,7 +2379,20 @@ impl NostrTransportAdapter {
                     .and_then(|routes| routes.group_since.get(&key))
                     .copied()
                     .unwrap_or(since);
-                let subscription = group_subscription(account, route, since, attempt);
+                let expected = group_subscription(account, route, since, attempt);
+                let subscription = match planned_subscription {
+                    Some(planned) => {
+                        if planned.route_key() != expected.route_key()
+                            || !matches!(planned, NostrSubscription::Group { attempt: planned_attempt, .. } if *planned_attempt == attempt)
+                        {
+                            return Err(TransportAdapterError::Subscription(
+                                "private observation planned route mismatch".into(),
+                            ));
+                        }
+                        planned.clone()
+                    }
+                    None => expected,
+                };
                 if !force
                     && !activation_reset
                     && previous.as_ref().is_some_and(|old| {
@@ -2446,6 +2477,17 @@ impl NostrTransportAdapter {
             return Ok(None);
         };
         let mut state = self.state.write().await;
+        if state.private_observation_groups.get(account) != Some(&replacement.group) {
+            if let Some(current) = state.private_observation_wires.get_mut(account)
+                && current.actual == replacement.actual
+            {
+                current.ready = false;
+                current.completed = false;
+            }
+            return Err(TransportAdapterError::Subscription(
+                "private observation selection changed".into(),
+            ));
+        }
         let Some(current) = state.private_observation_wires.get_mut(account) else {
             return Err(TransportAdapterError::Subscription(
                 "private observation selection changed".into(),
@@ -2488,6 +2530,23 @@ impl NostrTransportAdapter {
             if !success {
                 wire.ready = false;
             }
+        }
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn finish_private_observation_wire_actual(
+        &self,
+        account: &MemberId,
+        actual: &str,
+        success: bool,
+    ) {
+        let mut state = self.state.write().await;
+        let selected = state.private_observation_groups.get(account).cloned();
+        if let Some(wire) = state.private_observation_wires.get_mut(account)
+            && wire.actual == actual
+        {
+            wire.completed = success && wire.ready && selected.as_ref() == Some(&wire.group);
+            if !wire.completed { wire.ready = false; }
         }
     }
 
@@ -3699,6 +3758,7 @@ impl TransportAdapter for NostrTransportAdapter {
                 attempt,
                 true,
                 true,
+                None,
             )
             .await
         {
@@ -3818,7 +3878,7 @@ impl TransportAdapter for NostrTransportAdapter {
             }
         }
 
-        let (to_add, desired, batches) = {
+        let (to_add, repacks) = {
             let state = self.state.read().await;
             // The `AccountNotActive` guard above ran under the subscription
             // lock this call holds, and only activate/sync/deactivate can
@@ -3828,24 +3888,18 @@ impl TransportAdapter for NostrTransportAdapter {
                 .get(&sync.account_id)
                 .expect("the AccountNotActive guard above proved the account is active");
             // Sends repeat this sync. Keep the committed routes and telemetry
-            // intact when nothing changed; failed relay teardown still retries.
+            // intact when nothing changed; failed relay teardown and failed
+            // family repacks still retry.
             if routes.groups == sync.group_subscriptions
+                && !routes.retry_repacks
                 && state.pending_unsubscribes.is_empty()
                 && state.pending_scoped_unsubscribes.is_empty()
                 && {
                     #[cfg(feature = "experimental-device-sync")]
-                    {
-                        state.private_observation_ready_for(
-                            &sync.account_id,
-                            &sync.group_subscriptions,
-                            sync.since,
-                            routes.attempt,
-                        )
-                    }
+                    { state.private_observation_ready_for(&sync.account_id, &sync.group_subscriptions, sync.since, routes.attempt)
+                        && state.private_observation_roles_match(&sync.account_id, &sync.group_subscriptions) }
                     #[cfg(not(feature = "experimental-device-sync"))]
-                    {
-                        true
-                    }
+                    { true }
                 }
             {
                 return Ok(());
@@ -3864,86 +3918,101 @@ impl TransportAdapter for NostrTransportAdapter {
             );
             #[cfg(feature = "experimental-device-sync")]
             let private_changed = !state.private_observation_ready_for(
-                &sync.account_id,
-                &sync.group_subscriptions,
-                sync.since,
-                attempt,
-            );
+                &sync.account_id, &sync.group_subscriptions, sync.since, attempt,
+            ) || !state.private_observation_roles_match(&sync.account_id, &sync.group_subscriptions);
             #[cfg(not(feature = "experimental-device-sync"))]
             let private_changed = false;
             if to_add.is_empty() && to_remove.is_empty() && !private_changed {
                 // Nothing to repack: only the teardown retries below run.
-                (Vec::new(), None, Vec::new())
+                (Vec::new(), None)
             } else {
-                // Any change of routes repacks every group batch (#2266):
-                // appending batches fragmented them past the relay's REQ
-                // limit, kept a removed route's events arriving to be dropped,
-                // and left sync-made batches outside replay coverage.
-                let desired = repacked_group_routes(
-                    &sync,
-                    routes,
-                    &to_add,
+                // A change of routes repacks only the batch families it
+                // touches (#2266): appending batches fragmented them past the
+                // relay's REQ limit, kept a removed route's events arriving to
+                // be dropped, and left sync-made batches outside replay
+                // coverage, while repacking every family re-sent and coupled
+                // relay sets the change never touched.
+                #[cfg(feature = "experimental-device-sync")]
+                let selected = match state.private_observation_groups.get(&sync.account_id) {
+                    Some(group) => Some(group_route_key(&sync.account_id,
+                        sync.group_subscriptions.iter()
+                            .find(|route| &route.group_id == group && route.retained_since.is_none())
+                            .ok_or_else(|| TransportAdapterError::Subscription("selected private observation route unavailable".into()))?
+                    )),
+                    None => None,
+                };
+                #[cfg(feature = "experimental-device-sync")]
+                let repacks = plan_scoped_family_repacks(
+                    &sync, routes, &to_add, &to_remove,
+                    state.account_subscription_eose(&sync.account_id).complete(),
+                    selected.as_ref(), private_changed,
+                );
+                #[cfg(not(feature = "experimental-device-sync"))]
+                let repacks = plan_family_repacks(
+                    &sync, routes, &to_add, &to_remove,
                     state.account_subscription_eose(&sync.account_id).complete(),
                 );
-                let batches = state.pack_live_group_batches(
-                    &sync.account_id,
-                    &desired,
-                    &sync.group_subscriptions,
-                    attempt,
-                    routes.next_batch,
-                );
-                (to_add, Some(desired), batches)
+                (to_add, Some(repacks))
             }
         };
-        let Some(desired) = desired else {
+        let Some(repacks) = repacks else {
             // The same routes, perhaps reordered: keep the order the caller
             // sent so its repeats return early above.
             if let Some(routes) = self.state.write().await.accounts.get_mut(&sync.account_id) {
                 routes.groups = sync.group_subscriptions;
+                routes.retry_repacks = false;
             }
             self.drain_pending_unsubscribes().await;
             drop(subscription_guard);
             return Ok(());
         };
+        let batches = repacks
+            .iter()
+            .flat_map(|repack| repack.batches.iter().cloned())
+            .collect::<Vec<_>>();
 
+        #[cfg(feature = "experimental-device-sync")]
+        let private_issue = repacks.iter().enumerate().find_map(|(index, repack)| {
+            repack.batches.iter().find(|batch| matches!(batch, NostrSubscription::Group { .. }))
+                .cloned().map(|subscription| (index, subscription))
+        });
+        #[cfg(feature = "experimental-device-sync")]
+        let (private_cleanup, private_prepare_failed) = {
+            let (attempt, deselected) = {
+                let state = self.state.read().await;
+                (state.accounts[&sync.account_id].attempt,
+                 !state.private_observation_groups.contains_key(&sync.account_id)
+                    && state.private_observation_wires.contains_key(&sync.account_id))
+            };
+            let prepare_failed = if private_issue.is_some() || deselected {
+                let result = self.prepare_private_observation_wire(
+                    &sync.account_id, &sync.group_subscriptions, sync.since, attempt,
+                    false, true, private_issue.as_ref().map(|(_, subscription)| subscription),
+                ).await;
+                if result.is_err() {
+                    // Preparation belongs to the private dependency component.
+                    // Its failed CLOSE/allocation must not roll back unrelated
+                    // healthy families, nor permit this component to fall back
+                    // to an old actual id or an unscoped REQ.
+                    self.finish_private_observation_wire(&sync.account_id, false).await;
+                }
+                result.is_err()
+            } else { false };
+            let cleanup = if private_issue.is_some() && !prepare_failed {
+                self.state.read().await.private_observation_wires.get(&sync.account_id)
+                    .filter(|wire| wire.ready && !wire.completed)
+                    .map(|wire| (sync.account_id.clone(), wire.actual.clone()))
+            } else { None };
+            (cleanup, prepare_failed)
+        };
+        #[cfg(feature = "experimental-device-sync")]
+        let private_finish = private_cleanup.clone();
         #[cfg(feature = "experimental-device-sync")]
         let mut to_add = to_add;
         #[cfg(feature = "experimental-device-sync")]
-        {
-            let attempt = self
-                .state
-                .read()
-                .await
-                .accounts
-                .get(&sync.account_id)
-                .ok_or_else(|| TransportAdapterError::AccountNotActive(sync.account_id.clone()))?
-                .attempt;
-            if let Some(private) = self
-                .prepare_private_observation_wire(
-                    &sync.account_id,
-                    &sync.group_subscriptions,
-                    sync.since,
-                    attempt,
-                    false,
-                    true,
-                )
-                .await?
-                && !to_add
-                    .iter()
-                    .any(|subscription| subscription.subscription_id() == private.subscription_id())
-            {
-                to_add.push(private);
-            }
-        }
-        #[cfg(feature = "experimental-device-sync")]
-        let private_cleanup = self
-            .state
-            .read()
-            .await
-            .private_observation_wires
-            .get(&sync.account_id)
-            .filter(|wire| !wire.completed)
-            .map(|wire| (sync.account_id.clone(), wire.actual.clone()));
+        if let Some((_, private)) = &private_issue
+            && !to_add.iter().any(|route| route.route_key() == private.route_key())
+        { to_add.push(private.clone()); }
 
         // Stage new route coverage and a telemetry overlay BEFORE the relay REQs
         // go out. Existing routes and committed telemetry remain live until the
@@ -4004,62 +4073,129 @@ impl TransportAdapter for NostrTransportAdapter {
 
         // The new batches go out before the ones they replace close, so no
         // route is ever without a live REQ.
-        let report = match self.subscribe_all("sync_account_groups", &batches).await {
-            Ok(report) => report,
-            Err(error) => {
-                #[cfg(feature = "experimental-device-sync")]
-                self.finish_private_observation_wire(&sync.account_id, false)
-                    .await;
-                // The authoritative routes and committed telemetry were never
-                // replaced. Discard only this batch's staged callbacks and rebuild
-                // the derived route index to remove its temporary coverage, then
-                // close the REQs the batch's successful siblings installed.
-                {
-                    let mut state = self.state.write().await;
-                    state.rollback_staged_subscription_starts();
-                    state.retire_unlive_replay_batches(&sync.account_id, &batches);
-                    state.rebuild_transport_group_index();
-                    state.metrics.group_syncs_failed += 1;
+        #[cfg(feature = "experimental-device-sync")]
+        let blocked = repacks.iter().map(|repack| {
+            private_prepare_failed && repack.batches.iter().chain(&repack.replaced)
+                .any(|batch| matches!(batch, NostrSubscription::Group { .. }))
+        }).collect::<Vec<_>>();
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let blocked = vec![false; repacks.len()];
+        let issued = repacks.iter().zip(&blocked)
+            .filter(|(_, blocked)| !**blocked)
+            .flat_map(|(repack, _)| repack.batches.iter().cloned())
+            .collect::<Vec<_>>();
+        let mut issued_outcomes = self.subscribe_each("sync_account_groups", &issued).await.into_iter();
+        let mut outcomes = repacks.iter().zip(&blocked).flat_map(|(repack, blocked)| {
+            repack.batches.iter().map(|_| {
+                if *blocked {
+                    Err(TransportAdapterError::Subscription("private observation preparation failed".into()))
+                } else {
+                    issued_outcomes.next().expect("subscribe_each returns one ordered outcome per subscription")
                 }
-                close_abandoned_sync_batch(
-                    &self.relay_client,
-                    &self.state,
-                    &self.subscribe_tasks,
-                    batches,
-                )
-                .await;
-                let _ = staging_complete.send(());
-
-                return Err(error);
+            }).collect::<Vec<_>>()
+        }).collect::<Vec<_>>().into_iter();
+        // A family commits once all of its batches went out; one whose batch
+        // failed keeps its live batches and retries on the next sync.
+        let mut report = NostrSubscribeReport::default();
+        let mut first_error = None;
+        let mut committed = Vec::with_capacity(repacks.len());
+        for (repack, blocked) in repacks.iter().zip(&blocked) {
+            let mut family_report = NostrSubscribeReport::default();
+            let mut sent = !*blocked;
+            if *blocked {
+                first_error.get_or_insert_with(|| TransportAdapterError::Subscription(
+                    "private observation preparation failed".into(),
+                ));
             }
-        };
+            for outcome in outcomes.by_ref().take(repack.batches.len()) {
+                match outcome {
+                    Ok(issued) => family_report.add(issued),
+                    Err(error) => {
+                        sent = false;
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+            if sent {
+                report.add(family_report);
+            }
+            committed.push(sent);
+        }
+        let abandoned = repacks
+            .iter()
+            .zip(&committed)
+            .filter(|(_, committed)| !**committed)
+            .flat_map(|(repack, _)| repack.batches.iter().cloned())
+            .collect::<Vec<_>>();
+        let committed_ids = repacks
+            .iter()
+            .zip(&committed)
+            .filter(|(_, committed)| **committed)
+            .flat_map(|(repack, _)| {
+                repack
+                    .batches
+                    .iter()
+                    .map(NostrSubscription::subscription_id)
+            })
+            .collect::<HashSet<_>>();
+        let families_failed = committed.iter().filter(|committed| !**committed).count();
 
         // Commit routing intent BEFORE relay teardown: a failed unsubscribe
         // must never leave the routing index serving the old group set.
         // Removals are queued and drained below (plus any left over from
         // earlier syncs); failures there are absorbed and retried, never
-        // surfaced as an error.
+        // surfaced as an error. A failed family's own batches leave replay
+        // coverage, and the routing index rebuilt from the committed routes
+        // drops the routes it would have added.
         {
             let mut state = self.state.write().await;
-            state.commit_staged_subscription_starts();
+            state.settle_staged_subscription_starts(|id| committed_ids.contains(id));
             let account_id = sync.account_id.clone();
-            let replaced = state.sync_groups(sync.clone(), &desired, &batches);
-            state.retire_replay_batches(&account_id, &replaced);
-            state.forget_subscription_starts(&replaced);
+            let replaced = state.commit_group_sync(sync, &repacks, &committed);
+            let retired = replaced.iter().filter(|batch| {
+                state.live_subscription_route(&batch.subscription_id()).is_none()
+            }).cloned().collect::<Vec<_>>();
+            state.retire_replay_batches(&account_id, &retired);
+            state.forget_subscription_starts(&retired);
             state.queue_pending_unsubscribes(replaced);
-            if report.is_degraded() {
+            state.retire_unlive_replay_batches(&account_id, &abandoned);
+            if first_error.is_some() {
+                state.metrics.group_syncs_failed += 1;
+            } else if report.is_degraded() {
                 state.metrics.group_syncs_degraded += 1;
             } else {
                 state.metrics.group_syncs_full += 1;
             }
         };
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some((account, actual)) = private_finish {
+            let sent = private_issue.as_ref().is_some_and(|(index, _)| committed[*index]);
+            self.finish_private_observation_wire_actual(&account, &actual, sent).await;
+        }
+        if !abandoned.is_empty() {
+            // Close the REQs a failed family's successful siblings installed.
+            close_abandoned_sync_batch(
+                &self.relay_client,
+                &self.state,
+                &self.subscribe_tasks,
+                abandoned,
+            )
+            .await;
+        }
+        if let Some(error) = first_error.take_if(|_| families_failed == repacks.len()) {
+            // Nothing committed, so nothing was replaced.
+            let _ = staging_complete.send(());
+            return Err(error);
+        }
 
         let (confirmed, failed_unsubscribe_count) = self.drain_pending_unsubscribes().await;
 
         tracing::debug!(
             target: "transport_nostr_adapter::adapter",
             method = "sync_account_groups",
-            subscriptions_created = batches.len(),
+            subscriptions_created = committed_ids.len(),
+            families_committed = committed.len() - families_failed,
+            families_failed,
             owed_relay_count = report.owed_relays,
             refused_relay_count = report.refused_relays,
             unsubscribes_confirmed = confirmed,
@@ -4075,11 +4211,8 @@ impl TransportAdapter for NostrTransportAdapter {
                 "deferred relay unsubscribes; will retry on next group sync"
             );
         }
-        #[cfg(feature = "experimental-device-sync")]
-        self.finish_private_observation_wire(&sync.account_id, true)
-            .await;
         let _ = staging_complete.send(());
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     async fn deactivate_account(&self, account_id: &MemberId) -> Result<(), TransportAdapterError> {
@@ -4275,8 +4408,10 @@ struct AccountRoutes {
     /// id, so a narrower filter never cuts off history the live one is still
     /// returning. Ids never carry `since`.
     group_since: HashMap<NostrSubscriptionRouteKey, Option<Timestamp>>,
-    /// Derived at the same commit as `batches`: receiver capture checks must
-    /// not scan every batch for every route on each EOSE notification.
+    /// Ordinary GroupBatch carriers only, derived at the same commit as
+    /// `batches`. Standalone private Group logical ids must never become an
+    /// ordinary capture fallback after a failed selection change. Receiver
+    /// capture checks must not scan every batch for every route on EOSE.
     #[cfg(feature = "experimental-device-sync")]
     group_wire_ids: HashMap<NostrSubscriptionRouteKey, String>,
     /// Attempt the live subscriptions for this account were issued under. Held
@@ -4289,6 +4424,11 @@ struct AccountRoutes {
     /// The number the next batch a group sync adds takes within `attempt`.
     /// Spent when a sync stages its batches, so numbers are never reused.
     next_batch: u32,
+    /// Whether the last group sync left a family repack uncommitted. A sync
+    /// that matches `groups` still diffs them while this is set, so the
+    /// failed families are tried again even when no route changed shape: a
+    /// route re-added to widen its floor can be equal to the one it replaces.
+    retry_repacks: bool,
 }
 
 /// Endpoint coverage for the account's live inbox and group batch REQs, as
@@ -6656,10 +6796,6 @@ impl AdapterState {
         attempt: SubscriptionAttempt,
     ) -> Option<String> {
         if self.private_observation_groups.get(account) == Some(&route.group_id)
-            || self
-                .private_observation_wires
-                .get(account)
-                .is_some_and(|wire| wire.group == route.group_id)
         {
             let wire = self.private_observation_wires.get(account)?;
             return (wire.ready
@@ -6675,6 +6811,24 @@ impl AdapterState {
             .get(&group_route_key(account, route))
             .cloned()
     }
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_observation_roles_match(
+        &self,
+        account: &MemberId,
+        groups: &[TransportGroupSubscription],
+    ) -> bool {
+        let Some(routes) = self.accounts.get(account) else { return false };
+        let mut standalone = routes.batches.iter().filter(|batch| matches!(batch, NostrSubscription::Group { .. }));
+        match self.private_observation_groups.get(account) {
+            Some(group) => {
+                let Some(selected) = groups.iter().find(|route| &route.group_id == group && route.retained_since.is_none()) else { return false };
+                standalone.next().is_some_and(|batch| batch.route_key() == group_route_key(account, selected))
+                    && standalone.next().is_none()
+            }
+            None => standalone.next().is_none(),
+        }
+    }
+
     #[cfg(feature = "experimental-device-sync")]
     fn private_observation_ready_for(
         &self,
@@ -6824,31 +6978,77 @@ impl AdapterState {
                 attempt,
                 batches: batches.to_vec(),
                 next_batch: u32::try_from(batches.len()).unwrap_or(u32::MAX),
+                retry_repacks: false,
             },
         );
         self.rebuild_transport_group_index();
     }
 
-    /// Commit a group sync that changed the route set: its routes, the floor
-    /// each was issued at, and the batches that now carry them all. Returns
-    /// the batches they replace, for the caller to close.
-    fn sync_groups(
+    /// Commit the family repacks of a group sync whose batches all went out
+    /// (`committed`, in `repacks` order): their routes, the floor each was
+    /// issued at, and the batches that now carry them. A repack that did not
+    /// commit leaves its families as they were: their live batches keep
+    /// carrying their routes at their floors, a route it removed among them,
+    /// and a route it would have added stays out. The account is then marked
+    /// for the next sync to try those repacks again. Returns the batches the
+    /// committed repacks replace, for the caller to close.
+    fn commit_group_sync(
         &mut self,
         sync: TransportGroupSync,
-        routes: &[NostrSubscription],
-        batches: &[NostrSubscription],
+        repacks: &[FamilyRepack],
+        committed: &[bool],
     ) -> Vec<NostrSubscription> {
         let Some(account) = self.accounts.get_mut(&sync.account_id) else {
             return Vec::new();
         };
-        account.groups = sync.group_subscriptions;
-        account.group_since = issued_group_since(routes).collect();
-        #[cfg(feature = "experimental-device-sync")]
-        {
-            account.group_wire_ids = issued_group_wire_ids(batches);
+        let account_id = &sync.account_id;
+        let mut replaced = Vec::new();
+        let mut created = 0;
+        let mut not_added = HashSet::new();
+        let mut not_removed = HashSet::new();
+        for (repack, committed) in repacks.iter().zip(committed) {
+            if !committed {
+                not_added.extend(repack.added.iter().cloned());
+                not_removed.extend(repack.removed.iter().cloned());
+                continue;
+            }
+            let replaced_ids = repack
+                .replaced
+                .iter()
+                .map(NostrSubscription::subscription_id)
+                .collect::<HashSet<_>>();
+            account
+                .batches
+                .retain(|batch| !replaced_ids.contains(&batch.subscription_id()));
+            account.batches.extend(repack.batches.iter().cloned());
+            account
+                .group_since
+                .extend(issued_group_since(&repack.routes));
+            replaced.extend(repack.replaced.iter().cloned());
+            created += repack.batches.len();
         }
-        let replaced = std::mem::replace(&mut account.batches, batches.to_vec());
-        self.metrics.subscriptions_created += batches.len();
+        let mut groups = sync
+            .group_subscriptions
+            .into_iter()
+            .filter(|group| !not_added.contains(&group_route_key(account_id, group)))
+            .collect::<Vec<_>>();
+        groups.extend(
+            account
+                .groups
+                .iter()
+                .filter(|group| not_removed.contains(&group_route_key(account_id, group)))
+                .cloned(),
+        );
+        let live = groups
+            .iter()
+            .map(|group| group_route_key(account_id, group))
+            .collect::<HashSet<_>>();
+        account.group_since.retain(|route, _| live.contains(route));
+        account.groups = groups;
+        account.retry_repacks = committed.contains(&false);
+        #[cfg(feature = "experimental-device-sync")]
+        { account.group_wire_ids = issued_group_wire_ids(&account.batches); }
+        self.metrics.subscriptions_created += created;
         self.rebuild_transport_group_index();
         replaced
     }
@@ -7130,13 +7330,15 @@ impl AdapterState {
         }
     }
 
-    fn commit_staged_subscription_starts(&mut self) {
-        self.sync.commit_staged_subscription_starts();
+    fn rollback_staged_subscription_starts(&mut self) {
+        self.sync.rollback_staged_subscription_starts();
         self.staged_group_subscriptions.clear();
     }
 
-    fn rollback_staged_subscription_starts(&mut self) {
-        self.sync.rollback_staged_subscription_starts();
+    /// Commit the staged subscriptions `committed` accepts and roll back the
+    /// rest, as one settled sync whose families committed independently.
+    fn settle_staged_subscription_starts(&mut self, committed: impl Fn(&str) -> bool) {
+        self.sync.settle_staged_subscription_starts(committed);
         self.staged_group_subscriptions.clear();
     }
 
@@ -7584,41 +7786,266 @@ fn group_subscription(
     }
 }
 
-/// Every route a changed group sync wants, each at the floor its repacked
-/// batch asks from. A route the sync adds or widens takes its diff's floor.
-/// A route already live keeps the floor it was issued at, unless the
-/// activation's replay coverage is complete: its live REQs then served
-/// everything up to now, so it starts where a fresh activation would, at the
-/// sync's floor, instead of replaying that history again.
-fn repacked_group_routes(
+/// The relay set and floor a group route's batch shares: normalized
+/// endpoints and `since`. Routes pack into batches only within a family.
+type BatchFamily = (Vec<TransportEndpoint>, Option<Timestamp>);
+
+/// The share of a group sync that commits on its own: one or more batch
+/// families that change together, the live batches they replace and the
+/// batches that replace them. A repack commits once all of its batches went
+/// out; one whose batch failed leaves its families' live batches as they
+/// were, and the next sync tries it again.
+#[derive(Debug, Default)]
+struct FamilyRepack {
+    /// Live batches the repack replaces.
+    replaced: Vec<NostrSubscription>,
+    /// Every route the repack issues, at the floor its batch asks from.
+    routes: Vec<NostrSubscription>,
+    /// The batches carrying `routes`, numbered from the account's next batch.
+    batches: Vec<NostrSubscription>,
+    /// Routes the repack makes live that no live batch carried.
+    added: HashSet<NostrSubscriptionRouteKey>,
+    /// Routes the repack drops from the batches it replaces.
+    removed: HashSet<NostrSubscriptionRouteKey>,
+}
+
+/// The family a group route's REQ packs into.
+fn batch_family(route: &NostrSubscription) -> Option<BatchFamily> {
+    match route {
+        NostrSubscription::Group {
+            endpoints, since, ..
+        } => Some((normalized_endpoints(endpoints), *since)),
+        _ => None,
+    }
+}
+
+/// Repack only the batch families a changed group sync touches, and leave
+/// every other family's live batches as they are.
+///
+/// A family is repacked when a route leaves it (removed, or added again to
+/// widen its floor), when a route the sync issues joins it, or when its
+/// routes, issued again, would join a family the sync issues: the routes it
+/// re-sends must not leave a fragment of their family behind. A repacked
+/// family's routes are issued at the floor they were issued at, or at the
+/// sync's floor once the activation's replay coverage is complete, since
+/// their live REQs then served everything up to now; an added route takes
+/// its diff's floor. Completed coverage alone changes no family: a family
+/// nothing touches keeps its issued floor and is not re-sent.
+///
+/// Families that share a route or a family key change together, so each
+/// returned repack is a connected set of them, numbered in the order the
+/// sync lists their routes from the account's next batch.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RepackFamily {
+    Ordinary(BatchFamily),
+    Private(NostrSubscriptionRouteKey, BatchFamily),
+}
+
+impl RepackFamily {
+    fn floor(&self) -> Option<Timestamp> {
+        match self { Self::Ordinary((_, since)) | Self::Private(_, (_, since)) => *since }
+    }
+    fn is_private(&self) -> bool { matches!(self, Self::Private(..)) }
+}
+
+#[cfg(any(not(feature = "experimental-device-sync"), test))]
+fn plan_family_repacks(
     sync: &TransportGroupSync,
     routes: &AccountRoutes,
     added: &[NostrSubscription],
+    removed: &[NostrSubscription],
     replay_complete: bool,
-) -> Vec<NostrSubscription> {
+) -> Vec<FamilyRepack> {
+    plan_scoped_family_repacks(sync, routes, added, removed, replay_complete, None, false)
+}
+
+fn plan_scoped_family_repacks(
+    sync: &TransportGroupSync,
+    routes: &AccountRoutes,
+    added: &[NostrSubscription],
+    removed: &[NostrSubscription],
+    replay_complete: bool,
+    selected_private: Option<&NostrSubscriptionRouteKey>,
+    refresh_private: bool,
+) -> Vec<FamilyRepack> {
     let account_id = &sync.account_id;
-    let prior_route_keys = prior_group_route_keys(account_id, &sync.group_subscriptions);
+    // The live families, and the one that carries each live route.
+    let mut live = HashMap::<RepackFamily, Vec<NostrSubscription>>::new();
+    let mut live_order = Vec::new();
+    let mut carried_by = HashMap::new();
+    for batch in &routes.batches {
+        let (family, keys) = match batch {
+            NostrSubscription::GroupBatch { routes: members, endpoints, since, .. } => {
+                let family = (normalized_endpoints(endpoints), *since);
+                let keys = members.iter().map(|member| NostrSubscriptionRouteKey::Group {
+                    account_id: account_id.clone(),
+                    group_id: member.group_id.clone(),
+                    transport_group_id: member.transport_group_id.clone(),
+                    endpoints: family.0.clone(),
+                }).collect::<Vec<_>>();
+                (RepackFamily::Ordinary(family), keys)
+            }
+            NostrSubscription::Group { .. } => {
+                let key = batch.route_key();
+                (RepackFamily::Private(key.clone(), batch_family(batch).expect("a group route has a family")), vec![key])
+            }
+            _ => continue,
+        };
+        for key in keys { carried_by.insert(key, family.clone()); }
+        live.entry(family.clone())
+            .or_insert_with(|| {
+                live_order.push(family);
+                Vec::new()
+            })
+            .push(batch.clone());
+    }
+
+    // Each wanted route, the family carrying it now, and the REQ that issues
+    // it if its family is repacked. A route no live batch carries is always
+    // issued.
     let added = added
         .iter()
         .map(|route| (route.route_key(), route.clone()))
         .collect::<HashMap<_, _>>();
-    sync.group_subscriptions
+    let prior_route_keys = prior_group_route_keys(account_id, &sync.group_subscriptions);
+    let wanted = sync
+        .group_subscriptions
         .iter()
         .map(|group| {
             let key = group_route_key(account_id, group);
-            if let Some(route) = added.get(&key) {
-                return route.clone();
-            }
-            let fresh = group_route_since(account_id, group, &prior_route_keys, sync.since);
-            let since = match routes.group_since.get(&key) {
-                Some(issued) if !replay_complete => issued
-                    .zip(fresh)
-                    .map(|(issued, requested)| issued.min(requested)),
-                _ => fresh,
-            };
-            group_subscription(account_id, group, since, routes.attempt)
+            let carrier = carried_by.get(&key).cloned();
+            let issue = added.get(&key).cloned().unwrap_or_else(|| {
+                let fresh = group_route_since(account_id, group, &prior_route_keys, sync.since);
+                let since = match &carrier {
+                    Some(family) if !replay_complete => family.floor()
+                        .zip(fresh)
+                        .map(|(issued, requested)| issued.min(requested)),
+                    _ => fresh,
+                };
+                group_subscription(account_id, group, since, routes.attempt)
+            });
+            let ordinary = batch_family(&issue).expect("a group route has a family");
+            let target = if selected_private == Some(&key) {
+                RepackFamily::Private(key.clone(), ordinary)
+            } else { RepackFamily::Ordinary(ordinary) };
+            let role_changed = carrier.as_ref().is_some_and(|family| family.is_private() != target.is_private());
+            let always = added.contains_key(&key) || carrier.is_none()
+                || role_changed || (refresh_private && selected_private == Some(&key));
+            (key, carrier, issue, target, always)
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    let mut dirty = wanted.iter()
+        .filter(|(_, _, _, _, always)| *always)
+        .filter_map(|(_, carrier, _, _, _)| carrier.clone())
+        .chain(removed
+        .iter()
+        .chain(added.values())
+        .filter_map(|route| carried_by.get(&route.route_key()).cloned()))
+        .collect::<HashSet<_>>();
+    let issued = |dirty: &HashSet<RepackFamily>, carrier: &Option<RepackFamily>, always: bool| {
+        always
+            || carrier
+                .as_ref()
+                .is_some_and(|family| dirty.contains(family))
+    };
+    loop {
+        let targets = wanted
+            .iter()
+            .filter(|(_, carrier, _, _, always)| issued(&dirty, carrier, *always))
+            .map(|(_, _, _, target, _)| target)
+            .collect::<HashSet<_>>();
+        let joined = wanted
+            .iter()
+            .filter_map(|(_, carrier, _, target, _)| {
+                let family = carrier.as_ref()?;
+                (!dirty.contains(family) && (targets.contains(family) || targets.contains(target)))
+                    .then(|| family.clone())
+            })
+            .collect::<Vec<_>>();
+        if joined.is_empty() {
+            break;
+        }
+        dirty.extend(joined);
+    }
+
+    // Join each issued route's family to the one it lands in.
+    let mut parent = dirty
+        .iter()
+        .map(|family| (family.clone(), family.clone()))
+        .collect::<HashMap<_, _>>();
+    fn root(parent: &HashMap<RepackFamily, RepackFamily>, family: &RepackFamily) -> RepackFamily {
+        let mut family = family;
+        while let Some(up) = parent.get(family).filter(|up| *up != family) {
+            family = up;
+        }
+        family.clone()
+    }
+    for (_, carrier, _, target, always) in &wanted {
+        if !issued(&dirty, carrier, *always) {
+            continue;
+        }
+        parent
+            .entry(target.clone())
+            .or_insert_with(|| target.clone());
+        if let Some(carrier) = carrier {
+            let (from, to) = (root(&parent, carrier), root(&parent, target));
+            if from != to {
+                parent.insert(from, to);
+            }
+        }
+    }
+
+    // Selection replacement changes one private ownership role. Its former
+    // singleton becoming ordinary and its successor becoming private commit
+    // together, including when their endpoint/floor families are disjoint.
+    if let Some((_, _, _, target, _)) = wanted.iter().find(|(_, carrier, _, target, always)| target.is_private() && issued(&dirty, carrier, *always)) {
+        for family in live_order.iter().filter(|family| family.is_private() && dirty.contains(*family)) {
+            let (from, to) = (root(&parent, family), root(&parent, target));
+            if from != to { parent.insert(from, to); }
+        }
+    }
+
+    let mut repacks = Vec::<FamilyRepack>::new();
+    let mut slots = HashMap::new();
+    let mut slot = |root: RepackFamily, repacks: &mut Vec<FamilyRepack>| {
+        *slots.entry(root).or_insert_with(|| {
+            repacks.push(FamilyRepack::default());
+            repacks.len() - 1
+        })
+    };
+    for (key, carrier, issue, target, always) in &wanted {
+        if !issued(&dirty, carrier, *always) {
+            continue;
+        }
+        let index = slot(root(&parent, target), &mut repacks);
+        repacks[index].routes.push(issue.clone());
+        if carrier.is_none() {
+            repacks[index].added.insert(key.clone());
+        }
+    }
+    for family in live_order.iter().filter(|family| dirty.contains(*family)) {
+        let index = slot(root(&parent, family), &mut repacks);
+        repacks[index].replaced.extend(live[family].iter().cloned());
+    }
+    for route in removed {
+        let key = route.route_key();
+        if let Some(family) = carried_by.get(&key) {
+            let index = slot(root(&parent, family), &mut repacks);
+            repacks[index].removed.insert(key);
+        }
+    }
+
+    let mut next_batch = routes.next_batch;
+    for repack in &mut repacks {
+        let (private, ordinary): (Vec<_>, Vec<_>) = repack.routes.iter().cloned()
+            .partition(|route| selected_private == Some(&route.route_key()));
+        repack.batches = pack_group_batches(account_id, &ordinary, routes.attempt, next_batch);
+        repack.batches.extend(private);
+        next_batch =
+            next_batch.saturating_add(u32::try_from(repack.batches.len()).unwrap_or(u32::MAX));
+    }
+    repacks
 }
 
 #[cfg(feature = "experimental-device-sync")]
@@ -7648,14 +8075,16 @@ fn issued_group_wire_ids(
                     );
                 }
             }
-            NostrSubscription::Group { .. } => {
-                ids.insert(batch.route_key(), id);
-            }
+            // Standalone carriers are private even when a failed selection
+            // leaves their predecessor authoritative. Never expose their
+            // logical id through ordinary capture fallback. The selected
+            // private route resolves only its exact scoped actual above.
             _ => {}
         }
     }
     ids
 }
+
 
 /// Pack per-route group REQs into batches of at most [`GROUP_BATCH_ROUTES`]
 /// routes that share endpoints and `since`, keeping the routes' order, and
@@ -7668,8 +8097,7 @@ fn pack_group_batches(
     attempt: SubscriptionAttempt,
     first_batch: u32,
 ) -> Vec<NostrSubscription> {
-    type BatchKey = (Vec<TransportEndpoint>, Option<Timestamp>);
-    let mut families: Vec<(BatchKey, Vec<TransportEndpoint>, Vec<GroupBatchRoute>)> = Vec::new();
+    let mut families: Vec<(BatchFamily, Vec<TransportEndpoint>, Vec<GroupBatchRoute>)> = Vec::new();
     for route in routes {
         let NostrSubscription::Group {
             group_id,
@@ -8217,36 +8645,256 @@ mod batch_tests {
     #[test]
     fn repack_keeps_requested_floor() {
         let account = MemberId::new(vec![0xA1; 32]);
-        let group = TransportGroupSubscription {
-            group_id: GroupId::new(vec![0; 16]),
-            transport_group_id: vec![1; 32],
+        let retained = |byte: u8| TransportGroupSubscription {
+            group_id: GroupId::new(vec![byte; 16]),
+            transport_group_id: vec![byte; 32],
             endpoints: vec![TransportEndpoint("wss://a.example".into())],
             retained_since: Some(Timestamp(900)),
         };
-        let key = group_route_key(&account, &group);
+        let (kept, left) = (retained(0), retained(1));
+        let live = [&kept, &left].map(|group| {
+            group_subscription(
+                &account,
+                group,
+                Some(Timestamp(900)),
+                SubscriptionAttempt::INITIAL,
+            )
+        });
         let routes = AccountRoutes {
             inbox_endpoints: Vec::new(),
-            groups: vec![group.clone()],
-            group_since: HashMap::from([(key, Some(Timestamp(900)))]),
+            groups: vec![kept.clone(), left.clone()],
+            group_since: issued_group_since(&live).collect(),
             #[cfg(feature = "experimental-device-sync")]
             group_wire_ids: HashMap::new(),
             attempt: SubscriptionAttempt::INITIAL,
-            batches: Vec::new(),
-            next_batch: 0,
+            batches: pack_group_batches(&account, &live, SubscriptionAttempt::INITIAL, 0),
+            next_batch: 1,
+            retry_repacks: false,
         };
+        // Leaving one route repacks its family; the route it keeps is issued
+        // no later than the floor the sync asks for, replay complete or not.
         for complete in [false, true] {
             for floor in [None, Some(Timestamp(100))] {
                 let sync = TransportGroupSync {
                     account_id: account.clone(),
-                    group_subscriptions: vec![group.clone()],
+                    group_subscriptions: vec![kept.clone()],
                     since: floor,
                 };
-                let packed = repacked_group_routes(&sync, &routes, &[], complete);
+                let repacks =
+                    plan_family_repacks(&sync, &routes, &[], &[live[1].clone()], complete);
+                assert_eq!(repacks.len(), 1);
                 assert!(
-                    matches!(&packed[0], NostrSubscription::Group { since, .. } if *since == floor)
+                    matches!(&repacks[0].routes[..], [NostrSubscription::Group { since, .. }] if *since == floor)
                 );
+                assert_eq!(repacks[0].replaced, routes.batches);
             }
         }
+    }
+
+    fn relay_group(index: u8, endpoint: &str) -> TransportGroupSubscription {
+        TransportGroupSubscription {
+            group_id: GroupId::new(vec![index; 16]),
+            transport_group_id: vec![index; 32],
+            endpoints: vec![TransportEndpoint(endpoint.to_owned())],
+            retained_since: None,
+        }
+    }
+
+    /// The routes of an account whose live batches carry each family of
+    /// current routes at its floor, numbered from 0.
+    fn live_families(families: &[(&[TransportGroupSubscription], u64)]) -> AccountRoutes {
+        let account = MemberId::new(vec![0xA1; 32]);
+        let issued = families
+            .iter()
+            .flat_map(|(groups, since)| {
+                groups.iter().map(|group| {
+                    group_subscription(
+                        &account,
+                        group,
+                        Some(Timestamp(*since)),
+                        SubscriptionAttempt::INITIAL,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let batches = pack_group_batches(&account, &issued, SubscriptionAttempt::INITIAL, 0);
+        AccountRoutes {
+            inbox_endpoints: Vec::new(),
+            groups: families
+                .iter()
+                .flat_map(|(groups, _)| groups.iter().cloned())
+                .collect(),
+            group_since: issued_group_since(&issued).collect(),
+            #[cfg(feature = "experimental-device-sync")]
+            group_wire_ids: HashMap::new(),
+            attempt: SubscriptionAttempt::INITIAL,
+            next_batch: u32::try_from(batches.len()).unwrap(),
+            batches,
+            retry_repacks: false,
+        }
+    }
+
+    fn plan(
+        routes: &AccountRoutes,
+        desired: Vec<TransportGroupSubscription>,
+        since: u64,
+        replay_complete: bool,
+    ) -> Vec<FamilyRepack> {
+        let account = MemberId::new(vec![0xA1; 32]);
+        let sync = TransportGroupSync {
+            account_id: account.clone(),
+            group_subscriptions: desired,
+            since: Some(Timestamp(since)),
+        };
+        let (added, removed) = diff_group_subscriptions(
+            &account,
+            &routes.groups,
+            &routes.group_since,
+            &sync.group_subscriptions,
+            sync.since,
+            routes.attempt,
+        );
+        plan_family_repacks(&sync, routes, &added, &removed, replay_complete)
+    }
+
+    /// `(route id byte, since)` of each route a repack issues.
+    fn issued_floors(repack: &FamilyRepack) -> Vec<(u8, Option<u64>)> {
+        repack
+            .routes
+            .iter()
+            .map(|route| match route {
+                NostrSubscription::Group {
+                    transport_group_id,
+                    since,
+                    ..
+                } => (transport_group_id[0], since.map(|since| since.0)),
+                _ => panic!("a repack issues group routes"),
+            })
+            .collect()
+    }
+
+    /// A completed replay alone changes no family. Joining a group on B
+    /// repacks B's family, moved to the sync's floor once replay is complete
+    /// and kept at its own floor beside the new one before then; A's family,
+    /// which the join never touches, is not repacked either way.
+    #[test]
+    fn a_repack_reaches_only_families_its_routes_land_in() {
+        let (a, b) = ("wss://a.example", "wss://b.example");
+        let routes = live_families(&[
+            (&[relay_group(1, a), relay_group(2, a)], 100),
+            (&[relay_group(3, b)], 100),
+        ]);
+        let joined = vec![
+            relay_group(1, a),
+            relay_group(2, a),
+            relay_group(3, b),
+            relay_group(4, b),
+        ];
+
+        let repacks = plan(&routes, joined.clone(), 200, true);
+        assert_eq!(repacks.len(), 1);
+        assert_eq!(
+            issued_floors(&repacks[0]),
+            vec![(3, Some(200)), (4, Some(200))]
+        );
+        assert_eq!(repacks[0].replaced, routes.batches[1..]);
+        assert_eq!(
+            repacks[0]
+                .batches
+                .iter()
+                .map(batch_shape)
+                .collect::<Vec<_>>(),
+            [(2, 2, Some(Timestamp(200)))]
+        );
+
+        let repacks = plan(&routes, joined, 200, false);
+        assert_eq!(repacks.len(), 1);
+        assert_eq!(issued_floors(&repacks[0]), vec![(4, Some(200))]);
+        assert!(
+            repacks[0].replaced.is_empty(),
+            "B's family keeps its floor until its replay is complete"
+        );
+    }
+
+    /// Once replay is complete, a repack takes in every family of its relays
+    /// that would land in its own, so it never leaves a fragment behind: a
+    /// join merges both of A's floors into one batch at the sync's floor.
+    #[test]
+    fn a_repack_merges_the_families_it_lands_in() {
+        let (a, b) = ("wss://a.example", "wss://b.example");
+        let routes = live_families(&[
+            (&[relay_group(1, a), relay_group(2, a)], 100),
+            (&[relay_group(5, a)], 150),
+            (&[relay_group(3, b)], 100),
+        ]);
+        let repacks = plan(
+            &routes,
+            vec![
+                relay_group(1, a),
+                relay_group(2, a),
+                relay_group(5, a),
+                relay_group(3, b),
+                relay_group(6, a),
+            ],
+            200,
+            true,
+        );
+        assert_eq!(repacks.len(), 1);
+        assert_eq!(
+            issued_floors(&repacks[0]),
+            vec![
+                (1, Some(200)),
+                (2, Some(200)),
+                (5, Some(200)),
+                (6, Some(200))
+            ]
+        );
+        assert_eq!(repacks[0].replaced, routes.batches[..2]);
+        assert_eq!(repacks[0].batches.len(), 1);
+        assert_eq!(
+            repacks[0].added,
+            HashSet::from([group_route_key(
+                &MemberId::new(vec![0xA1; 32]),
+                &relay_group(6, a)
+            )])
+        );
+    }
+
+    /// Changes to unrelated families are separate repacks, each committing
+    /// on its own, numbered in the order the sync lists their routes from the
+    /// account's next batch: leaving a group on A repacks A's family without
+    /// it, and joining one on B starts a family beside B's.
+    #[test]
+    fn unrelated_family_changes_repack_apart() {
+        let (a, b) = ("wss://a.example", "wss://b.example");
+        let account = MemberId::new(vec![0xA1; 32]);
+        let routes = live_families(&[
+            (&[relay_group(1, a), relay_group(2, a)], 100),
+            (&[relay_group(3, b)], 100),
+        ]);
+        let repacks = plan(
+            &routes,
+            vec![relay_group(1, a), relay_group(3, b), relay_group(4, b)],
+            200,
+            false,
+        );
+        assert_eq!(repacks.len(), 2);
+        assert_eq!(issued_floors(&repacks[0]), vec![(1, Some(100))]);
+        assert_eq!(repacks[0].replaced, routes.batches[..1]);
+        assert_eq!(
+            repacks[0].removed,
+            HashSet::from([group_route_key(&account, &relay_group(2, a))])
+        );
+        assert!(repacks[0].added.is_empty());
+        assert_eq!(issued_floors(&repacks[1]), vec![(4, Some(200))]);
+        assert!(repacks[1].replaced.is_empty());
+        assert_eq!(
+            repacks
+                .iter()
+                .flat_map(|repack| repack.batches.iter().map(batch_shape))
+                .collect::<Vec<_>>(),
+            [(2, 1, Some(Timestamp(100))), (3, 1, Some(Timestamp(200)))]
+        );
     }
 
     #[tokio::test]
