@@ -29,7 +29,7 @@ impl<S: StorageProvider> Engine<S> {
     /// Negative recovery for maintenance admitted by the former late-only
     /// private send gate. Never changes MLS, proposals, consent or user chats.
     #[cfg(feature = "experimental-device-sync")]
-    pub(super) fn retire_queued_private_maintenance(
+    pub(crate) fn retire_queued_private_maintenance(
         &mut self,
         group_id: &GroupId,
     ) -> Result<(), EngineError> {
