@@ -214,7 +214,7 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
     }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
-    let relay_closed = owned_loopback_listener_is_closed(address).await;
+    let relay_closed = owned_loopback_listener_is_closed(address, &relay).await;
     eprintln!(
         "recipient-sibling-admission request_held={} exact_request_identity={} primary_ready={} periodic_observed={} fresh_admitted={} first_consent_before_gate={} actual_consent_held={} exact_proof_nonce={} enrollment_complete={} public_cancelled={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
         request_held,
@@ -246,8 +246,13 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
 }
 
 // Probe only this fixture's owned loopback MockRelay listener.
+// OWNED_MOCK_RELAY_CLEANUP_BEGIN
 #[allow(clippy::disallowed_methods)]
-async fn owned_loopback_listener_is_closed(address: &str) -> bool {
+pub(super) async fn owned_loopback_listener_is_closed(
+    address: &str,
+    relay: &nostr_relay_builder::MockRelay,
+) -> bool {
+    let _ = relay;
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
             drop(socket);
@@ -257,3 +262,4 @@ async fn owned_loopback_listener_is_closed(address: &str) -> bool {
     .await
     .is_ok()
 }
+// OWNED_MOCK_RELAY_CLEANUP_END

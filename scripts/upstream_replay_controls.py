@@ -16,6 +16,10 @@ from upstream_offline_fingerprints import controls as fingerprint_controls, snap
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
+    'recipient-admission-default': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::admitted_recipient_starts_first_consent_without_periodic_tick',
+                                    'crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admission_acceptance.rs'),
+    'recipient-admission-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::admitted_recipient_starts_first_consent_without_periodic_tick',
+                                         'crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admission_acceptance.rs'),
     'cursor-promotion-observation': ('marmot_app', 'tests::live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue',
                                    'crates/marmot-app/src/tests.rs'),
     'peer-leave-observation': ('marmot_app', 'tests::due_peer_leave_does_not_shorten_a_collecting_convergence_pass',
@@ -116,7 +120,7 @@ ENGINE_CONTROL_ORDER = ['private-classifier-authentication', 'private-classifier
 OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
-EXPERIMENTAL_CASES |= UNIFFI_CASES | {'offline-experimental', 'wrong-recipient-routing'}
+EXPERIMENTAL_CASES |= UNIFFI_CASES | {'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
@@ -1106,7 +1110,7 @@ PFP = {
               '                    // ACTUAL_STALE_COMMAND_RECOVERY_BEGIN\n                    continue;\n                    // ACTUAL_STALE_COMMAND_RECOVERY_END',
               '                    // ACTUAL_STALE_COMMAND_RECOVERY_BEGIN\n                    break None;\n                    // ACTUAL_STALE_COMMAND_RECOVERY_END',
               UNIFFI_STALE_ASSERT, UNIFFI_STALE_PATTERN),
-    'command-owned-cleanup': ('crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs',
+    'command-owned-cleanup': ('crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admission_acceptance.rs',
               '            // accepts. The locked MockRelay stop notification is not sticky;\n            // this does not establish why any earlier stop was unobserved.\n            relay.shutdown();',
               '            // accepts. The locked MockRelay stop notification is not sticky;\n            // this does not establish why any earlier stop was unobserved.\n            let _ = relay;',
               'owned MockRelay cleanup must finish without an observed initial stop',
@@ -1180,8 +1184,8 @@ def inverse(case):
         if text.count(old) != 1 or old not in text[owner:end]:
             raise ValueError('inverse-command-dispatch-owner')
     if case == 'command-owned-cleanup':
-        start = text.index('async fn owned_loopback_listener_is_closed(')
-        end = text.index('async fn owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop(', start)
+        start = text.index('// OWNED_MOCK_RELAY_CLEANUP_BEGIN')
+        end = text.index('// OWNED_MOCK_RELAY_CLEANUP_END', start)
         if old not in text[start:end]:
             raise ValueError('inverse-owned-cleanup-owner')
     if case == 'inline':

@@ -1,5 +1,6 @@
 //! Real authenticated Body0 versus eight bounded actor read commands; independent scheduling regression.
 use super::*;
+use super::recipient_sibling_admission_acceptance::owned_loopback_listener_is_closed;
 use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -417,26 +418,6 @@ fn emit_queue(queue: QueueFacts) {
         "command-backlog-queue pause_rx_len={:?} target={:?} own_id_bound={:?} own={:?}",
         queue.pause_rx_len, queue.target, queue.own_id_bound, queue.own
     );
-}
-
-// Probe only this fixture's owned loopback MockRelay listener.
-#[allow(clippy::disallowed_methods)]
-async fn owned_loopback_listener_is_closed(
-    address: &str,
-    relay: &nostr_relay_builder::MockRelay,
-) -> bool {
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
-            drop(socket);
-            // Finish the same owned shutdown after observing its listener still
-            // accepts. The locked MockRelay stop notification is not sticky;
-            // this does not establish why any earlier stop was unobserved.
-            relay.shutdown();
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .is_ok()
 }
 
 // Independent cleanup mechanism coverage, without changing native ordering facts.
