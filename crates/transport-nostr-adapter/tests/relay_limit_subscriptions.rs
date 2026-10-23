@@ -3732,3 +3732,190 @@ async fn prompt_relay_refusals_fail_in_round_trips() {
     );
     fx.shutdown().await;
 }
+
+
+/// Regression-first success-expected entry. Its current quiet delegation is
+/// deliberately retained for the remote RED, not a change to partial callers.
+/// A future correction is confined here and explicit full-success call sites:
+/// receive/ACK/record actual deliveries until authoritative completion, inside
+/// this SAME deadline. `recorded` contains actual ACKed deliveries only.
+async fn success_expected_replay_deliveries(
+    adapter: &NostrTransportAdapter,
+    _account: &MemberId,
+    _expected: usize,
+    deadline: tokio::time::Instant,
+    _recorded: &mut Vec<cgka_traits::TransportDelivery>,
+) -> usize {
+    distinct_deliveries(
+        adapter,
+        deadline.saturating_duration_since(tokio::time::Instant::now()),
+    )
+    .await
+}
+
+/// Under-page contract only: quiet does not establish authoritative completion.
+/// Actual EOSE release is independent of the collector's return, so corrected
+/// success collection can pass without any change to these fixture actions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn quiet_gap_does_not_finish_success_expected_native_replay() {
+    const STORED: usize = 12;
+    const START: u64 = 1_700_000_000;
+    let fx = Fixture::with_forwarder(LimitConfig::default(), FixtureNotifications::Manual).await;
+    let mut source = fx.sdk.notifications();
+    let keys = Keys::generate();
+    let mut expected = Vec::with_capacity(STORED);
+    for index in 0..STORED {
+        let timestamp = START + index as u64 / 2;
+        let event = EventBuilder::new(Kind::MlsGroupMessage, format!("quiet-contract-{index}"))
+            .tags([Tag::custom("h", [hex::encode(route(0))])])
+            .custom_created_at(nostr_sdk::prelude::Timestamp::from_secs(timestamp))
+            .finalize(&keys)
+            .unwrap();
+        fx.database
+            .save_event(&serde_json::from_str(event.as_json().as_str()).unwrap())
+            .await
+            .unwrap();
+        expected.push((timestamp, event.id.to_bytes()));
+    }
+    expected.sort_unstable();
+    // Includes activation, capture, collection, release and positive cleanup.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let (facts, complete_at_return) = tokio::time::timeout_at(deadline, async {
+        let url = fx.limit.url();
+        let group = groups(1, &url).remove(0);
+        let mut activation = fx.activation(std::slice::from_ref(&url), vec![group.clone()]);
+        activation.since = Some(cgka_traits::Timestamp(SINCE));
+        fx.adapter.activate_account(activation).await.unwrap();
+        let mut held_eose = Vec::new();
+        let mut captured = HashSet::new();
+        let mut raw_count = 0;
+        while held_eose.len() < live_reqs(1) {
+            let update = source.next().await.expect("the original native receiver remains open");
+            let NotificationUpdate::Notification(notification) = update else {
+                panic!("the small real SDK source must not lose notifications");
+            };
+            if matches!(
+                &notification,
+                NostrSdkNotification::Payload {
+                    notification: ClientNotification::Message { message, .. }, ..
+                } if matches!(message.as_ref(), RelayMessage::EndOfStoredEvents(_))
+            ) {
+                held_eose.push(notification);
+                continue;
+            }
+            if let NostrSdkNotification::Payload {
+                notification: ClientNotification::Message { message, .. }, ..
+            } = &notification
+                && let RelayMessage::Event { event, .. } = message.as_ref()
+                && event.kind == Kind::MlsGroupMessage
+            {
+                raw_count += 1;
+                captured.insert(event.id.to_bytes());
+            }
+            assert!(!dispatch_sdk_replay(notification, &fx.adapter, None, &|reason| fx
+                .sdk.subscription_refusal(reason)).await);
+        }
+        let captured_exact = raw_count == STORED
+            && captured == expected.iter().map(|(_, id)| *id).collect::<HashSet<_>>();
+        assert!(captured_exact, "all real signed raw copies entered the held source");
+        let held_eose_exact = held_eose.len() == live_reqs(1);
+        let initial_coverage_incomplete = !fx.adapter.account_subscription_eose(&fx.account).await.complete();
+        {
+            let status = fx.adapter.take_replay_status(&fx.account).await;
+            assert!(status.pending && status.loss.is_none(), "actual captured input awaits its EOSE without loss");
+        }
+        assert!(initial_coverage_incomplete);
+        // A fixed owned release after the unchanged 1.5s quiet edge. It does not
+        // inspect expected values, collector return, or a Rust scheduling branch.
+        let release_at = tokio::time::Instant::now() + Duration::from_secs(2);
+        assert!(release_at < deadline);
+        let release_adapter = fx.adapter.clone();
+        let release_sdk = fx.sdk.clone();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep_until(release_at).await;
+            for notification in held_eose {
+                if dispatch_sdk_replay(notification, &release_adapter, None, &|reason| release_sdk
+                    .subscription_refusal(reason)).await {
+                    return false;
+                }
+            }
+            true
+        });
+        let mut recorded = Vec::with_capacity(STORED);
+        let collected = success_expected_replay_deliveries(
+            &fx.adapter, &fx.account, STORED, deadline, &mut recorded,
+        ).await;
+        // Freeze the collector verdict before joining release or draining its
+        // remaining deliveries. A successful collection must record its ACKs.
+        let returned_before_deadline = tokio::time::Instant::now() < deadline;
+        let coverage_incomplete_at_return = !fx.adapter.account_subscription_eose(&fx.account).await.complete();
+        let (pending_at_return, spill_pending_at_return, loss_absent_at_return) = {
+            let status = fx.adapter.take_replay_status(&fx.account).await;
+            (status.pending, status.spill_pending, status.loss.is_none())
+        };
+        let returned_zero = collected == 0;
+        let collected_exact = collected == STORED;
+        let complete_at_return = returned_before_deadline && collected_exact
+            && !coverage_incomplete_at_return && !pending_at_return
+            && !spill_pending_at_return && loss_absent_at_return;
+        assert!(collected == recorded.len(), "every collected body has its actual ACKed receipt");
+        let release_completed = release.await.unwrap();
+        assert!(release_completed, "the original EOSE release completes once under owned cleanup");
+        while recorded.len() < STORED {
+            tokio::select! {
+                update = source.next() => {
+                    let NotificationUpdate::Notification(notification) = update.expect("the original receiver remains open during release") else {
+                        panic!("actual release cannot lose native input");
+                    };
+                    assert!(!dispatch_sdk_replay(notification, &fx.adapter, None, &|reason| fx.sdk.subscription_refusal(reason)).await);
+                }
+                delivery = fx.adapter.receive() => {
+                    let delivery = delivery.unwrap().unwrap();
+                    fx.adapter.ack_replay_delivery(&fx.account, &delivery.message.id).await;
+                    recorded.push(delivery);
+                }
+            }
+        }
+        let released_exact_order = recorded.len() == expected.len()
+            && recorded.iter().zip(&expected).all(|(delivery, (timestamp, id))| {
+                delivery.message.timestamp.0 == *timestamp
+                    && delivery.message.id.as_slice() == id.as_slice()
+                    && delivery.account_id == fx.account
+                    && delivery.group_id_hint.as_ref() == Some(&group.group_id)
+            });
+        assert!(released_exact_order, "real ACKed release preserves exact account, group and timestamp/id order");
+        let (final_coverage_complete, final_placement_complete) = loop {
+            let complete = fx.adapter.account_subscription_eose(&fx.account).await.complete();
+            let status = fx.adapter.take_replay_status(&fx.account).await;
+            assert!(status.loss.is_none(), "owned release and ACK placement create no loss");
+            let placed = !status.pending && !status.spill_pending;
+            drop(status);
+            if complete && placed { break (complete, placed); }
+            tokio::task::yield_now().await;
+        };
+        assert!(deadline.saturating_duration_since(tokio::time::Instant::now()) >= QUIET,
+            "the full original duplicate observation must fit inside the same absolute budget");
+        let no_extra_after_release = tokio::time::timeout(QUIET, fx.adapter.receive()).await.is_err();
+        assert!(no_extra_after_release, "no duplicate real history follows exact placement");
+        drop(source);
+        fx.shutdown().await;
+        let facts = serde_json::json!({
+            "captured_exact": captured_exact, "held_eose_exact": held_eose_exact,
+            "initial_coverage_incomplete": initial_coverage_incomplete,
+            "returned_before_deadline": returned_before_deadline, "returned_zero": returned_zero,
+            "collected_exact": collected_exact, "pending_at_return": pending_at_return,
+            "spill_pending_at_return": spill_pending_at_return,
+            "coverage_incomplete_at_return": coverage_incomplete_at_return,
+            "loss_absent_at_return": loss_absent_at_return,
+            "release_completed": release_completed, "released_exact_order": released_exact_order,
+            "final_coverage_complete": final_coverage_complete, "final_placement_complete": final_placement_complete,
+            "no_extra_after_release": no_extra_after_release, "owned_shutdown_returned": true
+        });
+        (facts, complete_at_return)
+    }).await.expect("capture, collection, real EOSE release and owned cleanup stay inside one original 15s budget");
+    eprintln!("adapter-quiet-pending-contract {facts}");
+    assert!(
+        complete_at_return,
+        "quiet delivery gap must not finish success-expected replay while its actual source is pending"
+    );
+}
