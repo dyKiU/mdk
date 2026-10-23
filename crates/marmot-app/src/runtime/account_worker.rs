@@ -2306,6 +2306,12 @@ async fn run_app_runtime_account_worker(
         {
             sibling_maintenance_yielded = sibling_maintenance_due;
         }
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        let watch_select = client.watch_select_recorder_for_test();
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        let watch_debt_before_select = sibling_completion_input_service_owed;
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        use crate::client::device_linking::sibling_sharing::peer_proof_probe::command_backlog::watch_pressure::SelectStage as WatchSelectStage;
         tokio::select! {
                     biased;
                     _ = wait_for_runtime_shutdown(&mut lifecycle_shutdown) => {
@@ -2853,6 +2859,8 @@ async fn run_app_runtime_account_worker(
                             if sibling_completion_input_service_owed {
                                 // Offer other ready input without consuming a watch version.
                                 sibling_completion_input_service_owed = false;
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                if let Some(recorder) = &watch_select { recorder.record(WatchSelectStage::WatchYield); }
                                 tokio::task::yield_now().await;
                             }
                             sibling_completions.changed().await
@@ -2869,6 +2877,8 @@ async fn run_app_runtime_account_worker(
                         match result {
                             Err(_) => sibling_completions_open = false,
                             Ok(()) if !lifecycle.is_stopping() => {
+                                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                                if let Some(recorder) = &watch_select { recorder.record(WatchSelectStage::WatchSelected); }
                                 let completion_result = client.service_sibling_publication_completions().await;
                                 #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                                 client.note_watch_pressure_service_for_test(completion_result.is_ok());
@@ -2883,6 +2893,13 @@ async fn run_app_runtime_account_worker(
                         let _ = result;
                     }
             changed = wait_for_replay_change(&mut replay_changes) => {
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                if let Some(recorder) = &watch_select {
+                    recorder.record(if watch_debt_before_select {
+                        if sibling_completion_input_service_owed { WatchSelectStage::ReplayWithDebt }
+                        else { WatchSelectStage::ReplayAfterClearedDebt }
+                    } else { WatchSelectStage::ReplayWithoutDebt });
+                }
                 if !changed {
                     replay_changes = None;
                     continue 'worker;
@@ -2900,6 +2917,8 @@ async fn run_app_runtime_account_worker(
                 );
             }
                     received = async {
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        if let Some(recorder) = &watch_select { recorder.record(WatchSelectStage::ReceiveArm); }
                         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                         { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::ArmPolled); }
                         #[cfg(feature = "experimental-device-sync")]
@@ -2940,9 +2959,29 @@ async fn run_app_runtime_account_worker(
                         } else {
                             #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
                             { client.record_native_receive_poll_for_test(crate::client::device_linking::sibling_sharing::NativeReceivePollStage::BeforeOrdinaryReceive); }
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            {
+                                let mut first_poll = true;
+                                let mut receive = std::pin::pin!(client.receive_next_delivery());
+                                std::future::poll_fn(|context| {
+                                    let polled = std::future::Future::poll(receive.as_mut(), context);
+                                    if first_poll {
+                                        first_poll = false;
+                                        if let Some(recorder) = &watch_select {
+                                            recorder.record(if polled.is_pending() {
+                                                WatchSelectStage::AppReceiveFirstPending
+                                            } else { WatchSelectStage::AppReceiveFirstReady });
+                                        }
+                                    }
+                                    polled
+                                }).await
+                            }
+                            #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
                             client.receive_next_delivery().await
                         }
                     }, if !client.has_pending_effect_projections() => {
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        if let Some(recorder) = &watch_select { recorder.record(WatchSelectStage::ReceiveSelected); }
                         #[cfg(test)]
                         if let Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) = &received
                             && let (Ok(event_id), Some(subscription_id)) = (

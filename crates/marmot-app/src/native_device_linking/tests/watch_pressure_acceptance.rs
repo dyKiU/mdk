@@ -106,6 +106,7 @@ async fn run_watch_scenario(mode: ScenarioMode) -> ScenarioOutcome {
     let mut completed_before = None;
     let mut queue_observations = QueueFacts::default();
     let mut pressure_observation = None;
+    let mut selection_observation = None;
     let mut ingress_schedule = None;
     let account = cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec());
     let attempt = std::panic::AssertUnwindSafe(async {
@@ -325,6 +326,7 @@ async fn run_watch_scenario(mode: ScenarioMode) -> ScenarioOutcome {
         let final_pressure = backlog.watch_pressure_snapshot();
         facts[8] &= final_pressure == (true, 8, 8, 0);
         pressure_observation = Some(final_pressure);
+        selection_observation = Some(backlog.watch_select_snapshot());
         // Replay all genuine competitors, in held FIFO order through the same
         // production router, before normal enrollment can finish.
         let schedule = ingress_schedule.as_ref().expect("owned ingress schedule");
@@ -378,6 +380,29 @@ async fn run_watch_scenario(mode: ScenarioMode) -> ScenarioOutcome {
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
+    // Copy only fixed aggregate facts after the original verdict and cleanup.
+    crate::test_support::emit_line(format_args!("watch-selection-observation {}", serde_json::json!({
+        "queued_body": mode == ScenarioMode::QueuedBody,
+        "facts": facts,
+        "completed_before": completed_before,
+        "runtime_closes": runtime_closes,
+        "plane_shutdown_returns": planes_shutdown,
+        "relay_closed": relay_closed,
+        "attempt_completed": attempt.is_ok(),
+        "pressure": pressure_observation,
+        "pause_rx_len": queue_observations.pause_rx_len,
+        "target_queue": queue_observations.target,
+        "own_id_bound": queue_observations.own_id_bound,
+        "own_queue": queue_observations.own,
+        "ingress": queue_observations.ingress.as_ref().map(|value| (
+            [value.armed, value.valid, value.released, value.flushed],
+            value.target_passes, value.held, value.replayed, value.overflow,
+        )),
+        "selection": {
+            "final_snapshot": selection_observation.and_then(|value| value.0),
+            "at_acceptance": selection_observation.and_then(|value| value.1),
+        },
+    })));
     ScenarioOutcome {
         facts,
         completed_before,

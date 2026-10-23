@@ -110,6 +110,165 @@ def marker(raw):
     return closed(json.loads(match[1], object_pairs_hook=unique))
 
 
+WATCH_SELECTION_PREFIX = 'watch-selection-observation '
+WATCH_STAGES = ('WatchYield', 'WatchSelected', 'ReplayAfterClearedDebt', 'ReplayWithDebt',
+                'ReplayWithoutDebt', 'ReceiveArm', 'AppReceiveFirstPending',
+                'AppReceiveFirstReady', 'ReceiveSelected')
+
+
+def watch_selection(value):
+    if type(value) is not dict or set(value) != {'final_snapshot', 'at_acceptance'}:
+        raise ValueError('watch-selection-fields')
+    for snapshot in value.values():
+        if snapshot is None:
+            continue
+        if type(snapshot) is not list or len(snapshot) != 5:
+            raise ValueError('watch-selection-snapshot')
+        counts_, turns, services, total, unknown = snapshot
+        if (not uint(total) or total > 256 or type(unknown) is not bool
+                or any(type(row) is not list or len(row) != 9 for row in (counts_, turns, services))
+                or any(not uint(v) or v > 256 for v in counts_ + turns)
+                or any(not uint(v) or v > 8 for v in services)):
+            raise ValueError('watch-selection-types')
+        if any((count == 0) != (turn == 0) or turn > total
+               or (count == 0 and service != 0)
+               for count, turn, service in zip(counts_, turns, services)):
+            raise ValueError('watch-selection-order')
+    return value
+
+
+def watch_closed(value):
+    fields = {'queued_body', 'facts', 'completed_before', 'runtime_closes', 'plane_shutdown_returns',
+              'relay_closed', 'attempt_completed', 'pressure', 'pause_rx_len', 'target_queue',
+              'own_id_bound', 'own_queue', 'ingress', 'selection'}
+    if type(value) is not dict or set(value) != fields:
+        raise ValueError('watch-fields')
+    if any(type(value[k]) is not bool for k in ('queued_body', 'relay_closed', 'attempt_completed')):
+        raise ValueError('watch-bools')
+    facts = value['facts']
+    if type(facts) is not list or len(facts) != 13 or any(type(v) is not bool for v in facts):
+        raise ValueError('watch-facts')
+    if any(not uint(value[k]) for k in ('runtime_closes', 'plane_shutdown_returns')):
+        raise ValueError('watch-counts')
+    for key, bound in [('completed_before', 8), ('pause_rx_len', 2**64-1)]:
+        v = value[key]
+        if v is not None and (not uint(v) or v > bound):
+            raise ValueError('watch-option-count')
+    if value['own_id_bound'] is not None and type(value['own_id_bound']) is not bool:
+        raise ValueError('watch-own-binding')
+    pressure = value['pressure']
+    if pressure is not None and (type(pressure) is not list or len(pressure) != 4
+            or type(pressure[0]) is not bool or any(not uint(v) or v > 8 for v in pressure[1:])):
+        raise ValueError('watch-pressure')
+    ingress = value['ingress']
+    if ingress is not None and (type(ingress) is not list or len(ingress) != 5
+            or type(ingress[0]) is not list or len(ingress[0]) != 4
+            or any(type(v) is not bool for v in ingress[0])
+            or any(not uint(v) for v in ingress[1:4]) or type(ingress[4]) is not bool):
+        raise ValueError('watch-ingress')
+    for observation in (value['target_queue'], value['own_queue']):
+        if observation is None:
+            continue
+        if (type(observation) is not list or len(observation) != 6
+                or type(observation[0]) is not list or len(observation[0]) != 8
+                or type(observation[1]) is not list or len(observation[1]) != 6
+                or any(not uint(v) for v in observation[0] + observation[1])
+                or (observation[2] is not None and (type(observation[2]) is not list
+                    or len(observation[2]) != 2 or any(not uint(v) for v in observation[2])))
+                or not uint(observation[3]) or type(observation[4]) is not bool or type(observation[5]) is not bool):
+            raise ValueError('watch-queue')
+    watch_selection(value['selection'])
+    return value
+
+
+def watch_marker(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    lines = [line for line in text.splitlines() if 'watch-pressure' in line or WATCH_SELECTION_PREFIX.rstrip() in line]
+    if (len(lines) != 5 or text.count('watch-pressure') != 4
+            or text.count(WATCH_SELECTION_PREFIX.rstrip()) != 1
+            or any(len(line) > 16384 for line in lines)):
+        raise ValueError('watch-marker-cardinality')
+    boolean, number = r'(?:true|false)', r'[0-9]{1,20}'
+    array = lambda atom, n: r'\[' + ', '.join([atom]*n) + r'\]'
+    optional = lambda atom: r'(?:None|Some\(' + atom + r'\))'
+    pair = r'\(' + number + ', ' + number + r'\)'
+    queue = r'\(' + array(number, 8) + ', ' + array(number, 6) + ', ' + optional(pair) + ', ' + number + ', ' + boolean + ', ' + boolean + r'\)'
+    patterns = {
+        'facts': r'watch-pressure facts=' + array(boolean, 13) + ' completed_before=' + optional(number)
+            + ' runtime_closes=' + number + ' plane_shutdown_returns=' + number
+            + ' relay_closed=' + boolean + ' attempt_completed=' + boolean,
+        'services': r'watch-pressure-services snapshot=' + optional(r'\(' + boolean + ', [0-8], [0-8], [0-8]' + r'\)'),
+        'ingress': r'watch-pressure-ingress schedule=' + optional(r'\(' + array(boolean, 4) + ', ' + number + ', ' + number + ', ' + number + ', ' + boolean + r'\)'),
+        'queue': r'watch-pressure-queue pause_rx_len=' + optional(number) + ' target=' + optional(queue)
+            + ' own_id_bound=' + optional(boolean) + ' own=' + optional(queue),
+        'selection': re.escape(WATCH_SELECTION_PREFIX) + r'(\{[^\r\n]*\})',
+    }
+    found, selection = set(), None
+    for line in lines:
+        for kind, pattern in patterns.items():
+            match = re.fullmatch(r'[ \t]{0,8}' + pattern + r'[ \t]{0,8}', line)
+            if match is None:
+                continue
+            if kind in found:
+                raise ValueError('watch-marker-duplicate')
+            found.add(kind)
+            if kind == 'selection':
+                selection = watch_closed(json.loads(match[1], object_pairs_hook=unique))
+            break
+        else:
+            raise ValueError('watch-marker-envelope')
+    if found != set(patterns):
+        raise ValueError('watch-marker-inventory')
+    # False original oracle/cleanup facts and unknown observations are retained,
+    # never relabeled as a PASS. JSON copies those same original owned values.
+    return selection
+
+
+def watch_controls():
+    empty = [[0]*9, [0]*9, [0]*9, 0, False]
+    value = {'queued_body': True, 'facts': [True]*11+[False, True], 'completed_before': 2,
+             'runtime_closes': 3, 'plane_shutdown_returns': 3, 'relay_closed': True,
+             'attempt_completed': True, 'pressure': [True, 8, 8, 0], 'pause_rx_len': 0,
+             'target_queue': [[1,1,0,1,0,1,0,1], [1,0,0,0,0,0], [0,1], 0, False, False],
+             'own_id_bound': True, 'own_queue': None, 'ingress': [[True]*4,1,3,3,False],
+             'selection': {'final_snapshot': empty, 'at_acceptance': empty}}
+    assert watch_closed(value) == value
+    assert watch_selection({'final_snapshot': None, 'at_acceptance': None})['at_acceptance'] is None
+    source_rows = (b'watch-pressure facts=[true, true, true, true, true, true, true, true, true, true, true, false, true] completed_before=Some(2) runtime_closes=3 plane_shutdown_returns=3 relay_closed=true attempt_completed=true\n'
+                   b'watch-pressure-services snapshot=Some((true, 8, 8, 0))\n'
+                   b'watch-pressure-ingress schedule=Some(([true, true, true, true], 1, 3, 3, false))\n'
+                   b'watch-pressure-queue pause_rx_len=Some(0) target=Some(([1, 1, 0, 1, 0, 1, 0, 1], [1, 0, 0, 0, 0, 0], Some((0, 1)), 0, false, false)) own_id_bound=Some(true) own=None\n')
+    row = (WATCH_SELECTION_PREFIX + json.dumps(value) + '\n').encode()
+    raw = source_rows + row
+    assert watch_marker(raw)['facts'][11] is False
+    assert watch_marker(raw.replace(b'\n', b'\r\n')) == value
+    negatives = 0
+    bad = [dict(value, private='PRIVATE'), dict(value, completed_before=True),
+           dict(value, target_queue='PRIVATE'), dict(value, own_id_bound=1),
+           dict(value, selection={'final_snapshot': [[True]+[0]*8,[0]*9,[0]*9,0,False], 'at_acceptance': None}),
+           dict(value, selection={'final_snapshot': [[1]+[0]*8,[0]*9,[0]*9,1,False], 'at_acceptance': None}),
+           dict(value, selection={'final_snapshot': [[0]*9,[0]*9,[9]+[0]*8,0,False], 'at_acceptance': None}),
+           dict(value, selection={'final_snapshot': [[0]*9,[0]*9,[0]*9,257,False], 'at_acceptance': None})]
+    for invalid in bad:
+        try:
+            watch_closed(invalid)
+        except ValueError:
+            negatives += 1
+        else:
+            raise AssertionError('watch-negative-schema-accepted')
+    for invalid in [raw+row, raw+b'watch-pressure-unknown PRIVATE\n',
+                    raw.replace(row, b'PRIVATE '+row), raw.replace(row, b' '*9+row),
+                    raw.replace(b'"queued_body":', b'"queued_body":false,"queued_body":'),
+                    raw.replace(b'own_id_bound=Some(true)', b'own_id_bound=Some(1)')]:
+        try:
+            watch_marker(invalid)
+        except ValueError:
+            negatives += 1
+        else:
+            raise AssertionError('watch-negative-marker-accepted')
+    return {'positive': 4, 'negative': negatives, 'metadata_only': True, 'product_bodies': 0}
+
+
 def compiler(raw, inputs):
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     codes = sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]', text)))
@@ -538,6 +697,8 @@ def main():
         before = snapshot()
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
+        if args.case == 'watch-pressure':
+            report['watch_parser_controls'] = watch_controls()
         if args.mode == 'preflight':
             result = 0
         else:
@@ -585,6 +746,10 @@ def main():
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == 'watch-pressure':
+                stage = 'diagnostic'
+                report['body']['watch_observation'] = watch_marker(raw)
+                save()
             if args.case == 'offline':
                 stage = 'diagnostic'
                 report['body']['observation'] = marker(raw)

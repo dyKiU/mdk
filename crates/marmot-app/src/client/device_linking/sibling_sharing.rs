@@ -3094,6 +3094,14 @@ impl AppClient {
             ok,
         );
     }
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn watch_select_recorder_for_test(
+        &self,
+    ) -> Option<peer_proof_probe::command_backlog::watch_pressure::SelectRecorder> {
+        peer_proof_probe::command_backlog::watch_pressure::selection(
+            &self.linking_owner.sibling_channels,
+        )
+    }
     // COMMAND_BACKLOG_TEST_END
     async fn start_sibling_publication(
         &mut self,
