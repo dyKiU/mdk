@@ -91,7 +91,8 @@ jobs:
   app-format:
     needs: identity
     if: needs.identity.outputs.scope == 'app-format'
-    runs-on: macos-26
+    # Source-only formatting can use the hosted Intel pool during arm64 capacity shortages.
+    runs-on: macos-26-intel
     timeout-minutes: 15
     strategy:
       fail-fast: false
