@@ -1408,8 +1408,8 @@ for _quiet_case in QUIET_CONTRACT_CASES:
 
 SCOPED_REPORT_CASE = 'sdk-scoped-reporting'
 SCOPED_REPORT_MESSAGE = 'selected private scoped subscription must preserve the actual degraded activation report'
-SCOPED_REPORT_GREEN = '                    Some(actual) => relay_client\n                        .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                        .await,\n'
-SCOPED_REPORT_INVERSE = '                    Some(actual) => relay_client\n                        .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                        .await.map(|_report| NostrSubscribeReport::default()),\n'
+SCOPED_REPORT_GREEN = '                    Some(actual) => {\n                        relay_client\n                            .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                            .await\n                    }\n'
+SCOPED_REPORT_INVERSE = '                    Some(actual) => {\n                        relay_client\n                            .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                            .await.map(|_report| NostrSubscribeReport::default())\n                    }\n'
 PFP[SCOPED_REPORT_CASE] = ('crates/transport-nostr-adapter/src/lib.rs',
     SCOPED_REPORT_GREEN, SCOPED_REPORT_INVERSE, SCOPED_REPORT_MESSAGE,
     r'assert!\(\s*metrics\.activations_degraded\s*==\s*1\s*&&\s*metrics\.activations_full\s*==\s*0\s*&&\s*metrics\.activations_failed\s*==\s*0,\s*"{message}"\s*,?\s*\);')
