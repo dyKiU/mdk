@@ -16,16 +16,10 @@ from upstream_offline_fingerprints import controls as fingerprint_controls, snap
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
-    'request-cleanup-default': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::request_retry_completion_acceptance::authenticated_consent_retires_obsolete_request_retry_before_proof',
-                                 'crates/marmot-app/src/native_device_linking/tests/request_retry_completion_acceptance.rs'),
     'request-cleanup-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::request_retry_completion_acceptance::authenticated_consent_retires_obsolete_request_retry_before_proof',
                                       'crates/marmot-app/src/native_device_linking/tests/request_retry_completion_acceptance.rs'),
-    'priority-cleanup-default': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_retry_priority_acceptance::older_recipient_proof_retry_precedes_later_consent_retry',
-                                  'crates/marmot-app/src/native_device_linking/tests/recipient_retry_priority_acceptance.rs'),
     'priority-cleanup-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_retry_priority_acceptance::older_recipient_proof_retry_precedes_later_consent_retry',
                                        'crates/marmot-app/src/native_device_linking/tests/recipient_retry_priority_acceptance.rs'),
-    'recipient-admission-default': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::admitted_recipient_starts_first_consent_without_periodic_tick',
-                                    'crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admission_acceptance.rs'),
     'recipient-admission-experimental': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::admitted_recipient_starts_first_consent_without_periodic_tick',
                                          'crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admission_acceptance.rs'),
     'cursor-promotion-observation': ('marmot_app', 'tests::live_ingest_promotes_the_cursor_as_far_as_a_restart_still_fetches_the_queue',
