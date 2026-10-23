@@ -297,6 +297,11 @@ async fn offline_plaintext_replay(senders: usize, per_sender: usize, offline: Du
         .iter()
         .map(|message| message.plaintext.clone())
         .collect();
+    // Observe the unchanged catch-up budget without adding waits or repair calls.
+    // Buckets contain only unique-delivery counts, never message contents or ids.
+    let catchup_started = std::time::Instant::now();
+    let snapshot_count = observed.len();
+    let mut arrival_buckets = [0_u64; 6];
     let complete = timeout(Duration::from_secs(60), async {
         while observed.len() < expected.len() {
             if let RuntimeMessageUpdate::Message(message) = subscription
@@ -308,7 +313,10 @@ async fn offline_plaintext_replay(senders: usize, per_sender: usize, offline: Du
                     expected.contains(&message.message.plaintext),
                     "only the expected authenticated chat texts are delivered"
                 );
-                observed.insert(message.message.plaintext);
+                if observed.insert(message.message.plaintext) {
+                    let bucket = (catchup_started.elapsed().as_secs() / 10).min(5) as usize;
+                    arrival_buckets[bucket] += 1;
+                }
             }
         }
     })
@@ -326,6 +334,64 @@ async fn offline_plaintext_replay(senders: usize, per_sender: usize, offline: Du
         .into_iter()
         .map(|message| message.plaintext)
         .collect();
+    // The verdict has already been captured: these existing aggregate counters
+    // cannot extend the timeout, drive the worker or grant replay admission.
+    let performance = receiver.app_performance_snapshot();
+    let runtime_operations: Vec<_> = performance
+        .runtime_operations
+        .iter()
+        .filter(|row| {
+            matches!(
+                row.operation.as_str(),
+                "ingest"
+                    | "ingest_engine"
+                    | "ingest_effect_publish"
+                    | "worker_catch_up"
+                    | "worker_convergence"
+                    | "worker_receive"
+                    | "storage_connection_wait"
+                    | "storage_transaction"
+                    | "storage_write_begin"
+                    | "projection_checkpoint"
+            )
+        })
+        .map(|row| {
+            (
+                row.operation.as_str(),
+                json!({
+                    "started": row.started,
+                    "completed": row.completed,
+                    "failures": row.failures,
+                    "in_flight": row.in_flight,
+                    "sum_ms": row.duration_ms.sum_ms,
+                }),
+            )
+        })
+        .collect();
+    let requests = relay.requests.lock().unwrap();
+    eprintln!(
+        "offline-replay-diagnostic {}",
+        json!({
+            "senders": senders,
+            "per_sender": per_sender,
+            "expected": expected.len(),
+            "snapshot": snapshot_count,
+            "observed": observed.len(),
+            "stored": stored.len(),
+            "completed": complete.is_ok(),
+            "catchup_elapsed_ms": catchup_started.elapsed().as_millis(),
+            "arrival_buckets_10s": arrival_buckets,
+            "completed_group_pages": requests.completed_group_pages.len(),
+            "maximum_group_page": requests.completed_group_pages.iter().max().copied(),
+            "refused_comparisons": requests.refused_comparisons,
+            "projection_attempts": performance.inbound_delivery_projection.attempts,
+            "projection_successes": performance.inbound_delivery_projection.successes,
+            "projection_failures": performance.inbound_delivery_projection.failures,
+            "projection_sum_ms": performance.inbound_delivery_projection.duration_ms.sum_ms,
+            "runtime_operations": runtime_operations,
+        })
+    );
+    drop(requests);
     assert!(
         complete.is_ok(),
         "permanent consumer saw {} of {} texts; durable projection holds {}",
