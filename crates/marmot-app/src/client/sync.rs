@@ -1081,16 +1081,6 @@ impl AppClient {
         }
     }
 
-    /// Retain engine-provided scheduling edges from an effects batch until the
-    /// account worker can arm their group timers.
-    pub(crate) fn remember_pending_convergence_groups(
-        &mut self,
-        effects: &marmot_account::AccountDeviceEffects,
-    ) {
-        self.pending_convergence_groups
-            .extend(effects.pending_convergence.iter().cloned());
-    }
-
     /// Feed one effects batch's epoch-gap recovery evidence to the stall
     /// detector: a resource refusal arms a replay, and an epoch passage or a
     /// convergence reorg reports the activity that can end an unrecovered run.
@@ -2555,9 +2545,8 @@ impl AppClient {
         drained: bool,
     ) {
         self.observe_recovery_evidence(effects);
-        self.remember_pending_convergence_groups(effects);
+        // Upstream report bookkeeping also retains convergence and superseded edges.
         self.remember_published_reports(effects);
-        self.note_superseded_intent_reports(effects);
         self.enqueue_effect_projection(effects, source_message_id_hex, received_at, drained);
     }
 

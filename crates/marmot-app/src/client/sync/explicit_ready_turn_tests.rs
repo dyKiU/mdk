@@ -63,7 +63,7 @@ async fn retain_real_probe(
         "real signed malformed envelope must reach transport deferral"
     );
     assert!(!ingested.left_object_unpersisted);
-    client.remember_pending_convergence_groups(&ingested.effects);
+    client.remember_published_reports(&ingested.effects);
     client
         .observe_drained_session_events(&ingested.effects)
         .await
