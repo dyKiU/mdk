@@ -247,7 +247,7 @@ async fn authenticated_late_consent_starts_initial_proof_without_periodic_tick()
     }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
-    let relay_closed = owned_loopback_listener_is_closed(address).await;
+    let relay_closed = owned_loopback_listener_is_closed(address, &relay).await;
     eprintln!(
         "late-sibling-consent consent_held={} request_ack_harvested={} periodic_observed={} fresh_before={} consent_bound={} peer_proof_held={} initial_progress={} enrollment_complete={} public_cancelled={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
         facts[0],
@@ -276,10 +276,17 @@ async fn authenticated_late_consent_starts_initial_proof_without_periodic_tick()
 
 // Probe only this fixture's owned loopback MockRelay listener.
 #[allow(clippy::disallowed_methods)]
-async fn owned_loopback_listener_is_closed(address: &str) -> bool {
+async fn owned_loopback_listener_is_closed(
+    address: &str,
+    relay: &nostr_relay_builder::MockRelay,
+) -> bool {
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
             drop(socket);
+            // The locked mock relay uses a non-sticky notify_waiters shutdown
+            // pulse. A ready accept branch can win that select and drop it;
+            // reissue the same owned cleanup request, without relaxing closure.
+            relay.shutdown();
             tokio::task::yield_now().await;
         }
     })
