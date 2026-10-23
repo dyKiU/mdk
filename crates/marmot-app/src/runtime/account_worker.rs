@@ -2976,24 +2976,12 @@ async fn run_app_runtime_account_worker(
                             client.receive_next_delivery().await
                         }
                         };
-                        tokio::pin!(receive);
-                        if input_offer_owed_before_select {
-                            tokio::select! {
-                                biased;
-                                received = &mut receive, if input_receive_enabled =>
-                                    futures::future::Either::Right(received),
-                                changed = wait_for_replay_change(&mut replay_changes) =>
-                                    futures::future::Either::Left(changed),
-                            }
-                        } else {
-                            tokio::select! {
-                                biased;
-                                changed = wait_for_replay_change(&mut replay_changes) =>
-                                    futures::future::Either::Left(changed),
-                                received = &mut receive, if input_receive_enabled =>
-                                    futures::future::Either::Right(received),
-                            }
-                        }
+                        wait_for_worker_input(
+                            receive,
+                            wait_for_replay_change(&mut replay_changes),
+                            input_receive_enabled,
+                            input_offer_owed_before_select,
+                        ).await
                     } => {
                         let received = match input {
                             futures::future::Either::Left(changed) => {
@@ -3804,6 +3792,35 @@ async fn run_app_runtime_account_worker(
     // the next session.
     if let Some(network) = comparison_recovery.and_then(|job| job.network) {
         network.abort_and_wait().await;
+    }
+}
+
+/// One input offer keeps the same actual receive/replay futures and cancellation
+/// custody. Debt changes only their polling order; a Pending receive never
+/// prevents replay progress, and a disabled receive is never polled.
+async fn wait_for_worker_input<Receive, Replay>(
+    receive: Receive,
+    replay: Replay,
+    receive_enabled: bool,
+    owed: bool,
+) -> futures::future::Either<Replay::Output, Receive::Output>
+where
+    Receive: Future,
+    Replay: Future,
+{
+    tokio::pin!(receive, replay);
+    if owed {
+        tokio::select! {
+            biased;
+            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),
+            changed = &mut replay => futures::future::Either::Left(changed),
+        }
+    } else {
+        tokio::select! {
+            biased;
+            changed = &mut replay => futures::future::Either::Left(changed),
+            received = &mut receive, if receive_enabled => futures::future::Either::Right(received),
+        }
     }
 }
 
@@ -8887,6 +8904,7 @@ mod tests {
     pub(super) mod secondary_retry_scheduler_tests;
     mod selective_history_tests;
     mod worker_comparison_resume_tests;
+    mod worker_input_selection_tests;
     mod worker_recovery_resume_tests;
     #[cfg(feature = "test-policy-overrides")]
     mod worker_wait_attribution_tests;
