@@ -23,6 +23,8 @@ CASES = {
               'crates/marmot-app/src/client/delivery_spill.rs'),
 }
 CASES.update({
+    'command-owned-cleanup': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::command_backlog_acceptance::owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop',
+                         'crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs'),
     'late-commit-default': ('marmot_app', 'runtime::account_worker::tests::selective_history_tests::late_commit_700_recovers',
                           'crates/marmot-app/src/runtime/account_worker/tests/selective_history_tests.rs'),
     'sdk-private-capture-control': ('transport_nostr_adapter', 'live_delivery::tests::sdk_private_capture_skips_ordinary_wire_but_generic_capture_is_preserved',
@@ -72,7 +74,7 @@ CASES.update({
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
-EXPERIMENTAL_CASES = {'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
@@ -849,6 +851,11 @@ def snapshot():
 
 
 PFP = {
+    'command-owned-cleanup': ('crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs',
+              '            // accepts. The locked MockRelay stop notification is not sticky;\n            // this does not establish why any earlier stop was unobserved.\n            relay.shutdown();',
+              '            // accepts. The locked MockRelay stop notification is not sticky;\n            // this does not establish why any earlier stop was unobserved.\n            let _ = relay;',
+              'owned MockRelay cleanup must finish without an observed initial stop',
+              r'assert!\(\s*listener_started\s*&&\s*closed_in_original_bound\s*&&\s*owned_cleanup_completed,\s*"{message}"\s*\);'),
     'command-backlog': ('crates/marmot-app/src/runtime/account_worker.rs',
               '                                { command_input_service_owed = true; }',
               '                                { command_input_service_owed = false; }',
@@ -907,6 +914,11 @@ def inverse(case):
         end = text.index('                                #[cfg(test)]', owner)
         if text.count(old) != 1 or old not in text[owner:end]:
             raise ValueError('inverse-command-dispatch-owner')
+    if case == 'command-owned-cleanup':
+        start = text.index('async fn owned_loopback_listener_is_closed(')
+        end = text.index('async fn owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop(', start)
+        if old not in text[start:end]:
+            raise ValueError('inverse-owned-cleanup-owner')
     if case == 'inline':
         start = text.index('    fn retain_effect_projection(')
         end = text.index('    fn enqueue_effect_projection(', start)
@@ -960,7 +972,7 @@ def pfp_configuration(case):
     if case == 'sdk-private-capture-control':
         return (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
     return ((LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
-            if case in {'watch-pressure', 'worker-input-offer', 'command-backlog'} else (LIB_FEATURES, 'ci', None))
+            if case in {'command-owned-cleanup', 'watch-pressure', 'worker-input-offer', 'command-backlog'} else (LIB_FEATURES, 'ci', None))
 
 
 def watch_pfp_oracle(value, mutant):
@@ -1094,6 +1106,75 @@ def sdk_private_capture_controls(site):
             'compiler_rejection_controls': 1, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+def owned_cleanup_marker(raw):
+    prefix = b'command-backlog-owned-cleanup '
+    namespace = b'command-backlog-owned-cleanup'
+    if len(raw) > 16 * 1024 * 1024 or raw.count(namespace) != 1:
+        raise ValueError('owned-cleanup-namespace')
+    rows = re.findall(rb'(?m)^[ \t]{0,8}' + re.escape(prefix) + rb'([^\r\n]{1,1024})\r?$', raw)
+    if len(rows) != 1:
+        raise ValueError('owned-cleanup-envelope')
+    value = json.loads(rows[0], object_pairs_hook=unique)
+    if (type(value) is not dict or set(value) != {'listener_started', 'closed_in_original_bound', 'owned_cleanup_completed'}
+            or any(type(item) is not bool for item in value.values())):
+        raise ValueError('owned-cleanup-fields')
+    return value
+
+
+def owned_cleanup_oracle(value, mutant):
+    return value == {'listener_started': True, 'closed_in_original_bound': not mutant, 'owned_cleanup_completed': True}
+
+
+def owned_cleanup_site():
+    case = 'command-owned-cleanup'
+    text = Path(CASES[case][2]).read_text()
+    pattern = PFP[case][4].replace('{message}', re.escape(PFP[case][3]))
+    matches = list(re.finditer(pattern, text))
+    if len(matches) != 1:
+        raise ValueError('owned-cleanup-source-assertion')
+    return {'line': text[:matches[0].start()].count('\n') + 1,
+            'column': matches[0].start() - text.rfind('\n', 0, matches[0].start())}
+
+
+def owned_cleanup_controls(site):
+    case = 'command-owned-cleanup'
+    green = {'listener_started': True, 'closed_in_original_bound': True, 'owned_cleanup_completed': True}
+    red = dict(green, closed_in_original_bound=False)
+    raw = b'command-backlog-owned-cleanup ' + json.dumps(green).encode() + b'\n'
+    positives = 0
+    for good in [raw, b' '*4 + raw, b' '*8 + raw, raw.replace(b'\n', b'\r\n')]:
+        assert owned_cleanup_marker(good) == green
+        positives += 1
+    assert owned_cleanup_marker(b'command-backlog-owned-cleanup ' + json.dumps(red).encode() + b'\n') == red
+    positives += 1
+    bad_values = [dict(green, extra=False), dict(green, listener_started=1), dict(green, owned_cleanup_completed=None),
+                  {key: value for key, value in green.items() if key != 'listener_started'}, []]
+    bad = [b'command-backlog-owned-cleanup ' + json.dumps(value).encode() + b'\n' for value in bad_values]
+    bad += [raw + raw, b'PRIVATE ' + raw, b' '*9 + raw,
+            raw.replace(b'"listener_started": true', b'"listener_started": true, "listener_started": true'),
+            b'command-backlog-owned-cleanup-unknown {}\n', raw + b'command-backlog-owned-cleanup-unknown {}\n',
+            b'command-backlog-owned-cleanup ' + b'x'*1025 + b'\n']
+    negatives = 0
+    for invalid in bad:
+        try:
+            owned_cleanup_marker(invalid)
+        except (ValueError, json.JSONDecodeError):
+            negatives += 1
+        else:
+            raise AssertionError('owned-cleanup-invalid-accepted')
+    assert owned_cleanup_oracle(green, False) and owned_cleanup_oracle(red, True)
+    assert not owned_cleanup_oracle(red, False) and not owned_cleanup_oracle(green, True)
+    assert not owned_cleanup_oracle(dict(red, listener_started=False), True)
+    assert not owned_cleanup_oracle(dict(red, owned_cleanup_completed=False), True)
+    assert pfp_configuration(case) == pfp_configuration('command-backlog')
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at " + CASES[case][2] + ':' + str(site['line']) + ':5:\n').encode()
+    failed = header + PFP[case][3].encode() + b'\n'
+    assert own_failure(failed, case, site)
+    assert not own_failure(failed.replace(CASES[case][1].encode(), b'PRIVATE'), case, site)
+    return {'positive': positives + 1, 'negative': negatives + 5, 'configuration_controls': 1,
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 def pfp(args):
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1102,6 +1183,8 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == 'command-owned-cleanup':
+        report.update(evidence_scope='owned-mock-relay-cleanup-mechanism-only', native_protocol_qualification=False)
     if args.case in WORKER_INPUT_CASES:
         report.update(evidence_scope='worker-input-selection-mechanism-only', native_protocol_qualification=False)
     if args.case == 'sdk-private-capture-control':
@@ -1173,6 +1256,11 @@ def pfp(args):
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
         watch_accepted = True
+        if args.case == 'command-owned-cleanup':
+            row['body']['owned_cleanup_observation'] = owned_cleanup_marker(raw)
+            watch_accepted = owned_cleanup_oracle(row['body']['owned_cleanup_observation'], label == 'mutant')
+            row['cleanup_prerequisites_accepted'] = watch_accepted
+            save()
         if args.case == 'watch-pressure':
             row['body']['watch_observation'] = watch_marker(raw)
             watch_accepted = watch_pfp_oracle(row['body']['watch_observation'], label == 'mutant')
@@ -1216,6 +1304,8 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case == 'command-owned-cleanup':
+            report['owned_cleanup_controls'] = owned_cleanup_controls(site)
         if args.case == 'command-backlog':
             report['command_backlog_controls'] = command_backlog_controls(site)
         if args.case == 'sdk-private-capture-control':
@@ -1407,6 +1497,8 @@ def main():
               'body_passed': False, 'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
               'features': features, 'profile': profile, 'package': package, 'automatic_retries': 0, 'test_threads': 1,
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'expected_test': CASES[args.case][1]}
+    if args.case == 'command-owned-cleanup':
+        report.update(evidence_scope='owned-mock-relay-cleanup-mechanism-only', native_protocol_qualification=False)
     if args.case in WORKER_INPUT_CASES:
         report.update(evidence_scope='worker-input-selection-mechanism-only', native_protocol_qualification=False)
     if args.case == 'sdk-private-capture-control':
@@ -1437,6 +1529,8 @@ def main():
         before = snapshot()
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
+        if args.case == 'command-owned-cleanup':
+            report['owned_cleanup_controls'] = owned_cleanup_controls(owned_cleanup_site())
         if args.case == 'late-commit-default':
             report['selective_receipt_parser_controls'] = selective_receipt_controls()
         if args.case == 'offline':
@@ -1511,6 +1605,17 @@ def main():
                 report['body']['restart_observation'] = restart_marker(raw)
                 save()
             command_accepted = True
+            if args.case == 'command-owned-cleanup':
+                stage = 'diagnostic'
+                observation = owned_cleanup_marker(raw)
+                report['body']['owned_cleanup_observation'] = observation
+                report['body']['own_runtime_failure'] = own_failure(raw, args.case, owned_cleanup_site())
+                report['body']['expected_cleanup_runtime_red'] = (
+                    code == 100 and report['body']['counts']['failed'] == 1
+                    and report['body']['compiler']['codes'] == [] and report['body']['compiler']['header_count'] == 0
+                    and owned_cleanup_oracle(observation, True) and report['body']['own_runtime_failure'])
+                command_accepted = owned_cleanup_oracle(observation, False)
+                save()
             if args.case in COMMAND_BACKLOG_CASES:
                 stage = 'diagnostic'
                 report['body']['command_backlog_observation'] = command_backlog_marker(raw, args.case)
