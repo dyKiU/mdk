@@ -163,12 +163,15 @@ fn mapped_sent_outer_ids(
     }
     let mapped = (|| {
         let storage = app.account_storage(label).ok()?;
-        let row = storage.app_storage()
+        let row = storage
+            .app_storage()
             .timeline_message(&hex::encode(group.as_slice()), &receipt.message_ids[0])
-            .ok().flatten()?;
+            .ok()
+            .flatten()?;
         row.source_message_id_hex
     })();
-    mapped.into_iter()
+    mapped
+        .into_iter()
         .filter(|source| source.len() == 64 && hex::decode(source).is_ok())
         .map(|source| source.to_ascii_lowercase())
         .collect()
@@ -357,7 +360,11 @@ async fn late_commit_700_recovers() {
         captured.extend(published.iter().cloned());
         let receipts = [&_old_receipt, &_update_receipt, &_future_receipt];
         // Group-profile summaries already contain transport report IDs.
-        let outer_ids = [&old_outer_ids, &_update_receipt.message_ids, &future_outer_ids];
+        let outer_ids = [
+            &old_outer_ids,
+            &_update_receipt.message_ids,
+            &future_outer_ids,
+        ];
         let selected = [&old, commit, future];
         let rows: [[usize; 3]; 3] = std::array::from_fn(|index| {
             let receipt = receipts[index];
@@ -371,7 +378,9 @@ async fn late_commit_700_recovers() {
         });
         let kinds: [u16; 3] = std::array::from_fn(|index| selected[index].kind.as_u16());
         let bound: [bool; 3] = std::array::from_fn(|index| {
-            outer_ids[index].iter().any(|id| *id == selected[index].id.to_hex())
+            outer_ids[index]
+                .iter()
+                .any(|id| *id == selected[index].id.to_hex())
         });
         let mapped_counts: [usize; 3] = std::array::from_fn(|index| outer_ids[index].len());
         (rows, kinds, bound, captured.len(), mapped_counts)
