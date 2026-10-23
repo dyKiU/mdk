@@ -24,6 +24,18 @@ fn automatic_old_format_terminal_allows_only_fresh_explicit_accepted_rejoin() {
     });
 }
 
+// Existing process-wide inviter telemetry; completed operations only. A zero
+// delta cannot distinguish unstarted publication from an in-flight await.
+fn welcome_publish_counters(runtime: &MarmotAppRuntime) -> [u64; 4] {
+    let value = runtime.app_performance_snapshot().group_invite_welcome_publish;
+    [
+        value.attempts,
+        value.successes,
+        value.failures,
+        value.duration_ms.sum_ms,
+    ]
+}
+
 enum ActualWelcomeDecision {
     Pending(Box<crate::AppGroupRecord>),
     Recovery(crate::GroupRejoinInvitation),
@@ -46,6 +58,14 @@ pub(super) async fn verify_fresh_rejoin(
     let recipient = MarmotAppRuntime::new(recipient_app.clone());
     let mut source_events = source.subscribe();
     let mut recipient_events = recipient.subscribe();
+    let mut key_package_bytes = None;
+    let mut invite_published = None;
+    let mut invite_id_count = None;
+    let mut invite_accept = None;
+    let mut invite_maintenance = None;
+    let mut welcome_before = None;
+    let mut welcome_after = None;
+    let mut decision_wait_succeeded = None;
     let result = AssertUnwindSafe(async {
         source.reconcile_accounts().await.unwrap();
         recipient.reconcile_accounts().await.unwrap();
@@ -58,14 +78,28 @@ pub(super) async fn verify_fresh_rejoin(
 
         // D is the original actual Current administrator. A publishes its real
         // current package; D's ordinary public invitation performs Core checks.
-        source.publish_key_package("test").await.unwrap();
+        key_package_bytes = Some(source.publish_key_package("test").await.unwrap());
+        welcome_before = Some(welcome_publish_counters(&peer.runtime));
         let invited = peer
             .runtime
             .invite_members("test", &peer.group, &[account.account_id_hex])
             .await
             .unwrap();
+        // This summary covers the canonical commit/pass, not the separate
+        // post-reply Welcome publication; retain only its scalar return values.
+        invite_published = Some(invited.published);
+        invite_id_count = Some(invited.message_ids.len());
+        invite_accept = Some(match invited.accept_disposition {
+            cgka_traits::SendAcceptDisposition::Published => 0_u8,
+            cgka_traits::SendAcceptDisposition::AcceptedPending => 1,
+            cgka_traits::SendAcceptDisposition::CompletionUnknown => 2,
+        });
+        invite_maintenance = Some(match invited.maintenance_disposition {
+            cgka_traits::SendMaintenanceDisposition::Ready => 0_u8,
+            cgka_traits::SendMaintenanceDisposition::PostJoinRotationPendingRetryable => 1,
+        });
         assert!(invited.published > 0);
-        let decision = tokio::time::timeout(Duration::from_secs(30), async {
+        let decision_result = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let recovery = source
                     .group_recovery_status("test", &peer.group)
@@ -90,8 +124,12 @@ pub(super) async fn verify_fresh_rejoin(
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
-        .await
-        .expect("actual new creator Welcome must reach A before any approval");
+        .await;
+        // Freeze the original wait verdict before this memory-only snapshot.
+        decision_wait_succeeded = Some(decision_result.is_ok());
+        welcome_after = Some(welcome_publish_counters(&peer.runtime));
+        let decision = decision_result
+            .expect("actual new creator Welcome must reach A before any approval");
 
         // Receipt of a new real Welcome is not the user's source acceptance.
         // Poll actual public observations while the pending decision is held.
@@ -155,6 +193,25 @@ pub(super) async fn verify_fresh_rejoin(
     })
     .catch_unwind()
     .await;
+    let welcome_delta: [Option<u64>; 4] = std::array::from_fn(|index| {
+        welcome_before
+            .zip(welcome_after)
+            .and_then(|(before, after)| after[index].checked_sub(before[index]))
+    });
+    crate::test_support::emit_line(format_args!(
+        "fresh-rejoin-return-welcome-observation {}",
+        serde_json::json!({
+            "key_package_bytes": key_package_bytes,
+            "invite_published": invite_published,
+            "invite_id_count": invite_id_count,
+            "invite_accept": invite_accept,
+            "invite_maintenance": invite_maintenance,
+            "welcome_before": welcome_before,
+            "welcome_after": welcome_after,
+            "welcome_delta": welcome_delta,
+            "decision_wait_succeeded": decision_wait_succeeded,
+        })
+    ));
     if result.is_err() {
         let available = std::panic::catch_unwind(AssertUnwindSafe(|| {
             diagnose_rejoin(&source_app, &recipient_app, &peer.group)

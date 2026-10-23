@@ -16,9 +16,12 @@ from upstream_offline_fingerprints import controls as fingerprint_controls, snap
 
 from upstream_sibling_send_observation import parse as sibling_send_observation, controls as sibling_send_controls
 from upstream_adapter_exit_observation import parse as adapter_exit_observation, controls as adapter_exit_controls
+from upstream_fresh_rejoin_observation import fresh_rejoin_observation, controls as fresh_rejoin_controls
 
 PREFIX = 'offline-replay-diagnostic '
 CASES = {
+    'fresh-rejoin-observation': ('marmot_app', 'native_device_linking::tests::automatic_fresh_rejoin_acceptance::automatic_fresh_accepted_rejoin_restores_only_the_new_source_lineage',
+                                 'crates/marmot-app/src/native_device_linking/tests/automatic_fresh_rejoin_acceptance.rs'),
     'sibling-send-default': ('marmot_app', 'runtime::account_worker::tests::local_submission_queue_tests::blocked_account_admission_does_not_delay_sibling_send_or_resurrect_deleted_timing',
                                  'crates/marmot-app/src/runtime/account_worker/tests/local_submission_queue_tests.rs'),
     'sibling-send-experimental': ('marmot_app', 'runtime::account_worker::tests::local_submission_queue_tests::blocked_account_admission_does_not_delay_sibling_send_or_resurrect_deleted_timing',
@@ -129,7 +132,7 @@ ENGINE_CONTROL_ORDER = ['private-classifier-authentication', 'private-classifier
 OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
-EXPERIMENTAL_CASES |= UNIFFI_CASES | {'sibling-send-experimental', 'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental', 'request-cleanup-experimental', 'priority-cleanup-experimental'}
+EXPERIMENTAL_CASES |= UNIFFI_CASES | {'fresh-rejoin-observation', 'sibling-send-experimental', 'offline-experimental', 'wrong-recipient-routing', 'recipient-admission-experimental', 'request-cleanup-experimental', 'priority-cleanup-experimental'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
@@ -2124,6 +2127,8 @@ def main():
             report['sdk_replay_parser_controls'] = sdk_replay_controls()
         if args.case == 'adapter-clamped':
             report['adapter_exit_parser_controls'] = adapter_exit_controls()
+        if args.case == 'fresh-rejoin-observation':
+            report['fresh_rejoin_parser_controls'] = fresh_rejoin_controls()
         if args.case == 'watch-pressure':
             report['watch_parser_controls'] = watch_controls()
         if args.case == 'higher-source':
@@ -2215,6 +2220,14 @@ def main():
             if args.case in SELECTIVE_CASES:
                 stage = 'diagnostic'
                 report['body']['receipt_observations'] = selective_receipt_marker(raw)
+                save()
+            if args.case == 'fresh-rejoin-observation':
+                try:
+                    report['body']['fresh_rejoin_observation'] = fresh_rejoin_observation(raw)
+                    report['body']['fresh_rejoin_export_complete'] = True
+                except (ValueError, UnicodeError):
+                    report['body']['fresh_rejoin_observation'] = None
+                    report['body']['fresh_rejoin_export_complete'] = False
                 save()
             if args.case == 'adapter-clamped':
                 try:
