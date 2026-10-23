@@ -2043,7 +2043,9 @@ async fn run_app_runtime_account_worker(
         #[cfg(feature = "experimental-device-sync")]
         tokio::task::yield_now().await;
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        tests::local_submission_queue_tests::passive_bob::record_loop_boundary_passed(&account_id_hex);
+        tests::local_submission_queue_tests::passive_bob::record_loop_boundary_passed(
+            &account_id_hex,
+        );
         #[cfg(feature = "experimental-device-sync")]
         {
             // Reopened clients inherit only terminal runtime observation, never

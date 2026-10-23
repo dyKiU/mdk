@@ -133,8 +133,8 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         update(account, |counts| {
             counts.phase = Some(phase);
             let index = match phase {
-                1 => Some(0), // Actual worker entry, before startup.
-                7 => Some(1), // Before the existing cooperative yield.
+                1 => Some(0),  // Actual worker entry, before startup.
+                7 => Some(1),  // Before the existing cooperative yield.
                 11 => Some(3), // Actual early comparison-settlement continue.
                 _ => None,
             };
