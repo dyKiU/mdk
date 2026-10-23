@@ -8,6 +8,7 @@ import re
 import subprocess
 
 from upstream_current_backend_probe import ANSI, capture
+from upstream_body_resources import start as resource_start, finish as resource_finish, controls as resource_controls
 from upstream_uniffi_receive_controls import (CASES as UNIFFI_CASES, observe as uniffi_receive_marker,
     oracle as uniffi_receive_oracle, controls as uniffi_receive_controls)
 from upstream_extraction_cohort import frozen_inputs, git, reviewed_cohort
@@ -1974,6 +1975,7 @@ def main():
             report['extra_epoch_parser_controls'] = extra_epoch_controls()
         if args.case in OFFLINE_CASES:
             report['fingerprint_parser_controls'] = fingerprint_controls()
+            report['body_resource_controls'] = resource_controls()
         if args.case in SDK_REPLAY_CASES:
             report['sdk_replay_parser_controls'] = sdk_replay_controls()
         if args.case == 'watch-pressure':
@@ -2027,9 +2029,14 @@ def main():
             stage = 'body-command'
             report['body_command_attempted'] = True
             save()
-            code, raw, elapsed, _ = capture(['cargo', 'nextest', 'run'] + flags + ['--retries', '0', '--test-threads', '1',
-                                          '--status-level', 'pass', '--final-status-level', 'none', '--no-fail-fast',
-                                          '--success-output', 'immediate', '-E', selection], 1800)
+            resource_token = resource_start() if args.case in OFFLINE_CASES else None
+            try:
+                code, raw, elapsed, _ = capture(['cargo', 'nextest', 'run'] + flags + ['--retries', '0', '--test-threads', '1',
+                                              '--status-level', 'pass', '--final-status-level', 'none', '--no-fail-fast',
+                                              '--success-output', 'immediate', '-E', selection], 1800)
+            finally:
+                if args.case in OFFLINE_CASES:
+                    report['body_resources'] = resource_finish(resource_token)
             report['body'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'raw_bytes': len(raw),
                               'raw_sha256': hashlib.sha256(raw).hexdigest(), 'compiler': compiler(raw, before['inputs']),
                               'panic': panic_facts(raw, args.case), 'runtime_summary': summary_counts(raw)}
