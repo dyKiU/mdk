@@ -517,6 +517,121 @@ def four_device_diagnostic_controls(site):
             'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+MUTATION_ADMISSION_CASE = 'native-mutation-admission-contract'
+MUTATION_ADMISSION_TEST = 'tests::actual_runtime_edit_completion_unknown_preserves_exact_canonical_identity'
+MUTATION_ADMISSION_PATH = 'crates/marmot-app/src/tests.rs'
+MUTATION_ADMISSION_PREFIX = 'MUTATION_ADMISSION_PROBE'
+MUTATION_ADMISSION_MESSAGE = 'mutation admission must agree with its actual typed send outcome'
+MUTATION_ADMISSION_FIELDS = {
+    'healthy_original_published', 'actual_unknown', 'actual_zero_published',
+    'exact_one_distinct_edit_id', 'durable_edit_bound', 'frozen_transport_verified',
+    'attempted_exact_frozen', 'recovered_exact_transport_once', 'canonical_edit_exact_once',
+    'no_standalone_edit_row', 'fanout_retired', 'cleanup_complete',
+}
+
+
+def mutation_admission_probe(raw):
+    if type(raw) is not bytes or len(raw) > 2 * 1024 * 1024:
+        raise ValueError('mutation-admission-bound')
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    lines = [line for line in text.splitlines() if MUTATION_ADMISSION_PREFIX in line]
+    if len(lines) != 1 or text.count(MUTATION_ADMISSION_PREFIX) != 1 or len(lines[0]) > 4096:
+        raise ValueError('mutation-admission-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + MUTATION_ADMISSION_PREFIX
+        + r' (\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('mutation-admission-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if (type(value) is not dict or set(value) != MUTATION_ADMISSION_FIELDS
+            or any(type(item) is not bool for item in value.values())):
+        raise ValueError('mutation-admission-fields')
+    return value
+
+
+def mutation_admission_site():
+    text = Path(MUTATION_ADMISSION_PATH).read_text()
+    start = text.index('pub(crate) fn assert_mutation_admitted(')
+    end = text.index('\n}', start) + 2
+    helper = text[start:end]
+    pattern = (r'assert_eq!\(\s*summary\.published,\s*1,\s*"'
+        + re.escape(MUTATION_ADMISSION_MESSAGE) + r'"\s*,?\s*\);')
+    matches = list(re.finditer(pattern, helper))
+    if (text.count('pub(crate) fn assert_mutation_admitted(') != 1 or len(matches) != 1
+            or helper.count('assert_eq!(summary.message_ids.len(), 1);') != 1):
+        raise ValueError('mutation-admission-legacy-helper-source')
+    offset = start + matches[0].start()
+    return {'line': text[:offset].count('\n') + 1,
+            'column': offset - text.rfind('\n', 0, offset)}
+
+
+def mutation_admission_failure(raw, site):
+    try:
+        value = mutation_admission_probe(raw)
+        text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    except (ValueError, UnicodeError):
+        return False
+    if not all(value.values()) or text.count('panicked at ') != 1:
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(MUTATION_ADMISSION_TEST)
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(MUTATION_ADMISSION_PATH)
+        + ':' + str(site['line']) + ':' + str(site['column']) + r':[ \t]*\n'
+        + r'(?:[ \t]*\n){0,2}[ \t]{0,8}assertion `left == right` failed: '
+        + re.escape(MUTATION_ADMISSION_MESSAGE)
+        + r'[ \t]*\n[ \t]{0,8}left: 0[ \t]*\n[ \t]{0,8}right: 1[ \t]*(?:\n|$)')
+    found = re.search(pattern, text)
+    return found is not None and text.index(MUTATION_ADMISSION_PREFIX) < found.start()
+
+
+def mutation_admission_controls(site):
+    """Authored metadata only; actual summary/recovery/cleanup must run separately."""
+    value = dict.fromkeys(MUTATION_ADMISSION_FIELDS, True)
+    row = lambda item: (MUTATION_ADMISSION_PREFIX + ' ' + json.dumps(item) + '\n').encode()
+    good = row(value)
+    assert mutation_admission_probe(good) == value
+    bad = [b'', good + good, b'\xff' + good, b'PRIVATE ' + good,
+        b' ' * 9 + good, good.replace(b'\n', b' PRIVATE\n'),
+        row(dict(value, private_id='PRIVATE')), (MUTATION_ADMISSION_PREFIX + ' []\n').encode()]
+    for key in sorted(value):
+        bad += [row({name: item for name, item in value.items() if name != key}),
+            good.replace(b'{', ('{' + json.dumps(key) + ':true,').encode(), 1),
+            row(dict(value, **{key: 1}))]
+    for raw in bad:
+        try:
+            mutation_admission_probe(raw)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('mutation-admission-invalid-probe-accepted')
+    header = ("thread '" + MUTATION_ADMISSION_TEST + "' (7) panicked at " + MUTATION_ADMISSION_PATH
+        + ':' + str(site['line']) + ':' + str(site['column']) + ':\n'
+        + 'assertion `left == right` failed: ' + MUTATION_ADMISSION_MESSAGE + '\n  left: 0\n right: 1\n').encode()
+    assert mutation_admission_failure(good + header, site)
+    invalid = [good, header + good, good + header + header,
+        good + header.replace(MUTATION_ADMISSION_TEST.encode(), b'PRIVATE'),
+        good + header.replace(MUTATION_ADMISSION_PATH.encode(), b'PRIVATE.rs'),
+        good + header.replace(MUTATION_ADMISSION_MESSAGE.encode(), b'PRIVATE'),
+        good + header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+        good + header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n'),
+        good + header.replace(b'left: 0', b'left: 1'),
+        good + header.replace(b'right: 1', b'right: 0'),
+        good + header + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:1:\n"]
+    invalid += [row(dict(value, **{key: False})) + header for key in value]
+    assert all(not mutation_admission_failure(raw, site) for raw in invalid)
+    tests = {MUTATION_ADMISSION_TEST: MUTATION_ADMISSION_PATH}
+    passing = ('PASS [ 0.001s] marmot-app ' + MUTATION_ADMISSION_TEST
+        + '\nSummary [ 0.1s] 1 test run: 1 passed, 0 failed, 0 skipped\n').encode()
+    failing = passing.replace(b'PASS ', b'FAIL ', 1).replace(b'1 passed, 0 failed', b'0 passed, 1 failed')
+    assert automatic_negotiation_runtime(passing, tests)['complete']
+    assert automatic_negotiation_runtime(failing, tests)['complete']
+    invalid_runtime = [b'', passing + passing, passing.replace(MUTATION_ADMISSION_TEST.encode(), b'PRIVATE'),
+        passing.replace(b'marmot-app', b'PRIVATE'), passing.replace(b'1 test run', b'0 tests run'),
+        passing.replace(b'1 passed, 0 failed', b'0 passed, 1 failed')]
+    assert all(not automatic_negotiation_runtime(raw, tests)['complete'] for raw in invalid_runtime)
+    return {'probe_positive': 1, 'probe_negative': len(bad), 'own_positive': 1,
+            'own_negative': len(invalid), 'runtime_positive': 2, 'runtime_negative': len(invalid_runtime),
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 AUTOMATIC_SCAN_EXPIRY_CASE = 'native-automatic-scan-expiry'
 AUTOMATIC_NEGOTIATION_TESTS = {
     'native_device_linking::enabled::negotiated::tests::cancel_before_activation_retires_the_reserved_original':
@@ -669,7 +784,7 @@ AUTOMATIC_SCAN_EXPIRY_PREREQUISITES = {
 }
 AUTOMATIC_SCAN_EXPIRY_FIELDS = AUTOMATIC_SCAN_EXPIRY_PREREQUISITES | {'expired_scan_rejected'}
 AUTOMATIC_SCAN_EXPIRY_CASES = {AUTOMATIC_SCAN_EXPIRY_CASE, AUTOMATIC_SCAN_EXPIRY_RED_CASE}
-AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE, FOUR_DEVICE_MUTATIONS_CASE}
+AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}
 
 
 def automatic_scan_expiry_probe(raw):
@@ -1189,6 +1304,7 @@ CASES[AUTOMATIC_NEGOTIATION_CASE] = ('marmot_app', AUTOMATIC_NEGOTIATION_CASE,
 CASES[FOUR_DEVICE_MUTATIONS_CASE] = ('marmot_app',
     'native_device_linking::automatic_pairing_acceptance::approved_four_device_messages_edits_and_deletions_converge',
     'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs')
+CASES[MUTATION_ADMISSION_CASE] = ('marmot_app', MUTATION_ADMISSION_TEST, MUTATION_ADMISSION_PATH)
 for automatic_case in AUTOMATIC_SCAN_EXPIRY_CASES:
     CASES[automatic_case] = ('marmot_app', AUTOMATIC_SCAN_EXPIRY_TEST, AUTOMATIC_SCAN_EXPIRY_PATH)
 EXPERIMENTAL_CASES |= AUTOMATIC_NATIVE_CASES
@@ -4658,6 +4774,12 @@ def positive(args):
                       apple_native_acceptance=False, native_host_ui_acceptance=False,
                       public_relay_qualification=False, full_suite_qualification=False,
                       mutation_qualification=False)
+    if args.case == MUTATION_ADMISSION_CASE:
+        report.update(evidence_scope='actual-runtime-edit-admission-scripted-transport-only',
+                      scripted_transport_only=True, actual_sdk_relay_qualification=False,
+                      native_protocol_qualification=False, apple_native_acceptance=False,
+                      native_host_ui_acceptance=False, full_suite_qualification=False,
+                      mutation_qualification=False)
     if args.case in PRIVATE_MAINTENANCE_COHORTS:
         report.pop('expected_test')
         report.update(expected_tests=list(maintenance_tests_for(args.case)), expected_runtime_count=2,
@@ -4786,6 +4908,9 @@ def positive(args):
             report['restart_parser_controls'] = restart_controls()
         if args.case == PENDING_REQUEST_CASE:
             report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
+        if args.case == MUTATION_ADMISSION_CASE:
+            mutation_admission_source_site = mutation_admission_site()
+            report['mutation_admission_controls'] = mutation_admission_controls(mutation_admission_source_site)
         if args.case == FOUR_DEVICE_MUTATIONS_CASE:
             report['four_device_diagnostic_controls'] = four_device_diagnostic_controls(four_device_diagnostic_site())
         if args.case == FAMILY_STABILITY_CASE:
@@ -4827,7 +4952,7 @@ def positive(args):
                 selection += ' & binary(=' + binary + ')'
             if args.case == AUTOMATIC_NEGOTIATION_CASE:
                 selection = automatic_negotiation_selection()
-            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {FOUR_DEVICE_MUTATIONS_CASE}:
+            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
                 selection += ' & binary(=marmot_app)'
             if args.case in PRIVATE_MAINTENANCE_COHORTS:
                 selection = automatic_negotiation_selection(maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
@@ -4850,7 +4975,7 @@ def positive(args):
                 report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
             elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
-            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE}:
+            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
                 selected_case(inventory, test)
                 matched_suites = [suite for suite in inventory['rust-suites'].values()
                     if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
@@ -4897,6 +5022,13 @@ def positive(args):
             else:
                 report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == MUTATION_ADMISSION_CASE:
+                report['body']['mutation_admission_probe'] = mutation_admission_probe(raw)
+                save()  # Original actual counts/compiler/panic survive later strict decoding.
+                report['body']['mutation_admission_runtime'] = automatic_negotiation_runtime(raw,
+                    {MUTATION_ADMISSION_TEST: MUTATION_ADMISSION_PATH})
+                report['body']['own_runtime_failure'] = mutation_admission_failure(raw, mutation_admission_source_site)
+                save()
             if args.case == FOUR_DEVICE_MUTATIONS_CASE:
                 # Original runtime counts/panics/compiler facts are already durable.
                 # Diagnostics never alter command acceptance or reinterpret failure.
@@ -5061,6 +5193,20 @@ def positive(args):
                                        for part in (report['inventory'], report['body']))
                 if args.case == AUTOMATIC_NEGOTIATION_CASE:
                     command_accepted = command_accepted and report['body']['automatic_negotiation_runtime']['complete']
+                elif args.case == MUTATION_ADMISSION_CASE:
+                    command_accepted = (command_accepted
+                        and report['body']['mutation_admission_runtime']['complete']
+                        and all(report['body']['mutation_admission_probe'].values()))
+                    report['expected_mutation_admission_runtime_red_before_closure'] = (
+                        command_accepted and code == 100
+                        and report['inventory']['selected_nonignored'] == 1
+                        and report['inventory']['selected_ignored'] == 0
+                        and report['body']['counts'] == dict(executed=1, passed=0, failed=1,
+                            skipped=report['body']['counts']['skipped'])
+                        and report['body']['own_runtime_failure']
+                        and report['body']['panic'] == {'sites': [{'expected_thread': True,
+                            'expected_source': True, 'line': mutation_admission_source_site['line'],
+                            'column': mutation_admission_source_site['column']}], 'unknown_or_excess_headers': 0})
                 elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
                     probe = report['body']['automatic_scan_expiry_probe']
                     report['expected_automatic_scan_expiry_runtime_red_before_closure'] = (
@@ -5189,6 +5335,11 @@ def positive(args):
             report['expected_private_send_runtime_red'] = (
                 args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_private_send_runtime_red_before_closure') is True)
+        if args.case == MUTATION_ADMISSION_CASE:
+            report['expected_mutation_admission_runtime_red'] = (
+                args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('expected_mutation_admission_runtime_red_before_closure') is True)
+            # A genuine RED is reported truthfully as a failed positive workflow.
         if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
             report['expected_automatic_scan_expiry_runtime_red'] = (
                 args.mode == 'run' and report['source_closure_exact'] is True
