@@ -24,6 +24,7 @@ ENVIRONMENT_KEYS = {
 }
 SELECTORS = {
     'macos': {
+        'GenuineAutomaticHostFactoryTests/testExistingRosterWNPAIR2RequiresSiblingApprovalAndSharesHistory',
         'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats',
         'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats',
         'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal',
@@ -38,6 +39,7 @@ SELECTORS = {
         'GenuineHistoryRecipientTransferTests/testFreshRecipientOriginalThroughSessionModelAndIOSSource',
     },
     'ios-simulator': {
+        'GenuineAutomaticHostFactoryTests/testExistingRosterWNPAIR2RequiresSiblingApprovalAndSharesHistory',
         'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats',
         'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats',
         'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal',

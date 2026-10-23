@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 # qualification gates. Only these named skips may appear in a compatibility run.
 KNOWN_SKIPS = {
     'macos': {
+        'GenuineAutomaticHostFactoryTests/testExistingRosterWNPAIR2RequiresSiblingApprovalAndSharesHistory()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
@@ -39,6 +40,7 @@ KNOWN_SKIPS = {
         'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation()': ('GenuinePairedDirectConversationTests.swift', 'native_fixture'),
     },
     'ios': {
+        'GenuineAutomaticHostFactoryTests/testExistingRosterWNPAIR2RequiresSiblingApprovalAndSharesHistory()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),

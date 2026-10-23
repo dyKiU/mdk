@@ -21,7 +21,8 @@ import time
 
 HERE = Path(__file__).resolve().parent
 FEATURES = ['otlp-export', 'product-analytics-export', 'experimental-device-sync']
-HOST_FACTORY_SELECTORS = ('GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats', 'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats', 'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal', 'GenuineAutomaticHostFactoryTests/testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal', 'GenuineAutomaticHostFactoryTests/testLateBeginFactoryCannotAdoptAcrossAccountReplacement', 'GenuineAutomaticHostFactoryTests/testLateScanFactoryCannotAdoptAcrossAccountReplacement')
+EXISTING_ROSTER_SELECTOR = 'GenuineAutomaticHostFactoryTests/testExistingRosterWNPAIR2RequiresSiblingApprovalAndSharesHistory'
+HOST_FACTORY_SELECTORS = ('GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats', 'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats', 'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal', 'GenuineAutomaticHostFactoryTests/testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal', 'GenuineAutomaticHostFactoryTests/testLateBeginFactoryCannotAdoptAcrossAccountReplacement', 'GenuineAutomaticHostFactoryTests/testLateScanFactoryCannotAdoptAcrossAccountReplacement') + (EXISTING_ROSTER_SELECTOR,)
 
 MODELS = {
     'macos': [
@@ -521,7 +522,8 @@ class Runner:
         require(self.report['qr_relay_cleanup']['passed'] == 1,
                 'host-factory-owned-relay-positive-close-required')
         row = {'passed': 1, 'unit': result['summary'], 'selector': selector,
-               'fixture_identity': 'real-automatic-app-owner-factories-v1',
+               'fixture_identity': ('real-automatic-app-owner-existing-roster-WNPAIR2-v1'
+                   if selector == EXISTING_ROSTER_SELECTOR else 'real-automatic-app-owner-factories-v1'),
                'relay_cleanup': self.report['qr_relay_cleanup'],
                'app_report_sha256': digest(Path(str(prefix) + '-result.json'))}
         self.state['cases'][name] = row
@@ -691,19 +693,25 @@ def main():
         require(set(runner.report['cases']) == runner.expected_cases()
                 and all(case['passed'] == 1 for case in runner.report['cases'].values()),
                 'every-requested-native-app-body-required')
-        expected_bodies = {'ios-control': 2, 'mac': 16, 'ios': 20, 'all': 34, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
+        expected_bodies = {'ios-control': 2, 'mac': 17, 'ios': 21, 'all': 36, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
         executed_bodies = sum(case['unit']['totalTestCount'] + case.get('driver', {}).get('totalTestCount', 0)
                               for case in runner.report['cases'].values())
         require(executed_bodies == expected_bodies, 'exact-selected-native-app-body-count-required')
-        host_expected = {'ios-control': 0, 'mac': 6, 'ios': 6, 'all': 12, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
+        host_expected = {'ios-control': 0, 'mac': 7, 'ios': 7, 'all': 14, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
         host_cases = [row for name, row in runner.report['cases'].items() if '-host-factory-' in name]
         require(len(host_cases) == host_expected and all(
-            row['fixture_identity'] == 'real-automatic-app-owner-factories-v1'
+            row['fixture_identity'] == ('real-automatic-app-owner-existing-roster-WNPAIR2-v1'
+                if row['selector'] == EXISTING_ROSTER_SELECTOR else 'real-automatic-app-owner-factories-v1')
             and row['selector'] in HOST_FACTORY_SELECTORS and one_pass(row['unit'])
             and row['relay_cleanup']['passed'] == 1 for row in host_cases),
             'every-new-real-host-factory-body-and-close-required')
         runner.report['expected_automatic_host_factory_body_count'] = host_expected
         runner.report['executed_automatic_host_factory_body_count'] = len(host_cases)
+        roster_expected = {'ios-control': 0, 'mac': 1, 'ios': 1, 'all': 2, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
+        roster_actual = sum(row['selector'] == EXISTING_ROSTER_SELECTOR for row in host_cases)
+        require(roster_actual == roster_expected, 'each-actual-existing-roster-wnpair2-body-required')
+        runner.report['expected_existing_roster_wnpair2_body_count'] = roster_expected
+        runner.report['executed_existing_roster_wnpair2_body_count'] = roster_actual
         expected_mutations = ({'macos'} if args.scope == 'adapter-macos' else
                               {'ios'} if args.scope == 'adapter-ios' else set())
         require(set(runner.report['adapter_mutations']) == expected_mutations
@@ -715,7 +723,7 @@ def main():
         label = str(error) if isinstance(error, ValueError) else type(error).__name__
         runner.report['failure_stage'] = label if re.fullmatch('[A-Za-z0-9:_-]{1,180}', label) else type(error).__name__
     finally:
-        runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 16, 'ios': 20, 'all': 34, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
+        runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 17, 'ios': 21, 'all': 36, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
         # Failed/partial case reports must not mask the original failure in
         # this finally block. The success path above still requires all counts.
         runner.report['execution_count_incomplete_cases'] = sorted(
