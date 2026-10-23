@@ -36,14 +36,18 @@ CASES.update({
                           'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'adapter-failed-route': ('transport_nostr_adapter', 'sdk_client::tests::enrollment_acquisition_failed_private_route_sync_burns_freshness_until_valid_reissue',
                              'crates/transport-nostr-adapter/src/sdk_client.rs'),
+    'existing-anchor': ('storage_sqlite', 'existing_device_group_anchor::tests::existing_anchor_encrypted_reopen_preserves_denial_and_original_bytes',
+                        'crates/storage-sqlite/src/existing_device_group_anchor/tests.rs'),
+    'command-backlog': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::command_backlog_acceptance::authenticated_body_is_serviced_before_eight_queued_history_reads',
+                        'crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs'),
     'higher-source': ('marmot_app', 'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record',
                       'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs'),
     'spill-experimental': CASES['spill'],
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
-EXPERIMENTAL_CASES = {'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
-STORAGE_CASES = {'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
+EXPERIMENTAL_CASES = {'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 ADAPTER_CASES = {'adapter-cancelled', 'adapter-failed-route'}
 
