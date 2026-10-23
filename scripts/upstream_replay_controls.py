@@ -31,6 +31,8 @@ CASES.update({
                          'crates/marmot-app/src/runtime/account_worker/tests/worker_input_selection_tests.rs'),
     'worker-input-disabled': ('marmot_app', 'runtime::account_worker::tests::worker_input_selection_tests::disabled_receive_selects_replay_and_retains_ready_packet',
                          'crates/marmot-app/src/runtime/account_worker/tests/worker_input_selection_tests.rs'),
+    'adapter-thousand-default': ('relay_limit_subscriptions', 'a_thousand_groups_fit_in_a_few_reqs_and_every_group_delivers',
+                         'crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs'),
     'adapter-thousand': ('relay_limit_subscriptions', 'a_thousand_groups_fit_in_a_few_reqs_and_every_group_delivers',
                          'crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs'),
     'adapter-clamped': ('relay_limit_subscriptions', 'stored_replay_beyond_500_is_paged_before_counting_complete',
@@ -66,9 +68,11 @@ CASES.update({
 EXPERIMENTAL_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
-ADAPTER_CASES = {'adapter-cancelled', 'adapter-failed-route', 'adapter-thousand', 'adapter-clamped'}
-INTEGRATION_CASES = {'offline', 'adapter-thousand', 'adapter-clamped'}
-SDK_REPLAY_CASES = {'adapter-thousand', 'adapter-clamped'}
+BOUNDED_CASES = EXPERIMENTAL_CASES | {'adapter-thousand-default'}
+THOUSAND_CASES = {'adapter-thousand', 'adapter-thousand-default'}
+ADAPTER_CASES = {'adapter-thousand-default', 'adapter-cancelled', 'adapter-failed-route', 'adapter-thousand', 'adapter-clamped'}
+INTEGRATION_CASES = {'adapter-thousand-default', 'offline', 'adapter-thousand', 'adapter-clamped'}
+SDK_REPLAY_CASES = THOUSAND_CASES | {'adapter-clamped'}
 WORKER_INPUT_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled'}
 
 
@@ -411,13 +415,13 @@ def sdk_replay_closed(value, case):
         raise ValueError('sdk-replay-case')
     if type(value) is not dict or set(value) != SDK_REPLAY_FIELDS:
         raise ValueError('sdk-replay-fields')
-    expected_case, expected_count = (1, 1000) if case == 'adapter-thousand' else (2, 1200)
+    expected_case, expected_count = (1, 1000) if case in THOUSAND_CASES else (2, 1200)
     if (not uint(value['case']) or value['case'] != expected_case
             or not uint(value['expected']) or value['expected'] != expected_count
             or not uint(value['delivered']) or value['delivered'] > expected_count
             or type(value['forwarder_finished']) is not bool
             or (value['clamp'] is not None and (not uint(value['clamp']) or value['clamp'] != 500))
-            or (case == 'adapter-thousand' and value['clamp'] is not None)):
+            or (case in THOUSAND_CASES and value['clamp'] is not None)):
         raise ValueError('sdk-replay-scalars')
     for key, length, optional in [('forwarder',15,True), ('loss',2,True), ('replay',12,True),
                                   ('coverage',6,False), ('relay_requests',2,False)]:
@@ -441,7 +445,7 @@ def sdk_replay_marker(raw, case, body_passed):
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     namespace = SDK_REPLAY_PREFIX.rstrip()
     lines = [line for line in text.splitlines() if namespace in line]
-    if (len(lines) not in ([1] if case == 'adapter-thousand' else [1,2])
+    if (len(lines) not in ([1] if case in THOUSAND_CASES else [1,2])
             or text.count(namespace) != len(lines) or any(len(line) > 8192 for line in lines)):
         raise ValueError('sdk-replay-cardinality')
     rows = []
@@ -452,7 +456,7 @@ def sdk_replay_marker(raw, case, body_passed):
         rows.append(sdk_replay_closed(json.loads(match[1], object_pairs_hook=unique), case))
     if [row['clamp'] for row in rows] != ([None] if len(rows) == 1 else [None,500]):
         raise ValueError('sdk-replay-clamp-order')
-    if body_passed and (len(rows) != (1 if case == 'adapter-thousand' else 2)
+    if body_passed and (len(rows) != (1 if case in THOUSAND_CASES else 2)
                         or any(row['delivered'] != row['expected'] for row in rows)):
         raise ValueError('sdk-replay-pass-inventory')
     return rows
@@ -466,6 +470,14 @@ def sdk_replay_controls():
     line = lambda row: (SDK_REPLAY_PREFIX + json.dumps(row) + '\n').encode()
     raw = line(base)
     assert sdk_replay_marker(raw,'adapter-thousand',False) == [base]
+    assert sdk_replay_marker(raw,'adapter-thousand-default',False) == [base]
+    assert sdk_replay_marker(line(dict(base,delivered=1000)),'adapter-thousand-default',True)[0]['delivered'] == 1000
+    default_config = positive_configuration('adapter-thousand-default')
+    experimental_config = positive_configuration('adapter-thousand')
+    assert default_config == (['sdk','test-policy-overrides'], 'm5-bounded', '4194304')
+    assert experimental_config == (['sdk','experimental-device-sync','test-policy-overrides'], *default_config[1:])
+    assert 'adapter-thousand-default' not in EXPERIMENTAL_CASES and 'adapter-thousand-default' not in PFP
+    assert CASES['adapter-thousand-default'] == CASES['adapter-thousand']
     assert sdk_replay_marker(b' '*8+raw.replace(b'\n',b'\r\n'),'adapter-thousand',False) == [base]
     first = dict(base,case=2,expected=1200,delivered=1200,forwarder_finished=False)
     second = dict(first,clamp=500)
@@ -493,7 +505,11 @@ def sdk_replay_controls():
             raise AssertionError('sdk-replay-negative-accepted')
     scoped = [(line(first),'adapter-clamped',True), (line(second),'adapter-clamped',False),
               (line(second)+line(first),'adapter-clamped',False), (both+line(second),'adapter-clamped',False),
-              (line(dict(first,clamp=True)),'adapter-clamped',False), (raw,'adapter-thousand',True)]
+              (line(dict(first,clamp=True)),'adapter-clamped',False), (raw,'adapter-thousand',True),
+              (line(dict(base,clamp=500)),'adapter-thousand-default',False),
+              (line(first),'adapter-thousand-default',False),
+              (raw+raw,'adapter-thousand-default',False),
+              (raw,'adapter-thousand-default',True)]
     for bad, case, passed in scoped:
         try:
             sdk_replay_marker(bad,case,passed)
@@ -501,7 +517,7 @@ def sdk_replay_controls():
             pass
         else:
             raise AssertionError('sdk-replay-scoped-negative-accepted')
-    return {'positive':5, 'negative':len(invalid)+len(scoped), 'synthetic_metadata_only':True, 'product_bodies':0}
+    return {'positive':10, 'negative':len(invalid)+len(scoped), 'synthetic_metadata_only':True, 'product_bodies':0}
 
 
 def compiler(raw, inputs):
@@ -1001,6 +1017,17 @@ def pfp(args):
     return result
 
 
+def positive_configuration(case):
+    features = (['sdk', 'test-policy-overrides'] if case == 'adapter-thousand-default' else
+                ['sdk', 'experimental-device-sync', 'test-policy-overrides'] if case in ADAPTER_CASES else
+                ['experimental-device-sync'] if case in STORAGE_CASES else
+                LIB_FEATURES + ['marmot-app/experimental-device-sync'] if case in EXPERIMENTAL_CASES else
+                ['test-policy-overrides'] if case == 'offline' else LIB_FEATURES)
+    profile = 'm5-bounded' if case in BOUNDED_CASES else 'ci'
+    expected_stack = '4194304' if case in BOUNDED_CASES else None
+    return features, profile, expected_stack
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1014,12 +1041,7 @@ def main():
         return pfp(args)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    features = (['sdk', 'experimental-device-sync', 'test-policy-overrides'] if args.case in ADAPTER_CASES else
-                ['experimental-device-sync'] if args.case in STORAGE_CASES else
-                LIB_FEATURES + ['marmot-app/experimental-device-sync'] if args.case in EXPERIMENTAL_CASES else
-                ['test-policy-overrides'] if args.case == 'offline' else LIB_FEATURES)
-    profile = 'm5-bounded' if args.case in EXPERIMENTAL_CASES else 'ci'
-    expected_stack = '4194304' if args.case in EXPERIMENTAL_CASES else None
+    features, profile, expected_stack = positive_configuration(args.case)
     package = package_for(args.case)
     report = {'case': args.case, 'diagnostic_only': True, 'qualification_passed': False,
               'body_passed': False, 'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
