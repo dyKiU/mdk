@@ -51,11 +51,22 @@ def main() -> None:
         return text.replace(old, new, 1)
 
     routing = originals[transport].decode()
-    start = routing.index("        self.accounts\n", routing.index("    fn observation_wire_id("))
-    end = routing.index(
-        '\n    }\n    #[cfg(feature = "experimental-device-sync")]\n    fn private_observation_ready_for',
-        start,
+    wire_function = "    fn observation_wire_id("
+    if routing.count(wire_function) != 1:
+        raise RuntimeError("Observation wire function must be unique")
+    wire_start = routing.index(wire_function)
+    wire_end = routing.index("\n    }", wire_start)
+    ordinary_wire = (
+        "        self.accounts\n"
+        "            .get(account)?\n"
+        "            .group_wire_ids\n"
+        "            .get(&group_route_key(account, route))\n"
+        "            .cloned()"
     )
+    if routing[wire_start:wire_end].count(ordinary_wire) != 1:
+        raise RuntimeError("Ordinary wire fallback must be unique inside observation_wire_id")
+    start = routing.index(ordinary_wire, wire_start, wire_end)
+    end = start + len(ordinary_wire)
     transport_cmd = [
         "cargo", "test", "--locked", "-p", "transport-nostr-adapter",
         "--test", "inbound_routing", "--features", "experimental-device-sync",
@@ -73,7 +84,7 @@ def main() -> None:
         ("legacy-group-wire", transport, transport_cmd, batches,
          routing[:start] + "        Some(group_subscription(account, route, None, attempt).subscription_id())" + routing[end:]),
         ("stale-wire-index", transport, transport_cmd, batches,
-         replace_once(routing, "account.group_wire_ids = issued_group_wire_ids(batches);", "")),
+         replace_once(routing, "account.group_wire_ids = issued_group_wire_ids(&account.batches);", "")),
         ("wrong-departure-status", status, status_cmd, abi,
          replace_once(originals[status].decode(),
                       "MarmotKitError::AccountChatDepartureDenied => MarmotStatus::AccountChatDepartureDenied,",
