@@ -21,7 +21,7 @@ use cgka_traits::{
     GroupId, MemberId, TransportAccountActivation, TransportAdapter, TransportAdapterError,
     TransportEndpoint, TransportGroupSubscription, TransportGroupSync,
 };
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use limit_relay::{LimitConfig, LimitRelay, LimitStats, NegFault, RejectStyle, ReqOutcome, reason};
 use nostr_relay_builder::prelude::{
     MemoryDatabase, MemoryDatabaseOptions, NostrDatabase, RateLimit,
@@ -3585,6 +3585,50 @@ async fn replay_one_group_at(
     (delivered, complete, stats)
 }
 
+async fn replay_one_group_success(
+    stored: usize,
+    clamp: Option<u64>,
+) -> (usize, bool, LimitStats) {
+    let fx = Fixture::with_replay_diagnostics(LimitConfig {
+        req_limit_clamp: clamp,
+        ..LimitConfig::default()
+    })
+    .await;
+    let timestamps = (0..stored as u64).map(|index| 1_700_000_000 + index).collect::<Vec<_>>();
+    let stored = timestamps.len();
+    store_events_at(&fx.database, timestamps).await;
+    let url = fx.limit.url();
+    fx.adapter
+        .activate_account(fx.activation(std::slice::from_ref(&url), groups(1, &url)))
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let mut recorded = Vec::with_capacity(stored);
+    let collection = std::panic::AssertUnwindSafe(success_expected_replay_deliveries(
+        &fx.adapter, &fx.account, stored, deadline, &mut recorded,
+    )).catch_unwind().await;
+    // A failed collector has no successful count; these are actual unique ACKs.
+    let delivered = match &collection {
+        Ok(delivered) => *delivered,
+        Err(_) => recorded.len(),
+    };
+    let eose = fx.adapter.account_subscription_eose(&fx.account).await;
+    let complete = eose.complete();
+    let stats = fx.limit.stats();
+    eprintln!(
+        "[h] clamp={clamp:?} stored={stored} delivered={delivered} complete={complete} {}",
+        stats.summary()
+    );
+    #[cfg(feature = "test-policy-overrides")]
+    fx.emit_replay_diagnostic(2, clamp, stored, delivered, eose, &stats)
+        .await;
+    fx.shutdown().await;
+    match collection {
+        Ok(delivered) => (delivered, complete, stats),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
 /// A live group REQ carries no `limit`, so strfry serves at most 500 stored
 /// events (newest first) and then EOSE. The adapter must page the rest of the
 /// window backwards before that relay's EOSE counts as coverage, instead of
@@ -3593,7 +3637,7 @@ async fn replay_one_group_at(
 async fn stored_replay_beyond_500_is_paged_before_counting_complete() {
     const STORED: usize = 1_200;
     for clamp in [None, Some(limit_relay::REQ_LIMIT_CLAMP)] {
-        let (delivered, complete, stats) = replay_one_group(STORED, clamp).await;
+        let (delivered, complete, stats) = replay_one_group_success(STORED, clamp).await;
         assert_eq!(
             delivered, STORED,
             "clamp={clamp:?}: every stored event arrives"
@@ -3733,23 +3777,88 @@ async fn prompt_relay_refusals_fail_in_round_trips() {
     fx.shutdown().await;
 }
 
-/// Regression-first success-expected entry. Its current quiet delegation is
-/// deliberately retained for the remote RED, not a change to partial callers.
-/// A future correction is confined here and explicit full-success call sites:
-/// receive/ACK/record actual deliveries until authoritative completion, inside
-/// this SAME deadline. `recorded` contains actual ACKed deliveries only.
+/// Full-success collection is explicit; quiet-only partial callers stay unchanged.
 async fn success_expected_replay_deliveries(
     adapter: &NostrTransportAdapter,
-    _account: &MemberId,
-    _expected: usize,
+    account: &MemberId,
+    expected: usize,
     deadline: tokio::time::Instant,
-    _recorded: &mut Vec<cgka_traits::TransportDelivery>,
+    recorded: &mut Vec<cgka_traits::TransportDelivery>,
 ) -> usize {
-    distinct_deliveries(
-        adapter,
-        deadline.saturating_duration_since(tokio::time::Instant::now()),
-    )
-    .await
+    // SUCCESS_EXPECTED_COLLECTOR_BEGIN
+    collect_authoritative_replay(adapter, account, expected, deadline, recorded).await
+    // SUCCESS_EXPECTED_COLLECTOR_END
+}
+
+/// Subscribe before checking state so last-ACK progress cannot be missed.
+/// An idle interval is necessary but never substitutes for replay completion.
+async fn collect_authoritative_replay(
+    adapter: &NostrTransportAdapter,
+    account: &MemberId,
+    expected: usize,
+    deadline: tokio::time::Instant,
+    recorded: &mut Vec<cgka_traits::TransportDelivery>,
+) -> usize {
+    const IDLE: Duration = Duration::from_millis(1_500);
+    let started = tokio::time::Instant::now();
+    let wait = deadline.saturating_duration_since(started);
+    tokio::time::timeout_at(deadline, async {
+        let mut changes = adapter.replay_changes(account).await.expect("active replay has a progress watch");
+        let mut seen = HashSet::new();
+        let mut quiet_at = started + IDLE;
+        let mut quiet_elapsed = false;
+        loop {
+            let (pending, spill_pending, loss_absent) = {
+                let status = adapter.take_replay_status(account).await;
+                (status.pending, status.spill_pending, status.loss.is_none())
+            };
+            assert!(loss_absent, "full-success replay must not consume loss as completion");
+            let coverage_complete = adapter.account_subscription_eose(account).await.complete();
+            let complete = seen.len() == expected && coverage_complete && !pending && !spill_pending;
+            let reason = tokio::select! {
+                biased;
+                delivery = adapter.receive() => {
+                    let delivery = delivery.expect("full-success replay receive stays healthy")
+                        .expect("full-success replay receiver stays open");
+                    assert!(delivery.account_id == *account, "only the requested account can supply a full-success receipt");
+                    adapter.ack_replay_delivery(account, &delivery.message.id).await;
+                    if seen.insert(delivery.message.id.clone()) {
+                        recorded.push(delivery);
+                    }
+                    assert!(seen.len() <= expected, "full-success replay must not exceed its exact inventory");
+                    quiet_at = tokio::time::Instant::now() + IDLE;
+                    quiet_elapsed = false;
+                    None
+                }
+                _ = std::future::ready(()), if quiet_elapsed && complete && tokio::time::Instant::now() < deadline => {
+                    Some("authoritative_complete")
+                }
+                changed = changes.changed() => {
+                    changed.expect("the original active replay progress watch stays open");
+                    None
+                }
+                _ = tokio::time::sleep_until(quiet_at), if !quiet_elapsed => {
+                    quiet_elapsed = true;
+                    None
+                }
+                _ = tokio::time::sleep_until(deadline) => Some("deadline_timeout"),
+            };
+            if let Some(reason) = reason {
+                let returned_at = tokio::time::Instant::now();
+                eprintln!(
+                    "adapter-distinct-deliveries-exit {}",
+                    serde_json::json!({
+                        "reason": reason, "delivered": seen.len(),
+                        "wait_ms": u64::try_from(wait.as_millis()).ok(),
+                        "elapsed_ms": u64::try_from(returned_at.saturating_duration_since(started).as_millis()).ok(),
+                        "remaining_ms": u64::try_from(deadline.saturating_duration_since(returned_at).as_millis()).ok(),
+                    })
+                );
+                assert!(reason == "authoritative_complete", "full-success replay must complete inside its original absolute deadline");
+                return seen.len();
+            }
+        }
+    }).await.expect("full-success replay work stays inside its original absolute deadline")
 }
 
 /// Under-page contract only: quiet does not establish authoritative completion.

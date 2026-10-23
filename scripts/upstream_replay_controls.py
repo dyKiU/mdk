@@ -146,11 +146,18 @@ INTEGRATION_CASES = {'adapter-thousand-default', 'offline', 'offline-experimenta
 SDK_REPLAY_CASES = THOUSAND_CASES | {'adapter-clamped'}
 WORKER_INPUT_CASES = {'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled'}
 QUIET_CONTRACT_CASE = 'adapter-quiet-pending-contract'
+QUIET_DEFAULT_CASE = 'adapter-quiet-pending-contract-default'
+QUIET_CONTRACT_CASES = {QUIET_CONTRACT_CASE, QUIET_DEFAULT_CASE}
+CLAMPED_CASES = {'adapter-clamped', 'adapter-clamped-default'}
 CASES[QUIET_CONTRACT_CASE] = ('relay_limit_subscriptions',
     'quiet_gap_does_not_finish_success_expected_native_replay',
     'crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs')
-for _quiet_cases in (ADAPTER_CASES, INTEGRATION_CASES, EXPERIMENTAL_CASES, BOUNDED_CASES):
-    _quiet_cases.add(QUIET_CONTRACT_CASE)
+CASES[QUIET_DEFAULT_CASE] = CASES[QUIET_CONTRACT_CASE]
+CASES['adapter-clamped-default'] = CASES['adapter-clamped']
+for _quiet_cases in (ADAPTER_CASES, INTEGRATION_CASES, BOUNDED_CASES):
+    _quiet_cases.update(QUIET_CONTRACT_CASES | {'adapter-clamped-default'})
+EXPERIMENTAL_CASES.add(QUIET_CONTRACT_CASE)
+SDK_REPLAY_CASES.add('adapter-clamped-default')
 
 
 def package_for(case):
@@ -846,6 +853,10 @@ def sdk_replay_controls():
     second = dict(first,clamp=500)
     both = line(first)+line(second)
     assert sdk_replay_marker(both,'adapter-clamped',True) == [first,second]
+    assert sdk_replay_marker(both,'adapter-clamped-default',True) == [first,second]
+    assert CASES['adapter-clamped-default'] == CASES['adapter-clamped']
+    assert positive_configuration('adapter-clamped-default') == (['sdk','test-policy-overrides'], 'm5-bounded', '4194304')
+    assert 'adapter-clamped-default' not in EXPERIMENTAL_CASES and 'adapter-clamped-default' not in PFP
     assert sdk_replay_marker(line(dict(first,delivered=0)),'adapter-clamped',False)[0]['delivered'] == 0
     assert sdk_replay_marker(line(dict(base,forwarder=None,replay=None,loss=None)),'adapter-thousand',False)[0]['forwarder'] is None
     invalid = [raw+raw, b'PRIVATE '+raw, b' '*9+raw, raw+b'sdk-replay-forwarder-diagnostic-unknown PRIVATE\n',
@@ -880,7 +891,7 @@ def sdk_replay_controls():
             pass
         else:
             raise AssertionError('sdk-replay-scoped-negative-accepted')
-    return {'positive':10, 'negative':len(invalid)+len(scoped), 'synthetic_metadata_only':True, 'product_bodies':0}
+    return {'positive':11, 'negative':len(invalid)+len(scoped), 'synthetic_metadata_only':True, 'product_bodies':0}
 
 
 
@@ -1179,6 +1190,14 @@ PFP = {
 
 PFP['cursor-promotion-experimental'] = PFP['cursor-promotion-observation']
 
+QUIET_GREEN_CALL = '    collect_authoritative_replay(adapter, account, expected, deadline, recorded).await'
+QUIET_OLD_CALL = '    { let _ = (account, expected, recorded); distinct_deliveries(adapter, deadline.saturating_duration_since(tokio::time::Instant::now())).await }'
+for _quiet_case in QUIET_CONTRACT_CASES:
+    PFP[_quiet_case] = (CASES[_quiet_case][2], QUIET_GREEN_CALL, QUIET_OLD_CALL,
+        'quiet delivery gap must not finish success-expected replay while its actual source is pending',
+        r'assert!\(\s*complete_at_return,\s*"{message}"\s*,?\s*\);')
+
+
 
 def validate_sdk_capture_inverse(text, old, new):
     start = text.index('    pub(crate) async fn observe_private_sdk_eose(')
@@ -1358,6 +1377,11 @@ def inverse(case):
         raise ValueError('inverse-anchor')
     if case in CURSOR_CASES:
         validate_cursor_inverse(text, old, new)
+    if case in QUIET_CONTRACT_CASES:
+        begin = text.index('    // SUCCESS_EXPECTED_COLLECTOR_BEGIN')
+        end = text.index('    // SUCCESS_EXPECTED_COLLECTOR_END', begin)
+        if old not in text[begin:end] or old.count('\n') != new.count('\n'):
+            raise ValueError('inverse-quiet-helper-owner')
     if case in ENGINE_CLASSIFIER_CASES:
         start = text.index('pub(crate) fn is_request_payload(')
         end = text.index('pub(crate) fn stage(', start)
@@ -1437,6 +1461,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case in QUIET_CONTRACT_CASES:
+        return positive_configuration(case)
     if case in ENGINE_CLASSIFIER_CASES:
         return ENGINE_FEATURES, 'ci', None
     if case == 'uniffi-conversation-stale':
@@ -1588,8 +1614,8 @@ QUIET_CONTRACT_KEYS = {'captured_exact', 'held_eose_exact', 'initial_coverage_in
 
 
 def quiet_contract_stage(stage):
-    if stage != 'positive':
-        raise ValueError('quiet-contract-positive-only')
+    if stage not in {'positive', 'pfp'}:
+        raise ValueError('quiet-contract-positive-or-pfp-only')
 
 
 def quiet_contract_site():
@@ -1625,7 +1651,7 @@ def quiet_contract_observe(raw, site):
     exit_keys = {'reason', 'delivered', 'wait_ms', 'elapsed_ms', 'remaining_ms'}
     if (type(exit_row) is not dict or set(exit_row) != exit_keys
             or type(exit_row['reason']) is not str
-            or exit_row['reason'] not in {'quiet_timeout', 'deadline_timeout', 'receive_error', 'stream_closed'}
+            or exit_row['reason'] not in {'quiet_timeout', 'deadline_timeout', 'receive_error', 'stream_closed', 'authoritative_complete'}
             or any(type(exit_row[key]) is not int or not 0 <= exit_row[key] < 2**64
                    for key in exit_keys - {'reason'})
             or not 0 < exit_row['wait_ms'] <= 15000
@@ -1648,7 +1674,12 @@ def quiet_contract_observe(raw, site):
 
 def quiet_contract_complete(value):
     marker = value['marker']
-    return (marker['collected_exact'] and not marker['pending_at_return']
+    return (marker['collected_exact'] and not marker['returned_zero']
+        and value['helper_exit']['reason'] == 'authoritative_complete'
+        and value['helper_exit']['delivered'] == 12 and value['helper_exit']['elapsed_ms'] >= 1500
+        and value['helper_exit']['remaining_ms'] > 0
+        and value['panic_header_count'] == 0
+        and not marker['pending_at_return']
         and not marker['spill_pending_at_return'] and not marker['coverage_incomplete_at_return']
         and marker['loss_absent_at_return'] and marker['returned_before_deadline']
         and all(marker[key] for key in ('captured_exact', 'held_eose_exact', 'initial_coverage_incomplete',
@@ -1732,17 +1763,32 @@ def quiet_contract_controls(site):
         assert not quiet_contract_red(value, inventory)
     for key, bad in [('exit_code', 1), ('selected_nonignored', 0), ('selected_nonignored', True), ('selected_ignored', 1)]:
         assert not quiet_contract_red(body(raw), dict(inventory, **{key: bad}))
-    for stage in ('pfp', 'sample'):
+    for stage in ('sample',):
         try:
             quiet_contract_stage(stage)
         except ValueError:
             pass
         else:
             raise AssertionError('quiet-contract-nonpositive-stage')
-    assert package_for(case) == 'transport-nostr-adapter' and case in INTEGRATION_CASES and case not in PFP
+    assert package_for(case) == 'transport-nostr-adapter' and case in INTEGRATION_CASES and case in PFP
     assert positive_configuration(case) == (['sdk', 'experimental-device-sync', 'test-policy-overrides'], 'm5-bounded', '4194304')
-    return {'positive': len(positives), 'negative': len(invalid) + len(denied) + 12,
-        'configuration_controls': 2, 'product_bodies': 0, 'synthetic_metadata_only': True}
+    green = dict(marker, returned_zero=False, collected_exact=True, pending_at_return=False,
+                 coverage_incomplete_at_return=False)
+    green_exit = dict(exit_row, reason='authoritative_complete', delivered=12)
+    green_raw = (encode(green, green_exit)).encode()
+    assert quiet_contract_complete(quiet_contract_observe(green_raw, site))
+    assert not quiet_contract_complete(quiet_contract_observe(raw, site))
+    assert not quiet_contract_red(body(status.encode() + green_raw), inventory)
+    for key in QUIET_CONTRACT_KEYS:
+        changed = dict(green, **{key: not green[key]})
+        assert not quiet_contract_complete(quiet_contract_observe(encode(changed, green_exit).encode(), site))
+    for reason in ('quiet_timeout', 'deadline_timeout', 'receive_error', 'stream_closed'):
+        assert not quiet_contract_complete(quiet_contract_observe(encode(green, dict(green_exit, reason=reason)).encode(), site))
+    quiet_contract_stage('pfp')
+    assert positive_configuration(QUIET_DEFAULT_CASE) == (['sdk', 'test-policy-overrides'], 'm5-bounded', '4194304')
+    assert pfp_configuration(QUIET_DEFAULT_CASE) == positive_configuration(QUIET_DEFAULT_CASE)
+    return {'positive': len(positives) + 1, 'negative': len(invalid) + len(denied) + 33,
+        'configuration_controls': 4, 'product_bodies': 0, 'synthetic_metadata_only': True}
 
 
 def owned_cleanup_marker(raw):
@@ -1880,8 +1926,11 @@ def pfp(args):
         report['phases'].append(row)
         save()
         package = package_for(phase_case)
-        flags = ['-p', package, '--lib', '--features', ','.join(features), '--locked', '--profile', profile]
+        flags = (['-p', package, '--test', CASES[phase_case][0]] if phase_case in QUIET_CONTRACT_CASES
+                 else ['-p', package, '--lib']) + ['--features', ','.join(features), '--locked', '--profile', profile]
         selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
+        if phase_case in QUIET_CONTRACT_CASES:
+            selection += ' & binary(=relay_limit_subscriptions)'
         if phase_case in UNIFFI_CASES:
             selection += ' & binary(=marmot_uniffi)'
         if phase_case in ENGINE_CASES:
@@ -1913,6 +1962,13 @@ def pfp(args):
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
         watch_accepted = True
+        if args.case in QUIET_CONTRACT_CASES:
+            row['body']['quiet_contract_observation'] = quiet_contract_observe(raw, site)
+            save()
+            watch_accepted = (quiet_contract_red(row['body'], row['inventory']) if label == 'mutant'
+                              else quiet_contract_complete(row['body']['quiet_contract_observation']))
+            row['quiet_prerequisites_accepted'] = watch_accepted
+            save()
         if args.case in CURSOR_CASES:
             row['body']['cursor_panic_facts'] = cursor_failure_facts(raw, phase_case, site)
             save()
@@ -1974,6 +2030,8 @@ def pfp(args):
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
         report['parser_controls'] = controls()
         report['own_oracle_controls'] = pfp_controls(args.case, site)
+        if args.case in QUIET_CONTRACT_CASES:
+            report['quiet_contract_parser_controls'] = quiet_contract_controls(site)
         if args.case in CURSOR_CASES:
             report['cursor_pfp_controls'] = cursor_pfp_controls(args.case, site)
         if args.case in ENGINE_CLASSIFIER_CASES:
@@ -2389,7 +2447,7 @@ def positive_configuration(case):
     if case in UNIFFI_CASES:
         return UNIFFI_FEATURES, 'm5-bounded', '4194304'
     features = (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'] if case in SELECTIVE_CASES else
-                ['sdk', 'test-policy-overrides'] if case == 'adapter-thousand-default' else
+                ['sdk', 'test-policy-overrides'] if case in {'adapter-thousand-default', QUIET_DEFAULT_CASE, 'adapter-clamped-default'} else
                 ['sdk', 'experimental-device-sync', 'test-policy-overrides'] if case in ADAPTER_CASES else
                 ['experimental-device-sync'] if case in STORAGE_CASES else
                 LIB_FEATURES + ['marmot-app/experimental-device-sync'] if case in EXPERIMENTAL_CASES else
@@ -2490,9 +2548,9 @@ def positive(args):
             report['body_resource_controls'] = resource_controls()
         if args.case in SDK_REPLAY_CASES:
             report['sdk_replay_parser_controls'] = sdk_replay_controls()
-        if args.case == 'adapter-clamped':
+        if args.case in CLAMPED_CASES:
             report['adapter_exit_parser_controls'] = adapter_exit_controls()
-        if args.case == QUIET_CONTRACT_CASE:
+        if args.case in QUIET_CONTRACT_CASES:
             report['quiet_contract_parser_controls'] = quiet_contract_controls(quiet_contract_site())
         if args.case == 'fresh-rejoin-observation':
             report['fresh_rejoin_parser_controls'] = fresh_rejoin_controls()
@@ -2603,7 +2661,7 @@ def positive(args):
                     report['body']['fresh_rejoin_observation'] = None
                     report['body']['fresh_rejoin_export_complete'] = False
                 save()
-            if args.case == 'adapter-clamped':
+            if args.case in CLAMPED_CASES:
                 try:
                     report['body']['adapter_exit_observation'] = adapter_exit_observation(ANSI.sub('', raw.decode('utf-8', errors='strict')).encode())
                     report['body']['adapter_exit_export_complete'] = True
@@ -2625,7 +2683,7 @@ def positive(args):
                 command_accepted = extra_epoch_oracle(report['body']['extra_epoch_observation'], report['body']['receipt_observations'])
                 report['body']['extra_epoch_observation_passed'] = command_accepted
                 save()
-            if args.case == QUIET_CONTRACT_CASE:
+            if args.case in QUIET_CONTRACT_CASES:
                 stage = 'diagnostic'
                 observation = quiet_contract_observe(raw, quiet_contract_site())
                 report['body']['quiet_contract_observation'] = observation
@@ -2704,7 +2762,7 @@ def positive(args):
             report['failure_category'] = 'closure'
             report['body_passed'] = False
             result = 1
-        if args.case == QUIET_CONTRACT_CASE:
+        if args.case in QUIET_CONTRACT_CASES:
             report['expected_contract_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('body', {}).get('expected_contract_runtime_red_before_closure') is True)
         report['preflight_passed'] = args.mode == 'preflight' and result == 0
@@ -2875,7 +2933,7 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
-    if args.case == QUIET_CONTRACT_CASE:
+    if args.case in QUIET_CONTRACT_CASES:
         quiet_contract_stage(args.stage)
     if args.stage == 'pfp':
         return pfp(args)
