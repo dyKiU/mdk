@@ -44,6 +44,7 @@ jobs:
         run: |
           python3 scripts/test_classify_ci_changes.py
           python3 scripts/test_ci_workflow_policy.py
+          python3 scripts/upstream_apple_ci/test_current_factory_metadata.py
       - name: Record exact source-only registration and manual-only runtime guards
         run: |
           python3 - <<'PY'
@@ -69,6 +70,7 @@ jobs:
             'workflow_sha256':hashlib.sha256(source).hexdigest(),
             'event':'push','ref':ref,'workflow_definition_equals_checkout':True,
             'policy_scripts_passed':['test_classify_ci_changes.py','test_ci_workflow_policy.py'],
+            'current_factory_metadata_controls_passed':True,
             'runtime_jobs_manual_only':True,'rust_bodies':0,'sdk_jobs':0,
             'native_bodies':0,'qualification_passed':False},indent=2)+'\n')
           PY
