@@ -202,6 +202,58 @@ PRIVATE_ROLE_CASES = {
         },
     },
 }
+ROLE_REGISTRY_PREFIX = 'private-role-registry-diagnostic'
+ROLE_REGISTRY_FIELDS = {
+    'held_demoted_registration', 'current_pool_lookup_succeeded',
+    'current_pool_relay_present', 'current_pool_demoted_registration',
+    'current_pool_old_private_actual_absent',
+    'post_deactivation_pool_lookup_succeeded', 'post_deactivation_pool_empty',
+}
+
+
+def private_role_registry_probe(raw):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    lines = [line for line in text.splitlines() if ROLE_REGISTRY_PREFIX in line]
+    if len(lines) != 1 or text.count(ROLE_REGISTRY_PREFIX) != 1 or len(lines[0]) > 1024:
+        raise ValueError('role-registry-cardinality')
+    match = re.fullmatch(r'[ \t]{0,8}' + re.escape(ROLE_REGISTRY_PREFIX)
+                         + r' (\{[^\r\n]*\})[ \t]{0,8}', lines[0])
+    if match is None:
+        raise ValueError('role-registry-envelope')
+    value = json.loads(match[1], object_pairs_hook=unique)
+    if (type(value) is not dict or set(value) != ROLE_REGISTRY_FIELDS
+            or any(type(item) is not bool for item in value.values())):
+        raise ValueError('role-registry-fields')
+    # Diagnostic observations do not alter the original 24-field verdict.
+    return value
+
+
+def private_role_registry_controls():
+    value = dict.fromkeys(ROLE_REGISTRY_FIELDS, True)
+    def row(item):
+        return (ROLE_REGISTRY_PREFIX + ' ' + json.dumps(item) + '\n').encode()
+    valid = row(value)
+    assert private_role_registry_probe(valid) == value
+    assert private_role_registry_probe(row(dict.fromkeys(ROLE_REGISTRY_FIELDS, False))) == dict.fromkeys(ROLE_REGISTRY_FIELDS, False)
+    bad = [valid + valid, b'PRIVATE ' + valid, b' ' * 9 + valid, valid + b'\xff',
+           row(dict(value, private=True)), row(dict(value, private_account_id='PRIVATE')),
+           valid.replace(b'\n', b' trailing\n'),
+           (ROLE_REGISTRY_PREFIX + ' []\n').encode(), b'']
+    for key in sorted(value):
+        bad.append(row({name: item for name, item in value.items() if name != key}))
+        bad.append(valid.replace(b'{', ('{' + json.dumps(key) + ':true,').encode(), 1))
+        bad.append(row(dict(value, **{key: 1})))
+    for raw in bad:
+        try:
+            private_role_registry_probe(raw)
+        except (ValueError, UnicodeError):
+            pass
+        else:
+            raise AssertionError('role-registry-invalid-accepted')
+    return {'positive': 2, 'negative': len(bad),
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 PRIVATE_ABA_CASE = 'sdk-private-configuration-aba'
 PRIVATE_ABA_MESSAGE = 'configuration ABA must not reauthorise the private replacement prepared before revocation'
 
@@ -3555,6 +3607,9 @@ def positive(args):
             report['family_stability_controls'] = family_stability_controls(family_stability_site())
         if args.case in PRIVATE_ROLE_CASES:
             report['private_role_controls'] = private_role_controls(args.case)
+        if args.case == 'sdk-private-role-transition':
+            report['private_role_registry_controls'] = private_role_registry_controls()
+
 
         if args.case in FAMILY_PFP_CASES:
             report['family_pfp_controls'] = family_pfp_controls(args.case, family_stability_site())
@@ -3633,6 +3688,10 @@ def positive(args):
             if args.case in PRIVATE_ROLE_CASES:
                 report['body']['private_role_probe'] = private_role_probe(raw, args.case)
                 save()  # Actual command, compiler and exact runtime counts were already saved.
+                if args.case == 'sdk-private-role-transition':
+                    report['body']['private_role_registry_probe'] = private_role_registry_probe(raw)
+                    report['body']['registry_probe_is_diagnostic_only'] = True
+                    save()  # Never substitute current-pool observations for original verdict fields.
                 if args.case == PRIVATE_ABA_CASE:
                     aba_site = private_aba_site()
                     report['body']['own_runtime_failure'] = private_aba_failure(raw, aba_site)

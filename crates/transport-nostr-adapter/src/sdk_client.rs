@@ -14773,6 +14773,18 @@ mod tests {
         } else {
             false
         };
+        // Passive registry snapshot: keep the original held-handle predicate
+        // and all 24 verdict fields unchanged. Lookup failures remain explicit.
+        let current_pool_lookup = sdk.client().relay(url_b.clone()).await;
+        let current_pool_lookup_succeeded = current_pool_lookup.is_ok();
+        let current_pool = current_pool_lookup.ok().flatten();
+        let current_pool_relay_present = current_pool.is_some();
+        let current_pool_demoted_registration = if let (Some(relay), Some(id)) = (&current_pool, &b_ordinary) {
+            relay.subscription(&SubscriptionId::new(id.clone())).await.is_some()
+        } else { false };
+        let current_pool_old_private_actual_absent = if let (Some(relay), Some(id)) = (&current_pool, &b_actual) {
+            relay.subscription(&SubscriptionId::new(id.clone())).await.is_none()
+        } else { false };
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
             && sdk
@@ -14784,6 +14796,13 @@ mod tests {
             && sdk_a.subscriptions().await.is_empty()
             && sdk_b_retry.subscriptions().await.is_empty()
             && sdk_c.subscriptions().await.is_empty();
+        let post_deactivation_lookup = sdk.client().relay(url_b.clone()).await;
+        let post_deactivation_pool_lookup_succeeded = post_deactivation_lookup.is_ok();
+        let post_deactivation_pool_empty = match post_deactivation_lookup {
+            Ok(Some(relay)) => relay.subscriptions().await.is_empty(),
+            Ok(None) => true,
+            Err(_) => false,
+        };
         sdk.shutdown().await;
         timeout(Duration::from_secs(2), forwarder)
             .await
@@ -14792,6 +14811,19 @@ mod tests {
         relay_a.shutdown();
         relay_b.shutdown();
         relay_c.shutdown();
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::emit_line(format_args!(
+            "private-role-registry-diagnostic {}",
+            serde_json::json!({
+                "held_demoted_registration": demoted_batch_registered,
+                "current_pool_lookup_succeeded": current_pool_lookup_succeeded,
+                "current_pool_relay_present": current_pool_relay_present,
+                "current_pool_demoted_registration": current_pool_demoted_registration,
+                "current_pool_old_private_actual_absent": current_pool_old_private_actual_absent,
+                "post_deactivation_pool_lookup_succeeded": post_deactivation_pool_lookup_succeeded,
+                "post_deactivation_pool_empty": post_deactivation_pool_empty,
+            })
+        ));
         #[cfg(feature = "test-policy-overrides")]
         crate::test_support::emit_line(format_args!(
             "private-role-transition-prerequisites {}",
