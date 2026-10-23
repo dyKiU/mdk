@@ -27,7 +27,9 @@ fn automatic_old_format_terminal_allows_only_fresh_explicit_accepted_rejoin() {
 // Existing process-wide inviter telemetry; completed operations only. A zero
 // delta cannot distinguish unstarted publication from an in-flight await.
 fn welcome_publish_counters(runtime: &MarmotAppRuntime) -> [u64; 4] {
-    let value = runtime.app_performance_snapshot().group_invite_welcome_publish;
+    let value = runtime
+        .app_performance_snapshot()
+        .group_invite_welcome_publish;
     [
         value.attempts,
         value.successes,
@@ -128,8 +130,8 @@ pub(super) async fn verify_fresh_rejoin(
         // Freeze the original wait verdict before this memory-only snapshot.
         decision_wait_succeeded = Some(decision_result.is_ok());
         welcome_after = Some(welcome_publish_counters(&peer.runtime));
-        let decision = decision_result
-            .expect("actual new creator Welcome must reach A before any approval");
+        let decision =
+            decision_result.expect("actual new creator Welcome must reach A before any approval");
 
         // Receipt of a new real Welcome is not the user's source acceptance.
         // Poll actual public observations while the pending decision is held.
