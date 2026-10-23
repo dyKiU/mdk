@@ -14779,12 +14779,24 @@ mod tests {
         let current_pool_lookup_succeeded = current_pool_lookup.is_ok();
         let current_pool = current_pool_lookup.ok().flatten();
         let current_pool_relay_present = current_pool.is_some();
-        let current_pool_demoted_registration = if let (Some(relay), Some(id)) = (&current_pool, &b_ordinary) {
-            relay.subscription(&SubscriptionId::new(id.clone())).await.is_some()
-        } else { false };
-        let current_pool_old_private_actual_absent = if let (Some(relay), Some(id)) = (&current_pool, &b_actual) {
-            relay.subscription(&SubscriptionId::new(id.clone())).await.is_none()
-        } else { false };
+        let current_pool_demoted_registration =
+            if let (Some(relay), Some(id)) = (&current_pool, &b_ordinary) {
+                relay
+                    .subscription(&SubscriptionId::new(id.clone()))
+                    .await
+                    .is_some()
+            } else {
+                false
+            };
+        let current_pool_old_private_actual_absent =
+            if let (Some(relay), Some(id)) = (&current_pool, &b_actual) {
+                relay
+                    .subscription(&SubscriptionId::new(id.clone()))
+                    .await
+                    .is_none()
+            } else {
+                false
+            };
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
             && sdk

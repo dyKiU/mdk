@@ -8249,7 +8249,6 @@ fn issued_group_wire_ids(
     ids
 }
 
-
 /// Pack per-route group REQs into batches of at most [`GROUP_BATCH_ROUTES`]
 /// routes that share endpoints and `since`, keeping the routes' order, and
 /// number them from `first_batch`. Only routes with one floor share a batch,
