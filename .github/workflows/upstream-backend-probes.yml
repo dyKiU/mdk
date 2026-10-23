@@ -9,7 +9,7 @@ on:
       scope:
         description: Run remaining unchanged convergence/withdrawal controls or the default backend controls
         type: choice
-        options: [experimental, default, all, current-source, replay-controls, upstream-offline-control]
+        options: [experimental, default, all, current-source, replay-controls, upstream-offline-control, existing-archive-cpu]
         default: experimental
       current_case:
         description: Exact reviewed current-source default-CI diagnostic
@@ -467,5 +467,68 @@ jobs:
           path: |
             trusted-upstream-probe/*.json
             ${{ runner.temp }}/trusted-upstream-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+
+  existing-archive-cpu:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'existing-archive-cpu'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARCHIVE_CPU_SCOPE: ${{ inputs.scope }}
+      RUST_BACKTRACE: "1"
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 7ca6e10bf0c2d0500ed56c118c4eee419f2617bc
+          path: frozen-source
+          persist-credentials: false
+      - name: Install exact source toolchain without compiling
+        working-directory: frozen-source
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - name: Install hosted diagnostic tools only
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y linux-tools-common linux-tools-generic binutils
+          perf_binary="$(rg --files /usr/lib/linux-tools -g perf | sort -V | tail -n 1)"
+          test -n "$perf_binary" && test -x "$perf_binary"
+          echo "ARCHIVE_PERF_BINARY=$perf_binary" >> "$GITHUB_ENV"
+      - name: Observe one immutable archived body with flat userspace CPU samples
+        working-directory: tooling
+        run: >-
+          python3 scripts/upstream_archive_cpu.py
+          --source-root "$GITHUB_WORKSPACE/frozen-source"
+          --output "$RUNNER_TEMP/archive-cpu-result.json"
+      - name: Restore ephemeral perf permission if controller was interrupted
+        if: always()
+        run: |
+          set -euo pipefail
+          guard="$RUNNER_TEMP/archive-perf-paranoid-before"
+          if test -f "$guard"; then
+            value="$(cat "$guard")"
+            [[ "$value" =~ ^(-1|[0-9]|10)$ ]]
+            sudo sysctl -w "kernel.perf_event_paranoid=$value" >/dev/null
+            rm "$guard"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: existing-archive-cpu-${{ github.sha }}
+          path: ${{ runner.temp }}/archive-cpu-result.json
           if-no-files-found: error
           retention-days: 7
