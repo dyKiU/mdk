@@ -1060,6 +1060,22 @@ impl<S: StorageProvider> Engine<S> {
                 },
             ));
         }
+        // Reject generic private-group work before convergence preflight or
+        // durable queue admission. A later dispatch-only refusal can strand
+        // an unsupported maintenance intent and invalidate settled reads.
+        // Keep the dispatch guard too: retained queues must remain fenced.
+        #[cfg(feature = "experimental-device-sync")]
+        if self.with_mls_group(&group_id, |group| {
+            crate::device_group_genesis::has_private_component(group)
+        })? {
+            return Err(EngineError::InvalidTransition(
+                cgka_traits::engine_state::InvalidTransition {
+                    from: "PrivateDeviceGroup",
+                    to: crate::audit_helpers::send_intent_kind_str(intent),
+                    reason: "authenticated private-group approval is required",
+                },
+            ));
+        }
         Ok(group_id)
     }
 
