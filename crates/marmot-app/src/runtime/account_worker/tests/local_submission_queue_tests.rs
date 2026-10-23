@@ -46,6 +46,9 @@ pub(in crate::runtime::account_worker) mod passive_bob {
         overflow: bool,
     }
     static ACTIVE: AtomicBool = AtomicBool::new(false);
+    pub(in crate::runtime::account_worker) fn active() -> bool {
+        ACTIVE.load(Ordering::Acquire)
+    }
     static SLOTS: LazyLock<Mutex<HashMap<String, Arc<Mutex<Counts>>>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 

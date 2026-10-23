@@ -3,7 +3,7 @@ import json
 import re
 
 PREFIX = 'sibling-worker-observation '
-PHASES = {1: 'StartupEnter', 2: 'StartupDeferredDone', 3: 'StartupWelcomeBefore', 4: 'StartupWelcomeAfter', 5: 'ReplayWatchBefore', 6: 'ReplayWatchAfter', 7: 'LoopEntry', 8: 'NativeAdmissionBefore', 9: 'NativeAdmissionAfter', 10: 'ComparisonTailBefore', 11: 'ComparisonTailCompleted', 12: 'NativeSummaryTailBefore', 13: 'PreambleCompleted', 14: 'Preselect', 15: 'CommandSelected', 16: 'LocalDrainSelected', 17: 'ReceiveSelected', 18: 'ReplaySelected', 19: 'ConvergenceSelected', 20: 'SiblingMaintenanceSelected', 21: 'LinkingMaintenanceSelected', 22: 'BroadMaintenanceSelected', 23: 'SelectBodyCompleted', 24: 'SiblingCompletionSelected', 25: 'MediaCompletionSelected', 26: 'PresentationSelected', 27: 'RecoveryCompletionSelected', 28: 'NetworkStartupReply'}
+PHASES = {1: 'StartupEnter', 2: 'StartupDeferredDone', 3: 'StartupWelcomeBefore', 4: 'StartupWelcomeAfter', 5: 'ReplayWatchBefore', 6: 'ReplayWatchAfter', 7: 'LoopEntry', 8: 'NativeAdmissionBefore', 9: 'NativeAdmissionAfter', 10: 'ComparisonTailBefore', 11: 'ComparisonTailCompleted', 12: 'NativeSummaryTailBefore', 13: 'PreambleCompleted', 14: 'Preselect', 15: 'CommandSelected', 16: 'LocalDrainSelected', 17: 'ReceiveSelected', 18: 'ReplaySelected', 19: 'ConvergenceSelected', 20: 'SiblingMaintenanceSelected', 21: 'LinkingMaintenanceSelected', 22: 'BroadMaintenanceSelected', 23: 'SelectBodyCompleted', 24: 'SiblingCompletionSelected', 25: 'MediaCompletionSelected', 26: 'PresentationSelected', 27: 'RecoveryCompletionSelected', 28: 'NetworkStartupReply', 29: 'NativeBatchTakeBefore', 30: 'NativeBatchTakeAfter', 31: 'NativeFrameIngestBefore', 32: 'NativeFrameIngestAfter', 33: 'NativeAckBefore', 34: 'NativeAckAfter', 35: 'InventoryFlushBefore', 36: 'InventoryFlushAfter', 37: 'NativeReplayObservationBefore', 38: 'NativeReplayObservationReleased', 39: 'SynchronizeNativeReplayBefore', 40: 'SynchronizeNativeReplayAfter', 41: 'NativeCursorSaveBefore', 42: 'NativeCursorSaveAfter'}
 
 
 def unique(pairs):
@@ -68,7 +68,7 @@ def controls():
     unavailable = dict(zero, registered=False, checkpoints=None, drain_attempts=None)
     variants = [zero, good, dict(zero, drain_attempts=1), unavailable,
                 dict(unavailable, registered=True, overflow=True), dict(good, elapsed_ms=None), dict(zero, before_phase=1, after_phase=27),
-                dict(zero, before_phase=14, after_phase=14), dict(zero, before_phase=28, after_phase=2)]
+                dict(zero, before_phase=14, after_phase=14), dict(zero, before_phase=28, after_phase=2), dict(zero, before_phase=29, after_phase=42)]
     encode = lambda row: (PREFIX + json.dumps(row) + '\n').encode()
     for row in variants:
         assert parse(encode(row))['observation'] == row
@@ -79,7 +79,7 @@ def controls():
            dict(good, checkpoints=0), dict(good, last_turn=None), dict(good, registered=False),
            dict(good, overflow=True), dict(good, private=True),
            dict(zero, before_phase=True), dict(zero, after_phase=False),
-           dict(zero, before_phase=0), dict(zero, after_phase=29),
+           dict(zero, before_phase=0), dict(zero, after_phase=43),
            dict(unavailable, before_phase=1), dict(good, after_phase="14")]
     invalid = [encode(row) for row in bad]
     raw = encode(good)

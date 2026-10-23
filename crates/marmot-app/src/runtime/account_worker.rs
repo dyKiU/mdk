@@ -1039,6 +1039,23 @@ fn install_storage_telemetry(client: &AppClient, telemetry: &crate::AppPerforman
     }
 }
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl AppClient {
+    // Passive fixture observation only; fixed stack encoding never publishes an identity.
+    pub(crate) fn record_native_admission_phase_for_test(&self, phase: u8) {
+        if !tests::local_submission_queue_tests::passive_bob::active() {
+            return;
+        }
+        let mut account_hex = [0_u8; 64];
+        if hex::encode_to_slice(self.adapter.account_id().as_slice(), &mut account_hex).is_err() {
+            return;
+        }
+        if let Ok(account) = std::str::from_utf8(&account_hex) {
+            tests::local_submission_queue_tests::passive_bob::record_phase(account, phase);
+        }
+    }
+}
+
 pub(crate) fn spawn_app_runtime_account_worker(
     runtime: AccountWorkerRuntime,
     command_tx: mpsc::Sender<AccountWorkerCommand>,

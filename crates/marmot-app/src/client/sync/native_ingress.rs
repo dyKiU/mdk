@@ -82,7 +82,12 @@ impl AppClient {
         let mut progressed = false;
         let mut inventory = super::InventoryBatch::default();
         for _ in 0..MAX_COMPARISON_ADMISSION_PER_TURN {
-            if !matches!(self.take_native_batch(None).await, NativeFrontier::Ready) {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.record_native_admission_phase_for_test(29);
+            let frontier = self.take_native_batch(None).await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.record_native_admission_phase_for_test(30);
+            if !matches!(frontier, NativeFrontier::Ready) {
                 break;
             }
             #[cfg(feature = "test-policy-overrides")]
@@ -138,12 +143,20 @@ impl AppClient {
         }
         if self.recovery_owner.native_cursor_target.is_some() && !self.delivery_loss_blocks_cursor()
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.record_native_admission_phase_for_test(37);
             let observation = self.adapter.replay_admission().await;
             let drained = !observation.pending && !observation.spill_pending;
             let generation = observation.generation();
             drop(observation);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.record_native_admission_phase_for_test(38);
             if drained {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.record_native_admission_phase_for_test(39);
                 self.synchronize_native_replay().await?;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.record_native_admission_phase_for_test(40);
                 if !self.recovery_owner.native_replay_authorizes(generation) {
                     return Ok(progressed);
                 }
@@ -153,9 +166,12 @@ impl AppClient {
                 // the existing large-promotion rule avoids per-message audit rows.
                 let previous = self.checkpointed_transport_timestamp;
                 let sealed = self.seal_transport_cursor();
-                if let Err(error) =
-                    self.save_state_with_pending_local_group_deletion_frontier_clears()
-                {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.record_native_admission_phase_for_test(41);
+                let saved = self.save_state_with_pending_local_group_deletion_frontier_clears();
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.record_native_admission_phase_for_test(42);
+                if let Err(error) = saved {
                     self.abandon_transport_cursor(sealed);
                     return Err(error);
                 }
@@ -232,9 +248,13 @@ impl AppClient {
         let timestamp = delivery.message.timestamp.0;
         let result = async {
             let started = std::time::Instant::now();
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.record_native_admission_phase_for_test(31);
             let admitted = self
                 .admit_recovered_delivery(delivery, super::InventoryWrite::NativeTurn)
                 .await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.record_native_admission_phase_for_test(32);
             if !matches!(&admitted, Ok((_, super::RecoveredDelivery::AlreadyHeld, _)))
                 && let Some(telemetry) = &self.runtime_telemetry
             {
@@ -289,7 +309,11 @@ impl AppClient {
         if ingested {
             batch.observe_frame_for_test(true);
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.record_native_admission_phase_for_test(33);
         batch.acknowledge().await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.record_native_admission_phase_for_test(34);
         if durable {
             if !ingested {
                 self.remember_transport_cursor(timestamp);

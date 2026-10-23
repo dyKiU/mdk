@@ -624,6 +624,8 @@ impl InventoryBatch {
     }
 
     fn flush(&mut self, client: &AppClient) {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        client.record_native_admission_phase_for_test(35);
         client.record_reconciliation_items(
             self.items[..self.len]
                 .iter()
@@ -631,6 +633,8 @@ impl InventoryBatch {
                 .map(|(route, item)| (route, item)),
         );
         self.discard();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        client.record_native_admission_phase_for_test(36);
     }
 }
 
