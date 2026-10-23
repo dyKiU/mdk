@@ -259,7 +259,10 @@ async fn actual_window_receive_cancellation(conversation: bool, force_stale: boo
                 // encounter the original production stale-window refusal.
                 match window.older_page(sequence, None).await {
                     Ok(advanced) => {
-                        assert!(advanced.sequence > sequence, "actual page command must advance sequence");
+                        assert!(
+                            advanced.sequence > sequence,
+                            "actual page command must advance sequence"
+                        );
                         force_stale_once = false;
                     }
                     Err(MarmotKitError::ChatWindowStale) => {
@@ -281,10 +284,12 @@ async fn actual_window_receive_cancellation(conversation: bool, force_stale: boo
                     stale_observed = true;
                     drop(pending);
                     // ACTUAL_STALE_COMMAND_RECOVERY_BEGIN
-                    break None;
+                    continue;
                     // ACTUAL_STALE_COMMAND_RECOVERY_END
                 }
-                Err(_) => panic!("actual conversation page command failed before cancellation witness"),
+                Err(_) => {
+                    panic!("actual conversation page command failed before cancellation witness")
+                }
             }
         };
         let observed = if let Some((pending, completed_before, replacement)) = witness {

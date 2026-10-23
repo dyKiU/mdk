@@ -69,8 +69,8 @@ pub(super) async fn assert_wrong_recipient_request_is_not_pending(
     })
     .await;
     let wait_succeeded = prerequisite_wait.is_ok();
-    let c_observed_count_json = last_c_observed_count
-        .map_or_else(|| "null".to_owned(), |count| count.to_string());
+    let c_observed_count_json =
+        last_c_observed_count.map_or_else(|| "null".to_owned(), |count| count.to_string());
     crate::test_support::emit_line(format_args!(
         "sibling-routing-prerequisite {{\"addressed_a_intake\":{},\"c_observed_count\":{},\"wait_succeeded\":{}}}",
         last_addressed_a_intake, c_observed_count_json, wait_succeeded
