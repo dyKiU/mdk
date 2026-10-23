@@ -553,13 +553,19 @@ def mutation_admission_site():
     start = text.index('pub(crate) fn assert_mutation_admitted(')
     end = text.index('\n}', start) + 2
     helper = text[start:end]
-    pattern = (r'assert_eq!\(\s*summary\.published,\s*1,\s*"'
-        + re.escape(MUTATION_ADMISSION_MESSAGE) + r'"\s*,?\s*\);')
+    # Bind the pending assertion to the exact typed branch, preserving Published=1.
+    pattern = (r'match\s+summary\.accept_disposition\s*\{\s*'
+        r'cgka_traits::SendAcceptDisposition::Published\s*=>\s*'
+        r'assert_eq!\(\s*summary\.published,\s*1\s*\),\s*'
+        r'cgka_traits::SendAcceptDisposition::AcceptedPending\s*'
+        r'\|\s*cgka_traits::SendAcceptDisposition::CompletionUnknown\s*=>\s*\{\s*'
+        r'(?P<own>assert_eq!\(\s*summary\.published,\s*0,\s*"'
+        + re.escape(MUTATION_ADMISSION_MESSAGE) + r'"\s*,?\s*\);)\s*\}\s*\}')
     matches = list(re.finditer(pattern, helper))
     if (text.count('pub(crate) fn assert_mutation_admitted(') != 1 or len(matches) != 1
             or helper.count('assert_eq!(summary.message_ids.len(), 1);') != 1):
-        raise ValueError('mutation-admission-legacy-helper-source')
-    offset = start + matches[0].start()
+        raise ValueError('mutation-admission-typed-helper-source')
+    offset = start + matches[0].start('own')
     return {'line': text[:offset].count('\n') + 1,
             'column': offset - text.rfind('\n', 0, offset)}
 
