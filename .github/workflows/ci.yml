@@ -913,7 +913,14 @@ jobs:
         # Preserve the former cargo-test lane's no-retry behavior.
         env:
           RUST_BACKTRACE: "1"
-        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --test-threads 1 --partition count:${{ matrix.partition }}/2 -E 'binary(relay_runtime)'
+        run: |
+          # Calibrate only this host's future frozen process-window counters.
+          clock_ticks="$(getconf CLK_TCK 2>/dev/null)" || clock_ticks=unknown
+          if [[ ! "$clock_ticks" =~ ^[1-9][0-9]{0,8}$ ]]; then
+            clock_ticks=unknown
+          fi
+          printf 'relay-runtime-host-sc-clk-tck=%s\n' "$clock_ticks" || true
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --test-threads 1 --partition count:${{ matrix.partition }}/2 -E 'binary(relay_runtime)'
 
       - name: Run held peer-index upgrade lookup
         if: matrix.partition == 1
