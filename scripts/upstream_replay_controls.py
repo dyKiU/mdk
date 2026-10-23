@@ -728,6 +728,14 @@ ENGINE_SUPPORT_CASES = {'engine-validator-empty', 'engine-validator-match', 'eng
 ENGINE_CASES = ENGINE_CLASSIFIER_CASES | ENGINE_SUPPORT_CASES
 ENGINE_FEATURES = ['experimental-device-sync', 'test-policy-overrides']
 PRIVATE_SEND_CASE = 'engine-private-send-admission'
+PRIVATE_MAINTENANCE_ORDER_CASE = 'engine-private-maintenance-pending-order'
+PRIVATE_MAINTENANCE_ORDER_MESSAGE = 'recovery must wait while genuine crypto owns publication'
+CASES[PRIVATE_MAINTENANCE_ORDER_CASE] = ('cgka_engine',
+    'device_group_genesis::tests::private_maintenance_recovery_preserves_a_real_pending_publish',
+    'crates/cgka-engine/src/device_group_genesis.rs')
+ENGINE_CASES.add(PRIVATE_MAINTENANCE_ORDER_CASE)
+
+
 PRIVATE_MAINTENANCE_CASE = 'engine-private-maintenance-recovery'
 PRIVATE_MAINTENANCE_TESTS = {
     'device_group_genesis::tests::private_group_retires_legacy_unapproved_queue_without_touching_ordinary_work':
@@ -2378,6 +2386,74 @@ def private_maintenance_pfp_controls(site):
     return result
 
 
+PRIVATE_MAINTENANCE_ORDER_GATE = '        if let Some(state) = self.epoch_manager.state(group_id)\n            && !matches!(state, EpochState::Stable { .. })\n        {\n            return Ok(false);\n        }\n'
+PRIVATE_MAINTENANCE_ORDER_GREEN = PRIVATE_MAINTENANCE_ORDER_GATE + PRIVATE_MAINTENANCE_GREEN
+PRIVATE_MAINTENANCE_ORDER_INVERSE = PRIVATE_MAINTENANCE_GREEN + PRIVATE_MAINTENANCE_ORDER_GATE
+PFP[PRIVATE_MAINTENANCE_ORDER_CASE] = (
+    PRIVATE_MAINTENANCE_PRODUCT, PRIVATE_MAINTENANCE_ORDER_GREEN, PRIVATE_MAINTENANCE_ORDER_INVERSE,
+    PRIVATE_MAINTENANCE_ORDER_MESSAGE,
+    r'assert_eq!\(\s*storage.list_queued_outbound_intents\(&group\).unwrap\(\).len\(\),\s*1,\s*"{message}"\s*,?\s*\);')
+
+
+def validate_private_maintenance_order_inverse(text, old, new):
+    owner = '    fn prepare_convergence_input_advance('
+    if text.count(owner) != 1:
+        raise ValueError('private-maintenance-order-owner')
+    start = text.index(owner)
+    end = text.index('    async fn run_drain_maintenance(', start)
+    if (old != PRIVATE_MAINTENANCE_ORDER_GREEN or new != PRIVATE_MAINTENANCE_ORDER_INVERSE
+            or text.count(old) != 1 or old not in text[start:end]
+            or old.count('\n') != new.count('\n') or old.count('\n') != 10):
+        raise ValueError('private-maintenance-order-scope')
+
+
+def private_maintenance_order_failure(raw, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    if text.count('panicked at ') != 1:
+        return False
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[PRIVATE_MAINTENANCE_ORDER_CASE][1])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[PRIVATE_MAINTENANCE_ORDER_CASE][2])
+        + ':' + str(site['line']) + ':' + str(site['column'])
+        + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}assertion `left == right` failed: '
+        + re.escape(PRIVATE_MAINTENANCE_ORDER_MESSAGE)
+        + r'[ \t]*\n[ \t]{0,8}left: 0[ \t]*\n[ \t]{0,8}right: 1[ \t]*(?:\n|$)')
+    return re.search(pattern, text) is not None
+
+
+def private_maintenance_order_controls(site):
+    source = Path(PRIVATE_MAINTENANCE_PRODUCT).read_text()
+    old, new = PRIVATE_MAINTENANCE_ORDER_GREEN, PRIVATE_MAINTENANCE_ORDER_INVERSE
+    validate_private_maintenance_order_inverse(source, old, new)
+    bad = [(source + old, old, new),
+        (source.replace('fn prepare_convergence_input_advance(', 'fn PRIVATE('), old, new),
+        (source.replace(old, '') + old, old, new), (source, old, old),
+        (source, old, new + '\n'), (source, old, PRIVATE_MAINTENANCE_GREEN + '\n' * 5)]
+    for text, original, mutant in bad:
+        try:
+            validate_private_maintenance_order_inverse(text, original, mutant)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('private-maintenance-order-inverse-negative')
+    header = ("thread '" + CASES[PRIVATE_MAINTENANCE_ORDER_CASE][1] + "' (7) panicked at "
+        + CASES[PRIVATE_MAINTENANCE_ORDER_CASE][2] + ':' + str(site['line']) + ':' + str(site['column'])
+        + ':\nassertion `left == right` failed: ' + PRIVATE_MAINTENANCE_ORDER_MESSAGE
+        + '\n  left: 0\n right: 1\n').encode()
+    assert private_maintenance_order_failure(header, site)
+    failures = [b'', header + header, header.replace(b'left: 0', b'left: 1'),
+        header.replace(b'right: 1', b'right: 0'), header.replace(b'left: 0', b'left: 00'),
+        header.replace(CASES[PRIVATE_MAINTENANCE_ORDER_CASE][1].encode(), b'PRIVATE'),
+        header.replace(CASES[PRIVATE_MAINTENANCE_ORDER_CASE][2].encode(), b'PRIVATE.rs'),
+        header.replace(PRIVATE_MAINTENANCE_ORDER_MESSAGE.encode(), b'PRIVATE'),
+        header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+        header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n')]
+    assert all(not private_maintenance_order_failure(raw, site) for raw in failures)
+    assert pfp_configuration(PRIVATE_MAINTENANCE_ORDER_CASE) == (ENGINE_FEATURES, 'ci', None)
+    return {'inverse_positive': 1, 'inverse_negative': len(bad), 'own_positive': 1,
+        'own_negative': len(failures), 'configuration_positive': 1,
+        'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 PRIVATE_SEND_PRODUCT = 'crates/cgka-engine/src/message_processor/mod.rs'
 PRIVATE_SEND_GREEN = '        // Reject generic private-group work before convergence preflight or\n        // durable queue admission. A later dispatch-only refusal can strand\n        // an unsupported maintenance intent and invalidate settled reads.\n        // Keep the dispatch guard too: retained queues must remain fenced.\n        #[cfg(feature = "experimental-device-sync")]\n        if self.with_mls_group(&group_id, |group| {\n            crate::device_group_genesis::has_private_component(group)\n        })? {\n            return Err(EngineError::InvalidTransition(\n                cgka_traits::engine_state::InvalidTransition {\n                    from: "PrivateDeviceGroup",\n                    to: crate::audit_helpers::send_intent_kind_str(intent),\n                    reason: "authenticated private-group approval is required",\n                },\n            ));\n        }\n'
 PRIVATE_SEND_INVERSE = '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
@@ -2989,6 +3065,8 @@ def inverse(case):
         validate_private_role_pfp_inverse(text, case, old, new)
     if case in FAMILY_PFP_CASES:
         validate_family_pfp_inverse(text, case, old, new)
+    if case == PRIVATE_MAINTENANCE_ORDER_CASE:
+        validate_private_maintenance_order_inverse(text, old, new)
     if case == PRIVATE_MAINTENANCE_CASE:
         validate_private_maintenance_inverse(text, old, new)
     if case == PRIVATE_SEND_CASE:
@@ -3051,6 +3129,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case == PRIVATE_MAINTENANCE_ORDER_CASE:
+        return private_maintenance_order_failure(raw, site)
     if case == PRIVATE_MAINTENANCE_CASE:
         return private_maintenance_failure(raw, site)
     if case == PRIVATE_SEND_CASE:
@@ -3081,6 +3161,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == PRIVATE_MAINTENANCE_ORDER_CASE:
+        return private_maintenance_order_controls(site)
     if case == PRIVATE_MAINTENANCE_CASE:
         return private_maintenance_pfp_controls(site)
     if case == PRIVATE_SEND_CASE:
@@ -3117,6 +3199,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == PRIVATE_MAINTENANCE_ORDER_CASE:
+        return positive_configuration(case)
     if case == PRIVATE_MAINTENANCE_CASE:
         return positive_configuration(case)
     if case == PRIVATE_SEND_CASE:
@@ -3541,6 +3625,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == PRIVATE_MAINTENANCE_ORDER_CASE:
+        report.update(evidence_scope='real-private-MLS-maintenance-PendingPublish-order-only',
+            native_protocol_qualification=False, full_suite_qualification=False,
+            cold_restart_qualification=False, postassert_mutant_cleanup_proven=False)
     if args.case == PRIVATE_MAINTENANCE_CASE:
         report.update(evidence_scope='real-private-MLS-maintenance-call-necessity-only',
             native_protocol_qualification=False, full_suite_qualification=False,
@@ -3645,14 +3733,14 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         inventory = json.loads(raw, object_pairs_hook=unique)
         if phase_case == PRIVATE_MAINTENANCE_CASE:
             row['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
         else:
             selected_case(inventory, CASES[phase_case][1])
-        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE}:
+        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             matched_suites = [suite for suite in inventory['rust-suites'].values()
                 if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
             if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != CASES[phase_case][0] or matched_suites[0].get('kind') != 'lib':
@@ -3679,7 +3767,7 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE}:
+        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
         if phase_case == PRIVATE_MAINTENANCE_CASE:
@@ -4930,6 +5018,8 @@ def main():
         raise ValueError('private-maintenance-positive-or-pfp-only')
     if args.case == PRIVATE_SEND_CASE and args.stage not in {'positive', 'pfp'}:
         raise ValueError('private-send-positive-or-pfp-only')
+    if args.case == PRIVATE_MAINTENANCE_ORDER_CASE and args.stage != 'pfp':
+        raise ValueError('private-maintenance-order-pfp-only')
     if args.stage == 'pfp':
         return pfp(args)
     if args.stage == 'sample':
