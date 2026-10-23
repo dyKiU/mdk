@@ -1810,7 +1810,9 @@ mod tests {
                 .unwrap(),
             1
         );
-        tokio::time::timeout(std::time::Duration::from_secs(20), client.next_event())
+        // The real hidden echo can confirm Core state without a visible sync
+        // summary. Drive the bounded drain instead of waiting for a later event.
+        tokio::time::timeout(std::time::Duration::from_secs(20), client.sync())
             .await
             .unwrap()
             .unwrap();
