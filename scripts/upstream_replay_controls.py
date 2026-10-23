@@ -36,6 +36,8 @@ CASES.update({
                                  'crates/marmot-app/src/native_device_linking/sibling_sharing_routing_acceptance.rs'),
     'command-owned-cleanup': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::command_backlog_acceptance::owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop',
                          'crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs'),
+    'late-commit-extra-epoch': ('marmot_app', 'runtime::account_worker::tests::selective_history_tests::late_commit_700_recovers_after_a_real_later_epoch',
+                           'crates/marmot-app/src/runtime/account_worker/tests/selective_history_tests.rs'),
     'late-commit-default': ('marmot_app', 'runtime::account_worker::tests::selective_history_tests::late_commit_700_recovers',
                           'crates/marmot-app/src/runtime/account_worker/tests/selective_history_tests.rs'),
     'sdk-private-capture-control': ('transport_nostr_adapter', 'live_delivery::tests::sdk_private_capture_skips_ordinary_wire_but_generic_capture_is_preserved',
@@ -84,6 +86,7 @@ CASES.update({
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
+SELECTIVE_CASES = {'late-commit-default', 'late-commit-extra-epoch'}
 OFFLINE_CASES = {'offline', 'offline-experimental'}
 COMMAND_BACKLOG_CASES = {'command-backlog', 'command-backlog-held'}
 EXPERIMENTAL_CASES = {'command-owned-cleanup', 'command-backlog-held', 'sdk-private-capture-control', 'worker-input-offer', 'worker-input-replay-first', 'worker-input-pending', 'worker-input-disabled', 'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
@@ -790,7 +793,8 @@ def replay_configuration_controls():
         assert positive_configuration(case) == (UNIFFI_FEATURES, 'm5-bounded', '4194304')
     assert pfp_configuration('uniffi-conversation-stale') == (UNIFFI_FEATURES, 'm5-bounded', '4194304')
     assert positive_configuration('wrong-recipient-routing') == (LIB_FEATURES + ['marmot-app/experimental-device-sync'], 'm5-bounded', '4194304')
-    return {'positive': 7, 'synthetic_metadata_only': True, 'product_bodies': 0}
+    assert positive_configuration('late-commit-extra-epoch') == (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'], 'ci', None)
+    return {'positive': 8, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
 def compiler(raw, inputs):
@@ -1608,10 +1612,152 @@ def selective_receipt_controls():
     return {'positive': 3, 'negative': len(bad), 'metadata_only': True, 'product_bodies': 0}
 
 
+EXTRA_EPOCH_PREFIX = 'selective-history-extra-epoch '
+EXTRA_EPOCH_CLOSE = 'selective-history-extra-epoch-close runtime_closed=true relay_shutdown_returned=true'
+
+
+def extra_epoch_marker(raw):
+    rows, order, closed = [], [], False
+    fields = {'stage', 'epoch_before', 'epoch_after', 'published', 'publication_ids',
+              'captured_unique', 'distinct_original_wires', 'original_bindings',
+              'wait_succeeded', 'expected_message_present', 'alice_epoch',
+              'runtime_closed', 'relay_shutdown_returned'}
+    expected_order = ['extra0', 'receipt0', 'extra1', 'receipt1', 'close']
+    for line in raw.decode('utf-8', errors='replace').splitlines():
+        stripped = line.lstrip(' \t')
+        if 'selective-history-extra-epoch' in stripped:
+            if len(line) - len(stripped) > 8 or len(stripped) > 2048:
+                raise ValueError('extra-epoch-prefix')
+            if stripped == EXTRA_EPOCH_CLOSE:
+                if closed:
+                    raise ValueError('extra-epoch-duplicate-close')
+                closed = True
+                order.append('close')
+                continue
+            if not stripped.startswith(EXTRA_EPOCH_PREFIX):
+                raise ValueError('extra-epoch-namespace')
+            row = json.loads(stripped[len(EXTRA_EPOCH_PREFIX):], object_pairs_hook=unique)
+            if (type(row) is not dict or set(row) != fields or type(row['stage']) is not int
+                    or row['stage'] != len(rows) or len(rows) >= 2):
+                raise ValueError('extra-epoch-fields-order')
+            for key in ['epoch_before', 'epoch_after', 'published', 'publication_ids', 'captured_unique']:
+                if not uint(row[key]):
+                    raise ValueError('extra-epoch-integer')
+            if (any(type(row[key]) is not bool for key in
+                    ['distinct_original_wires', 'runtime_closed', 'relay_shutdown_returned'])
+                    or row['runtime_closed'] or row['relay_shutdown_returned']
+                    or type(row['original_bindings']) is not list or len(row['original_bindings']) != 3
+                    or any(type(value) is not bool for value in row['original_bindings'])):
+                raise ValueError('extra-epoch-booleans')
+            if row['stage'] == 0:
+                if any(row[key] is not None for key in ['wait_succeeded', 'expected_message_present', 'alice_epoch']):
+                    raise ValueError('extra-epoch-early-verdict')
+            elif (any(type(row[key]) is not bool for key in ['wait_succeeded', 'expected_message_present'])
+                  or not uint(row['alice_epoch'])):
+                raise ValueError('extra-epoch-verdict')
+            if rows and any(rows[0][key] != row[key] for key in fields -
+                            {'stage', 'wait_succeeded', 'expected_message_present', 'alice_epoch'}):
+                raise ValueError('extra-epoch-input-changed')
+            rows.append(row)
+            order.append('extra' + str(row['stage']))
+        elif 'selective-history-receipt' in stripped:
+            if not stripped.startswith(SELECTIVE_RECEIPT_PREFIX):
+                raise ValueError('extra-epoch-receipt-prefix')
+            row = json.loads(stripped[len(SELECTIVE_RECEIPT_PREFIX):], object_pairs_hook=unique)
+            if type(row) is not dict or type(row.get('stage')) is not int or row['stage'] not in [0, 1]:
+                raise ValueError('extra-epoch-receipt-order')
+            order.append('receipt' + str(row['stage']))
+    if (len(order) != len(set(order)) or any(item not in expected_order for item in order)
+            or [expected_order.index(item) for item in order] != sorted(expected_order.index(item) for item in order)):
+        raise ValueError('extra-epoch-marker-order')
+    return {'rows': rows, 'positive_close': closed, 'marker_order': order,
+            'collection_complete': order == expected_order, 'backend_shutdown_is_socket_ack': False}
+
+
+def extra_epoch_oracle(observation, receipts):
+    if not observation['collection_complete'] or not observation['positive_close'] or len(receipts) != 2:
+        return False
+    first, last = observation['rows']
+    return (first['epoch_before'] == 2 and first['epoch_after'] == 3
+            and all(first[key] == 1 for key in ['published', 'publication_ids', 'captured_unique'])
+            and first['distinct_original_wires'] and first['original_bindings'] == [True] * 3
+            and last['wait_succeeded'] and last['expected_message_present'] and last['alice_epoch'] >= 3
+            and all(row['selected_bound'] == [True] * 3 and row['mapped_outer_id_counts'] == [1] * 3
+                    and row['receipts'] == [[1, 1, 1]] * 3 and row['target_epoch'] == 2 for row in receipts)
+            and receipts[1]['wait_succeeded'] == last['wait_succeeded']
+            and receipts[1]['expected_message_present'] == last['expected_message_present']
+            and receipts[1]['local_epoch'] == last['alice_epoch'])
+
+
+def extra_epoch_controls():
+    first = {'stage': 0, 'epoch_before': 2, 'epoch_after': 3, 'published': 1,
+             'publication_ids': 1, 'captured_unique': 1, 'distinct_original_wires': True,
+             'original_bindings': [True] * 3, 'wait_succeeded': None,
+             'expected_message_present': None, 'alice_epoch': None,
+             'runtime_closed': False, 'relay_shutdown_returned': False}
+    last = dict(first, stage=1, wait_succeeded=True, expected_message_present=True, alice_epoch=3)
+    receipt0 = {'stage': 0, 'receipts': [[1, 1, 1]] * 3, 'selected_kinds': [445] * 3,
+                'selected_bound': [True] * 3, 'mapped_outer_id_counts': [1] * 3,
+                'captured_event_count': 4, 'wait_succeeded': None,
+                'expected_message_present': None, 'local_epoch': None, 'target_epoch': 2, 'window_requests': 0}
+    receipt1 = dict(receipt0, stage=1, wait_succeeded=True, expected_message_present=True, local_epoch=3, window_requests=1)
+    def encoded(a=first, b=last, c=receipt0, d=receipt1, close=EXTRA_EPOCH_CLOSE):
+        lines = [EXTRA_EPOCH_PREFIX + json.dumps(a), SELECTIVE_RECEIPT_PREFIX + json.dumps(c),
+                 EXTRA_EPOCH_PREFIX + json.dumps(b), SELECTIVE_RECEIPT_PREFIX + json.dumps(d)]
+        if close:
+            lines.append(close)
+        return ('\n'.join(lines) + '\n').encode()
+    raw = encoded()
+    assert extra_epoch_oracle(extra_epoch_marker(raw), selective_receipt_marker(raw))
+    assert extra_epoch_oracle(extra_epoch_marker(raw.replace(b'\n', b'\r\n')), selective_receipt_marker(raw))
+    partial = encoded(close='')
+    assert len(extra_epoch_marker(partial)['rows']) == 2 and not extra_epoch_marker(partial)['collection_complete']
+    failed = encoded(b=dict(last, wait_succeeded=False), d=dict(receipt1, wait_succeeded=False))
+    assert not extra_epoch_oracle(extra_epoch_marker(failed), selective_receipt_marker(failed))
+    malformed = [raw + raw, raw.replace(b'"stage": 0', b'"stage":0,"stage":0', 1),
+                 encoded(a=dict(first, stage=True)), encoded(a=dict(first, epoch_before=True)),
+                 encoded(a=dict(first, epoch_before=-1)), encoded(a=dict(first, epoch_after=2**64)),
+                 encoded(a=dict(first, publication_ids='PRIVATE')), encoded(a=dict(first, extra='PRIVATE')),
+                 encoded(a=dict(first, original_bindings=[1, True, True])),
+                 encoded(a=dict(first, original_bindings=[True])), encoded(a=dict(first, runtime_closed=True)),
+                 encoded(a=dict(first, wait_succeeded=True)), encoded(b=dict(last, alice_epoch=True)),
+                 encoded(b=dict(last, wait_succeeded=1)), encoded(b=dict(last, published=2)),
+                 encoded(close=EXTRA_EPOCH_CLOSE + ' PRIVATE'),
+                 raw.replace(EXTRA_EPOCH_PREFIX.encode(), b'PRIVATE ' + EXTRA_EPOCH_PREFIX.encode(), 1),
+                 raw.replace(EXTRA_EPOCH_CLOSE.encode(), b'selective-history-extra-epoch-unknown'),
+                 raw.replace(EXTRA_EPOCH_CLOSE.encode(), (EXTRA_EPOCH_CLOSE + '\n' + EXTRA_EPOCH_CLOSE).encode()),
+                 encoded(a=last, b=first)]
+    for invalid in malformed:
+        try:
+            extra_epoch_marker(invalid)
+        except (ValueError, TypeError):
+            pass
+        else:
+            raise AssertionError('extra-epoch-negative-accepted')
+    rejected = [encoded(a=dict(first, epoch_before=1), b=dict(last, epoch_before=1)),
+                encoded(a=dict(first, epoch_after=4), b=dict(last, epoch_after=4)),
+                encoded(a=dict(first, published=0), b=dict(last, published=0)),
+                encoded(a=dict(first, publication_ids=2), b=dict(last, publication_ids=2)),
+                encoded(a=dict(first, captured_unique=0), b=dict(last, captured_unique=0)),
+                encoded(a=dict(first, distinct_original_wires=False), b=dict(last, distinct_original_wires=False)),
+                encoded(a=dict(first, original_bindings=[True, False, True]), b=dict(last, original_bindings=[True, False, True])),
+                encoded(b=dict(last, alice_epoch=2), d=dict(receipt1, local_epoch=2)),
+                encoded(b=dict(last, expected_message_present=False), d=dict(receipt1, expected_message_present=False)),
+                encoded(d=dict(receipt1, local_epoch=4)),
+                encoded(c=dict(receipt0, selected_bound=[False, True, True]), d=dict(receipt1, selected_bound=[False, True, True])),
+                encoded(c=dict(receipt0, receipts=[[2, 1, 1]] * 3), d=dict(receipt1, receipts=[[2, 1, 1]] * 3)),
+                encoded(c=dict(receipt0, mapped_outer_id_counts=[2, 1, 1]), d=dict(receipt1, mapped_outer_id_counts=[2, 1, 1])),
+                partial, failed]
+    for invalid in rejected:
+        assert not extra_epoch_oracle(extra_epoch_marker(invalid), selective_receipt_marker(invalid))
+    return {'positive': 4, 'malformed_negative': len(malformed), 'oracle_negative': len(rejected),
+            'metadata_only': True, 'product_bodies': 0}
+
+
 def positive_configuration(case):
     if case in UNIFFI_CASES:
         return UNIFFI_FEATURES, 'm5-bounded', '4194304'
-    features = (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'] if case == 'late-commit-default' else
+    features = (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'] if case in SELECTIVE_CASES else
                 ['sdk', 'test-policy-overrides'] if case == 'adapter-thousand-default' else
                 ['sdk', 'experimental-device-sync', 'test-policy-overrides'] if case in ADAPTER_CASES else
                 ['experimental-device-sync'] if case in STORAGE_CASES else
@@ -1641,6 +1787,10 @@ def main():
               'body_passed': False, 'source': git('rev-parse', 'HEAD'), 'baseline': args.baseline,
               'features': features, 'profile': profile, 'package': package, 'automatic_retries': 0, 'test_threads': 1,
               'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'expected_test': CASES[args.case][1]}
+    if args.case == 'late-commit-extra-epoch':
+        report.update(evidence_scope='valid-real-extra-epoch-history-scenario-only',
+                      native_protocol_qualification=False, original_full_failure_cause_established=False,
+                      mutation_necessity_claimed=False)
     if args.case in UNIFFI_CASES:
         report.update(evidence_scope='uniffi-window-cancellation-fixture-mechanism-only',
                       package='marmot-uniffi', binary='marmot_uniffi',
@@ -1689,8 +1839,10 @@ def main():
             report['routing_prerequisite_controls'] = routing_prerequisite_controls()
         if args.case == 'command-owned-cleanup':
             report['owned_cleanup_controls'] = owned_cleanup_controls(owned_cleanup_site())
-        if args.case == 'late-commit-default':
+        if args.case in SELECTIVE_CASES:
             report['selective_receipt_parser_controls'] = selective_receipt_controls()
+        if args.case == 'late-commit-extra-epoch':
+            report['extra_epoch_parser_controls'] = extra_epoch_controls()
         if args.case in OFFLINE_CASES:
             report['fingerprint_parser_controls'] = fingerprint_controls()
         if args.case in SDK_REPLAY_CASES:
@@ -1749,7 +1901,11 @@ def main():
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
-            if args.case == 'late-commit-default':
+            if args.case == 'late-commit-extra-epoch':
+                stage = 'diagnostic'
+                report['body']['extra_epoch_observation'] = extra_epoch_marker(raw)
+                save()
+            if args.case in SELECTIVE_CASES:
                 stage = 'diagnostic'
                 report['body']['receipt_observations'] = selective_receipt_marker(raw)
                 save()
@@ -1763,6 +1919,10 @@ def main():
                 report['body']['restart_observation'] = restart_marker(raw)
                 save()
             command_accepted = True
+            if args.case == 'late-commit-extra-epoch':
+                command_accepted = extra_epoch_oracle(report['body']['extra_epoch_observation'], report['body']['receipt_observations'])
+                report['body']['extra_epoch_observation_passed'] = command_accepted
+                save()
             if args.case == 'command-owned-cleanup':
                 stage = 'diagnostic'
                 observation = owned_cleanup_marker(raw)

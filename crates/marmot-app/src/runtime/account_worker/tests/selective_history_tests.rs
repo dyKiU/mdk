@@ -179,6 +179,18 @@ fn mapped_sent_outer_ids(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_commit_700_recovers() {
+    late_commit_700_recovers_case(false).await;
+}
+
+// A separate valid-history scenario, not a claim about the original full-suite
+// failure: the expected application predates one further real profile commit.
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_commit_700_recovers_after_a_real_later_epoch() {
+    late_commit_700_recovers_case(true).await;
+}
+
+async fn late_commit_700_recovers_case(extra_real_epoch: bool) {
     use marmot_account::AccountHome;
     use nostr_relay_builder::prelude::{EventId as RelayEventId, Filter as RelayFilter};
     use nostr_sdk::prelude::Timestamp;
@@ -291,6 +303,26 @@ async fn late_commit_700_recovers() {
         .unwrap()
         .epoch;
     let published = proxy.counts.group_events.lock().unwrap().split_off(start);
+    // Freeze the expected application's actual wire before any later commit.
+    // The original variant retains its original positional choice unchanged.
+    let future = if extra_real_epoch {
+        #[cfg(feature = "test-policy-overrides")]
+        {
+            assert_eq!(old_outer_ids.len(), 1, "old application must have one actual wire binding");
+            assert_eq!(old.id.to_hex(), old_outer_ids[0], "old held wire must match the actual submission");
+            assert_eq!(_update_receipt.message_ids.len(), 1, "first profile commit must publish one wire");
+            assert_eq!(published[0].id.to_hex(), _update_receipt.message_ids[0], "held commit must match the actual profile update");
+            assert_eq!(future_outer_ids.len(), 1, "future application must have one actual wire binding");
+            let mut matched = published.iter().filter(|event| event.id.to_hex() == future_outer_ids[0]);
+            let future = matched.next().expect("actual future application wire must be captured").clone();
+            assert!(matched.next().is_none(), "future application wire must be unique");
+            future
+        }
+        #[cfg(not(feature = "test-policy-overrides"))]
+        panic!("extra real epoch fixture requires test policy support");
+    } else {
+        published.last().unwrap().clone()
+    };
 
     // Retained outer copies carry an already-durable MLS payload. Their raw
     // bytes force a cut without adding unknown messages to the engine.
@@ -341,7 +373,6 @@ async fn late_commit_700_recovers() {
         .delete(RelayFilter::new().id(RelayEventId::from_byte_array(commit.id.to_bytes())))
         .await
         .unwrap();
-    let future = published.last().unwrap();
     for index in 0..700 {
         let event = EventBuilder::new(future.kind, future.content.clone())
             .tags(future.tags.iter().cloned())
@@ -352,6 +383,59 @@ async fn late_commit_700_recovers() {
             .save_event(&serde_json::from_str(event.as_json().as_str()).unwrap())
             .await
             .unwrap();
+    }
+    #[cfg(feature = "test-policy-overrides")]
+    let extra_epoch_observation = if extra_real_epoch {
+        // Both application bindings and the 700 genuine future wrappers are
+        // frozen before this separate, ordinary SDK-backed profile update.
+        let before = runtime.group_mls_state(&bob.label, &group).await.unwrap().epoch;
+        assert_eq!(before, epoch, "Bob must remain at the captured application epoch");
+        assert_eq!(before, 2, "extra-epoch scenario must start at the actual second epoch");
+        let original_bindings = [
+            old_outer_ids[0] == old.id.to_hex(),
+            _update_receipt.message_ids[0] == commit.id.to_hex(),
+            future_outer_ids[0] == future.id.to_hex(),
+        ];
+        assert!(original_bindings.into_iter().all(|bound| bound), "original wire bindings must remain frozen before the extra commit");
+        let captured_start = proxy.counts.group_events.lock().unwrap().len();
+        let receipt = runtime
+            .update_group_profile(&bob.label, &group, Some("later real commit".into()), None)
+            .await
+            .unwrap();
+        let after = runtime.group_mls_state(&bob.label, &group).await.unwrap().epoch;
+        assert_eq!(after, before.checked_add(1).unwrap(), "real profile update must advance exactly one epoch");
+        assert_eq!(receipt.published, 1, "extra real commit must actually publish once");
+        assert_eq!(receipt.message_ids.len(), 1, "extra real commit must name one publication");
+        let captured = proxy.counts.group_events.lock().unwrap();
+        let unique_publications = captured[captured_start..]
+            .iter()
+            .filter(|event| receipt.message_ids.iter().any(|id| *id == event.id.to_hex()))
+            .map(|event| event.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        assert_eq!(unique_publications, 1, "extra commit must match the actual relay publication");
+        let distinct = receipt.message_ids[0] != old.id.to_hex()
+            && receipt.message_ids[0] != commit.id.to_hex()
+            && receipt.message_ids[0] != future.id.to_hex();
+        assert!(distinct, "extra commit must not replace any original selected wire");
+        Some((before, after, receipt.published, receipt.message_ids.len(), unique_publications, distinct, original_bindings))
+    } else {
+        None
+    };
+    #[cfg(not(feature = "test-policy-overrides"))]
+    let recovery_epoch = epoch;
+    #[cfg(feature = "test-policy-overrides")]
+    let recovery_epoch = extra_epoch_observation.as_ref().map_or(epoch, |row| row.1);
+    #[cfg(feature = "test-policy-overrides")]
+    if let Some(row) = &extra_epoch_observation {
+        crate::test_support::emit_line(format_args!(
+            "selective-history-extra-epoch {}",
+            json!({"stage":0, "epoch_before":row.0, "epoch_after":row.1,
+                "published":row.2, "publication_ids":row.3, "captured_unique":row.4,
+                "distinct_original_wires":row.5, "original_bindings":row.6,
+                "wait_succeeded":null, "expected_message_present":null, "alice_epoch":null,
+                "runtime_closed":false, "relay_shutdown_returned":false})
+        ));
     }
     #[cfg(feature = "test-policy-overrides")]
     let receipt_observations = {
@@ -365,7 +449,7 @@ async fn late_commit_700_recovers() {
             &_update_receipt.message_ids,
             &future_outer_ids,
         ];
-        let selected = [&old, commit, future];
+        let selected = [&old, commit, &future];
         let rows: [[usize; 3]; 3] = std::array::from_fn(|index| {
             let receipt = receipts[index];
             let unique_matches = captured
@@ -423,6 +507,11 @@ async fn late_commit_700_recovers() {
                     .unwrap()
                     .epoch
                     >= epoch
+                && (!extra_real_epoch || runtime
+                    .group_mls_state(&alice.label, &group)
+                    .await
+                    .unwrap()
+                    .epoch >= recovery_epoch)
             {
                 break;
             }
@@ -444,6 +533,16 @@ async fn late_commit_700_recovers() {
             .await
             .unwrap()
             .epoch;
+        if let Some(row) = &extra_epoch_observation {
+            crate::test_support::emit_line(format_args!(
+                "selective-history-extra-epoch {}",
+                json!({"stage":1, "epoch_before":row.0, "epoch_after":row.1,
+                    "published":row.2, "publication_ids":row.3, "captured_unique":row.4,
+                    "distinct_original_wires":row.5, "original_bindings":row.6,
+                    "wait_succeeded":wait_succeeded, "expected_message_present":expected_message_present,
+                    "alice_epoch":local_epoch, "runtime_closed":false, "relay_shutdown_returned":false})
+            ));
+        }
         crate::test_support::emit_line(format_args!(
             "selective-history-receipt {}",
             json!({
@@ -477,6 +576,12 @@ async fn late_commit_700_recovers() {
     );
     runtime.shutdown_and_close().await.unwrap();
     backend.shutdown();
+    #[cfg(feature = "test-policy-overrides")]
+    if extra_real_epoch {
+        crate::test_support::emit_line(format_args!(
+            "selective-history-extra-epoch-close runtime_closed=true relay_shutdown_returned=true"
+        ));
+    }
 }
 
 #[derive(Default)]
