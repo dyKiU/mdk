@@ -28,14 +28,18 @@ CASES.update({
                        'crates/storage-sqlite/src/approved_account_sharing_policy/tests.rs'),
     'late-consent': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::late_sibling_consent_acceptance::authenticated_late_consent_starts_initial_proof_without_periodic_tick',
                      'crates/marmot-app/src/native_device_linking/tests/late_sibling_consent_acceptance.rs'),
+    'mirrored-catalog': ('storage_sqlite', 'mirrored_chat_catalog::tests::mirrored_catalog_encrypted_reopen_preserves_terminal_fence_and_close_is_final',
+                         'crates/storage-sqlite/src/mirrored_chat_catalog/tests.rs'),
+    'mirrored-messages': ('storage_sqlite', 'mirrored_chat_messages::tests::mirrored_messages_encrypted_restart_retains_body_and_terminal_close_is_final',
+                          'crates/storage-sqlite/src/mirrored_chat_messages/tests.rs'),
     'higher-source': ('marmot_app', 'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record',
                       'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs'),
     'spill-experimental': CASES['spill'],
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
-EXPERIMENTAL_CASES = {'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
-STORAGE_CASES = {'revoked-anchor', 'sharing-policy'}
+EXPERIMENTAL_CASES = {'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+STORAGE_CASES = {'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
 
 def package_for(case):
