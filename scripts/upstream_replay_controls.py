@@ -22,6 +22,14 @@ CASES = {
               'crates/marmot-app/src/client/delivery_spill.rs'),
 }
 CASES.update({
+    'adapter-thousand': ('relay_limit_subscriptions', 'a_thousand_groups_fit_in_a_few_reqs_and_every_group_delivers',
+                         'crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs'),
+    'adapter-clamped': ('relay_limit_subscriptions', 'stored_replay_beyond_500_is_paged_before_counting_complete',
+                        'crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs'),
+    'hidden-echo': ('marmot_app', 'runtime::device_linking::tests::device_linking_hidden_route_unknown_reopen_and_refresh_use_real_echo',
+                    'crates/marmot-app/src/runtime/device_linking.rs'),
+    'departure-native': ('marmot_app', 'native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_own_leave_precedes_replayed_proposal',
+                         'crates/marmot-app/src/native_device_linking/tests/automatic_account_departure_acceptance.rs'),
     'revoked-anchor': ('storage_sqlite', 'revoked_device_group_anchor::tests::revoked_anchor_encrypted_reopen_and_group_deletion_preserve_terminal_bytes',
                        'crates/storage-sqlite/src/revoked_device_group_anchor/tests.rs'),
     'sharing-policy': ('storage_sqlite', 'approved_account_sharing_policy::tests::sharing_policy_encrypted_restart_retains_sequences_revocation_and_closed_owner',
@@ -46,10 +54,12 @@ CASES.update({
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
-EXPERIMENTAL_CASES = {'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+EXPERIMENTAL_CASES = {'adapter-thousand', 'adapter-clamped', 'hidden-echo', 'departure-native', 'existing-anchor', 'command-backlog', 'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 STORAGE_CASES = {'existing-anchor', 'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
 
-ADAPTER_CASES = {'adapter-cancelled', 'adapter-failed-route'}
+ADAPTER_CASES = {'adapter-cancelled', 'adapter-failed-route', 'adapter-thousand', 'adapter-clamped'}
+INTEGRATION_CASES = {'offline', 'adapter-thousand', 'adapter-clamped'}
+SDK_REPLAY_CASES = {'adapter-thousand', 'adapter-clamped'}
 
 
 def package_for(case):
@@ -381,6 +391,109 @@ def watch_controls():
     return {'positive': 4, 'negative': negatives, 'metadata_only': True, 'product_bodies': 0}
 
 
+SDK_REPLAY_PREFIX = 'sdk-replay-forwarder-diagnostic '
+SDK_REPLAY_FIELDS = {'case', 'clamp', 'expected', 'delivered', 'forwarder_finished',
+                     'forwarder', 'loss', 'replay', 'coverage', 'relay_requests'}
+
+
+def sdk_replay_closed(value, case):
+    if case not in SDK_REPLAY_CASES:
+        raise ValueError('sdk-replay-case')
+    if type(value) is not dict or set(value) != SDK_REPLAY_FIELDS:
+        raise ValueError('sdk-replay-fields')
+    expected_case, expected_count = (1, 1000) if case == 'adapter-thousand' else (2, 1200)
+    if (not uint(value['case']) or value['case'] != expected_case
+            or not uint(value['expected']) or value['expected'] != expected_count
+            or not uint(value['delivered']) or value['delivered'] > expected_count
+            or type(value['forwarder_finished']) is not bool
+            or (value['clamp'] is not None and (not uint(value['clamp']) or value['clamp'] != 500))
+            or (case == 'adapter-thousand' and value['clamp'] is not None)):
+        raise ValueError('sdk-replay-scalars')
+    for key, length, optional in [('forwarder',15,True), ('loss',2,True), ('replay',12,True),
+                                  ('coverage',6,False), ('relay_requests',2,False)]:
+        row = value[key]
+        if row is None and optional:
+            continue
+        if type(row) is not list or len(row) != length or not all(uint(v) for v in row):
+            raise ValueError('sdk-replay-vector')
+    forwarder, replay = value['forwarder'], value['replay']
+    if (forwarder is not None and (forwarder[0] > 8 or forwarder[12] > 1 or forwarder[14] > 1)
+            or replay is not None and (replay[0] > 1 or replay[11] > 1)):
+        raise ValueError('sdk-replay-enums')
+    # Separate source/counter/coverage sampling is not a coherent transaction.
+    # In particular do not enforce enqueued-dispatched == pending.
+    return value
+
+
+def sdk_replay_marker(raw, case, body_passed):
+    if case not in SDK_REPLAY_CASES or type(body_passed) is not bool:
+        raise ValueError('sdk-replay-context')
+    text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
+    namespace = SDK_REPLAY_PREFIX.rstrip()
+    lines = [line for line in text.splitlines() if namespace in line]
+    if (len(lines) not in ([1] if case == 'adapter-thousand' else [1,2])
+            or text.count(namespace) != len(lines) or any(len(line) > 8192 for line in lines)):
+        raise ValueError('sdk-replay-cardinality')
+    rows = []
+    for line in lines:
+        match = re.fullmatch(r'[ \t]{0,8}' + re.escape(SDK_REPLAY_PREFIX) + r'(\{[^\r\n]*\})[ \t]{0,8}', line)
+        if match is None:
+            raise ValueError('sdk-replay-envelope')
+        rows.append(sdk_replay_closed(json.loads(match[1], object_pairs_hook=unique), case))
+    if [row['clamp'] for row in rows] != ([None] if len(rows) == 1 else [None,500]):
+        raise ValueError('sdk-replay-clamp-order')
+    if body_passed and (len(rows) != (1 if case == 'adapter-thousand' else 2)
+                        or any(row['delivered'] != row['expected'] for row in rows)):
+        raise ValueError('sdk-replay-pass-inventory')
+    return rows
+
+
+def sdk_replay_controls():
+    base = {'case':1, 'clamp':None, 'expected':1000, 'delivered':0, 'forwarder_finished':True,
+            'forwarder':[1,257,1000,2,1,742,1,0,258,1003,100,10,0,0,1],
+            'loss':[1,258], 'replay':[1,258,0,0,0,1000,0,0,0,0,0,0],
+            'coverage':[21,0,21,0,0,0], 'relay_requests':[21,0]}
+    line = lambda row: (SDK_REPLAY_PREFIX + json.dumps(row) + '\n').encode()
+    raw = line(base)
+    assert sdk_replay_marker(raw,'adapter-thousand',False) == [base]
+    assert sdk_replay_marker(b' '*8+raw.replace(b'\n',b'\r\n'),'adapter-thousand',False) == [base]
+    first = dict(base,case=2,expected=1200,delivered=1200,forwarder_finished=False)
+    second = dict(first,clamp=500)
+    both = line(first)+line(second)
+    assert sdk_replay_marker(both,'adapter-clamped',True) == [first,second]
+    assert sdk_replay_marker(line(dict(first,delivered=0)),'adapter-clamped',False)[0]['delivered'] == 0
+    assert sdk_replay_marker(line(dict(base,forwarder=None,replay=None,loss=None)),'adapter-thousand',False)[0]['forwarder'] is None
+    invalid = [raw+raw, b'PRIVATE '+raw, b' '*9+raw, raw+b'sdk-replay-forwarder-diagnostic-unknown PRIVATE\n',
+               raw.replace(b'"case": 1',b'"case": 1,"case": 1'), raw.replace(b'"case": 1',b'"case": true'),
+               line(dict(base,private='PRIVATE')), line(dict(base,expected=True)), line(dict(base,delivered=-1)),
+               line(dict(base,forwarder='PRIVATE')), line(dict(base,loss=[True,0])),
+               line(dict(base,replay=[0]*11)), line(dict(base,coverage=None)),
+               line(dict(base,forwarder=[9]+[0]*14)), line(dict(base,forwarder=[0]*12+[2,0,1])),
+               line(dict(base,replay=[0]*11+[2])), line(dict(base,clamp=500)), raw+line(base)+line(base),
+               line(dict(base,forwarder=[True]+[0]*14)), line(dict(base,coverage=[True]+[0]*5)),
+               line(dict(base,replay=[True]+[0]*11)), line(dict(base,relay_requests=[False,0])),
+               line(dict(base,loss=[2**64,0])), line(dict(base,forwarder=[0]*14+[2])),
+               raw.replace(b'"delivered": 0', b'"delivered": '+b'9'*8192)]
+    for bad in invalid:
+        try:
+            sdk_replay_marker(bad,'adapter-thousand',False)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('sdk-replay-negative-accepted')
+    scoped = [(line(first),'adapter-clamped',True), (line(second),'adapter-clamped',False),
+              (line(second)+line(first),'adapter-clamped',False), (both+line(second),'adapter-clamped',False),
+              (line(dict(first,clamp=True)),'adapter-clamped',False), (raw,'adapter-thousand',True)]
+    for bad, case, passed in scoped:
+        try:
+            sdk_replay_marker(bad,case,passed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('sdk-replay-scoped-negative-accepted')
+    return {'positive':5, 'negative':len(invalid)+len(scoped), 'synthetic_metadata_only':True, 'product_bodies':0}
+
+
 def compiler(raw, inputs):
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
     codes = sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]', text)))
@@ -434,7 +547,8 @@ def counts(raw, case):
     binary, test, _ = CASES[case]
     # Native nextest library display is the package, not Cargo's underscore
     # binary spelling. Integration display has either known qualified form.
-    display = re.escape(package_for(case)) if case != 'offline' else r'(?:marmot-app::)?relay_runtime'
+    display = (r'(?:' + re.escape(package_for(case)) + r'::)?' + re.escape(binary)
+               if case in INTEGRATION_CASES else re.escape(package_for(case)))
     names = re.findall(r'^\s*(PASS|FAIL)\s+\[[^\]]+\]\s+(?:\([ \t]{0,8}1/1\)[ \t]+)?' + display + r'\s+' + re.escape(test) + r'\s*$', text, re.M)
     if (result is None or result['executed'] != 1 or result['passed'] + result['failed'] != 1
             or len(names) != 1 or (names[0] == 'PASS') != (result['passed'] == 1)):
@@ -486,7 +600,7 @@ def controls():
         else:
             raise AssertionError('negative-envelope-accepted')
     for case, (binary, test, source) in CASES.items():
-        display = package_for(case) if case != 'offline' else 'marmot-app::relay_runtime'
+        display = package_for(case) + '::' + binary if case in INTEGRATION_CASES else package_for(case)
         runtime = ('PASS [ 1.0s] ' + display + ' ' + test + '\nSummary [ 1s] 1 test run: 1 passed, 0 skipped\n').encode()
         assert counts(runtime, case)['passed'] == 1
         failed = runtime.replace(b'PASS [', b'FAIL [').replace(b'1 passed, 0 skipped', b'0 passed, 1 failed, 9 skipped')
@@ -883,6 +997,8 @@ def main():
         before = snapshot()
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
+        if args.case in SDK_REPLAY_CASES:
+            report['sdk_replay_parser_controls'] = sdk_replay_controls()
         if args.case == 'watch-pressure':
             report['watch_parser_controls'] = watch_controls()
         if args.case == 'higher-source':
@@ -899,11 +1015,11 @@ def main():
                     or os.environ.get('CARGO_BUILD_JOBS') != '2' or os.environ.get('CARGO_INCREMENTAL') != '1'):
                 raise ValueError('replay-environment')
             binary, test, _ = CASES[args.case]
-            flags = ['-p', package, '--test', binary] if args.case == 'offline' else ['-p', package, '--lib']
+            flags = ['-p', package, '--test', binary] if args.case in INTEGRATION_CASES else ['-p', package, '--lib']
             flags += ['--features', ','.join(features), '--locked', '--profile', profile]
             selection = 'package(' + package + ') & test(=' + test + ')'
-            if args.case == 'offline':
-                selection += ' & binary(=relay_runtime)'
+            if args.case in INTEGRATION_CASES:
+                selection += ' & binary(=' + binary + ')'
             stage = 'inventory-command'
             code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
             report['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'stdout_bytes': len(raw),
@@ -934,6 +1050,11 @@ def main():
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case in SDK_REPLAY_CASES:
+                stage = 'diagnostic'
+                report['body']['sdk_replay_observations'] = sdk_replay_marker(
+                    raw, args.case, code == 0 and report['body']['counts']['passed'] == 1)
+                save()
             if args.case == 'higher-source':
                 stage = 'diagnostic'
                 report['body']['restart_observation'] = restart_marker(raw)
