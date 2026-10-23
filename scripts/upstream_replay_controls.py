@@ -23,6 +23,8 @@ CASES = {
               'crates/marmot-app/src/client/delivery_spill.rs'),
 }
 CASES.update({
+    'late-commit-default': ('marmot_app', 'runtime::account_worker::tests::selective_history_tests::late_commit_700_recovers',
+                          'crates/marmot-app/src/runtime/account_worker/tests/selective_history_tests.rs'),
     'sdk-private-capture-control': ('transport_nostr_adapter', 'live_delivery::tests::sdk_private_capture_skips_ordinary_wire_but_generic_capture_is_preserved',
                          'crates/transport-nostr-adapter/src/live_delivery.rs'),
     'worker-input-offer': ('marmot_app', 'runtime::account_worker::tests::worker_input_selection_tests::owed_offer_selects_ready_delivery_and_preserves_replay',
@@ -1294,8 +1296,89 @@ def pfp(args):
     return result
 
 
+SELECTIVE_RECEIPT_PREFIX = 'selective-history-receipt '
+
+
+def selective_receipt_marker(raw):
+    rows = []
+    fields = {'stage', 'receipts', 'selected_kinds', 'selected_bound', 'captured_event_count',
+              'wait_succeeded', 'expected_message_present', 'local_epoch', 'target_epoch', 'window_requests'}
+    for line in raw.decode('utf-8', errors='replace').splitlines():
+        stripped = line.lstrip(' \t')
+        if 'selective-history-receipt' not in stripped:
+            continue
+        if len(line) - len(stripped) > 8 or not stripped.startswith(SELECTIVE_RECEIPT_PREFIX) or len(stripped) > 2048:
+            raise ValueError('selective-receipt-prefix')
+        row = json.loads(stripped[len(SELECTIVE_RECEIPT_PREFIX):], object_pairs_hook=unique)
+        if type(row) is not dict or set(row) != fields or row['stage'] != len(rows) or type(row['stage']) is not int:
+            raise ValueError('selective-receipt-fields-order')
+        if len(rows) >= 2:
+            raise ValueError('selective-receipt-count')
+        for key in ['captured_event_count', 'target_epoch', 'window_requests']:
+            if not uint(row[key]):
+                raise ValueError('selective-receipt-count-type')
+        if (type(row['receipts']) is not list or len(row['receipts']) != 3
+                or any(type(item) is not list or len(item) != 3
+                       or any(not uint(value) or value > 65535 for value in item) for item in row['receipts'])):
+            raise ValueError('selective-receipt-matrix')
+        if (type(row['selected_kinds']) is not list or len(row['selected_kinds']) != 3
+                or any(not uint(value) or value > 65535 for value in row['selected_kinds'])
+                or type(row['selected_bound']) is not list or len(row['selected_bound']) != 3
+                or any(type(value) is not bool for value in row['selected_bound'])):
+            raise ValueError('selective-receipt-bindings')
+        if row['stage'] == 0:
+            if any(row[key] is not None for key in ['wait_succeeded', 'expected_message_present', 'local_epoch']):
+                raise ValueError('selective-receipt-early-verdict')
+        elif (any(type(row[key]) is not bool for key in ['wait_succeeded', 'expected_message_present'])
+              or not uint(row['local_epoch'])):
+            raise ValueError('selective-receipt-verdict')
+        rows.append(row)
+    if len(rows) != 2:
+        raise ValueError('selective-receipt-incomplete')
+    for key in ['receipts', 'selected_kinds', 'selected_bound', 'captured_event_count', 'target_epoch']:
+        if rows[0][key] != rows[1][key]:
+            raise ValueError('selective-receipt-input-changed')
+    if rows[1]['window_requests'] < rows[0]['window_requests']:
+        raise ValueError('selective-receipt-counter-regressed')
+    return rows
+
+
+def selective_receipt_controls():
+    first = {'stage': 0, 'receipts': [[1, 1, 1]] * 3, 'selected_kinds': [1, 2, 3],
+             'selected_bound': [True, False, True], 'captured_event_count': 4,
+             'wait_succeeded': None, 'expected_message_present': None, 'local_epoch': None,
+             'target_epoch': 2, 'window_requests': 0}
+    last = dict(first, stage=1, wait_succeeded=False, expected_message_present=False, local_epoch=3, window_requests=11)
+    def encoded(a, b):
+        return (SELECTIVE_RECEIPT_PREFIX + json.dumps(a) + '\n'
+                + SELECTIVE_RECEIPT_PREFIX + json.dumps(b) + '\n').encode()
+    raw = encoded(first, last)
+    assert selective_receipt_marker(raw) == [first, last]
+    assert selective_receipt_marker(raw.replace(b'\n', b'\r\n')) == [first, last]
+    bad = [encoded(dict(first, private='PRIVATE'), last), encoded(dict(first, stage=True), last),
+           encoded(first, dict(last, local_epoch=True)), encoded(first, dict(last, wait_succeeded=1)),
+           encoded(dict(first, receipts=[[1, 1, 'PRIVATE']] * 3), last),
+           encoded(dict(first, selected_bound=[1, False, True]), last),
+           encoded(dict(first, selected_kinds=[65536] * 3), last),
+           encoded(dict(first, wait_succeeded=True), last),
+           encoded(first, dict(last, target_epoch=3)), encoded(last, first), raw + raw,
+           raw.replace(b'"stage": 0', b'"stage":0,"stage":0'),
+           raw.replace(SELECTIVE_RECEIPT_PREFIX.encode(), b'PRIVATE ' + SELECTIVE_RECEIPT_PREFIX.encode()),
+           raw.replace(b'"captured_event_count": 4', b'"captured_event_count":18446744073709551616'),
+           (SELECTIVE_RECEIPT_PREFIX + json.dumps(first) + '\n').encode()]
+    for invalid in bad:
+        try:
+            selective_receipt_marker(invalid)
+        except (ValueError, TypeError):
+            pass
+        else:
+            raise AssertionError('selective-receipt-negative-accepted')
+    return {'positive': 2, 'negative': len(bad), 'metadata_only': True, 'product_bodies': 0}
+
+
 def positive_configuration(case):
-    features = (['sdk', 'test-policy-overrides'] if case == 'adapter-thousand-default' else
+    features = (['test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks'] if case == 'late-commit-default' else
+                ['sdk', 'test-policy-overrides'] if case == 'adapter-thousand-default' else
                 ['sdk', 'experimental-device-sync', 'test-policy-overrides'] if case in ADAPTER_CASES else
                 ['experimental-device-sync'] if case in STORAGE_CASES else
                 LIB_FEATURES + ['marmot-app/experimental-device-sync'] if case in EXPERIMENTAL_CASES else
@@ -1354,6 +1437,8 @@ def main():
         before = snapshot()
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
+        if args.case == 'late-commit-default':
+            report['selective_receipt_parser_controls'] = selective_receipt_controls()
         if args.case == 'offline':
             report['fingerprint_parser_controls'] = fingerprint_controls()
         if args.case in SDK_REPLAY_CASES:
@@ -1412,6 +1497,10 @@ def main():
             stage = 'runtime-shape'
             report['body']['counts'] = counts(raw, args.case)
             save()
+            if args.case == 'late-commit-default':
+                stage = 'diagnostic'
+                report['body']['receipt_observations'] = selective_receipt_marker(raw)
+                save()
             if args.case in SDK_REPLAY_CASES:
                 stage = 'diagnostic'
                 report['body']['sdk_replay_observations'] = sdk_replay_marker(

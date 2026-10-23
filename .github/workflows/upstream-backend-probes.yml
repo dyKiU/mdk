@@ -24,7 +24,7 @@ on:
       replay_case:
         description: One exact replay or terminal-storage control
         type: choice
-        options: [sdk-private-capture-control, offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, command-backlog-held, adapter-thousand, adapter-thousand-default, adapter-clamped, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
+        options: [late-commit-default, sdk-private-capture-control, offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, command-backlog-held, adapter-thousand, adapter-thousand-default, adapter-clamped, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
         default: offline
       reviewed_baseline:
         description: Explicit reviewed full source SHA including passive test observations
@@ -428,6 +428,7 @@ jobs:
       - name: Verify exact trusted source objects and closed metadata controls
         run: >-
           python3 scripts/upstream_trusted_offline_control.py --mode preflight
+          --case "${{ inputs.replay_case }}"
           --output trusted-upstream-probe/preflight.json
       - name: Create pristine fixed upstream source worktree on the disposable runner
         run: |
@@ -452,11 +453,12 @@ jobs:
         run: >-
           python3 scripts/qualification_build_preflight.py --label trusted-d274-offline-control
           --output "$RUNNER_TEMP/trusted-upstream-capacity.json"
-      - name: Run one pristine upstream offline body without changing its 60-second verdict
+      - name: Run one pristine upstream body without changing its original verdict
         env:
           CARGO_INCREMENTAL: "1"
         run: >-
           python3 scripts/upstream_trusted_offline_control.py --mode run
+          --case "${{ inputs.replay_case }}"
           --output trusted-upstream-probe/result.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

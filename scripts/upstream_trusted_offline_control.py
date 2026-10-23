@@ -20,6 +20,18 @@ FIXTURE = 'crates/marmot-app/tests/relay_runtime/offline_replay.rs'
 FIXTURE_SHA = 'ed803adbc13bb2a562ee10fd202d018871c1fca577e9e7104c9c662d4a158375'
 TEST = 'offline_replay::offline_replay_crosses_queue'
 SCOPE = 'upstream-offline-control'
+LATE_FIXTURE = 'crates/marmot-app/src/runtime/account_worker/tests/selective_history_tests.rs'
+LATE_FIXTURE_SHA = '053197030e55f4a99510bf285c5ffe5d38b0e126ed32f654f5cadc493e1e1719'
+LATE_TEST = 'runtime::account_worker::tests::selective_history_tests::late_commit_700_recovers'
+
+
+def configuration(case):
+    if case == 'offline':
+        return FIXTURE, FIXTURE_SHA, TEST, 'relay_runtime', ['test-policy-overrides']
+    if case == 'late-commit-default':
+        return LATE_FIXTURE, LATE_FIXTURE_SHA, LATE_TEST, 'marmot_app', [
+            'test-policy-overrides', 'cgka-engine/test-policy-overrides', 'cgka-engine/test-crash-hooks']
+    raise ValueError('unknown-trusted-control')
 
 
 def digest(data):
@@ -39,23 +51,24 @@ def snapshot():
             'inputs': inputs, 'tracked_clean': not git('diff', 'HEAD', '--name-only')}
 
 
-def controls():
-    passed = ('PASS [ 1s] marmot-app::relay_runtime ' + TEST
+def controls(case='offline'):
+    _, _, test, binary, _ = configuration(case)
+    passed = ('PASS [ 1s] marmot-app::' + binary + ' ' + test
               + '\nSummary [ 1s] 1 test run: 1 passed, 12 skipped\n').encode()
     failed = passed.replace(b'PASS [', b'FAIL [').replace(b'1 passed, 12 skipped', b'0 passed, 1 failed, 12 skipped')
-    assert counts(passed, 'offline')['passed'] == 1
-    assert counts(failed, 'offline')['failed'] == 1
+    assert counts(passed, case)['passed'] == 1
+    assert counts(failed, case)['failed'] == 1
     negatives = 0
-    for raw in [passed + passed, passed.replace(TEST.encode(), b'PRIVATE'),
+    for raw in [passed + passed, passed.replace(test.encode(), b'PRIVATE'),
                 passed.replace(b'1 test run', b'0 test run'), passed.replace(b'1 passed', b'0 passed')]:
         try:
-            counts(raw, 'offline')
+            counts(raw, case)
         except ValueError:
             negatives += 1
         else:
             raise AssertionError('trusted-runtime-negative-accepted')
     assert compiler(b'error[E0308]: PRIVATE\n', {})['codes'] == ['E0308']
-    assert panic_facts(b"thread 'PRIVATE' panicked at PRIVATE.rs:1:2:\nPRIVATE\n", 'offline')['unknown_or_excess_headers'] == 1
+    assert panic_facts(b"thread 'PRIVATE' panicked at PRIVATE.rs:1:2:\nPRIVATE\n", case)['unknown_or_excess_headers'] == 1
     return {'positive': 4, 'negative': negatives, 'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
@@ -64,13 +77,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['preflight', 'run'], required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--case', choices=['offline', 'late-commit-default'], default='offline')
     args = parser.parse_args()
+    fixture, fixture_sha, test, binary_name, features = configuration(args.case)
     tooling_root = Path(__file__).resolve().parents[1]
     os.chdir(tooling_root)
     output = Path(args.output).absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
     report = {'scope': SCOPE, 'source': SOURCE, 'source_tree': TREE, 'tooling': git('rev-parse', 'HEAD'),
-              'expected_test': TEST, 'features': ['test-policy-overrides'], 'profile': 'ci',
+              'case': args.case, 'expected_test': test, 'features': features, 'profile': 'ci',
               'automatic_retries': 0, 'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK'),
               'qualification_passed': False, 'scoped_original_control_passed': False,
               'original_marker_expected': False, 'source_is_private_candidate': False}
@@ -93,18 +108,21 @@ def main():
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(), object_pairs_hook=unique)
         if event['inputs'].get('scope') != SCOPE:
             raise ValueError('tooling-event-scope')
+        if event['inputs'].get('replay_case', 'offline') != args.case:
+            raise ValueError('tooling-event-case')
         tooling_before = snapshot()
         if not tooling_before['tracked_clean']:
             raise ValueError('tooling-dirty')
         if git('rev-parse', SOURCE + '^{commit}') != SOURCE or git('rev-parse', SOURCE + '^{tree}') != TREE:
             raise ValueError('source-object')
-        for path, expected in [('Cargo.lock', LOCK), ('rust-toolchain.toml', TOOLCHAIN), (FIXTURE, FIXTURE_SHA)]:
+        for path, expected in [('Cargo.lock', LOCK), ('rust-toolchain.toml', TOOLCHAIN), (fixture, fixture_sha)]:
             if digest(subprocess.check_output(['git', 'show', SOURCE + ':' + path])) != expected:
                 raise ValueError('source-file-object')
         report['tooling_tree'] = tooling_before['tree']
         report['tooling_inputs_sha256'] = digest(json.dumps(tooling_before['inputs'], sort_keys=True).encode())
-        report['parser_controls'] = controls()
-        report['fingerprint_parser_controls'] = fingerprint_controls()
+        report['parser_controls'] = controls(args.case)
+        if args.case == 'offline':
+            report['fingerprint_parser_controls'] = fingerprint_controls()
         if args.mode == 'preflight':
             result = 0
         else:
@@ -127,19 +145,20 @@ def main():
             if (source_before['head'] != SOURCE or source_before['tree'] != TREE or not source_before['tracked_clean']
                     or git('status', '--porcelain', '--untracked-files=all')):
                 raise ValueError('source-pristine-identity')
-            for path, expected in [('Cargo.lock', LOCK), ('rust-toolchain.toml', TOOLCHAIN), (FIXTURE, FIXTURE_SHA)]:
+            for path, expected in [('Cargo.lock', LOCK), ('rust-toolchain.toml', TOOLCHAIN), (fixture, fixture_sha)]:
                 if source_before['inputs'][path]['sha256'] != expected:
                     raise ValueError('source-pristine-inputs')
             report['source_inputs_sha256'] = digest(json.dumps(source_before['inputs'], sort_keys=True).encode())
             report['source_lock_sha256'] = LOCK
-            report['source_fixture_sha256'] = FIXTURE_SHA
+            report['source_fixture_sha256'] = fixture_sha
             report['source_toolchain_sha256'] = TOOLCHAIN
             code, raw, elapsed, _ = capture(['rustc', '--version'], 30)
             if code != 0 or re.fullmatch(rb'rustc 1\.97\.1 \([0-9a-f]+ [0-9-]+\)\s*', raw) is None:
                 raise ValueError('source-rustc-release')
             report['rustc_release'] = '1.97.1'
-            flags = ['-p', 'marmot-app', '--test', 'relay_runtime', '--features', 'test-policy-overrides', '--locked', '--profile', 'ci']
-            selection = 'package(marmot-app) & binary(=relay_runtime) & test(=' + TEST + ')'
+            flags = ['-p', 'marmot-app'] + (['--test', binary_name] if args.case == 'offline' else ['--lib'])
+            flags += ['--features', ','.join(features), '--locked', '--profile', 'ci']
+            selection = 'package(marmot-app) & binary(=' + binary_name + ') & test(=' + test + ')'
             stage = 'inventory-command'
             code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
             report['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'stdout_bytes': len(raw),
@@ -150,9 +169,10 @@ def main():
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
-            selected_case(inventory, TEST)
-            report['compiled_fingerprints'] = fingerprint_snapshot(
-                inventory, TEST, os.environ.get('CARGO_TARGET_DIR', 'target'))
+            selected_case(inventory, test)
+            if args.case == 'offline':
+                report['compiled_fingerprints'] = fingerprint_snapshot(
+                    inventory, test, os.environ.get('CARGO_TARGET_DIR', 'target'))
             report['inventory'].update(selected_nonignored=1, selected_ignored=0)
             save()
             if snapshot() != source_before:
@@ -165,10 +185,10 @@ def main():
                                           '--success-output', 'immediate', '-E', selection], 1800)
             report['body'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'raw_bytes': len(raw), 'raw_sha256': digest(raw),
                               'runtime_summary': summary_counts(raw), 'compiler': compiler(raw, source_before['inputs']),
-                              'panic': panic_facts(raw, 'offline')}
+                              'panic': panic_facts(raw, args.case)}
             save()
             stage = 'runtime-shape'
-            report['body']['counts'] = counts(raw, 'offline')
+            report['body']['counts'] = counts(raw, args.case)
             save()
             # Pristine upstream has no later private diagnostic marker. The
             # original authenticated-text/60s/storage/cleanup assertions decide.
