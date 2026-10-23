@@ -320,6 +320,14 @@ for _scoped_reporting_set in (ADAPTER_CASES, EXPERIMENTAL_CASES, BOUNDED_CASES):
     _scoped_reporting_set.add('sdk-private-missing-route')
 
 
+FAMILY_PFP_CASES = {'sdk-private-family-refresh-pfp', 'sdk-private-family-ordinary-pfp'}
+for _family_pfp_case in FAMILY_PFP_CASES:
+    CASES[_family_pfp_case] = CASES[FAMILY_STABILITY_CASE]
+    ADAPTER_CASES.add(_family_pfp_case)
+    EXPERIMENTAL_CASES.add(_family_pfp_case)
+    BOUNDED_CASES.add(_family_pfp_case)
+
+
 def package_for(case):
     if case in LIVE_SEAL_CASES:
         return 'transport-nostr'
@@ -1497,10 +1505,107 @@ for _quiet_case in QUIET_CONTRACT_CASES:
         r'assert!\(\s*complete_at_return,\s*"{message}"\s*,?\s*\);')
 
 
+FAMILY_PFP_LITERALS = {'sdk-private-family-refresh-pfp': {'green': '    let account_id = &sync.account_id;\n    // The live families, and the one that carries each live route.\n    let mut live = HashMap::<RepackFamily, Vec<NostrSubscription>>::new();\n', 'inverse': '    let refresh_private = refresh_private || selected_private.is_some(); let account_id = &sync.account_id;\n    // The live families, and the one that carries each live route.\n    let mut live = HashMap::<RepackFamily, Vec<NostrSubscription>>::new();\n', 'mutant_verdicts': {'private_actual_unchanged': False, 'untouched_family_wire_unchanged': True, 'original_private_wire_current': False}}, 'sdk-private-family-ordinary-pfp': {'green': '    let mut dirty = wanted\n        .iter()\n        .filter(|(_, _, _, _, always)| *always)\n        .filter_map(|(_, carrier, _, _, _)| carrier.clone())\n        .chain(\n            removed\n                .iter()\n                .chain(added.values())\n                .filter_map(|route| carried_by.get(&route.route_key()).cloned()),\n        )\n        .collect::<HashSet<_>>();\n', 'inverse': '    let mut dirty = wanted\n        .iter()\n        .filter(|(_, _, _, _, always)| *always)\n        .filter_map(|(_, carrier, _, _, _)| carrier.clone())\n        .chain(\n            removed\n                .iter()\n                .chain(added.values())\n                .filter_map(|route| carried_by.get(&route.route_key()).cloned()),\n        )\n        .collect::<HashSet<_>>(); dirty.extend(live_order.iter().filter(|family| !family.is_private()).cloned());\n', 'mutant_verdicts': {'private_actual_unchanged': True, 'untouched_family_wire_unchanged': False, 'original_private_wire_current': True}}}
+FAMILY_PFP_PATTERN = (r'assert!\(\s*private_actual_unchanged\s*&&\s*untouched_family_wire_unchanged'
+    r'\s*&&\s*original_private_wire_current,\s*"{message}"\s*\);')
+for _family_case, _family_spec in FAMILY_PFP_LITERALS.items():
+    PFP[_family_case] = ('crates/transport-nostr-adapter/src/lib.rs',
+        _family_spec['green'], _family_spec['inverse'], FAMILY_STABILITY_MESSAGE, FAMILY_PFP_PATTERN)
+
+
+def validate_family_pfp_inverse(text, case, old, new):
+    owner = 'fn plan_scoped_family_repacks('
+    boundary = '\n#[cfg(feature = "experimental-device-sync")]\nfn issued_group_wire_ids('
+    spec = FAMILY_PFP_LITERALS[case]
+    if text.count(owner) != 1 or text.count(boundary) != 1:
+        raise ValueError('family-pfp-owner-cardinality')
+    start = text.index(owner)
+    end = text.index(boundary, start)
+    if (old != spec['green'] or new != spec['inverse'] or text.count(old) != 1
+            or old not in text[start:end] or old.count('\n') != new.count('\n')):
+        raise ValueError('family-pfp-inverse-owner')
+
+
+def family_pfp_ready(value, case, mutant=False):
+    expected = (FAMILY_PFP_LITERALS[case]['mutant_verdicts'] if mutant
+                else dict.fromkeys(FAMILY_STABILITY_VERDICTS, True))
+    return (type(value) is dict
+            and set(value) == FAMILY_STABILITY_PREREQUISITES | FAMILY_STABILITY_VERDICTS
+            and all(type(item) is bool for item in value.values())
+            and all(value[key] is True for key in FAMILY_STABILITY_PREREQUISITES)
+            and all(value[key] is expected[key] for key in FAMILY_STABILITY_VERDICTS))
+
+
+def family_pfp_failure(raw, case, site):
+    return (family_stability_failure(raw, site)
+            and family_pfp_ready(family_stability_probe(raw), case, mutant=True))
+
+
+def family_pfp_controls(case, site):
+    probe_controls = family_stability_controls(site)
+    value = dict.fromkeys(FAMILY_STABILITY_PREREQUISITES | FAMILY_STABILITY_VERDICTS, True)
+    mutant = dict(value, **FAMILY_PFP_LITERALS[case]['mutant_verdicts'])
+    def row(item):
+        return (FAMILY_STABILITY_PREFIX + ' ' + json.dumps(item) + '\n').encode()
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at " + CASES[case][2]
+        + ':' + str(site['line']) + ':' + str(site['column']) + ':\n'
+        + FAMILY_STABILITY_MESSAGE + '\n').encode()
+    valid = row(mutant) + header
+    positives = [valid, valid.replace(b"' (7)", b"'"), valid.replace(b'\n', b'\r\n'), b' '*8 + valid]
+    assert all(family_pfp_failure(raw, case, site) for raw in positives)
+    keys = sorted(FAMILY_STABILITY_VERDICTS)
+    vector_controls = 0
+    for ordinal in range(8):
+        vector = {key: bool(ordinal & (1 << index)) for index, key in enumerate(keys)}
+        observation = dict(value, **vector)
+        expected_control = all(vector.values())
+        expected_mutant = vector == FAMILY_PFP_LITERALS[case]['mutant_verdicts']
+        assert family_pfp_ready(observation, case) is expected_control
+        assert family_pfp_ready(observation, case, mutant=True) is expected_mutant
+        assert family_pfp_failure(row(observation) + header, case, site) is expected_mutant
+        vector_controls += 3
+    invalid = [row(dict(mutant, **{key: False})) + header for key in FAMILY_STABILITY_PREREQUISITES]
+    invalid += [valid + header, header + row(mutant),
+        valid.replace(CASES[case][1].encode(), b'PRIVATE'),
+        valid.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
+        valid.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
+        valid.replace((':' + str(site['column']) + ':').encode(), b':999999:'),
+        valid.replace(FAMILY_STABILITY_MESSAGE.encode(), b'PRIVATE'),
+        row(mutant) + b'PRIVATE ' + header]
+    assert all(not family_pfp_failure(raw, case, site) for raw in invalid)
+    spec = FAMILY_PFP_LITERALS[case]
+    product = Path(PFP[case][0]).read_text()
+    validate_family_pfp_inverse(product, case, spec['green'], spec['inverse'])
+    bad_owners = [product.replace('fn plan_scoped_family_repacks(', 'fn PRIVATE(', 1),
+        spec['green'] + product.replace(spec['green'], '', 1),
+        product + '\nfn plan_scoped_family_repacks(', product + spec['green'],
+        product.replace('fn issued_group_wire_ids(', 'fn PRIVATE(', 1)]
+    for changed in bad_owners:
+        try:
+            validate_family_pfp_inverse(changed, case, spec['green'], spec['inverse'])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('family-pfp-owner-negative')
+    bad_inverses = [spec['green'], spec['inverse'] + '\n',
+        FAMILY_PFP_LITERALS[next(key for key in FAMILY_PFP_CASES if key != case)]['inverse']]
+    for changed in bad_inverses:
+        try:
+            validate_family_pfp_inverse(product, case, spec['green'], changed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('family-pfp-inverse-negative')
+    assert pfp_configuration(case) == positive_configuration(case)
+    return {'positive': len(positives), 'negative': len(invalid) + len(bad_owners) + len(bad_inverses),
+        'verdict_vector_controls': vector_controls, 'configuration_controls': 1,
+        'probe_controls': probe_controls, 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 SCOPED_REPORT_CASE = 'sdk-scoped-reporting'
 SCOPED_REPORT_MESSAGE = 'selected private scoped subscription must preserve the actual degraded activation report'
-SCOPED_REPORT_GREEN = '                    Some(actual) => {\n                        relay_client\n                            .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                            .await\n                    }\n'
-SCOPED_REPORT_INVERSE = '                    Some(actual) => {\n                        relay_client\n                            .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                            .await.map(|_report| NostrSubscribeReport::default())\n                    }\n'
+SCOPED_REPORT_GREEN = '                        Some(actual) => {\n                            relay_client\n                                .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                                .await\n                        }\n'
+SCOPED_REPORT_INVERSE = '                        Some(actual) => {\n                            relay_client\n                                .subscribe_scoped_reporting(subscription.clone(), actual.clone())\n                                .await.map(|_report| NostrSubscribeReport::default())\n                        }\n'
 PFP[SCOPED_REPORT_CASE] = ('crates/transport-nostr-adapter/src/lib.rs',
     SCOPED_REPORT_GREEN, SCOPED_REPORT_INVERSE, SCOPED_REPORT_MESSAGE,
     r'assert!\(\s*metrics\.activations_degraded\s*==\s*1\s*&&\s*metrics\.activations_full\s*==\s*0\s*&&\s*metrics\.activations_failed\s*==\s*0,\s*"{message}"\s*,?\s*\);')
@@ -1928,6 +2033,8 @@ def inverse(case):
     text = original.decode('utf-8')
     if text.count(old) != 1:
         raise ValueError('inverse-anchor')
+    if case in FAMILY_PFP_CASES:
+        validate_family_pfp_inverse(text, case, old, new)
     if case == SCOPED_REPORT_CASE:
         validate_scoped_report_inverse(text, old, new)
     if case in LIVE_SEAL_CASES:
@@ -1982,6 +2089,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case in FAMILY_PFP_CASES:
+        return family_pfp_failure(raw, case, site)
     if case == SCOPED_REPORT_CASE:
         return scoped_report_failure(raw, site)
     if case in LIVE_SEAL_CASES:
@@ -2000,6 +2109,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case in FAMILY_PFP_CASES:
+        return family_pfp_controls(case, site)
     if case == SCOPED_REPORT_CASE:
         return scoped_report_controls(site)
     if case in LIVE_SEAL_CASES:
@@ -2024,6 +2135,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case in FAMILY_PFP_CASES:
+        return positive_configuration(case)
     if case == SCOPED_REPORT_CASE:
         return positive_configuration(case)
     if case in LIVE_SEAL_CASES:
@@ -2517,7 +2630,7 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case == SCOPED_REPORT_CASE and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | {SCOPED_REPORT_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         selected_case(json.loads(raw, object_pairs_hook=unique), CASES[phase_case][1])
         row['inventory'].update(selected_nonignored=1, selected_ignored=0)
@@ -2538,6 +2651,11 @@ def pfp(args):
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
         watch_accepted = True
+        if phase_case in FAMILY_PFP_CASES:
+            row['body']['family_stability_probe'] = family_stability_probe(raw)
+            watch_accepted = family_pfp_ready(row['body']['family_stability_probe'], phase_case, mutant=label == 'mutant')
+            clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+            save()
         if phase_case == SCOPED_REPORT_CASE:
             row['body']['scoped_report_probe'] = scoped_report_probe(raw)
             watch_accepted = scoped_report_ready(row['body']['scoped_report_probe'], mutant=label == 'mutant')
@@ -3157,6 +3275,8 @@ def positive(args):
             report['pending_request_parser_controls'] = pending_request_controls(pending_request_sites())
         if args.case == FAMILY_STABILITY_CASE:
             report['family_stability_controls'] = family_stability_controls(family_stability_site())
+        if args.case in FAMILY_PFP_CASES:
+            report['family_pfp_controls'] = family_pfp_controls(args.case, family_stability_site())
         if args.case == 'sdk-scoped-reporting':
             report['scoped_report_probe_controls'] = scoped_report_probe_controls()
         if args.case == SCOPED_REPORT_CASE:
@@ -3331,6 +3451,12 @@ def positive(args):
                 report['historical_cause_proven'] = False
                 save()
             command_accepted = True
+            if args.case in FAMILY_PFP_CASES:
+                report['body']['family_stability_probe'] = family_stability_probe(raw)
+                command_accepted = (family_pfp_ready(report['body']['family_stability_probe'], args.case)
+                    and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                            for part in [report['inventory'], report['body']]))
+                save()
             if args.case == FAMILY_STABILITY_CASE:
                 command_accepted = all(report['body']['family_stability_probe'].values())
             if args.case == SCOPED_REPORT_CASE:
