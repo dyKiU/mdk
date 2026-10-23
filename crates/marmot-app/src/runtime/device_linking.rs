@@ -1069,7 +1069,7 @@ mod tests {
                 .is_ok_and(|result| result.is_ok());
         drop(relay);
         let cleanup_succeeded = session_cleanup && runtime_cleanup;
-        eprintln!(
+        crate::test_support::emit_line(format_args!(
             "AUTOMATIC_SCAN_EXPIRY_PROBE {}",
             serde_json::json!({
                 "initial_targets_empty": initial_targets_empty,
@@ -1080,7 +1080,7 @@ mod tests {
                 "cleanup_succeeded": cleanup_succeeded,
                 "expired_scan_rejected": expired_scan_rejected,
             })
-        );
+        ));
         assert!(
             initial_targets_empty
                 && initial_code_valid
