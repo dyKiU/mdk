@@ -21854,16 +21854,22 @@ async fn a_send_that_reaches_the_transport_reports_published() {
     runtime.shutdown().await;
 }
 
-/// Legacy mutation admission oracle, extracted without changing its behavior.
-/// The focused runtime regression calls this only after recovery and cleanup.
-/// GREEN adopts the incoming typed-disposition match in this shared helper.
+/// Admission retains the original event ID even when transport confirmation is
+/// pending or unknown. Delivery is proved separately by the bounded canonical
+/// state check on every device, without resubmitting the mutation.
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) fn assert_mutation_admitted(summary: &crate::SendSummary) {
     assert_eq!(summary.message_ids.len(), 1);
-    assert_eq!(
-        summary.published, 1,
-        "mutation admission must agree with its actual typed send outcome"
-    );
+    match summary.accept_disposition {
+        cgka_traits::SendAcceptDisposition::Published => assert_eq!(summary.published, 1),
+        cgka_traits::SendAcceptDisposition::AcceptedPending
+        | cgka_traits::SendAcceptDisposition::CompletionUnknown => {
+            assert_eq!(
+                summary.published, 0,
+                "mutation admission must agree with its actual typed send outcome"
+            );
+        }
+    }
 }
 
 #[cfg(all(

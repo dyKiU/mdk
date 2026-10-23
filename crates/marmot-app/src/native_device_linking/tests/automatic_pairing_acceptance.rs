@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::assert_mutation_admitted;
 use crate::{MarmotApp, MarmotAppRuntime};
 use marmot_account::AccountHome;
 
@@ -1041,7 +1042,7 @@ async fn four_device_enrollment_with_scan_direction(
             .edit_message(&account, group, &original, corrected)
             .await
             .unwrap();
-        assert_eq!(edit.message_ids.len(), 1);
+        assert_mutation_admitted(&edit);
         wait_for_device_message_state(
             &runtimes[..3],
             &account,
@@ -1065,7 +1066,7 @@ async fn four_device_enrollment_with_scan_direction(
             .delete_message(&account, group, &removed.message_ids[0])
             .await
             .unwrap();
-        assert_eq!(deleted.published, 1);
+        assert_mutation_admitted(&deleted);
         wait_for_device_message_state(
             &runtimes[..3],
             &account,
@@ -1585,8 +1586,7 @@ async fn verify_four_device_mutations(
             .edit_message(account, group, &accepted.message_id_hex, &corrected)
             .await
             .unwrap();
-        assert_eq!(edited.published, 1);
-        assert_eq!(edited.message_ids.len(), 1);
+        assert_mutation_admitted(&edited);
         wait_for_device_message_state(
             runtimes,
             account,
@@ -1601,7 +1601,7 @@ async fn verify_four_device_mutations(
             .delete_message(account, group, &accepted.message_id_hex)
             .await
             .unwrap();
-        assert_eq!(deleted.published, 1);
+        assert_mutation_admitted(&deleted);
         wait_for_device_message_state(
             runtimes,
             account,
