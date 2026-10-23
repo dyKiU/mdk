@@ -3733,7 +3733,6 @@ async fn prompt_relay_refusals_fail_in_round_trips() {
     fx.shutdown().await;
 }
 
-
 /// Regression-first success-expected entry. Its current quiet delegation is
 /// deliberately retained for the remote RED, not a change to partial callers.
 /// A future correction is confined here and explicit full-success call sites:
