@@ -576,6 +576,142 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn private_group_retires_legacy_unapproved_queue_without_touching_ordinary_work() {
+        use cgka_traits::engine::{CgkaEngine, CreateGroupRequest, SendIntent};
+        use cgka_traits::storage::OutboundIntentStorage;
+        let storage = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
+        let mut engine = current_test_engine(storage.clone());
+        let genesis = engine.create_private_device_group_genesis().unwrap();
+        let group = genesis.group_id().clone();
+        let (ordinary, _) = engine
+            .create_group(CreateGroupRequest {
+                name: "ordinary queue preservation".into(),
+                description: String::new(),
+                members: vec![],
+                required_features: vec![],
+                app_components: vec![],
+                initial_admins: vec![],
+            })
+            .await
+            .unwrap();
+        // Reproduce the durable state admitted by the old, late-only guard.
+        // No positive private approval or transport artifact is manufactured.
+        engine
+            .queue_outbound_intent(
+                group.clone(),
+                SendIntent::SelfUpdate {
+                    group_id: group.clone(),
+                },
+                0,
+            )
+            .unwrap();
+        engine
+            .queue_outbound_intent(
+                ordinary.clone(),
+                SendIntent::SelfUpdate {
+                    group_id: ordinary.clone(),
+                },
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            storage.list_queued_outbound_intents(&group).unwrap().len(),
+            1
+        );
+        // Consume the genuine scheduler handoff before executing its private
+        // job, just as SessionEffects transfers these wakes to the host.
+        let scheduled = engine.drain_pending_convergence_groups();
+        assert!(scheduled.contains(&group) && scheduled.contains(&ordinary));
+        let result = engine.advance_convergence_and_drain_queued(&group).await;
+        let remaining = storage.list_queued_outbound_intents(&group).unwrap().len();
+        assert!(
+            result.is_ok(),
+            "unsupported private queue must retire without publication; remaining={remaining}"
+        );
+        assert!(
+            result.unwrap().is_empty(),
+            "retirement must not publish rejected work"
+        );
+        assert_eq!(remaining, 0);
+        assert_eq!(
+            storage
+                .list_queued_outbound_intents(&ordinary)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            engine
+                .validated_private_device_group_genesis(&group)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn private_maintenance_recovery_preserves_a_real_pending_publish() {
+        use cgka_traits::engine::{CgkaEngine, SendIntent, SendResult};
+        use cgka_traits::storage::OutboundIntentStorage;
+        let storage = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
+        let mut engine = current_test_engine(storage.clone());
+        let genesis = engine.create_private_device_group_genesis().unwrap();
+        let group = genesis.group_id().clone();
+        engine
+            .queue_outbound_intent(
+                group.clone(),
+                SendIntent::SelfUpdate {
+                    group_id: group.clone(),
+                },
+                0,
+            )
+            .unwrap();
+        let SendResult::GroupEvolution { pending, .. } =
+            engine.do_send_self_update(group.clone()).await.unwrap()
+        else {
+            panic!("expected actual pending crypto work");
+        };
+        let scheduled = engine.drain_pending_convergence_groups();
+        assert!(scheduled.contains(&group));
+        assert!(
+            engine
+                .advance_convergence_and_drain_queued(&group)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            storage.list_queued_outbound_intents(&group).unwrap().len(),
+            1,
+            "recovery must wait while genuine crypto owns publication"
+        );
+        assert!(matches!(
+            engine.epoch_manager.state(&group),
+            Some(cgka_traits::EpochState::PendingPublish(_))
+        ));
+        engine.publish_failed(pending).await.unwrap();
+        let _rescheduled = engine.drain_pending_convergence_groups();
+        assert!(
+            engine
+                .advance_convergence_and_drain_queued(&group)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            storage
+                .list_queued_outbound_intents(&group)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            engine
+                .validated_private_device_group_genesis(&group)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
     async fn private_birth_active_denial_survives_real_epoch_advance_and_rewind() {
         use cgka_traits::engine::{CgkaEngine, SendResult};
         use cgka_traits::storage::{MessageStorage, StorageProvider};

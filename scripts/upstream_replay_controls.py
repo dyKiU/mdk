@@ -390,48 +390,48 @@ AUTOMATIC_NEGOTIATION_TESTS = {
 }
 
 
-def automatic_negotiation_selection():
-    return 'package(marmot-app) & binary(=marmot_app) & (' + ' | '.join(
-        'test(=' + name + ')' for name in AUTOMATIC_NEGOTIATION_TESTS) + ')'
+def automatic_negotiation_selection(tests=AUTOMATIC_NEGOTIATION_TESTS, package='marmot-app', binary='marmot_app'):
+    return 'package(' + package + ') & binary(=' + binary + ') & (' + ' | '.join(
+        'test(=' + name + ')' for name in tests) + ')'
 
 
-def selected_automatic_negotiation(inventory):
+def selected_automatic_negotiation(inventory, tests=AUTOMATIC_NEGOTIATION_TESTS, package='marmot-app', binary='marmot_app'):
     selected = []
     for suite in inventory['rust-suites'].values():
         for name, item in suite['testcases'].items():
             if item['filter-match']['status'] != 'matches':
                 continue
-            if (suite.get('binary-name') != 'marmot_app' or suite.get('kind') != 'lib'
+            if (suite.get('binary-name') != binary or suite.get('kind') != 'lib'
                     or item['ignored'] is not False):
                 raise ValueError('automatic-negotiation-binary-or-ignored')
             selected.append(name)
-    expected = list(AUTOMATIC_NEGOTIATION_TESTS)
+    expected = list(tests)
     if (len(selected) != len(expected) or len(set(selected)) != len(expected)
             or set(selected) != set(expected)):
         raise ValueError('automatic-negotiation-exact-inventory')
     return {'selected_nonignored': len(expected), 'selected_ignored': 0,
-            'tests': expected, 'binary': 'marmot_app', 'package': 'marmot-app',
+            'tests': expected, 'binary': binary, 'package': package,
             'compiler_scope': 'one shared exact library inventory and one shared runtime command'}
 
 
-def automatic_negotiation_runtime(raw):
+def automatic_negotiation_runtime(raw, tests=AUTOMATIC_NEGOTIATION_TESTS, package='marmot-app'):
     text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
     found = re.findall(
         r'(?m)^\s*(PASS|FAIL)\s+\[\s*([0-9]{1,5}(?:\.[0-9]{1,9})?)s\s*\]\s+'
-        r'(?:\(([0-9]{1,3})/([0-9]{1,3})\)[ \t]+)?marmot-app[ \t]+([^\s]+)[ \t]*$', text)
+        r'(?:\(([0-9]{1,3})/([0-9]{1,3})\)[ \t]+)?' + re.escape(package) + r'[ \t]+([^\s]+)[ \t]*$', text)
     rows = []
     unexpected = max(0, len(re.findall(r'(?m)^\s*(?:PASS|FAIL)\s+', text)) - len(found))
     progress = []
     for outcome, duration, ordinal, total, name in found:
         if ordinal or total:
             progress.append((int(ordinal), int(total)))
-        if name not in AUTOMATIC_NEGOTIATION_TESTS or not 0 <= float(duration) <= 1800:
+        if name not in tests or not 0 <= float(duration) <= 1800:
             unexpected += 1
             continue
         rows.append({'test': name, 'outcome': outcome, 'runtime_seconds': float(duration)})
     summary = summary_counts(raw)
     counts_value = summary['counts']
-    expected = set(AUTOMATIC_NEGOTIATION_TESTS)
+    expected = set(tests)
     complete = (unexpected == 0
                 and (not progress or (len(progress) == len(expected)
                     and {ordinal for ordinal, _ in progress} == set(range(1, len(expected) + 1))
@@ -449,14 +449,14 @@ def automatic_negotiation_runtime(raw):
             'complete': complete, 'runtime_summary': summary}
 
 
-def automatic_negotiation_panics(raw):
+def automatic_negotiation_panics(raw, tests=AUTOMATIC_NEGOTIATION_TESTS):
     text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
     headers = re.findall(
         r"(?m)^[ \t]{0,8}thread '([^'\r\n]+)'(?: \([0-9]+\))? panicked at ([^\s]+\.rs):([0-9]+):([0-9]+):", text)
     sites = []
     unknown = max(0, text.count('panicked at ') - len(headers))
     for thread, path, line, column in headers:
-        if (thread in AUTOMATIC_NEGOTIATION_TESTS and path == AUTOMATIC_NEGOTIATION_TESTS[thread]
+        if (thread in tests and path == tests[thread]
                 and 0 < int(line) <= 1000000 and 0 < int(column) <= 1000000 and len(sites) < 8):
             sites.append({'test': thread, 'path': path, 'line': int(line), 'column': int(column)})
         else:
@@ -728,6 +728,73 @@ ENGINE_SUPPORT_CASES = {'engine-validator-empty', 'engine-validator-match', 'eng
 ENGINE_CASES = ENGINE_CLASSIFIER_CASES | ENGINE_SUPPORT_CASES
 ENGINE_FEATURES = ['experimental-device-sync', 'test-policy-overrides']
 PRIVATE_SEND_CASE = 'engine-private-send-admission'
+PRIVATE_MAINTENANCE_CASE = 'engine-private-maintenance-recovery'
+PRIVATE_MAINTENANCE_TESTS = {
+    'device_group_genesis::tests::private_group_retires_legacy_unapproved_queue_without_touching_ordinary_work':
+        'crates/cgka-engine/src/device_group_genesis.rs',
+    'device_group_genesis::tests::private_maintenance_recovery_preserves_a_real_pending_publish':
+        'crates/cgka-engine/src/device_group_genesis.rs',
+}
+PRIVATE_MAINTENANCE_MESSAGE = 'unsupported private queue must retire without publication; remaining=1'
+CASES[PRIVATE_MAINTENANCE_CASE] = ('cgka_engine', PRIVATE_MAINTENANCE_CASE,
+    'crates/cgka-engine/src/device_group_genesis.rs')
+ENGINE_CASES.add(PRIVATE_MAINTENANCE_CASE)
+
+
+def private_maintenance_site():
+    text = Path(CASES[PRIVATE_MAINTENANCE_CASE][2]).read_text()
+    pattern = (r'assert!\(\s*result.is_ok\(\),\s*'
+               r'"unsupported private queue must retire without publication; remaining=\{remaining\}"\s*,?\s*\);')
+    found = list(re.finditer(pattern, text))
+    if len(found) != 1:
+        raise ValueError('private-maintenance-source-site')
+    return {'line': text[:found[0].start()].count('\n') + 1,
+            'column': found[0].start() - text.rfind('\n', 0, found[0].start())}
+
+
+def private_maintenance_failure(raw, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    first = next(iter(PRIVATE_MAINTENANCE_TESTS))
+    pattern = (r"(?m)^[ \t]{0,8}thread '" + re.escape(first)
+               + r"'(?: \([0-9]+\))? panicked at " + re.escape(PRIVATE_MAINTENANCE_TESTS[first])
+               + ':' + str(site['line']) + ':' + str(site['column'])
+               + r':[ \t]*\n(?:[ \t]*\n){0,2}[ \t]{0,8}'
+               + re.escape(PRIVATE_MAINTENANCE_MESSAGE) + r'[ \t]*(?:\n|$)')
+    return len(re.findall(pattern, text)) == 1
+
+
+def private_maintenance_controls(site):
+    names = list(PRIVATE_MAINTENANCE_TESTS)
+    suite = {'binary-name': 'cgka_engine', 'kind': 'lib', 'testcases': {
+        name: {'ignored': False, 'filter-match': {'status': 'matches'}} for name in names}}
+    inventory = {'rust-suites': {'lib': suite}}
+    assert selected_automatic_negotiation(inventory, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')['selected_nonignored'] == 2
+    def rows(outcomes):
+        return (''.join(outcome + ' [ 0.001s] cgka-engine ' + name + '\n' for outcome, name in zip(outcomes, names))
+                + 'Summary [ 0.01s] 2 tests run: ' + str(outcomes.count('PASS')) + ' passed, '
+                + str(outcomes.count('FAIL')) + ' failed, 0 skipped\n').encode()
+    for outcomes in [['PASS', 'PASS'], ['FAIL', 'FAIL'], ['FAIL', 'PASS']]:
+        assert automatic_negotiation_runtime(rows(outcomes), PRIVATE_MAINTENANCE_TESTS, 'cgka-engine')['complete']
+    bad = [b'', rows(['PASS', 'PASS']) + rows(['PASS', 'PASS']),
+           rows(['PASS', 'PASS']).replace(names[1].encode(), names[0].encode()),
+           rows(['PASS', 'PASS']).replace(b'2 tests run:', b'1 test run:'),
+           rows(['PASS', 'PASS']).replace(b'2 passed', b'1 passed'),
+           rows(['PASS', 'PASS']).replace(b'cgka-engine', b'PRIVATE', 1)]
+    assert all(not automatic_negotiation_runtime(raw, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine')['complete'] for raw in bad)
+    header = ("thread '" + names[0] + "' (7) panicked at " + PRIVATE_MAINTENANCE_TESTS[names[0]]
+              + ':' + str(site['line']) + ':' + str(site['column']) + ':\n' + PRIVATE_MAINTENANCE_MESSAGE + '\n').encode()
+    assert private_maintenance_failure(header, site)
+    own_bad = [b'', header + header, header.replace(b'remaining=1', b'remaining=0'),
+               header.replace(names[0].encode(), b'PRIVATE'),
+               header.replace(PRIVATE_MAINTENANCE_TESTS[names[0]].encode(), b'PRIVATE.rs'),
+               header.replace((':' + str(site['line']) + ':').encode(), b':0:'),
+               header.replace((':' + str(site['column']) + ':\n').encode(), b':0:\n')]
+    assert all(not private_maintenance_failure(raw, site) for raw in own_bad)
+    assert positive_configuration(PRIVATE_MAINTENANCE_CASE) == (ENGINE_FEATURES, 'ci', None)
+    return {'inventory_positive': 1, 'runtime_positive': 3, 'runtime_negative': len(bad),
+            'own_positive': 1, 'own_negative': len(own_bad), 'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
 PRIVATE_SEND_MESSAGE = 'generic private send must be rejected before queue admission; queued=1'
 CASES[PRIVATE_SEND_CASE] = ('cgka_engine',
     'device_group_genesis::tests::private_group_generic_send_is_rejected_before_queue_admission',
@@ -4085,6 +4152,12 @@ def positive(args):
             del report['expected_test']
             report['expected_tests'] = list(AUTOMATIC_NEGOTIATION_TESTS)
             report['expected_runtime_count'] = len(AUTOMATIC_NEGOTIATION_TESTS)
+    if args.case == PRIVATE_MAINTENANCE_CASE:
+        report.pop('expected_test')
+        report.update(expected_tests=list(PRIVATE_MAINTENANCE_TESTS), expected_runtime_count=2,
+                      evidence_scope='real-private-MLS-legacy-maintenance-recovery-only',
+                      native_protocol_qualification=False, full_suite_qualification=False,
+                      retained_queue_recovery_qualification=False)
     if args.case == PRIVATE_SEND_CASE:
         report.update(evidence_scope='real-private-MLS-generic-send-queue-admission-only',
                       native_protocol_qualification=False, full_suite_qualification=False,
@@ -4151,6 +4224,9 @@ def positive(args):
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.case == PRIVATE_MAINTENANCE_CASE:
+            maintenance_site = private_maintenance_site()
+            report['private_maintenance_controls'] = private_maintenance_controls(maintenance_site)
         if args.case == PRIVATE_SEND_CASE:
             private_send_source_site = private_send_site()
             report['private_send_controls'] = private_send_controls(private_send_source_site)
@@ -4245,6 +4321,8 @@ def positive(args):
                 selection = automatic_negotiation_selection()
             if args.case in AUTOMATIC_SCAN_EXPIRY_CASES:
                 selection += ' & binary(=marmot_app)'
+            if args.case == PRIVATE_MAINTENANCE_CASE:
+                selection = automatic_negotiation_selection(PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
             body_selection = selection
             if args.case == 'private-classifier-authentication':
                 selection = engine_bundle_selection()
@@ -4258,9 +4336,11 @@ def positive(args):
                 raise ValueError('inventory-command')
             stage = 'inventory-shape'
             inventory = json.loads(raw, object_pairs_hook=unique)
-            if args.case in AUTOMATIC_NATIVE_CASES | {PRIVATE_SEND_CASE} and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+            if args.case in AUTOMATIC_NATIVE_CASES | {PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE} and report['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
                 raise ValueError('automatic-native-inventory-compiler')
-            if args.case == AUTOMATIC_NEGOTIATION_CASE:
+            if args.case == PRIVATE_MAINTENANCE_CASE:
+                report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine', 'cgka_engine')
+            elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
             elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {PRIVATE_SEND_CASE}:
                 selected_case(inventory, test)
@@ -4276,7 +4356,7 @@ def positive(args):
             if args.case in OFFLINE_CASES:
                 report['compiled_fingerprints'] = fingerprint_snapshot(
                     inventory, test, os.environ.get('CARGO_TARGET_DIR', 'target'))
-            report['inventory']['selected_nonignored'] = (len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 8 if args.case == 'private-classifier-authentication' else 1)
+            report['inventory']['selected_nonignored'] = (2 if args.case == PRIVATE_MAINTENANCE_CASE else len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 8 if args.case == 'private-classifier-authentication' else 1)
             report['inventory']['selected_ignored'] = 0
             save()
             stage = 'inventory-source'
@@ -4298,7 +4378,11 @@ def positive(args):
                               'panic': panic_facts(raw, args.case), 'runtime_summary': summary_counts(raw)}
             save()  # An actual attempted body survives any later parser/closure error.
             stage = 'runtime-shape'
-            if args.case == AUTOMATIC_NEGOTIATION_CASE:
+            if args.case == PRIVATE_MAINTENANCE_CASE:
+                report['body']['panic'] = automatic_negotiation_panics(raw, PRIVATE_MAINTENANCE_TESTS)
+                report['body']['private_maintenance_runtime'] = automatic_negotiation_runtime(raw, PRIVATE_MAINTENANCE_TESTS, 'cgka-engine')
+                report['body']['counts'] = report['body']['private_maintenance_runtime']['counts']
+            elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['body']['panic'] = automatic_negotiation_panics(raw)
                 report['body']['automatic_negotiation_runtime'] = automatic_negotiation_runtime(raw)
                 report['body']['counts'] = report['body']['automatic_negotiation_runtime']['counts']
@@ -4432,6 +4516,16 @@ def positive(args):
                 report['historical_cause_proven'] = False
                 save()
             command_accepted = True
+            if args.case == PRIVATE_MAINTENANCE_CASE:
+                runtime = report['body']['private_maintenance_runtime']
+                command_accepted = (runtime['complete'] and all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                    for part in (report['inventory'], report['body'])))
+                report['expected_private_maintenance_runtime_red_before_closure'] = (
+                    command_accepted and code == 100 and runtime['counts']['failed'] >= 1
+                    and report['body']['panic']['unknown_or_excess_headers'] == 0
+                    and sorted(site['test'] for site in report['body']['panic']['sites']) == sorted(row['test'] for row in runtime['rows'] if row['outcome'] == 'FAIL')
+                    and any(row['test'] == next(iter(PRIVATE_MAINTENANCE_TESTS)) and row['outcome'] == 'FAIL' for row in runtime['rows'])
+                    and private_maintenance_failure(raw, maintenance_site))
             if args.case == PRIVATE_SEND_CASE:
                 command_accepted = all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
                                        for part in (report['inventory'], report['body']))
@@ -4528,7 +4622,7 @@ def positive(args):
                 report['body']['observation'] = marker(raw)
                 save()
             stage = 'body-not-passed'
-            report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == (len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 1)
+            report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == (2 if args.case == PRIVATE_MAINTENANCE_CASE else len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 1)
                                      and report['body']['compiler']['header_count'] == 0
                                      and not report['body']['compiler']['codes']
                                      and report['body']['panic'] == {'sites': [], 'unknown_or_excess_headers': 0})
@@ -4564,6 +4658,10 @@ def positive(args):
                 args.mode == 'run' and report['source_closure_exact'] is True
                 and report.get('expected_configuration_aba_runtime_red_before_closure') is True)
 
+        if args.case == PRIVATE_MAINTENANCE_CASE:
+            report['expected_private_maintenance_runtime_red'] = (
+                args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('expected_private_maintenance_runtime_red_before_closure') is True)
         if args.case == PRIVATE_SEND_CASE:
             report['expected_private_send_runtime_red'] = (
                 args.mode == 'run' and report['source_closure_exact'] is True
@@ -4753,6 +4851,8 @@ def main():
     if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
             and not (args.case == AUTOMATIC_SCAN_EXPIRY_CASE and args.stage == 'pfp')):
         raise ValueError('automatic-native-positive-or-expiry-pfp-only')
+    if args.case == PRIVATE_MAINTENANCE_CASE and args.stage != 'positive':
+        raise ValueError('private-maintenance-positive-only')
     if args.case == PRIVATE_SEND_CASE and args.stage not in {'positive', 'pfp'}:
         raise ValueError('private-send-positive-or-pfp-only')
     if args.stage == 'pfp':
