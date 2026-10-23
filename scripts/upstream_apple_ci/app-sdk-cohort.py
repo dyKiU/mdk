@@ -24,6 +24,12 @@ HERE = Path(__file__).resolve().parent
 # qualification gates. Only these named skips may appear in a compatibility run.
 KNOWN_SKIPS = {
     'macos': {
+        'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testLateBeginFactoryCannotAdoptAcrossAccountReplacement()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testLateScanFactoryCannotAdoptAcrossAccountReplacement()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndRetireBeforeRuntimeClose()': ('GenuineAutomaticAccountSwitchTests.swift', 'native_fixture'),
         'GenuineHistoryRecipientTransferTests/testFreshRecipientOriginalThroughSessionModelAndIOSSource()': ('GenuineHistoryRecipientTransferTests.swift', 'native_fixture'),
         'GenuineImportedHistoryPaneTests/testRealCommittedImportThroughSessionOwnedReaderAndHostedPane()': ('GenuineImportedHistoryPaneTests.swift', 'native_fixture'),
@@ -33,6 +39,12 @@ KNOWN_SKIPS = {
         'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation()': ('GenuinePairedDirectConversationTests.swift', 'native_fixture'),
     },
     'ios': {
+        'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testLateBeginFactoryCannotAdoptAcrossAccountReplacement()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
+        'GenuineAutomaticHostFactoryTests/testLateScanFactoryCannotAdoptAcrossAccountReplacement()': ('GenuineAutomaticHostFactoryTests.swift', 'native_fixture'),
         'GenuineHistorySourcePickerTests/testHostedNativeChoiceRequestAndCancelThroughPublicDriver()': ('GenuineHistorySourcePickerTests.swift', 'external_ui_driver'),
         'GenuineHistorySourcePickerTests/testActualNativeChoicesCreateRefreshAndCancelOriginalThroughAccountOwner()': ('GenuineHistorySourcePickerTests.swift', 'native_fixture'),
         'NativePairingQRCodeTests/testActualThreeDevicePacketsPassAppCodecAndOriginalSdkAuthentication()': ('NativePairingQRCodeTests.swift', 'isolated_relay'),

@@ -74,8 +74,8 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native!='ios-control':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='a9436e1fb09e53842ed12a01c686c3217e9a94cd'
-              assert cohort['ios_sha']=='a9d65de813507d6b6bd1d048f4a899e1d7d46a49'
+              assert cohort['mac_sha']=='81ff7d61cbfa297e729cc1c17107aca74c19dd6a'
+              assert cohort['ios_sha']=='cf8254de15dd9f87080e401b72dceef6d4776887'
           else:
               assert not sdk and not sdk_run
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
@@ -625,7 +625,17 @@ jobs:
           native=read('native-proofs/all.json')
           same_cohort(native)
           assert type(native['passed']) is int and native['passed']==1
-          assert native['expected_app_test_body_count']==native['executed_app_test_body_count']==22
+          assert native['expected_app_test_body_count']==native['executed_app_test_body_count']==34
+          assert native['expected_automatic_host_factory_body_count']==native['executed_automatic_host_factory_body_count']==12
+          factory_methods=('testForwardFactoriesShareBothPreviouslyAbsentChats', 'testReverseFactoriesShareBothPreviouslyAbsentChats', 'testActualFactoryCancellationRetiresOriginal', 'testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal', 'testLateBeginFactoryCannotAdoptAcrossAccountReplacement', 'testLateScanFactoryCannotAdoptAcrossAccountReplacement')
+          expected_factory_cases={platform+'-host-factory-'+method for platform in ('macos','ios') for method in factory_methods}
+          assert {name for name in native['cases'] if '-host-factory-' in name}==expected_factory_cases
+          for name in expected_factory_cases:
+              proof=native['cases'][name]
+              assert proof['passed']==1 and proof['fixture_identity']=='real-automatic-app-owner-factories-v1'
+              assert proof['unit']['totalTestCount']==proof['unit']['passedTests']==1
+              assert proof['unit']['failedTests']==proof['unit']['skippedTests']==0
+              assert proof['relay_cleanup']['passed']==1
           assert native['expected_setup_test_count']==native['completed_setup_test_count']==1
           summaries={}
           fields=('totalTestCount','passedTests','failedTests','skippedTests')
@@ -663,7 +673,7 @@ jobs:
                   'mac_sha':os.environ['MAC_SHA'],'ios_sha':os.environ['IOS_SHA'],
                   'qualification_sha256':native['cohort']['qualification_sha256'],
                   'sdk_bundle_sha256':native['cohort']['sdk_bundle_sha256'],
-                  'native_app_bodies':22,'owner_free_setup_bodies':1,'adapter_runtime_mutants':summaries,
+                  'native_app_bodies':34,'retained_existing_native_app_bodies':22,'automatic_host_factory_bodies':12,'owner_free_setup_bodies':1,'adapter_runtime_mutants':summaries,
                   'scope':'Final native/cohort evidence only; no full-history or retention/deletion equivalence claim'}
           Path('native-gates.json').write_text(json.dumps(result,indent=2)+'\n')
           PY

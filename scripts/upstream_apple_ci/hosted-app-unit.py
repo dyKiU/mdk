@@ -20,9 +20,16 @@ ENVIRONMENT_KEYS = {
     'WN_SOURCE_PICKER_BUTTON_BRIDGE', 'WN_SOURCE_TRANSFER_BRIDGE', 'WN_IOS_SOURCE_TRANSFER_BRIDGE',
     'WN_IOS_SOURCE_TRANSFER_PUBLIC_BRIDGE', 'WN_HISTORY_APPROVAL_BRIDGE', 'WN_MAC_HISTORY_APPROVAL_BRIDGE',
     'WN_NATIVE_PAIRING_QR_ACCEPTANCE', 'WN_PAIRED_DIRECT_FIXTURE',
+    'WN_AUTOMATIC_HOST_FACTORY_ACCEPTANCE',
 }
 SELECTORS = {
     'macos': {
+        'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats',
+        'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats',
+        'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal',
+        'GenuineAutomaticHostFactoryTests/testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal',
+        'GenuineAutomaticHostFactoryTests/testLateBeginFactoryCannotAdoptAcrossAccountReplacement',
+        'GenuineAutomaticHostFactoryTests/testLateScanFactoryCannotAdoptAcrossAccountReplacement',
         'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation',
         'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndRetireBeforeRuntimeClose',
         'GenuineImportedHistoryPaneTests/testRealCommittedImportThroughSessionOwnedReaderAndHostedPane',
@@ -31,6 +38,12 @@ SELECTORS = {
         'GenuineHistoryRecipientTransferTests/testFreshRecipientOriginalThroughSessionModelAndIOSSource',
     },
     'ios-simulator': {
+        'GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats',
+        'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats',
+        'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal',
+        'GenuineAutomaticHostFactoryTests/testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal',
+        'GenuineAutomaticHostFactoryTests/testLateBeginFactoryCannotAdoptAcrossAccountReplacement',
+        'GenuineAutomaticHostFactoryTests/testLateScanFactoryCannotAdoptAcrossAccountReplacement',
         'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation',
         'NativePairingQRCodeTests/testActualThreeDevicePacketsPassAppCodecAndOriginalSdkAuthentication',
         'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndSceneSuspensionClosesRuntime',

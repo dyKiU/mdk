@@ -21,6 +21,8 @@ import time
 
 HERE = Path(__file__).resolve().parent
 FEATURES = ['otlp-export', 'product-analytics-export', 'experimental-device-sync']
+HOST_FACTORY_SELECTORS = ('GenuineAutomaticHostFactoryTests/testForwardFactoriesShareBothPreviouslyAbsentChats', 'GenuineAutomaticHostFactoryTests/testReverseFactoriesShareBothPreviouslyAbsentChats', 'GenuineAutomaticHostFactoryTests/testActualFactoryCancellationRetiresOriginal', 'GenuineAutomaticHostFactoryTests/testActualFactoryPlatformShutdownClosesStorageAndRetiresOriginal', 'GenuineAutomaticHostFactoryTests/testLateBeginFactoryCannotAdoptAcrossAccountReplacement', 'GenuineAutomaticHostFactoryTests/testLateScanFactoryCannotAdoptAcrossAccountReplacement')
+
 MODELS = {
     'macos': [
         ('paired-direct', 'paired-direct', 'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation'),
@@ -495,6 +497,37 @@ class Runner:
         self.report['cases'][name] = result
         self.save()
 
+    def host_factory(self, platform, selector):
+        require(selector in HOST_FACTORY_SELECTORS, 'closed-real-host-factory-selector-required')
+        name = platform + '-host-factory-' + selector.split('/', 1)[1]
+        previous = self.state['cases'].get(name)
+        if previous is not None:
+            require(previous['passed'] == 1, 'no-blind-host-factory-retry')
+            self.report['cases'][name] = previous
+            return
+        environment = self.private / (name + '-environment.json')
+        write_private(environment, {'GITHUB_ACTIONS': 'true', 'GITHUB_RUN_ID': os.environ['GITHUB_RUN_ID'],
+            'WN_NATIVE_ACCEPTANCE_SDK_SOURCE': self.args.sdk_source,
+            'WN_NATIVE_ACCEPTANCE_SDK_RUN_ID': self.args.sdk_run_id,
+            'WN_AUTOMATIC_HOST_FACTORY_ACCEPTANCE': '1'})
+        prefix = self.private / name
+        bundle = self.private / (name + '.xcresult')
+        command = self.unit_arguments(platform, prefix, environment, selector, bundle)
+        with self.relay(name):
+            self.command(name, command, 'real-automatic-host-factory-acceptance', timeout=1200)
+        result = json.loads(Path(str(prefix) + '-result.json').read_text())
+        require(result['passed'] == 1 and one_pass(result['summary']),
+                'one-actual-host-factory-body-no-failures-or-skips-required')
+        require(self.report['qr_relay_cleanup']['passed'] == 1,
+                'host-factory-owned-relay-positive-close-required')
+        row = {'passed': 1, 'unit': result['summary'], 'selector': selector,
+               'fixture_identity': 'real-automatic-app-owner-factories-v1',
+               'relay_cleanup': self.report['qr_relay_cleanup'],
+               'app_report_sha256': digest(Path(str(prefix) + '-result.json'))}
+        self.state['cases'][name] = row
+        self.report['cases'][name] = row
+        self.save()
+
     def fixture(self, platform, name, scenario, selector=None, ui_case=None):
         label = platform + '-' + name
         previous = self.state['cases'].get(label)
@@ -564,7 +597,7 @@ class Runner:
             '--simulator', self.args.simulator, '--developer-dir', self.args.developer_dir,
             '--relay', str(self.args.relay), '--work', str(self.private / name), '--output', str(output)]
         # Three existing bounded phases, each with a fresh genuine native fixture.
-        # This is additional mutation evidence, separate from the 22 app bodies.
+        # This is additional mutation evidence, separate from the native app bodies.
         self.command(name, command, 'paired-direct-runtime-mutation', timeout=10000)
         proof = json.loads(output.read_text())
         require(proof.get('passed') is True and proof['platform'] == platform
@@ -585,6 +618,11 @@ class Runner:
         if self.args.scope in ('ios', 'all'):
             expected.add('ios-native-qr')
             expected.update('ios-' + name for name in ('switch', 'reader', 'picker', 'source', 'picker-ui', 'source-ui', 'approval-ui', 'paired-direct'))
+        for platform in (('macos', 'ios') if self.args.scope == 'all' else
+                         ('macos',) if self.args.scope == 'mac' else
+                         ('ios',) if self.args.scope == 'ios' else ()):
+            expected.update(platform + '-host-factory-' + selector.split('/', 1)[1]
+                            for selector in HOST_FACTORY_SELECTORS)
         return expected
 
     def run(self):
@@ -607,6 +645,8 @@ class Runner:
                 self.fixture(platform, name, scenario, selector=selector)
             for name, scenario, ui_case in UI_CASES[platform]:
                 self.fixture(platform, name, scenario, ui_case=ui_case)
+            for selector in HOST_FACTORY_SELECTORS:
+                self.host_factory(platform, selector)
 
 
 def main():
@@ -651,10 +691,19 @@ def main():
         require(set(runner.report['cases']) == runner.expected_cases()
                 and all(case['passed'] == 1 for case in runner.report['cases'].values()),
                 'every-requested-native-app-body-required')
-        expected_bodies = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
+        expected_bodies = {'ios-control': 2, 'mac': 16, 'ios': 20, 'all': 34, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
         executed_bodies = sum(case['unit']['totalTestCount'] + case.get('driver', {}).get('totalTestCount', 0)
                               for case in runner.report['cases'].values())
         require(executed_bodies == expected_bodies, 'exact-selected-native-app-body-count-required')
+        host_expected = {'ios-control': 0, 'mac': 6, 'ios': 6, 'all': 12, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
+        host_cases = [row for name, row in runner.report['cases'].items() if '-host-factory-' in name]
+        require(len(host_cases) == host_expected and all(
+            row['fixture_identity'] == 'real-automatic-app-owner-factories-v1'
+            and row['selector'] in HOST_FACTORY_SELECTORS and one_pass(row['unit'])
+            and row['relay_cleanup']['passed'] == 1 for row in host_cases),
+            'every-new-real-host-factory-body-and-close-required')
+        runner.report['expected_automatic_host_factory_body_count'] = host_expected
+        runner.report['executed_automatic_host_factory_body_count'] = len(host_cases)
         expected_mutations = ({'macos'} if args.scope == 'adapter-macos' else
                               {'ios'} if args.scope == 'adapter-ios' else set())
         require(set(runner.report['adapter_mutations']) == expected_mutations
@@ -666,7 +715,7 @@ def main():
         label = str(error) if isinstance(error, ValueError) else type(error).__name__
         runner.report['failure_stage'] = label if re.fullmatch('[A-Za-z0-9:_-]{1,180}', label) else type(error).__name__
     finally:
-        runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
+        runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 16, 'ios': 20, 'all': 34, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
         # Failed/partial case reports must not mask the original failure in
         # this finally block. The success path above still requires all counts.
         runner.report['execution_count_incomplete_cases'] = sorted(

@@ -34,7 +34,7 @@
     },
     "hosted-app-unit.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "8ddd059cfa56fcfe45dfff8c23be5988693abfc8b056bfead4c19d0cfd0bf310",
+      "sha256": "c51695aabc30648391d5af02fb9f1fece5fb02ee12b611af6abe7d74439522fa",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     },
     "hosted-app-ui.py": {
@@ -44,7 +44,7 @@
     },
     "run-hosted-app-acceptance.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "088e8f51efb517947ae8242b328fa9a16ca2bdd291497f6dd4c2e7aea05363bf",
+      "sha256": "96b8150bb52cd31a1a134001bf631d4ef194fc286ec00b946d929ef456033ee5",
       "scope": "Genuine source-only paired recipient app acceptance; separate per-platform whole-old-adapter mutation scopes and immutable-cohort fan-in, no normal source/SDK guard overrides"
     },
     "paired_direct_mutation.py": {
@@ -89,7 +89,7 @@
     },
     "app-sdk-cohort.py": {
       "source": "existing authenticated SDK profile cohort helper",
-      "sha256": "fe83d03d64f7011e24dcaa281e9da3e8a3959002b6d7ffc12069d52e1ae61fa0",
+      "sha256": "62c463fcc2876dc6f58d540d4a804f87569811c61ab4d9eb794715a3680ebb12",
       "scope": "Shared authenticated experimental app guard and exact compiler array; no SDK or historical cohort behavior change"
     }
   },
