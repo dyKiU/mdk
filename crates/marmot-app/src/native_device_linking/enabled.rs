@@ -11,7 +11,7 @@ use std::sync::{
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
-mod diagnostics;
+pub(crate) mod diagnostics;
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) type PreparedPublicationNotificationForTest = (

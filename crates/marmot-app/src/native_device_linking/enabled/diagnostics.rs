@@ -2,9 +2,11 @@
 use super::ClientLinkingError;
 use std::io::Write;
 
-pub(super) enum TargetRead<'a> {
+pub(crate) enum TargetRead<'a> {
     Begin,
     Ready,
+    WorkerAcquired,
+    WorkerHandling,
     Failed(&'a ClientLinkingError),
 }
 
@@ -13,6 +15,8 @@ impl TargetRead<'_> {
         match self {
             Self::Begin => "begin",
             Self::Ready => "ready",
+            Self::WorkerAcquired => "worker_acquired",
+            Self::WorkerHandling => "worker_handling",
             Self::Failed(ClientLinkingError::Runtime(error)) => error.privacy_safe_kind(),
             Self::Failed(ClientLinkingError::Engine(error)) => error.privacy_safe_kind(),
             Self::Failed(ClientLinkingError::Owner(_)) => "owner",
@@ -24,7 +28,7 @@ impl TargetRead<'_> {
     }
 }
 
-pub(super) fn targets_read(observation: TargetRead<'_>) {
+pub(crate) fn targets_read(observation: TargetRead<'_>) {
     let enabled =
         std::env::var_os("WN_PAIRING_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1"));
     if enabled {
@@ -87,12 +91,31 @@ mod tests {
     }
 
     #[test]
+    fn target_read_worker_boundaries_have_fixed_codes() {
+        for (observation, code) in [
+            (TargetRead::WorkerAcquired, "worker_acquired"),
+            (TargetRead::WorkerHandling, "worker_handling"),
+        ] {
+            let mut output = Vec::new();
+            write_observation(true, &mut output, observation);
+            assert_eq!(
+                String::from_utf8(output).unwrap(),
+                format!(
+                    "target=marmot_app::device_linking method=pairing_diagnostic stage=targets_read cause={code}\n"
+                )
+            );
+        }
+    }
+
+    #[test]
     fn target_read_diagnostics_are_silent_without_opt_in() {
         let error = ClientLinkingError::Engine(EngineError::Other("private detail".into()));
         let mut output = Vec::new();
         for observation in [
             TargetRead::Begin,
             TargetRead::Ready,
+            TargetRead::WorkerAcquired,
+            TargetRead::WorkerHandling,
             TargetRead::Failed(&error),
         ] {
             write_observation(false, &mut output, observation);

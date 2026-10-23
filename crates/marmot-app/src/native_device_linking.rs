@@ -183,6 +183,8 @@ mod automatic_pairing_acceptance;
 mod enabled;
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) use enabled::ApprovalRegistry;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) use enabled::diagnostics;
 
 /// A selector for an observed protected roster, never enrollment permission.
 #[derive(Clone, PartialEq, Eq)]
