@@ -3893,6 +3893,9 @@ impl TransportAdapter for NostrTransportAdapter {
         }
 
         let (to_add, repacks) = {
+            #[cfg(feature = "experimental-device-sync")]
+            let mut state = self.state.write().await;
+            #[cfg(not(feature = "experimental-device-sync"))]
             let state = self.state.read().await;
             // The `AccountNotActive` guard above ran under the subscription
             // lock this call holds, and only activate/sync/deactivate can
@@ -3962,20 +3965,23 @@ impl TransportAdapter for NostrTransportAdapter {
                 // coverage, while repacking every family re-sent and coupled
                 // relay sets the change never touched.
                 #[cfg(feature = "experimental-device-sync")]
-                let selected = match state.private_observation_groups.get(&sync.account_id) {
-                    Some(group) => Some(group_route_key(
-                        &sync.account_id,
-                        sync.group_subscriptions
-                            .iter()
-                            .find(|route| {
-                                &route.group_id == group && route.retained_since.is_none()
-                            })
-                            .ok_or_else(|| {
-                                TransportAdapterError::Subscription(
-                                    "selected private observation route unavailable".into(),
-                                )
-                            })?,
-                    )),
+                let selected = match state.private_observation_groups.get(&sync.account_id).cloned() {
+                    Some(group) => {
+                        let Some(route) = sync.group_subscriptions.iter().find(|route| {
+                            route.group_id == group && route.retained_since.is_none()
+                        }) else {
+                            // Failure must revoke the predecessor even when
+                            // planning rejects the route before preparation.
+                            if let Some(wire) = state.private_observation_wires.get_mut(&sync.account_id) {
+                                wire.ready = false;
+                                wire.completed = false;
+                            }
+                            return Err(TransportAdapterError::Subscription(
+                                "selected private observation route unavailable".into(),
+                            ));
+                        };
+                        Some(group_route_key(&sync.account_id, route))
+                    }
                     None => None,
                 };
                 #[cfg(feature = "experimental-device-sync")]
