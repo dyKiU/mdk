@@ -166,7 +166,19 @@ EXPERIMENTAL_CASES.add(QUIET_CONTRACT_CASE)
 SDK_REPLAY_CASES.add('adapter-clamped-default')
 
 
+
+LIVE_SEAL_CASES = {'live-seal-spill-default', 'live-seal-spill-experimental'}
+for _case in LIVE_SEAL_CASES:
+    CASES[_case] = ('transport_nostr',
+        'tests::deliveries_placed_after_a_live_seal_spill_what_only_that_promotion_stopped_covering',
+        'crates/transport-nostr/src/tests.rs')
+EXPERIMENTAL_CASES.add('live-seal-spill-experimental')
+BOUNDED_CASES.add('live-seal-spill-experimental')
+
+
 def package_for(case):
+    if case in LIVE_SEAL_CASES:
+        return 'transport-nostr'
     if case in ENGINE_CASES:
         return 'cgka-engine'
     if case in UNIFFI_CASES:
@@ -1510,12 +1522,121 @@ def cursor_pfp_controls(case, site):
             'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+for _case in LIVE_SEAL_CASES:
+    PFP[_case] = ('crates/transport-nostr/src/lib.rs', '        replay.spill_pending = state.spill_in_flight > 0;\n        if replay.pending || replay.spill_pending || !authorize(replay) {\n            return None;\n        }\n        if state.pending || state.spill_in_flight > 0 || state.admission.epoch != epoch {\n            return None;\n        }\n', '        replay.spill_pending = state.spill_in_flight > 0;\n        if replay.pending || false || !authorize(replay) {\n            return None;\n        }\n        if state.pending || false || state.admission.epoch != epoch {\n            return None;\n        }\n', 'no commit passes a delivery still in the spill hand-off', 'assert_eq!\\(\\s*adapter\\.seal_transport_cursor\\(Some\\(OPENED_CURSOR\\s*\\+\\s*3_000\\),\\s*\\|_\\|\\s*true\\),\\s*None,\\s*"{message}"\\s*\\);')
+
+
+def validate_live_seal_inverse(text, old, new):
+    start = text.index('    fn seal_cursor(')
+    end = text.index('    fn unseal_cursor(', start)
+    wanted = old.replace('replay.pending || replay.spill_pending ||', 'replay.pending || false ||', 1)
+    wanted = wanted.replace('state.pending || state.spill_in_flight > 0 ||', 'state.pending || false ||', 1)
+    if (old not in text[start:end] or old.count('\n') != new.count('\n') or new != wanted
+            or old.count('replay.pending || replay.spill_pending ||') != 1
+            or old.count('state.pending || state.spill_in_flight > 0 ||') != 1):
+        raise ValueError('live-seal-two-real-fences-only')
+
+
+def live_seal_site(fixture):
+    case = 'live-seal-spill-default'
+    matches = list(re.finditer(PFP[case][4].replace('{message}', re.escape(PFP[case][3])), fixture))
+    if len(matches) != 1:
+        raise ValueError('live-seal-own-second-assertion')
+    found = matches[0]
+    return {'line': fixture[:found.start()].count('\n') + 1,
+            'column': found.start() - fixture.rfind('\n', 0, found.start())}
+
+
+def validate_live_seal_fixture(fixture):
+    start = fixture.index('async fn deliveries_placed_after_a_live_seal_spill_what_only_that_promotion_stopped_covering()')
+    end = fixture.index('\n}\n', start)
+    body = fixture[start:end]
+    anchors = ['let (store, kept, spill_gate) = gated_recording_spill_store();',
+               'adapter.delivery_loss_blocks_cursor(),',
+               '"no commit passes a delivery still in the spill hand-off"',
+               'spill_gate.open();', 'timeout(Duration::from_secs(5), async {',
+               'assert_eq!(spilled, [1, 4]);']
+    if any(body.count(anchor) != 1 for anchor in anchors):
+        raise ValueError('live-seal-held-real-writer-fixture')
+    offsets = [body.index(anchor) for anchor in anchors]
+    if offsets != sorted(offsets):
+        raise ValueError('live-seal-release-only-after-both-assertions')
+    live_seal_site(fixture)
+
+
+def live_seal_failure(raw, case, site):
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    if text.count('panicked at ') != 1:
+        return False
+    header = (r"(?m)^[ \t]{0,8}thread '" + re.escape(CASES[case][1])
+        + r"'(?: \([0-9]+\))? panicked at " + re.escape(CASES[case][2])
+        + ':' + str(site['line']) + ':' + str(site['column']) + r':[ \t]*\n')
+    # This is assert_eq!'s actual runtime prefix, not a bare assert! message.
+    payload = (r'[ \t]{0,8}assertion `left == right` failed: '
+        + re.escape(PFP[case][3]) + r'[ \t]*\n'
+        + r'[ \t]{0,8}left: Some\([0-9]{1,20}\)[ \t]*\n'
+        + r'[ \t]{0,8}right: None[ \t]*(?:\n|$)')
+    return re.search(header + payload, text) is not None
+
+
+def live_seal_controls(case, site):
+    header = ("thread '" + CASES[case][1] + "' (7) panicked at " + CASES[case][2]
+              + ':' + str(site['line']) + ':' + str(site['column']) + ':\n')
+    payload = ('assertion `left == right` failed: ' + PFP[case][3]
+               + '\n  left: Some(12000)\n right: None\n')
+    valid = (header + payload).encode()
+    positive = [valid, valid.replace(b"' (7)", b"'"), valid.replace(b'\n', b'\r\n'),
+                (header + '\n'.join('    ' + line for line in payload.splitlines()) + '\n').encode()]
+    for raw in positive:
+        assert live_seal_failure(raw, case, site)
+    invalid = [valid + valid, b'PRIVATE ' + valid,
+        valid.replace(CASES[case][1].encode(), b'PRIVATE'),
+        valid.replace(CASES[case][2].encode(), b'PRIVATE.rs'),
+        valid.replace((':' + str(site['line']) + ':').encode(), b':999999:'),
+        valid.replace((':' + str(site['column']) + ':').encode(), b':999999:'),
+        valid.replace(b'assertion `left == right` failed: ', b''),
+        valid.replace(PFP[case][3].encode(), b'PRIVATE'),
+        valid.replace(b'left: Some(12000)', b'left: None'),
+        valid.replace(b'right: None', b'right: Some(12000)'),
+        valid + b"thread 'PRIVATE' panicked at PRIVATE.rs:1:2:\n"]
+    for raw in invalid:
+        assert not live_seal_failure(raw, case, site)
+    status = ('FAIL [ 0.001s] (1/1) transport-nostr ' + CASES[case][1]
+              + '\nSummary [ 0.001s] 1 test run: 0 passed, 1 failed, 0 skipped\n').encode()
+    assert counts(status + valid, case)['failed'] == 1
+    assert compiler(status + valid + b'error[E0000]: PRIVATE\n', {})['header_count'] == 1
+    path, original, mutant, _, _ = PFP[case]
+    product = Path(path).read_text()
+    validate_live_seal_inverse(product, original, mutant)
+    denied = [original, mutant.replace('replay.pending || false ||', 'false || false ||'),
+              mutant.replace('!authorize(replay)', 'false'),
+              mutant.replace('state.admission.epoch != epoch', 'false'),
+              mutant.replace('state.pending || false ||', 'state.pending || state.spill_in_flight > 0 ||'),
+              mutant + '\n']
+    for altered in denied:
+        try:
+            validate_live_seal_inverse(product, original, altered)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('live-seal-guard-mutation-control')
+    fixture = Path(CASES[case][2]).read_text()
+    validate_live_seal_fixture(fixture)
+    assert package_for(case) == 'transport-nostr' and CASES[case][0] == 'transport_nostr'
+    assert positive_configuration(case) == pfp_configuration(case)
+    return {'positive': len(positive), 'negative': len(invalid) + len(denied), 'compiler_rejection_controls': 1,
+            'configuration_controls': 2, 'product_bodies': 0, 'synthetic_metadata_only': True}
+
+
 def inverse(case):
     path, old, new, message, pattern = PFP[case]
     original = Path(path).read_bytes()
     text = original.decode('utf-8')
     if text.count(old) != 1:
         raise ValueError('inverse-anchor')
+    if case in LIVE_SEAL_CASES:
+        validate_live_seal_inverse(text, old, new)
+        validate_live_seal_fixture(Path(CASES[case][2]).read_text())
     if case in CURSOR_CASES:
         validate_cursor_inverse(text, old, new)
     if case in QUIET_CONTRACT_CASES:
@@ -1568,6 +1689,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case in LIVE_SEAL_CASES:
+        return live_seal_failure(raw, case, site)
     if case in CURSOR_CASES:
         return cursor_failure_facts(raw, case, site)['ordered_exact_inner_and_join']
     text = ANSI.sub('', raw.decode('utf-8', errors='replace'))
@@ -1582,6 +1705,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case in LIVE_SEAL_CASES:
+        return live_seal_controls(case, site)
     if case in CURSOR_CASES:
         return cursor_pfp_own_controls(case, site)
     header = ("thread '" + CASES[case][1] + "' (7) panicked at "
@@ -1602,6 +1727,9 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case in LIVE_SEAL_CASES:
+        return ((['test-policy-overrides', 'experimental-device-sync'], 'm5-bounded', '4194304')
+                if case == 'live-seal-spill-experimental' else (['test-policy-overrides'], 'ci', None))
     if case in QUIET_CONTRACT_CASES:
         return positive_configuration(case)
     if case in ENGINE_CLASSIFIER_CASES:
@@ -2009,6 +2137,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case in LIVE_SEAL_CASES:
+        report.update(evidence_scope='real-in-flight-spill-cursor-fence-only',
+                      package='transport-nostr', binary='transport_nostr',
+                      native_protocol_qualification=False, historical_full_failure_cause_proven=False)
     if args.case in ENGINE_CLASSIFIER_CASES:
         report.update(evidence_scope='private-Engine-classifier-and-preserved-ingress-controls-only',
                       package='cgka-engine', binary='cgka_engine',
@@ -2076,6 +2208,8 @@ def pfp(args):
             selection += ' & binary(=marmot_uniffi)'
         if phase_case in ENGINE_CASES:
             selection += ' & binary(=cgka_engine)'
+        if phase_case in LIVE_SEAL_CASES:
+            selection += ' & binary(=transport_nostr)'
         code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags + ['--message-format', 'json', '-E', selection], 1800, separate=True)
         row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed,
                             'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'stdout_bytes': len(raw),
@@ -2583,6 +2717,9 @@ def engine_support_bodies(report, before, flags, save):
 
 
 def positive_configuration(case):
+    if case in LIVE_SEAL_CASES:
+        return ((['test-policy-overrides', 'experimental-device-sync'], 'm5-bounded', '4194304')
+                if case == 'live-seal-spill-experimental' else (['test-policy-overrides'], 'ci', None))
     if case in ENGINE_CASES:
         return ENGINE_FEATURES, 'ci', None
     if case in UNIFFI_CASES:
@@ -2612,6 +2749,10 @@ def positive(args):
         report.update(evidence_scope='valid-real-extra-epoch-history-scenario-only',
                       native_protocol_qualification=False, original_full_failure_cause_established=False,
                       mutation_necessity_claimed=False)
+    if args.case in LIVE_SEAL_CASES:
+        report.update(evidence_scope='real-in-flight-spill-cursor-fence-only',
+                      package='transport-nostr', binary='transport_nostr',
+                      native_protocol_qualification=False, historical_full_failure_cause_proven=False)
     if args.case in ENGINE_CLASSIFIER_CASES:
         report.update(evidence_scope='private-Engine-classifier-and-preserved-ingress-controls-only',
                       package='cgka-engine', binary='cgka_engine',
@@ -2661,6 +2802,10 @@ def positive(args):
         report['input_manifest_sha256'] = hashlib.sha256(json.dumps(before['inputs'], sort_keys=True).encode()).hexdigest()
         report['parser_controls'] = controls()
         report['configuration_controls'] = replay_configuration_controls()
+        if args.case in LIVE_SEAL_CASES:
+            fixture = Path(CASES[args.case][2]).read_text()
+            validate_live_seal_fixture(fixture)
+            report['live_seal_controls'] = live_seal_controls(args.case, live_seal_site(fixture))
         if args.stage == 'sample':
             if args.case != 'sibling-send-experimental':
                 raise ValueError('sample-case')
@@ -2716,7 +2861,7 @@ def positive(args):
             flags = ['-p', package, '--test', binary] if args.case in INTEGRATION_CASES else ['-p', package, '--lib']
             flags += ['--features', ','.join(features), '--locked', '--profile', profile]
             selection = 'package(' + package + ') & test(=' + test + ')'
-            if args.case in INTEGRATION_CASES or args.case in UNIFFI_CASES or args.case in ENGINE_CASES:
+            if args.case in INTEGRATION_CASES or args.case in UNIFFI_CASES or args.case in ENGINE_CASES or args.case in LIVE_SEAL_CASES:
                 selection += ' & binary(=' + binary + ')'
             body_selection = selection
             if args.case == 'private-classifier-authentication':
