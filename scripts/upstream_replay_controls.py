@@ -140,7 +140,9 @@ ROW = {'started', 'completed', 'failures', 'in_flight', 'sum_ms'}
 SCALARS = {'senders', 'per_sender', 'expected', 'snapshot', 'observed', 'stored',
            'catchup_elapsed_ms', 'completed_group_pages', 'refused_comparisons',
            'projection_attempts', 'projection_successes', 'projection_failures', 'projection_sum_ms'}
-FIELDS = SCALARS | {'completed', 'arrival_buckets_10s', 'maximum_group_page', 'runtime_operations'}
+FIELDS = SCALARS | {'completed', 'arrival_buckets_10s', 'maximum_group_page', 'runtime_operations', 'process_window'}
+PROCESS_COUNTERS = {'user_ticks', 'system_ticks', 'rchar', 'wchar', 'syscr', 'syscw',
+                    'read_bytes', 'write_bytes', 'cancelled_write_bytes'}
 LIB_FEATURES = ['marmot-app/test-policy-overrides', 'marmot-app/otlp-export',
                 'marmot-app/product-analytics-export', 'cgka-engine/test-policy-overrides',
                 'cgka-engine/test-crash-hooks']
@@ -174,6 +176,17 @@ def closed(value):
     buckets = value['arrival_buckets_10s']
     if type(buckets) is not list or len(buckets) != 6 or not all(uint(v) for v in buckets):
         raise ValueError('diagnostic-buckets')
+    window = value['process_window']
+    if type(window) is not dict or set(window) != PROCESS_COUNTERS:
+        raise ValueError('diagnostic-process-window')
+    for row in window.values():
+        if (type(row) is not list or len(row) != 3
+                or any(item is not None and not uint(item) for item in row)):
+            raise ValueError('diagnostic-process-counter')
+        start, end, delta = row
+        expected = end - start if start is not None and end is not None and end >= start else None
+        if delta != expected:
+            raise ValueError('diagnostic-process-delta')
     rows = value['runtime_operations']
     if type(rows) is not list or len(rows) != len(OPERATIONS):
         raise ValueError('diagnostic-operations')
@@ -895,7 +908,13 @@ def controls():
     value = {key: 0 for key in SCALARS}
     value.update(completed=False, arrival_buckets_10s=[0] * 6, maximum_group_page=None,
                  runtime_operations=[[name, {key: 0 for key in ROW}] for name in sorted(OPERATIONS)])
+    value['process_window'] = {key: [None, None, None] for key in PROCESS_COUNTERS}
     assert closed(value) == value
+    # Unknown, successful, and regressed counters never decide the body verdict.
+    for sample in [[3, 8, 5], [8, 3, None], [None, 8, None], [0, 0, 0]]:
+        accepted = json.loads(json.dumps(value))
+        accepted['process_window']['user_ticks'] = sample
+        assert closed(accepted) == accepted
     raw = (PREFIX + json.dumps(value) + '\n').encode()
     assert marker(raw) == value
     bad = []
@@ -909,6 +928,11 @@ def controls():
     row = json.loads(json.dumps(value)); row['runtime_operations'][0][1]['private'] = 0; bad.append(row)
     row = json.loads(json.dumps(value)); row['runtime_operations'][0][1]['started'] = True; bad.append(row)
     row = json.loads(json.dumps(value)); del row['projection_attempts']; bad.append(row)
+    for sample in [[True, 8, 7], [-1, 8, 9], [0, 2**64, None], [3, 8, 4],
+                   [8, 3, 0], [None, 8, 0], [0, 0], ['PRIVATE', 0, None]]:
+        row = json.loads(json.dumps(value)); row['process_window']['user_ticks'] = sample; bad.append(row)
+    for window in [{}, dict(value['process_window'], private=[0, 0, 0]), None]:
+        bad.append(dict(value, process_window=window))
     negatives = 0
     for item in bad:
         try:
