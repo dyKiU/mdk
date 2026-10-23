@@ -157,7 +157,7 @@ impl DeviceLinkingSession {
         displayed_revision: u64,
         share_chats: bool,
     ) -> Result<(), MarmotKitError> {
-        Ok(match &self.inner {
+        match &self.inner {
             Session::Direct(inner) => {
                 inner
                     .continue_automatic_linking(displayed_revision, share_chats)
@@ -168,7 +168,8 @@ impl DeviceLinkingSession {
                     .continue_automatic_linking(displayed_revision, share_chats)
                     .await?
             }
-        })
+        };
+        Ok(())
     }
     /// Copy the original bounded setup packet; it cannot restore a live session.
     pub fn setup_packet(&self) -> Vec<u8> {
@@ -217,10 +218,11 @@ impl DeviceLinkingSession {
     }
     /// Explicit human confirmation of the revision actually displayed.
     pub async fn confirm_comparison(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
-        Ok(match &self.inner {
+        match &self.inner {
             Session::Direct(inner) => inner.confirm_comparison(displayed_revision).await?,
             Session::Automatic(inner) => inner.confirm_comparison(displayed_revision).await?,
-        })
+        };
+        Ok(())
     }
     /// Create an independently closeable coalesced observation stream.
     pub fn subscribe(&self) -> Arc<DeviceLinkingSubscription> {
@@ -255,10 +257,11 @@ impl DeviceLinkingSession {
     }
     /// Revoke this exact session before waiting for durable actor cleanup.
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
-        Ok(match &self.inner {
+        match &self.inner {
             Session::Direct(inner) => inner.cancel().await?,
             Session::Automatic(inner) => inner.cancel().await?,
-        })
+        };
+        Ok(())
     }
     /// Explicitly approve sharing existing/future chats, history and messaging
     /// while continuing this exact original pairing action. Retained metadata

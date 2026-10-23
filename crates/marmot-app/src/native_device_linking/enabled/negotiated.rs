@@ -41,7 +41,7 @@ impl State {
         self.original().ok()
     }
 
-    fn new(
+    fn create_session(
         manager: AccountManager,
         account: String,
         deadline: Instant,
@@ -398,7 +398,7 @@ impl AccountManager {
             let code = rendezvous
                 .encode(Timestamp::now().as_secs())
                 .map_err(wire_error)?;
-            Ok(State::new(
+            Ok(State::create_session(
                 self.clone(),
                 account_ref.into(),
                 deadline,
@@ -416,7 +416,7 @@ impl AccountManager {
             );
             // The direct mailbox activates only after the host adopts this handle.
             let code = String::new();
-            Ok(State::new(
+            Ok(State::create_session(
                 self.clone(),
                 account_ref.into(),
                 deadline,
@@ -442,7 +442,7 @@ impl AccountManager {
             }
             let deadline =
                 Instant::now() + Duration::from_secs(rendezvous.bootstrap().expires_at - now);
-            Ok(State::new(
+            Ok(State::create_session(
                 self.clone(),
                 account_ref.into(),
                 deadline,
@@ -463,7 +463,7 @@ impl AccountManager {
                 )
                 .await?,
             );
-            Ok(State::new(
+            Ok(State::create_session(
                 self.clone(),
                 account_ref.into(),
                 deadline,
@@ -566,7 +566,7 @@ mod tests {
             Keys::generate().public_key(),
             Timestamp::now().as_secs() + 600,
         );
-        let pending = State::new(
+        let pending = State::create_session(
             accounts.clone(),
             "test".into(),
             Instant::now() + Duration::from_secs(600),
