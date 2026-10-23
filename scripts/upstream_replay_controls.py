@@ -32,17 +32,25 @@ CASES.update({
                          'crates/storage-sqlite/src/mirrored_chat_catalog/tests.rs'),
     'mirrored-messages': ('storage_sqlite', 'mirrored_chat_messages::tests::mirrored_messages_encrypted_restart_retains_body_and_terminal_close_is_final',
                           'crates/storage-sqlite/src/mirrored_chat_messages/tests.rs'),
+    'adapter-cancelled': ('transport_nostr_adapter', 'sdk_client::tests::enrollment_acquisition_cancelled_issued_request_revokes_freshness_and_can_reactivate',
+                          'crates/transport-nostr-adapter/src/sdk_client.rs'),
+    'adapter-failed-route': ('transport_nostr_adapter', 'sdk_client::tests::enrollment_acquisition_failed_private_route_sync_burns_freshness_until_valid_reissue',
+                             'crates/transport-nostr-adapter/src/sdk_client.rs'),
     'higher-source': ('marmot_app', 'native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record',
                       'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs'),
     'spill-experimental': CASES['spill'],
     'watch-pressure': ('marmot_app', 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::authenticated_body_is_serviced_before_eight_ready_watch_services',
                        'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'),
 })
-EXPERIMENTAL_CASES = {'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
+EXPERIMENTAL_CASES = {'adapter-cancelled', 'adapter-failed-route', 'mirrored-catalog', 'mirrored-messages', 'revoked-anchor', 'sharing-policy', 'late-consent', 'spill-experimental', 'watch-pressure', 'higher-source'}
 STORAGE_CASES = {'revoked-anchor', 'sharing-policy', 'mirrored-catalog', 'mirrored-messages'}
+
+ADAPTER_CASES = {'adapter-cancelled', 'adapter-failed-route'}
 
 
 def package_for(case):
+    if case in ADAPTER_CASES:
+        return 'transport-nostr-adapter'
     return 'storage-sqlite' if case in STORAGE_CASES else 'marmot-app'
 
 
@@ -762,7 +770,8 @@ def main():
         return pfp(args)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    features = (['experimental-device-sync'] if args.case in STORAGE_CASES else
+    features = (['sdk', 'experimental-device-sync', 'test-policy-overrides'] if args.case in ADAPTER_CASES else
+                ['experimental-device-sync'] if args.case in STORAGE_CASES else
                 LIB_FEATURES + ['marmot-app/experimental-device-sync'] if args.case in EXPERIMENTAL_CASES else
                 ['test-policy-overrides'] if args.case == 'offline' else LIB_FEATURES)
     profile = 'm5-bounded' if args.case in EXPERIMENTAL_CASES else 'ci'
