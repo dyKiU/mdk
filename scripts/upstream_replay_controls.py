@@ -208,6 +208,7 @@ ROLE_REGISTRY_FIELDS = {
     'current_pool_relay_present', 'current_pool_demoted_registration',
     'current_pool_old_private_actual_absent',
     'post_deactivation_pool_lookup_succeeded', 'post_deactivation_pool_empty',
+    'post_deactivation_all_pools_empty',
 }
 
 

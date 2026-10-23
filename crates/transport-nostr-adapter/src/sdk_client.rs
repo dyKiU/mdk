@@ -14754,7 +14754,7 @@ mod tests {
                 state.observation_wire_id(&account, &c2, routes.attempt) == c2_id,
             )
         };
-        let demoted_batch_registered = if let Some(id) = &b_ordinary {
+        let held_demoted_registration = if let Some(id) = &b_ordinary {
             sdk_b_retry
                 .subscription(&SubscriptionId::new(id.clone()))
                 .await
@@ -14773,8 +14773,8 @@ mod tests {
         } else {
             false
         };
-        // Passive registry snapshot: keep the original held-handle predicate
-        // and all 24 verdict fields unchanged. Lookup failures remain explicit.
+        // Demotion can release the last private owner and recreate the relay.
+        // Keep the held-handle observation, but qualify the current SDK pool.
         let current_pool_lookup = sdk.client().relay(url_b.clone()).await;
         let current_pool_lookup_succeeded = current_pool_lookup.is_ok();
         let current_pool = current_pool_lookup.ok().flatten();
@@ -14797,6 +14797,9 @@ mod tests {
             } else {
                 false
             };
+        let demoted_batch_registered = current_pool_demoted_registration;
+        let replacement_actual_closed =
+            replacement_actual_closed && current_pool_old_private_actual_absent;
         adapter.deactivate_account(&account).await.unwrap();
         let cleanup_complete = adapter.metrics().await.active_accounts == 0
             && sdk
@@ -14815,6 +14818,20 @@ mod tests {
             Ok(None) => true,
             Err(_) => false,
         };
+        let mut post_deactivation_all_pools_empty = true;
+        for url in [&url_a, &url_b, &url_c] {
+            match sdk.client().relay((*url).clone()).await {
+                Ok(Some(relay)) => {
+                    post_deactivation_all_pools_empty &= relay.subscriptions().await.is_empty();
+                }
+                Ok(None) => {}
+                Err(_) => post_deactivation_all_pools_empty = false,
+            }
+        }
+        let cleanup_complete = cleanup_complete
+            && post_deactivation_pool_lookup_succeeded
+            && post_deactivation_pool_empty
+            && post_deactivation_all_pools_empty;
         sdk.shutdown().await;
         timeout(Duration::from_secs(2), forwarder)
             .await
@@ -14827,13 +14844,14 @@ mod tests {
         crate::test_support::emit_line(format_args!(
             "private-role-registry-diagnostic {}",
             serde_json::json!({
-                "held_demoted_registration": demoted_batch_registered,
+                "held_demoted_registration": held_demoted_registration,
                 "current_pool_lookup_succeeded": current_pool_lookup_succeeded,
                 "current_pool_relay_present": current_pool_relay_present,
                 "current_pool_demoted_registration": current_pool_demoted_registration,
                 "current_pool_old_private_actual_absent": current_pool_old_private_actual_absent,
                 "post_deactivation_pool_lookup_succeeded": post_deactivation_pool_lookup_succeeded,
                 "post_deactivation_pool_empty": post_deactivation_pool_empty,
+                "post_deactivation_all_pools_empty": post_deactivation_all_pools_empty,
             })
         ));
         #[cfg(feature = "test-policy-overrides")]
