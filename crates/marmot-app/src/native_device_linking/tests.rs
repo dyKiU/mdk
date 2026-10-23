@@ -33,6 +33,18 @@ async fn default_native_verification_is_unsupported_before_account_or_worker_eff
         }
     );
     assert!(matches!(
+        accounts
+            .begin_automatic_device_linking_session("missing")
+            .await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
+    assert!(matches!(
+        accounts
+            .scan_automatic_device_linking_session("missing", "invalid".into())
+            .await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
+    assert!(matches!(
         accounts.begin_device_linking_session("missing").await,
         Err(DeviceLinkingError::Unsupported)
     ));

@@ -112,6 +112,37 @@ pub unsafe extern "C" fn marmot_begin_device_linking_session(
         }
     })
 }
+/// Begin a role-neutral one-scan session; activate after host-scope adoption. Default builds return Unsupported.
+/// # Safety
+/// client/account must remain valid for the call and out must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_begin_automatic_device_linking_session(
+    client: *const MarmotClient,
+    account: *const c_char,
+    out: *mut *mut MarmotDeviceLinkingSession,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let client = arg!(unsafe { client_ref(client) });
+        let account = arg!(unsafe { required_str(account) });
+        match client.block_on(
+            client
+                .marmot
+                .begin_automatic_device_linking_session(account),
+        ) {
+            Ok(inner) => {
+                unsafe {
+                    *out = boxed(MarmotDeviceLinkingSession {
+                        inner,
+                        runtime: client.runtime.handle().clone(),
+                    })
+                };
+                MarmotStatus::Ok
+            }
+            Err(error) => status_from_error(&error),
+        }
+    })
+}
 /// Approve bounded setup metadata. NULL/zero target means singleton; selected rosters are actor-validated.
 /// # Safety
 /// Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
@@ -197,6 +228,53 @@ pub unsafe extern "C" fn marmot_approve_automatic_device_linking_session(
             client
                 .marmot
                 .approve_automatic_device_linking_session(account, code, target),
+        ) {
+            Ok(inner) => {
+                unsafe {
+                    *out = boxed(MarmotDeviceLinkingSession {
+                        inner,
+                        runtime: client.runtime.handle().clone(),
+                    })
+                };
+                MarmotStatus::Ok
+            }
+            Err(error) => status_from_error(&error),
+        }
+    })
+}
+
+/// Scan a bounded role-neutral bootstrap; fresh Core state selects the SDK role.
+/// The returned original remains paused until automatic_pairing_code after exact host adoption.
+/// # Safety
+/// Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_scan_automatic_device_linking_session(
+    client: *const MarmotClient,
+    account: *const c_char,
+    code: *const u8,
+    code_len: usize,
+    out: *mut *mut MarmotDeviceLinkingSession,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let client = arg!(unsafe { client_ref(client) });
+        let account = arg!(unsafe { required_str(account) });
+        if !client
+            .marmot
+            .device_linking_capabilities()
+            .verification_supported
+        {
+            return MarmotStatus::DeviceLinkingUnsupported;
+        }
+        let bytes = arg!(unsafe { packet(code, code_len, 1024) });
+        let code = match String::from_utf8(bytes) {
+            Ok(code) => code,
+            Err(_) => return MarmotStatus::DeviceLinkingInvalidPacket,
+        };
+        match client.block_on(
+            client
+                .marmot
+                .scan_automatic_device_linking_session(account, code),
         ) {
             Ok(inner) => {
                 unsafe {

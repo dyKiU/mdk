@@ -4895,6 +4895,26 @@ Create the approver challenge from the recipient's bounded original setup reques
 
 [Source](src/commands/device_linking.rs#L83)
 
+### `Marmot::begin_automatic_device_linking_session`
+
+```rust
+pub async fn begin_automatic_device_linking_session( &self, account_ref: String, ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError>
+```
+
+Create a role-neutral one-scan session for the selected account. Adopt it into the live account scope before calling `automatic_pairing_code`; a protected roster advertises a transport rendezvous instead of reserving a joining-device purpose. SAS comparison and explicit enrollment/sharing approval remain mandatory. Default builds return Unsupported before effects. See [one-scan transport](DEVICE-LINKING.md#one-scan-automatic-transport).
+
+[Source](src/commands/device_linking.rs#L36)
+
+### `Marmot::scan_automatic_device_linking_session`
+
+```rust
+pub async fn scan_automatic_device_linking_session( &self, account_ref: String, code: String, ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError>
+```
+
+Scan a bounded request or rendezvous bootstrap and select the actual enrollment role from fresh local protected state. Activate only after exact host-scope adoption. A fresh scanner can join an existing displaying installation over encrypted transport without another QR. Multiple independent protected roots fail closed; this call never silently replaces a roster or approves other members. See [one-scan transport](DEVICE-LINKING.md#one-scan-automatic-transport).
+
+[Source](src/commands/device_linking.rs#L50)
+
 ### `Marmot::begin_device_linking_session`
 
 ```rust

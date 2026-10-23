@@ -28,6 +28,7 @@ pub(crate) enum Error {
 }
 type Result<T> = std::result::Result<T, Error>;
 pub(crate) mod delivery;
+pub(crate) mod rendezvous;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

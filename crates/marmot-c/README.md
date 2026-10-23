@@ -563,7 +563,11 @@ diff-gates the checked-in header.
 Use the shared [verification contract](../marmot-uniffi/DEVICE-LINKING.md) for
 packet exchange, displayed SAS revisions and capability selection. C returns
 opaque session/subscription handles; free them before their creating client and
-never free a handle during an active call. Session free drops its final native
+never free a handle during an active call. For role-neutral one-scan transport,
+use `marmot_begin_automatic_device_linking_session` and
+`marmot_scan_automatic_device_linking_session`, then activate the adopted handle
+with `marmot_device_linking_session_automatic_pairing_code`. Manual packet
+operations remain supported on the lower-level factories. Session free drops its final native
 owner and schedules exact cancellation; prefer awaited/blocking cancel first.
 
 All required outputs are validated and cleared before reservation, mutation or

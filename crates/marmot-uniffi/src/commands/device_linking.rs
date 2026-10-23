@@ -8,7 +8,19 @@ use std::sync::Arc;
 
 #[derive(uniffi::Object)]
 pub struct DeviceLinkingSession {
-    inner: marmot_app::DeviceLinkingSession,
+    inner: Session,
+}
+enum Session {
+    Direct(marmot_app::DeviceLinkingSession),
+    Automatic(marmot_app::AutomaticDeviceLinkingSession),
+}
+impl DeviceLinkingSession {
+    fn direct(&self) -> Result<&marmot_app::DeviceLinkingSession, MarmotKitError> {
+        match &self.inner {
+            Session::Direct(inner) => Ok(inner),
+            Session::Automatic(_) => Err(marmot_app::DeviceLinkingError::NotReady.into()),
+        }
+    }
 }
 #[derive(uniffi::Object)]
 pub struct DeviceLinkingApproval {
@@ -21,6 +33,35 @@ pub struct DeviceLinkingSubscription {
 #[marmot_uniffi_macros::on_tokio_runtime]
 #[uniffi::export]
 impl Marmot {
+    /// Display one transport QR without assigning the installation a new-device role.
+    pub async fn begin_automatic_device_linking_session(
+        &self,
+        account_ref: String,
+    ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError> {
+        let inner = self
+            .runtime
+            .accounts()
+            .begin_automatic_device_linking_session(&account_ref)
+            .await?;
+        Ok(Arc::new(DeviceLinkingSession {
+            inner: Session::Automatic(inner),
+        }))
+    }
+    /// Scan either transport direction; Core selects and retains the genuine enrollment original.
+    pub async fn scan_automatic_device_linking_session(
+        &self,
+        account_ref: String,
+        code: String,
+    ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError> {
+        let inner = self
+            .runtime
+            .accounts()
+            .scan_automatic_device_linking_session(&account_ref, code)
+            .await?;
+        Ok(Arc::new(DeviceLinkingSession {
+            inner: Session::Automatic(inner),
+        }))
+    }
     /// Scan one bounded bootstrap; the returned original is paused until host adoption.
     pub async fn approve_automatic_device_linking_session(
         &self,
@@ -33,7 +74,9 @@ impl Marmot {
             .accounts()
             .approve_automatic_device_linking_session(&account_ref, code, target)
             .await?;
-        Ok(Arc::new(DeviceLinkingSession { inner }))
+        Ok(Arc::new(DeviceLinkingSession {
+            inner: Session::Direct(inner),
+        }))
     }
     /// Actual runtime capabilities; verification completion is never enrollment readiness.
     pub fn device_linking_capabilities(&self) -> DeviceLinkingCapabilitiesFfi {
@@ -77,7 +120,9 @@ impl Marmot {
             .accounts()
             .begin_device_linking_session(&account_ref)
             .await?;
-        Ok(Arc::new(DeviceLinkingSession { inner }))
+        Ok(Arc::new(DeviceLinkingSession {
+            inner: Session::Direct(inner),
+        }))
     }
     /// Approve bounded setup metadata; no context, generation or proof is accepted.
     pub async fn approve_device_linking_session(
@@ -91,7 +136,9 @@ impl Marmot {
             .accounts()
             .approve_device_linking_session(&account_ref, request, target)
             .await?;
-        Ok(Arc::new(DeviceLinkingSession { inner }))
+        Ok(Arc::new(DeviceLinkingSession {
+            inner: Session::Direct(inner),
+        }))
     }
 }
 #[marmot_uniffi_macros::on_tokio_runtime]
@@ -100,7 +147,10 @@ impl DeviceLinkingSession {
     /// Activate only after exact host account-scope adoption. Display this compact
     /// bootstrap only on the initiating device; the scanner needs no response QR.
     pub async fn automatic_pairing_code(&self) -> Result<String, MarmotKitError> {
-        Ok(self.inner.automatic_pairing_code().await?)
+        Ok(match &self.inner {
+            Session::Direct(inner) => inner.automatic_pairing_code().await?,
+            Session::Automatic(inner) => inner.automatic_pairing_code().await?,
+        })
     }
     /// Explicit comparison-complete enrollment choice. Native transport forwards
     /// packets and receipts; this never confirms comparison or sibling approvals.
@@ -109,25 +159,37 @@ impl DeviceLinkingSession {
         displayed_revision: u64,
         share_chats: bool,
     ) -> Result<(), MarmotKitError> {
-        Ok(self
-            .inner
-            .continue_automatic_linking(displayed_revision, share_chats)
-            .await?)
+        match &self.inner {
+            Session::Direct(inner) => {
+                inner
+                    .continue_automatic_linking(displayed_revision, share_chats)
+                    .await?
+            }
+            Session::Automatic(inner) => {
+                inner
+                    .continue_automatic_linking(displayed_revision, share_chats)
+                    .await?
+            }
+        };
+        Ok(())
     }
     /// Copy the original bounded setup packet; it cannot restore a live session.
     pub fn setup_packet(&self) -> Vec<u8> {
-        self.inner.setup_packet()
+        match &self.inner {
+            Session::Direct(inner) => inner.setup_packet(),
+            Session::Automatic(inner) => inner.setup_packet(),
+        }
     }
     /// Accept the approver's challenge under the original worker-owned purpose.
     pub async fn receive_setup_packet(&self, packet: Vec<u8>) -> Result<(), MarmotKitError> {
-        Ok(self.inner.receive_setup_packet(packet).await?)
+        Ok(self.direct()?.receive_setup_packet(packet).await?)
     }
     /// Read bounded SDK transport packets without consuming verifier permission.
     pub async fn outgoing_packets(
         &self,
     ) -> Result<Vec<DeviceLinkingOutgoingPacketFfi>, MarmotKitError> {
         Ok(self
-            .inner
+            .direct()?
             .outgoing_packets()
             .await?
             .into_iter()
@@ -136,27 +198,41 @@ impl DeviceLinkingSession {
     }
     /// Deliver a bounded original SDK packet; binding and role are actor-validated.
     pub async fn receive_packet(&self, packet: Vec<u8>) -> Result<(), MarmotKitError> {
-        Ok(self.inner.receive_packet(packet).await?)
+        Ok(self.direct()?.receive_packet(packet).await?)
     }
     /// Acknowledge transport delivery only; this cannot approve enrollment.
     pub async fn acknowledge_packet(
         &self,
         acknowledgement_id: String,
     ) -> Result<(), MarmotKitError> {
-        Ok(self.inner.acknowledge_packet(acknowledgement_id).await?)
+        Ok(self
+            .direct()?
+            .acknowledge_packet(acknowledgement_id)
+            .await?)
     }
     /// Observe sanitized phase, displayed revision and standard SAS decimals.
     pub async fn snapshot(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError> {
-        Ok(self.inner.snapshot().await?.into())
+        Ok(match &self.inner {
+            Session::Direct(inner) => inner.snapshot().await?,
+            Session::Automatic(inner) => inner.snapshot().await?,
+        }
+        .into())
     }
     /// Explicit human confirmation of the revision actually displayed.
     pub async fn confirm_comparison(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
-        Ok(self.inner.confirm_comparison(displayed_revision).await?)
+        match &self.inner {
+            Session::Direct(inner) => inner.confirm_comparison(displayed_revision).await?,
+            Session::Automatic(inner) => inner.confirm_comparison(displayed_revision).await?,
+        };
+        Ok(())
     }
     /// Create an independently closeable coalesced observation stream.
     pub fn subscribe(&self) -> Arc<DeviceLinkingSubscription> {
         Arc::new(DeviceLinkingSubscription {
-            inner: self.inner.subscribe(),
+            inner: match &self.inner {
+                Session::Direct(inner) => inner.subscribe(),
+                Session::Automatic(inner) => inner.subscribe(),
+            },
         })
     }
     /// Export the bounded complete all-leaf packet before the original lease transfers.
@@ -164,7 +240,7 @@ impl DeviceLinkingSession {
         &self,
         displayed_revision: u64,
     ) -> Result<Vec<u8>, MarmotKitError> {
-        Ok(self.inner.enrollment_packet(displayed_revision).await?)
+        Ok(self.direct()?.enrollment_packet(displayed_revision).await?)
     }
     /// Validate enrollment bytes under the original recipient action, without host authority.
     pub async fn receive_enrollment_packet(
@@ -173,18 +249,22 @@ impl DeviceLinkingSession {
         packet: Vec<u8>,
     ) -> Result<(), MarmotKitError> {
         Ok(self
-            .inner
+            .direct()?
             .receive_enrollment_packet(displayed_revision, packet)
             .await?)
     }
     /// Explicitly finalize the original approver action after recipient packet handling.
     pub async fn finalize_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
-        Ok(self.inner.finalize_linking(displayed_revision).await?)
+        Ok(self.direct()?.finalize_linking(displayed_revision).await?)
     }
     /// Revoke this exact session before waiting for durable actor cleanup.
     #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
-        Ok(self.inner.cancel().await?)
+        match &self.inner {
+            Session::Direct(inner) => inner.cancel().await?,
+            Session::Automatic(inner) => inner.cancel().await?,
+        };
+        Ok(())
     }
     /// Explicitly approve sharing existing/future chats, history and messaging
     /// while continuing this exact original pairing action. Retained metadata
@@ -194,13 +274,13 @@ impl DeviceLinkingSession {
         displayed_revision: u64,
     ) -> Result<(), MarmotKitError> {
         Ok(self
-            .inner
+            .direct()?
             .continue_linking_and_share_chats(displayed_revision)
             .await?)
     }
     /// Continue original singleton actions after genuine verification of the displayed revision.
     pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
-        Ok(self.inner.continue_linking(displayed_revision).await?)
+        Ok(self.direct()?.continue_linking(displayed_revision).await?)
     }
 }
 #[marmot_uniffi_macros::on_tokio_runtime]

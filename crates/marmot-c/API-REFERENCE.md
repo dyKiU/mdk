@@ -5830,6 +5830,26 @@ Create the approver challenge from borrowed bounded request bytes. NULL/zero tar
 
 [Header contract](include/marmot.h#L11006)
 
+### `marmot_begin_automatic_device_linking_session`
+
+```c
+MarmotStatus marmot_begin_automatic_device_linking_session(const struct MarmotClient *client, const char *account, struct MarmotDeviceLinkingSession **out);
+```
+
+Return an owned role-neutral one-scan session using the selected account. Validate and clear `out` before effects; adopt the handle before activating its pairing code. Free with `marmot_device_linking_session_free` before the client. SAS comparison and original enrollment/sharing approvals remain explicit. See the [shared transport contract](../marmot-uniffi/DEVICE-LINKING.md#one-scan-automatic-transport).
+
+[Header contract](include/marmot.h#L9949)
+
+### `marmot_scan_automatic_device_linking_session`
+
+```c
+MarmotStatus marmot_scan_automatic_device_linking_session(const struct MarmotClient *client, const char *account, const uint8_t *code, uintptr_t code_len, struct MarmotDeviceLinkingSession **out);
+```
+
+Scan either request or rendezvous bootstrap through the existing owned session handle. Borrow `code` for this call only; experimental builds bound it to 1024 UTF-8 bytes before copying. Default builds return Unsupported before reading its bytes. Required output preflight precedes account/runtime effects. Activate after host-scope adoption, then use standard comparison, approval and cancellation calls. Free the returned handle with its existing matching free.
+
+[Header contract](include/marmot.h#L9986)
+
 ### `marmot_begin_device_linking_session`
 
 ```c

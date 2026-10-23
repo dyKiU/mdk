@@ -130,10 +130,10 @@ pub use history_transfer::{
     HistoryTransferSnapshot,
 };
 pub use native_device_linking::{
-    DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalReviewMetadata,
-    DeviceLinkingApprovalSnapshot, DeviceLinkingCapabilities, DeviceLinkingDecimals,
-    DeviceLinkingError, DeviceLinkingOutgoingPacket, DeviceLinkingPhase, DeviceLinkingSession,
-    DeviceLinkingSnapshot, DeviceLinkingSubscription, DeviceLinkingTarget,
+    AutomaticDeviceLinkingSession, DeviceLinkingApproval, DeviceLinkingApprovalPhase,
+    DeviceLinkingApprovalReviewMetadata, DeviceLinkingApprovalSnapshot, DeviceLinkingCapabilities,
+    DeviceLinkingDecimals, DeviceLinkingError, DeviceLinkingOutgoingPacket, DeviceLinkingPhase,
+    DeviceLinkingSession, DeviceLinkingSnapshot, DeviceLinkingSubscription, DeviceLinkingTarget,
 };
 pub use selected_chat_copy::{
     SelectedChatConsent, SelectedChatConsentPhase, SelectedChatConsentSnapshot, SelectedChatCopy,

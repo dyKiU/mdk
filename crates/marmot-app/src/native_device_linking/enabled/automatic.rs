@@ -761,7 +761,7 @@ impl AccountManager {
         let mut driver = Driver::open(self, Keys::generate(), &bootstrap, true, deadline).await?;
         let request = driver.request().await?;
         let original = self
-            .approve_device_linking_session(account_ref, request.to_vec(), target)
+            .approve_device_linking_session_until(account_ref, request.to_vec(), target, deadline)
             .await?;
         // Commit the request only after the exact actor accepted its setup.
         let receipt = driver

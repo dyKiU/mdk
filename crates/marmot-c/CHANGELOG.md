@@ -39,6 +39,12 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- `marmot_begin_automatic_device_linking_session` and
+  `marmot_scan_automatic_device_linking_session` expose role-neutral one-scan
+  transport using the existing owned session handle and status values. These
+  symbols require the matching library/header; legacy manual factories remain
+  supported. Comparison and original enrollment approvals remain explicit.
+
 - `marmot_attachment_keep_media` and `marmot_set_attachment_keep_media` with
   `MarmotAttachmentKeepMedia`: the opt-in "Keep media" setting (mdk#2314
   step 10). `MarmotAttachmentTransferState` appends

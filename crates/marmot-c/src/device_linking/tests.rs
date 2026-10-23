@@ -60,6 +60,24 @@ fn client(dir: &std::path::Path, relay: String) -> MarmotClient {
 fn device_binding_null_outputs_precede_handle_or_input_access() {
     unsafe {
         assert_eq!(
+            marmot_begin_automatic_device_linking_session(
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        assert_eq!(
+            marmot_scan_automatic_device_linking_session(
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::dangling(),
+                usize::MAX,
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        assert_eq!(
             marmot_begin_device_linking_session(
                 std::ptr::null(),
                 std::ptr::null(),
@@ -145,6 +163,28 @@ fn default_device_binding_is_typed_unsupported_and_clears_output() {
     let client = client(dir.path(), "wss://relay.example".into());
     let account = CString::new("missing").unwrap();
     unsafe {
+        let mut role_neutral = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_begin_automatic_device_linking_session(
+                &client,
+                account.as_ptr(),
+                &mut role_neutral
+            ),
+            MarmotStatus::DeviceLinkingUnsupported
+        );
+        assert!(role_neutral.is_null());
+        role_neutral = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_scan_automatic_device_linking_session(
+                &client,
+                account.as_ptr(),
+                std::ptr::dangling(),
+                usize::MAX,
+                &mut role_neutral
+            ),
+            MarmotStatus::DeviceLinkingUnsupported
+        );
+        assert!(role_neutral.is_null());
         let mut out = std::ptr::dangling_mut();
         assert_eq!(
             marmot_begin_device_linking_session(&client, account.as_ptr(), &mut out),

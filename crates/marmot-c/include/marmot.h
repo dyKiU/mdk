@@ -10999,6 +10999,15 @@ MarmotStatus marmot_begin_device_linking_session(const struct MarmotClient *clie
                                                  struct MarmotDeviceLinkingSession **out);
 
 /**
+ * Begin a role-neutral one-scan session; activate after host-scope adoption. Default builds return Unsupported.
+ * # Safety
+ * client/account must remain valid for the call and out must be writable.
+ */
+MarmotStatus marmot_begin_automatic_device_linking_session(const struct MarmotClient *client,
+                                                           const char *account,
+                                                           struct MarmotDeviceLinkingSession **out);
+
+/**
  * Approve bounded setup metadata. NULL/zero target means singleton; selected rosters are actor-validated.
  * # Safety
  * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
@@ -11024,6 +11033,18 @@ MarmotStatus marmot_approve_automatic_device_linking_session(const struct Marmot
                                                              const uint8_t *target,
                                                              uintptr_t target_len,
                                                              struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Scan a bounded role-neutral bootstrap; fresh Core state selects the SDK role.
+ * The returned original remains paused until automatic_pairing_code after exact host adoption.
+ * # Safety
+ * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+ */
+MarmotStatus marmot_scan_automatic_device_linking_session(const struct MarmotClient *client,
+                                                          const char *account,
+                                                          const uint8_t *code,
+                                                          uintptr_t code_len,
+                                                          struct MarmotDeviceLinkingSession **out);
 
 /**
  * Read verification setup packet; no proof or permission is exported.

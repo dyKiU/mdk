@@ -12,6 +12,7 @@ use std::sync::{
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
 pub(crate) mod diagnostics;
+pub(super) mod negotiated;
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) type PreparedPublicationNotificationForTest = (
@@ -208,7 +209,20 @@ impl AccountManager {
         &self,
         account_ref: &str,
     ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
-        let transport_deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        self.begin_device_linking_session_until(
+            account_ref,
+            std::time::Instant::now() + std::time::Duration::from_secs(600),
+        )
+        .await
+    }
+    async fn begin_device_linking_session_until(
+        &self,
+        account_ref: &str,
+        transport_deadline: std::time::Instant,
+    ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
+        if std::time::Instant::now() >= transport_deadline {
+            return Err(DeviceLinkingError::Closed);
+        }
         let account = self
             .resolve(account_ref)
             .map_err(|_| DeviceLinkingError::RuntimeUnavailable)?
@@ -232,7 +246,24 @@ impl AccountManager {
         request: Vec<u8>,
         target: Option<Vec<u8>>,
     ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
-        let transport_deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        self.approve_device_linking_session_until(
+            account_ref,
+            request,
+            target,
+            std::time::Instant::now() + std::time::Duration::from_secs(600),
+        )
+        .await
+    }
+    async fn approve_device_linking_session_until(
+        &self,
+        account_ref: &str,
+        request: Vec<u8>,
+        target: Option<Vec<u8>>,
+        transport_deadline: std::time::Instant,
+    ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
+        if std::time::Instant::now() >= transport_deadline {
+            return Err(DeviceLinkingError::Closed);
+        }
         if target
             .as_ref()
             .is_some_and(|selector| selector.is_empty() || selector.len() > 256)
