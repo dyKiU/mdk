@@ -15,7 +15,7 @@ from upstream_directory_login_controls import environment, observed_counts, runt
 
 CASE = 'engine-mls-group-cache'
 SOURCE = 'crates/cgka-engine/src/mls_group_cache.rs'
-SOURCE_SHA = '88fbadc56850f8bad91b5d8fc9cdb410ae0b1a8fe6fb58b4904e41356cd2f4e0'
+SOURCE_SHA = 'a28658e689140ad54b299a24db27525d8ac64fe3877215abe6b05d8b6090c75b'
 TEST = 'mls_group_cache::tests::cached_group_is_reused_until_storage_is_written_behind_it'
 PREFIX = 'mls-cache-actual-load '
 MESSAGE = 'cached sends avoid real MLS loads and rollback forces exactly one reload'

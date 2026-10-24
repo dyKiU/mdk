@@ -290,7 +290,7 @@ mod tests {
             after_third_send - after_second_send,
             after_fourth_send - after_third_send,
         ];
-        eprintln!(
+        crate::test_support::emit_line(format_args!(
             "mls-cache-actual-load {}",
             serde_json::json!({
                 "application_sends": application_sends,
@@ -298,7 +298,7 @@ mod tests {
                 "rollback_changed_generation": rollback_changed_generation,
                 "load_deltas": load_deltas,
             })
-        );
+        ));
         assert!(
             application_sends.into_iter().all(|actual| actual),
             "all four real sends must produce application messages for the exact group"

@@ -95,6 +95,8 @@ pub mod publish;
 pub mod self_update;
 pub mod snapshot_guard;
 pub(crate) mod test_crash_hooks;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod update_group_data;
 pub mod upgrade;
 pub mod wire_format;
