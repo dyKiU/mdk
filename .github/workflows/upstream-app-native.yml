@@ -601,6 +601,165 @@ jobs:
             --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
             --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
             --work "$RUNNER_TEMP/hosted-adapter-work" --output "$RUNNER_TEMP/native-evidence/native-factory-$ADAPTER_PLATFORM.json"
+      - name: Export bounded owned factory baseline build diagnosis without private output
+        if: always() && matrix.platform == 'macos' && contains(fromJSON('["all","native-factory-macos"]'), needs.identity.outputs.native_scope)
+        run: |
+          python3 - <<'PY'
+          # Observe only this owned baseline build; never upload a raw log or SDK bundle.
+          import hashlib, json, os, re, stat, subprocess
+          from pathlib import Path
+
+          TOOLS = os.environ['GITHUB_SHA']
+          SDK = os.environ['SOURCE_SHA']
+          SDK_RUN = os.environ['SDK_RUN_ID']
+          MAC = os.environ['MAC_SHA']
+          IOS = os.environ['IOS_SHA']
+          LIMIT = 2 * 1024 * 1024
+          LABELS = {
+              'source-commit-mismatch', 'tracked-or-untracked-source-file-missing',
+              'non-sdk-source-diff', 'sdk-cohort-mismatch', 'installed-generated-Swift-drift',
+              'installed-SDK-version-source-mismatch', 'sdk-artifact-mismatch',
+              'bridge-symlink-refused', 'existing-output-parent-required', 'prefix-must-be-fresh',
+              'fresh-absolute-compiler-result-bundle-build-only', 'case-platform-mismatch',
+              'owned-simulator-required', 'hosted-macOS-CI-only',
+              'SDK-package-must-be-the-actual-app-overlay',
+              'SDK-source-must-match-the-qualified-workflow-cohort',
+              'supported-derived-data-products-path-required', 'unexpected-generated-swift',
+              'profile-mismatch', 'required-source-run-identity',
+          }
+          EXCEPTIONS = {'ValueError', 'AssertionError', 'FileNotFoundError', 'PermissionError',
+                        'CalledProcessError', 'TimeoutExpired', 'TimeoutError', 'RuntimeError',
+                        'KeyError', 'TypeError', 'ImportError', 'ModuleNotFoundError', 'OSError'}
+          os.umask(0o077)
+          workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          temporary = Path(os.environ['RUNNER_TEMP']).resolve()
+          base = temporary / 'hosted-adapter-work/private/factory-baseline'
+          output = temporary / 'native-evidence/factory-baseline-build-diagnostic.json'
+          report = dict(schema=1, diagnostic_only=True, qualification=False, native_bodies_claimed=0,
+                        preview_only=True, tools_source=TOOLS, sdk_source=SDK, sdk_run_id=SDK_RUN,
+                        mac_source=MAC, ios_source=IOS, baseline_folder_present=False,
+                        logs={}, python_sites=[], swift_sites=[], source_site_overflow=False,
+                        compiler_inventory_complete=False, associated_messages_exported=False,
+                        api_identifiers_exported=False, raw_persisted=False, guard_passed=False)
+
+          def owned(path, directory=False):
+              info = path.lstat()
+              if (path.is_symlink() or info.st_uid != os.getuid()
+                      or not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))):
+                  raise ValueError('owned-path-required')
+              return info
+
+          def bounded(path, label):
+              if not path.exists():
+                  report['logs'][label] = dict(present=False, bounded_complete=False, sha256=None)
+                  return None
+              info = owned(path)
+              row = dict(present=True, bytes=info.st_size, bounded_complete=False, sha256=None)
+              report['logs'][label] = row
+              if info.st_size > LIMIT:
+                  row['oversized'] = True
+                  return None
+              descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              try:
+                  actual = os.fstat(descriptor)
+                  if (actual.st_dev, actual.st_ino, actual.st_size) != (info.st_dev, info.st_ino, info.st_size):
+                      raise ValueError('stable-owned-log-required')
+                  with os.fdopen(descriptor, 'rb', closefd=False) as stream:
+                      raw = stream.read(LIMIT + 1)
+                  if len(raw) != info.st_size:
+                      raise ValueError('stable-owned-log-length-required')
+              finally:
+                  os.close(descriptor)
+              row.update(bounded_complete=True, sha256=hashlib.sha256(raw).hexdigest())
+              return raw
+
+          try:
+              assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+              assert all(re.fullmatch('[0-9a-f]{40}', value) for value in (TOOLS, SDK, MAC, IOS))
+              assert re.fullmatch('[1-9][0-9]*', SDK_RUN)
+              assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=workspace, text=True).strip() == TOOLS
+              cohort_path = 'scripts/upstream_apple_ci/app-native-cohort.json'
+              cohort_raw = subprocess.check_output(['git', 'show', TOOLS + ':' + cohort_path], cwd=workspace)
+              assert (workspace/cohort_path).read_bytes() == cohort_raw
+              cohort = json.loads(cohort_raw)
+              assert set(cohort) == {'scope', 'format_platforms', 'mac_sha', 'ios_sha', 'mac_baseline', 'ios_baseline'}
+              assert cohort['mac_sha'] == MAC and cohort['ios_sha'] == IOS
+              report['committed_app_cohort_sha256'] = hashlib.sha256(cohort_raw).hexdigest()
+              for folder, sha in [('mac', cohort['mac_sha']), ('ios', cohort['ios_sha'])]:
+                  assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=workspace/folder, text=True).strip() == sha
+              report['app_heads_verified'] = True
+              assert not output.exists()
+              if not base.exists():
+                  report['progress_category'] = 'baseline-not-started'
+                  report['diagnostic_incomplete'] = True
+                  raise FileNotFoundError('owned-baseline-not-started')
+              report['baseline_folder_present'] = True
+              owned(base.parent, directory=True); owned(base, directory=True)
+              assert base.resolve() == base
+              report['guard_passed'] = True
+              tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=workspace, text=True).split('\0')
+              python_files = {str(workspace/p): p for p in tracked
+                              if p.startswith('scripts/upstream_apple_ci/') and p.endswith('.py')}
+              mac_tracked = subprocess.check_output(['git', 'ls-files', '-z', '--', '*.swift'], cwd=workspace/'mac', text=True).split('\0')
+              swift_files = {str(workspace/'mac'/p): p for p in mac_tracked if p}
+              patterns = [('cannot find', 'cannot-find'), ('has no member', 'missing-member'),
+                          ('missing argument', 'missing-argument'), ('extra argument', 'extra-argument'),
+                          ('cannot convert', 'type-conversion'), ('ambiguous', 'ambiguous'),
+                          ('no such module', 'missing-module')]
+              for filename, label in [('driver-build-private.log', 'driver'), ('build-build.log', 'xcode')]:
+                  raw = bounded(base/filename, label)
+                  if raw is None:
+                      continue
+                  text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', raw.decode('utf-8', errors='replace'))
+                  report['logs'][label]['exception_categories'] = sorted({x for x in EXCEPTIONS
+                      if re.search(r'(?m)^' + re.escape(x) + r':', text)})
+                  report['logs'][label]['fixed_setup_labels'] = sorted({x for x in LABELS
+                      if re.search(r'(?m)^ValueError: ' + re.escape(x) + r'\s*$', text)})
+                  exception_rows = re.findall(r'(?m)^([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)|TimeoutExpired):', text)
+                  report['logs'][label]['unknown_python_exception_count'] = sum(name not in EXCEPTIONS for name in exception_rows)
+                  report['logs'][label]['compiler_error_like_count'] = len(re.findall(r'(?m)\berror:', text))
+                  for candidate, number in re.findall(r'(?m)^\s*File "([^"\r\n]+)", line ([0-9]+)', text):
+                      if candidate in python_files and 0 < int(number) <= 20000:
+                          row = dict(path=python_files[candidate], line=int(number))
+                          if row not in report['python_sites']:
+                              if len(report['python_sites']) < 16: report['python_sites'].append(row)
+                              else: report['source_site_overflow'] = True
+                  for candidate, line, column, level, message in re.findall(
+                          r'(?m)^([^\r\n]+\.swift):([0-9]+):([0-9]+): (error|warning): ([^\r\n]*)$', text):
+                      if candidate in swift_files and 0 < int(line) <= 200000 and 0 < int(column) <= 20000:
+                          category = next((name for needle, name in patterns if needle in message.lower()), 'other-compiler')
+                          row = dict(path=swift_files[candidate], line=int(line), column=int(column),
+                                     level=level, category=category)
+                          if row not in report['swift_sites']:
+                              if len(report['swift_sites']) < 16: report['swift_sites'].append(row)
+                              else: report['source_site_overflow'] = True
+                  # Associated exception/compiler text, URLs, keys and values never enter the report.
+              raw = bounded(base/'build-results.json', 'build-result')
+              if raw is not None:
+                  value = json.loads(raw)
+                  report['build_result'] = {
+                      'exit_code': value.get('exit_code') if type(value.get('exit_code')) is int else None,
+                      'error_category': value.get('error_category') if value.get('error_category') in EXCEPTIONS else None,
+                      'unchanged': value.get('unchanged') if type(value.get('unchanged')) is bool else None,
+                  }
+              report['xcresult_present'] = (base/'compile.xcresult').is_dir()
+              if not any(report['logs'][name]['present'] for name in ('driver', 'xcode', 'build-result')):
+                  report['progress_category'] = 'baseline-without-build-invocation-evidence'
+                  report['diagnostic_incomplete'] = True
+              else:
+                  report['progress_category'] = ('pre-xcode-driver-failure'
+                      if report['logs']['driver']['present'] and not report['logs']['xcode']['present']
+                      and not report['logs']['build-result']['present'] and not report['xcresult_present']
+                      else 'build-or-driver-stage')
+          except Exception as error:
+              report['collector_failure_category'] = type(error).__name__ if type(error).__name__ in EXCEPTIONS else 'unknown'
+              report['diagnostic_incomplete'] = True
+          output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+          with output.open('x') as stream:
+              json.dump(report, stream, indent=2)
+              stream.write('\n')
+          # This observer never converts the preceding failing native step into a pass.
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
