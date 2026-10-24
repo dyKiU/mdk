@@ -145,7 +145,7 @@
     },
     "compatibility_policy_pfp.py": {
       "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
-      "sha256": "5ccc615c0faf3e683cc544a5f5ec2f163ed8aeab387db162c19bc1f0508065dd",
+      "sha256": "dc8834687a96e0d22d8ed07e157f353e1b2ae93eb397d28ee77770b256d9c017",
       "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
     },
     "compatibility-policy-sources.json": {
@@ -155,7 +155,7 @@
     },
     "test_compatibility_policy.py": {
       "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
-      "sha256": "60a5d1a2375b2805fafe271c6d2a9a54f029b922ad6e78efdb008d23cd3945d9",
+      "sha256": "2383dbfdace93938253b93099adaf2f412a9e987f0c9bf46c28cbb268c2ce352",
       "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
     }
   },

@@ -171,6 +171,56 @@ def compiler_sites(rows, app, tracked):
     return result
 
 
+def unit_command_diagnostics(path):
+    """Supplemental bounded CLI facts; never export arbitrary error messages."""
+    cap = 2 * 1024**2
+    report = {'status': 'unavailable', 'classification_credit': False,
+              'log_complete': False, 'error_rows': []}
+    try:
+        with path.open('rb') as stream:
+            captured = stream.read(cap + 1)
+        complete = len(captured) <= cap
+        raw = captured[:cap]
+        report.update(log_bytes=path.stat().st_size, captured_bytes=len(raw),
+                      captured_sha256=policy.sha(raw), log_complete=complete)
+        text = raw.decode('utf-8', errors='strict')
+        flags = ('-test-iterations', '-parallel-testing-enabled', '-only-testing', '-testPlan',
+                 '-project', '-scheme', '-configuration', '-destination', '-derivedDataPath',
+                 '-jobs', '-resultBundlePath', '-retry-tests-on-failure', '-run-tests-until-failure',
+                 'OTHER_SWIFT_FLAGS', 'TEST_HOST', 'CODE_SIGNING_ALLOWED', 'test-without-building')
+        phrases = {'invalid option': 'invalid-option', 'unknown option': 'unknown-option',
+                   'unrecognized option': 'unrecognized-option', 'cannot be used': 'cannot-be-used',
+                   'not supported': 'not-supported', 'requires': 'requires', 'must be': 'must-be',
+                   'more than once': 'more-than-once', 'does not exist': 'does-not-exist',
+                   'does not contain': 'does-not-contain', 'is not a valid': 'not-valid',
+                   'repetition': 'repetition', 'iteration': 'iteration',
+                   'greater than 1': 'greater-than-one', 'at least 2': 'at-least-two',
+                   'greater than zero': 'greater-than-zero'}
+        overflow = False
+        for line in text.splitlines():
+            clean = re.sub(r'\x1b\[[0-9;]*m', '', line)
+            match = re.fullmatch(r'[ \t]{0,8}xcodebuild: error: (.{1,4096})', clean)
+            if match is None:
+                continue
+            if len(report['error_rows']) == 16:
+                overflow = True
+                break
+            message = match.group(1)
+            present = [flag for flag in flags if re.search(r'(?<![A-Za-z0-9_-])' + re.escape(flag)
+                       + r'(?![A-Za-z0-9_-])', message)]
+            fragments = sorted(label for phrase, label in phrases.items()
+                               if re.search(r'(?<![A-Za-z0-9_])' + re.escape(phrase)
+                                            + r'(?![A-Za-z0-9_])', message.lower()))
+            # These are observed fixed tokens, not a diagnosis inferred from a flag.
+            report['error_rows'].append({'message_sha256': policy.sha(message.encode()),
+                'category': 'xcodebuild-error', 'source_owned_tokens': present, 'static_fragments': fragments})
+        report.update(status='observed', error_rows_complete=complete and not overflow,
+                      error_rows_truncated=overflow)
+    except (OSError, UnicodeError):
+        report['reason'] = 'private-command-log-unavailable-or-invalid-utf8'
+    return report
+
+
 def selected_identity(tree, case, observed):
     inventory = test_inventory(tree, observed)
     policy.require(inventory['status'] == 'complete' and inventory['unknown_nodes'] == 0,
@@ -359,18 +409,27 @@ def main(args):
                                    '-only-testing:' + case['selector'], '-resultBundlePath', str(result)],
                                 folder / 'unit-private.log', environment=environment, timeout=1200)
                         finally:
+                            row['unit_command_diagnostics'] = unit_command_diagnostics(folder / 'unit-private.log')
+                            save()
+                            row['counts'] = None
                             if result.exists():
-                                observed = export_metadata(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)])
-                                row['counts'] = summary_counts(observed)
+                                try:
+                                    observed = export_metadata(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)])
+                                    row['counts'] = summary_counts(observed)
+                                except Exception as summary_error:
+                                    # Summary rejection must not hide independent legacy issue evidence.
+                                    row['summary_error_kind'] = type(summary_error).__name__
+                            else:
+                                row['summary_error_kind'] = 'ResultBundleUnavailable'
                             save()
                         policy.require((folder / 'unit-private.log').stat().st_size <= 32 * 1024**2, 'bounded-private-unit-log')
-                        row['inventory'] = selected_identity(export_tests(result), case, row.get('counts'))
                         runtime_audit = {}
                         row['runtime_inventory_audit'] = runtime_audit
                         issues = xcresult.read(result, source=test, relative=case['test_source'], audit=runtime_audit)
                         row['compiler_body_count'] = len(issues['compiler'])
                         row['compiler_body_sites'] = compiler_sites(issues['compiler'], app, initial['files'])
                         save()
+                        row['inventory'] = selected_identity(export_tests(result), case, row.get('counts'))
                         row['issue_evidence'] = policy.runtime(case, row.get('counts'), build_issues['compiler'],
                                                              issues['compiler'], issues['failures'], intentional)
                         policy.require(row['unit_exit_code'] == (65 if intentional else 0), 'exact-xcode-runtime-status')

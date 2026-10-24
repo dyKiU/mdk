@@ -333,5 +333,48 @@ class InstalledSdkInventoryTests(unittest.TestCase):
                         hosted.freeze_sdk(package, manifest)
 
 
+class UnitCommandDiagnosticTests(unittest.TestCase):
+    def test_static_cli_tokens_are_observed_without_exporting_arbitrary_text(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        import compatibility_policy_pfp as runner
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / 'private.log'
+            path.write_text("xcodebuild: error: invalid option '-testPlan' PRIVATE_SENTINEL\n")
+            actual = runner.unit_command_diagnostics(path)
+            self.assertEqual(actual['status'], 'observed')
+            self.assertTrue(actual['log_complete'])
+            self.assertFalse(actual['classification_credit'])
+            self.assertEqual(actual['error_rows'][0]['source_owned_tokens'], ['-testPlan'])
+            self.assertEqual(actual['error_rows'][0]['static_fragments'], ['invalid-option'])
+            self.assertNotIn('PRIVATE_SENTINEL', str(actual))
+            path.write_text('xcodebuild: error: test iteration repetition must be greater than 1; at least 2; greater than zero PRIVATE_NUMBER_917\n')
+            fragments = runner.unit_command_diagnostics(path)['error_rows'][0]['static_fragments']
+            self.assertEqual(fragments, ['at-least-two', 'greater-than-one', 'greater-than-zero', 'iteration', 'must-be', 'repetition'])
+            self.assertNotIn('917', str(fragments))
+            path.write_text('xcodebuild: error: greater than 17; at least 20; greater than zeroes\n')
+            self.assertEqual(runner.unit_command_diagnostics(path)['error_rows'][0]['static_fragments'], [])
+
+    def test_unknown_invalid_missing_and_overbudget_logs_remain_honest(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        import compatibility_policy_pfp as runner
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / 'private.log'
+            self.assertEqual(runner.unit_command_diagnostics(path)['status'], 'unavailable')
+            path.write_bytes(b'\xff')
+            self.assertEqual(runner.unit_command_diagnostics(path)['status'], 'unavailable')
+            path.write_bytes(b'x' * (2 * 1024**2 + 1))
+            actual = runner.unit_command_diagnostics(path)
+            self.assertFalse(actual['log_complete'])
+            self.assertFalse(actual['error_rows_complete'])
+            path.write_text('xcodebuild: error: PRIVATE_UNKNOWN\n' * 17)
+            actual = runner.unit_command_diagnostics(path)
+            self.assertEqual(len(actual['error_rows']), 16)
+            self.assertTrue(actual['error_rows_truncated'])
+            self.assertTrue(all(row['source_owned_tokens'] == [] and row['static_fragments'] == [] for row in actual['error_rows']))
+            self.assertNotIn('PRIVATE_UNKNOWN', str(actual))
+
+
 if __name__ == '__main__':
     unittest.main()
