@@ -2,9 +2,9 @@
   "mdk_pin_snapshot": "c1ae548f2e60c41ade8ca98140fbb05f6c8e6937",
   "apps": {
     "macos": {
-      "commit": "518c0b300ffb59d82449d7f5b15b1ba823eb7ff4",
+      "commit": "7e572f47c70c1254288c2623091bc542ef4c132d",
       "test_path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
-      "test_sha256": "acdec8b142873c24d7ad2a4ceedec3472bb28811c49decabce9564f1e6177bf3",
+      "test_sha256": "400c1a522ff09f757be98f8cffd694f42549c5284a14c16fc93039c7e7d393f5",
       "adapter_path": "whitenoise-mac/Core/MarmotClient.swift",
       "adapter_sha256": "651a939ef24ed246d8c1fb1c6ef68ebf0d6c2d2eee529705828622e2369e77e4",
       "assertion_sites": {
@@ -32,9 +32,9 @@
       }
     },
     "ios": {
-      "commit": "d666fc2da59be905420f6a284c1867664bca2909",
+      "commit": "e5af54a638ef6a92e33c5b03516227ec659efbbf",
       "test_path": "whitenoise-iosTests/GenuineAutomaticHostFactoryTests.swift",
-      "test_sha256": "ddb1a4835270442064c090824b061eef3e7bb4d52209d1bc0c84fbdf6204df1d",
+      "test_sha256": "2db5988302c01eed5fcb4b37091d03582a658917327a4d36869eb04fee9a61d9",
       "adapter_path": "whitenoise-ios/Core/MarmotClient.swift",
       "adapter_sha256": "6e949a159832d0ace67bac2dc6f5f0460161b0544b267f150088e6348a5c2f9b",
       "assertion_sites": {
