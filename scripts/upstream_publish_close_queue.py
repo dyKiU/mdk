@@ -89,7 +89,7 @@ def controls(site):
             else: raise AssertionError('pass-close-wrong-stage-bit-accepted')
     valid = raw(red)
     for item in [valid * 2, b'PRIVATE ' + valid, valid.replace(b'true', b'1', 1),
-                 valid + b' extra=true', valid.replace(b'before_active=', b'unknown='), b' '*9 + valid,
+                 valid.rstrip(b'\n') + b' extra=true\n', valid.replace(b'before_active=', b'unknown='), b' '*9 + valid,
                  b'x' * (16 * 1024 * 1024 + 1)]:
         try: probe(item)
         except (ValueError, UnicodeError): negative += 1
