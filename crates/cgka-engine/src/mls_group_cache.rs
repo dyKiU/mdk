@@ -247,7 +247,10 @@ mod tests {
         // than once. Count real MLS loads instead of incidental accessor hits.
         let first_application = send(&mut engine, &group_id, &payload).await.unwrap();
         let initial_cached_groups = cached(&engine);
-        assert_eq!(initial_cached_groups, 1, "a successful send stores the group");
+        assert_eq!(
+            initial_cached_groups, 1,
+            "a successful send stores the group"
+        );
         let after_first_send = loads(&engine);
 
         let second_application = send(&mut engine, &group_id, &payload).await.unwrap();
