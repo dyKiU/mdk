@@ -305,9 +305,32 @@ class InstalledSdkInventoryTests(unittest.TestCase):
         with TemporaryDirectory() as folder:
             package = Path(folder)
             manifest, header, expected = self.producer_shaped_package(package)
-            actual = hosted.freeze_sdk(package, manifest)
+            repo = Path(__file__).resolve().parents[2]
+            with patch.dict(hosted.os.environ, {'SDK_SOURCE_REPOSITORY': str(repo)}):
+                actual = hosted.freeze_sdk(package, manifest)
             self.assertEqual(actual.get(header), expected,
                              'hosted unit complete inventory must freeze the compiled header')
+
+
+    def test_hosted_unit_rejects_corrupt_or_extra_native_inputs(self):
+        import importlib.util
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        path = Path(__file__).resolve().with_name('hosted-app-unit.py')
+        spec = importlib.util.spec_from_file_location('hosted_unit_inventory_tamper', path)
+        hosted = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hosted)
+        for mode in ('corrupt-header', 'extra-file'):
+            with self.subTest(mode=mode), TemporaryDirectory() as folder:
+                package = Path(folder).resolve()
+                manifest, header, _ = self.producer_shaped_package(package)
+                if mode == 'corrupt-header':
+                    (package / 'Artifacts' / header).write_bytes(b'CORRUPT SYNTHETIC HEADER')
+                else:
+                    (package / 'Artifacts/MarmotKit.xcframework/unqualified-extra.h').write_bytes(b'EXTRA')
+                with patch.dict(hosted.os.environ, {'SDK_SOURCE_REPOSITORY': str(Path(__file__).resolve().parents[2])}):
+                    with self.assertRaises(ValueError):
+                        hosted.freeze_sdk(package, manifest)
 
 
 if __name__ == '__main__':

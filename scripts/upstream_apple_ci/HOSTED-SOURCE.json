@@ -34,7 +34,7 @@
     },
     "hosted-app-unit.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "92f9a1a768a97d9b3e0711c36c093a7173b38a48c86bb10e03daffaf428c850f",
+      "sha256": "0f1504e4e7479ad7a5a855018b1d9885cd70c0fa5ff6b42636ba6ff869a0da7a",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     },
     "hosted-app-ui.py": {
@@ -155,7 +155,7 @@
     },
     "test_compatibility_policy.py": {
       "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
-      "sha256": "4fd36a7c8aa00fa08d365fc233a0b109de16611427768cc62d8066f027b2d892",
+      "sha256": "60a5d1a2375b2805fafe271c6d2a9a54f029b922ad6e78efdb008d23cd3945d9",
       "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
     }
   },

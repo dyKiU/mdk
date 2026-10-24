@@ -21,7 +21,7 @@ INPUTS = {
     RUNNER: 'b89caaa21f2280d08e56b70facc74804782ca05953a06fd97c4e23e41615dd79',
     ADAPTER: '1bfcefcfabb77aea48d58dc9e9ca69a8f23590487661d7a11f8df6187f11f3a1',
     'scripts/upstream_apple_ci/hosted-app-ui.py': '5b13dd5b22670fec484dd498459bfa476ac9b5ee86cc8a6cd0532bda2e166a22',
-    'scripts/upstream_apple_ci/hosted-app-unit.py': '92f9a1a768a97d9b3e0711c36c093a7173b38a48c86bb10e03daffaf428c850f',
+    'scripts/upstream_apple_ci/hosted-app-unit.py': '0f1504e4e7479ad7a5a855018b1d9885cd70c0fa5ff6b42636ba6ff869a0da7a',
 }
 MUTATIONS = [
     ('factory-build', RUNNER, "invoke(build, folder / 'driver-build-private.log',", "invoke(build, folder / 'build-driver-private.log',"),

@@ -6,7 +6,10 @@ import copy
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
+
+from sdk_profiles import validate_provenance, release_id, features as profile_features
 import plistlib
 import signal
 import subprocess
@@ -81,17 +84,98 @@ def freeze_source(source, commit, sdk_package, mutation_mode=None):
 
 
 def freeze_sdk(package, manifest):
-    if digest(package / 'Sources/MarmotKit/MarmotKit.swift') != manifest['installed_swift_sha256']:
-        raise ValueError('Installed generated Swift differs from its verified producer record')
-    frozen = {'LOCAL_BUILD.json': digest(package / 'LOCAL_BUILD.json')}
-    for name, row in manifest['artifacts'].items():
-        if name.startswith('MarmotKit.xcframework/'):
-            if digest(package / 'Artifacts' / name) != row['sha256']:
-                raise ValueError('App native SDK artifact mismatch')
-            frozen[name] = row['sha256']
+    """Freeze authenticated native/header inventory without executing SDK code."""
+    def require(value, label):
+        if not value:
+            raise ValueError(label)
+
+    require(package.is_absolute() and package.resolve(strict=True) == package,
+                   'physical-installed-sdk-root')
+    def regular(relative):
+        path = package / relative
+        for item in (path, *path.parents):
+            require(not item.is_symlink(), 'installed-sdk-symlink-refused')
+            if item == package:
+                break
+        require(path.is_file(), 'installed-sdk-file-required')
+        return path
+
+    require(json.loads(regular('LOCAL_BUILD.json').read_text()) == manifest,
+                   'installed-sdk-manifest-unchanged')
+    receipt = manifest['qualification_receipt']
+    require(type(receipt) is dict and set(receipt) == {
+        'qualification_json', 'qualification_sha256', 'manifest_json', 'manifest_sha256',
+        'platform', 'bundle', 'bundle_sha256', 'original_swift_relative_path'},
+        'closed-installed-qualification-receipt')
+    raw_q = receipt['qualification_json'].encode('utf-8')
+    raw_manifest = receipt['manifest_json'].encode('utf-8')
+    require(len(raw_q) <= 2 * 1024**2 and len(raw_manifest) <= 256 * 1024,
+                   'bounded-installed-qualification-receipt')
+    require(hashlib.sha256(raw_q).hexdigest() == receipt['qualification_sha256']
+                   and hashlib.sha256(raw_manifest).hexdigest() == receipt['manifest_sha256'],
+                   'installed-qualification-bytes-authenticated')
+    proof = json.loads(raw_q)
+    original = json.loads(raw_manifest)
+    profile, source, run = manifest['sdk_profile'], manifest['source_sha'], manifest['workflow_run_id']
+    validate_provenance(proof, profile, source, run)
+    require(proof.get('sdk_profile') == profile and manifest['builder_sha'] == source
+                   and manifest['features'] == profile_features(profile), 'exact-installed-sdk-profile')
+    platform = receipt['platform']
+    require(platform in ('macos', 'ios'), 'closed-installed-sdk-platform')
+    record = proof['platforms'][platform]
+    require(record['manifest'] == original and original['source_sha'] == original['builder_sha'] == source,
+                   'exact-qualified-package-manifest')
+    require(receipt['bundle'] == record['bundle']
+                   == 'marmotkit-' + platform + '-' + release_id(profile, source) + '.zip'
+                   and receipt['bundle_sha256'] == record['sha256'], 'exact-qualified-platform-bundle')
+    expected = original | dict(uniffi_version=proof['uniffi_version'], sdk_profile=profile,
+        installed_swift_sha256=manifest['installed_swift_sha256'], workflow_run_id=run,
+        installation='Ephemeral hosted CI overlay; never commit', qualification_receipt=receipt)
+    require(manifest == expected, 'exact-installed-package-metadata')
+    files = record['files']
+    require(type(files) is dict and 0 < len(files) <= 256 and {
+        'MarmotKit.swift', 'PrivacyInfo.xcprivacy', 'MarmotKit.xcframework/Info.plist'} <= set(files),
+        'complete-qualified-package-inventory')
+    require(receipt['original_swift_relative_path'] == 'LOCAL_BUILD_INPUTS/MarmotKit.swift',
+                   'exact-original-sdk-swift-path')
+    frozen = {'LOCAL_BUILD.json': digest(regular('LOCAL_BUILD.json'))}
+    native = set()
+    for name, expected_digest in files.items():
+        require(type(name) is str and type(expected_digest) is str and re.fullmatch('[0-9a-f]{64}', expected_digest),
+                       'typed-qualified-sdk-file-digest')
+        path_name = PurePosixPath(name)
+        require(not path_name.is_absolute() and '..' not in path_name.parts and str(path_name) == name,
+                       'canonical-qualified-sdk-file-path')
+        if name == 'MarmotKit.swift':
+            relative = receipt['original_swift_relative_path']
+        elif name == 'PrivacyInfo.xcprivacy':
+            relative = 'Sources/MarmotKit/Resources/PrivacyInfo.xcprivacy'
+        else:
+            require(name.startswith('MarmotKit.xcframework/'), 'closed-qualified-sdk-root-member')
+            relative = 'Artifacts/' + name
+            native.add(name)
+        require(digest(regular(relative)) == expected_digest, 'entire-qualified-sdk-file-digest')
+        frozen[name] = expected_digest
+    framework = package / 'Artifacts/MarmotKit.xcframework'
+    actual_native = set()
+    for path in framework.rglob('*'):
+        require(not path.is_symlink(), 'installed-native-sdk-symlink-refused')
+        if path.is_file():
+            actual_native.add('MarmotKit.xcframework/' + path.relative_to(framework).as_posix())
+    require(actual_native == native, 'complete-installed-native-sdk-inventory')
+    slices = ('macos-arm64',) if platform == 'macos' else ('ios-arm64', 'ios-arm64-simulator')
+    required = {'MarmotKit.xcframework/' + part + '/' + leaf for part in slices
+                for leaf in ('libmarmot_uniffi.a', 'Headers/marmot_uniffiFFI.h', 'Headers/module.modulemap')}
+    require(required <= native and len([name for name in native if name.endswith('.a')]) == len(slices),
+                   'required-qualified-native-sdk-inputs')
+    original_swift = regular(receipt['original_swift_relative_path']).read_text()
+    normalized = ('\n'.join(line.rstrip() for line in original_swift.splitlines()) + '\n').encode()
+    installed = regular('Sources/MarmotKit/MarmotKit.swift')
+    require(installed.read_bytes() == normalized and digest(installed) == manifest['installed_swift_sha256'],
+                   'exact-installed-normalized-sdk-swift')
     for name in ('MARMOT_VERSION', 'Package.swift', 'Sources/MarmotKit/MarmotKit.swift',
                  'Sources/MarmotKit/MarmotKitVersion.swift'):
-        frozen[name] = digest(package / name)
+        frozen[name] = digest(regular(name))
     return frozen
 
 
@@ -147,6 +231,7 @@ def main():
     sdk = json.loads((args.sdk_package / 'LOCAL_BUILD.json').read_text())
     if (sdk['source_sha'] != sdk['builder_sha'] or sdk['source_sha'] != args.sdk_source
             or str(sdk['workflow_run_id']) != os.environ['SDK_RUN_ID']
+            or sdk['qualification_receipt']['platform'] != ('ios' if args.platform == 'ios-simulator' else 'macos')
             or sdk['features'] != ['otlp-export', 'product-analytics-export', 'experimental-device-sync']):
         raise ValueError('Matching experimental app SDK required')
     source_inputs = freeze_source(source, head, args.sdk_package, args.paired_direct_mutation)
