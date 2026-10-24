@@ -1,0 +1,33 @@
+name: SDK inventory freeze metadata PFP (remote only)
+on:
+  push:
+    branches: ["ci/upstream-sdk-inventory-metadata-pfp-*"]
+    paths:
+      - .github/workflows/upstream-sdk-inventory-metadata-pfp.yml
+      - scripts/upstream_apple_ci/sdk_inventory_metadata_pfp.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sdk-inventory-metadata-pfp-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Actual one-body helper inverses and exact restored controls; no SDK or native execution
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B scripts/upstream_apple_ci/sdk_inventory_metadata_pfp.py --output "$RUNNER_TEMP/sdk-inventory-pfp/result.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sdk-inventory-metadata-pfp-${{ github.sha }}
+          path: ${{ runner.temp }}/sdk-inventory-pfp/result.json
+          if-no-files-found: error
+          retention-days: 7
