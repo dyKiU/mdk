@@ -293,5 +293,22 @@ class InstalledSdkInventoryTests(unittest.TestCase):
                 self.freeze_metadata_package(package, manifest)
 
 
+    def test_hosted_unit_freezes_qualified_header_when_artifacts_list_only_archive(self):
+        import importlib.util
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        path = Path(__file__).resolve().with_name('hosted-app-unit.py')
+        spec = importlib.util.spec_from_file_location('hosted_unit_inventory_test', path)
+        hosted = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hosted)
+        with TemporaryDirectory() as folder:
+            package = Path(folder)
+            manifest, header, expected = self.producer_shaped_package(package)
+            actual = hosted.freeze_sdk(package, manifest)
+            self.assertEqual(actual.get(header), expected,
+                             'hosted unit complete inventory must freeze the compiled header')
+
+
 if __name__ == '__main__':
     unittest.main()
