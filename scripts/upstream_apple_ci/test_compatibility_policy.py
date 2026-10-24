@@ -221,5 +221,77 @@ class InstalledSdkInventoryTests(unittest.TestCase):
                              'qualified complete inventory must freeze the compiled header')
 
 
+
+    def freeze_metadata_package(self, package, manifest):
+        from pathlib import Path
+        import compatibility_policy_pfp as runner
+        repo = Path(__file__).resolve().parents[2]
+        with patch.dict(runner.os.environ, {'SDK_SOURCE_REPOSITORY': str(repo)}):
+            return runner.sdk_state(package, manifest)
+
+    def test_corrupt_qualified_header_is_rejected(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            package = Path(folder).resolve()
+            manifest, header, _ = self.producer_shaped_package(package)
+            (package / 'Artifacts' / header).write_bytes(b'CORRUPT SYNTHETIC HEADER')
+            with self.assertRaisesRegex(ValueError, 'entire-qualified-sdk-file-digest'):
+                self.freeze_metadata_package(package, manifest)
+
+    def test_missing_or_extra_native_file_is_rejected(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        for mode in ('missing', 'extra'):
+            with self.subTest(mode=mode), TemporaryDirectory() as folder:
+                package = Path(folder).resolve()
+                manifest, header, _ = self.producer_shaped_package(package)
+                if mode == 'missing':
+                    (package / 'Artifacts' / header).unlink()
+                else:
+                    (package / 'Artifacts/MarmotKit.xcframework/unqualified-extra.h').write_bytes(b'EXTRA')
+                with self.assertRaises(ValueError):
+                    self.freeze_metadata_package(package, manifest)
+
+    def test_changed_qualification_bytes_cannot_use_old_receipt_digest(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            package = Path(folder).resolve()
+            manifest, _, _ = self.producer_shaped_package(package)
+            manifest['qualification_receipt']['qualification_json'] += ' '
+            (package / 'LOCAL_BUILD.json').write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, 'installed-qualification-bytes-authenticated'):
+                self.freeze_metadata_package(package, manifest)
+
+    def test_stale_profile_or_run_cannot_reuse_qualification(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        for key, value in (('sdk_profile', 'default'), ('workflow_run_id', '999999999')):
+            with self.subTest(field=key), TemporaryDirectory() as folder:
+                package = Path(folder).resolve()
+                manifest, _, _ = self.producer_shaped_package(package)
+                manifest[key] = value
+                (package / 'LOCAL_BUILD.json').write_text(json.dumps(manifest))
+                with self.assertRaises(ValueError):
+                    self.freeze_metadata_package(package, manifest)
+
+    def test_qualified_header_symlink_is_rejected(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            package = Path(folder).resolve()
+            manifest, header, _ = self.producer_shaped_package(package)
+            target = package / 'Artifacts' / header
+            copy = package / 'synthetic-copy.h'
+            copy.write_bytes(target.read_bytes())
+            target.unlink()
+            target.symlink_to(copy)
+            with self.assertRaisesRegex(ValueError, 'installed-sdk-symlink-refused'):
+                self.freeze_metadata_package(package, manifest)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -7,7 +7,10 @@ import shutil
 import json
 import os
 import plistlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
+
+from sdk_profiles import validate_provenance, release_id
 import signal
 import socket
 import stat
@@ -38,17 +41,94 @@ def file_sha(path):
 
 
 def sdk_state(package, manifest):
-    policy.require(file_sha(package / 'Sources/MarmotKit/MarmotKit.swift')
-                   == manifest['installed_swift_sha256'], 'installed-swift-provenance')
-    frozen = {'LOCAL_BUILD.json': file_sha(package / 'LOCAL_BUILD.json')}
-    for name, row in manifest['artifacts'].items():
-        if name.startswith('MarmotKit.xcframework/'):
-            actual = file_sha(package / 'Artifacts' / name)
-            policy.require(actual == row['sha256'], 'entire-native-sdk-artifact-provenance')
-            frozen[name] = actual
+    """Freeze the authenticated full package inventory, not the sparse release artifacts."""
+    policy.require(package.is_absolute() and package.resolve(strict=True) == package,
+                   'physical-installed-sdk-root')
+    def regular(relative):
+        path = package / relative
+        for item in (path, *path.parents):
+            policy.require(not item.is_symlink(), 'installed-sdk-symlink-refused')
+            if item == package:
+                break
+        policy.require(path.is_file(), 'installed-sdk-file-required')
+        return path
+
+    policy.require(json.loads(regular('LOCAL_BUILD.json').read_text()) == manifest,
+                   'installed-sdk-manifest-unchanged')
+    receipt = manifest['qualification_receipt']
+    policy.require(type(receipt) is dict and set(receipt) == {
+        'qualification_json', 'qualification_sha256', 'manifest_json', 'manifest_sha256',
+        'platform', 'bundle', 'bundle_sha256', 'original_swift_relative_path'},
+        'closed-installed-qualification-receipt')
+    raw_q = receipt['qualification_json'].encode('utf-8')
+    raw_manifest = receipt['manifest_json'].encode('utf-8')
+    policy.require(len(raw_q) <= 2 * 1024**2 and len(raw_manifest) <= 256 * 1024,
+                   'bounded-installed-qualification-receipt')
+    policy.require(policy.sha(raw_q) == receipt['qualification_sha256']
+                   and policy.sha(raw_manifest) == receipt['manifest_sha256'],
+                   'installed-qualification-bytes-authenticated')
+    proof = json.loads(raw_q)
+    original = json.loads(raw_manifest)
+    profile, source, run = manifest['sdk_profile'], manifest['source_sha'], manifest['workflow_run_id']
+    validate_provenance(proof, profile, source, run)
+    policy.require(proof.get('sdk_profile') == profile and manifest['builder_sha'] == source
+                   and manifest['features'] == cohort.FEATURES[profile], 'exact-installed-sdk-profile')
+    platform = receipt['platform']
+    policy.require(platform in ('macos', 'ios'), 'closed-installed-sdk-platform')
+    record = proof['platforms'][platform]
+    policy.require(record['manifest'] == original and original['source_sha'] == original['builder_sha'] == source,
+                   'exact-qualified-package-manifest')
+    policy.require(receipt['bundle'] == record['bundle']
+                   == 'marmotkit-' + platform + '-' + release_id(profile, source) + '.zip'
+                   and receipt['bundle_sha256'] == record['sha256'], 'exact-qualified-platform-bundle')
+    expected = original | dict(uniffi_version=proof['uniffi_version'], sdk_profile=profile,
+        installed_swift_sha256=manifest['installed_swift_sha256'], workflow_run_id=run,
+        installation='Ephemeral hosted CI overlay; never commit', qualification_receipt=receipt)
+    policy.require(manifest == expected, 'exact-installed-package-metadata')
+    files = record['files']
+    policy.require(type(files) is dict and 0 < len(files) <= 256 and {
+        'MarmotKit.swift', 'PrivacyInfo.xcprivacy', 'MarmotKit.xcframework/Info.plist'} <= set(files),
+        'complete-qualified-package-inventory')
+    policy.require(receipt['original_swift_relative_path'] == 'LOCAL_BUILD_INPUTS/MarmotKit.swift',
+                   'exact-original-sdk-swift-path')
+    frozen = {'LOCAL_BUILD.json': file_sha(regular('LOCAL_BUILD.json'))}
+    native = set()
+    for name, digest in files.items():
+        policy.require(type(name) is str and type(digest) is str and re.fullmatch('[0-9a-f]{64}', digest),
+                       'typed-qualified-sdk-file-digest')
+        path_name = PurePosixPath(name)
+        policy.require(not path_name.is_absolute() and '..' not in path_name.parts and str(path_name) == name,
+                       'canonical-qualified-sdk-file-path')
+        if name == 'MarmotKit.swift':
+            relative = receipt['original_swift_relative_path']
+        elif name == 'PrivacyInfo.xcprivacy':
+            relative = 'Sources/MarmotKit/Resources/PrivacyInfo.xcprivacy'
+        else:
+            policy.require(name.startswith('MarmotKit.xcframework/'), 'closed-qualified-sdk-root-member')
+            relative = 'Artifacts/' + name
+            native.add(name)
+        policy.require(file_sha(regular(relative)) == digest, 'entire-qualified-sdk-file-digest')
+        frozen[name] = digest
+    framework = package / 'Artifacts/MarmotKit.xcframework'
+    actual_native = set()
+    for path in framework.rglob('*'):
+        policy.require(not path.is_symlink(), 'installed-native-sdk-symlink-refused')
+        if path.is_file():
+            actual_native.add('MarmotKit.xcframework/' + path.relative_to(framework).as_posix())
+    policy.require(actual_native == native, 'complete-installed-native-sdk-inventory')
+    slices = ('macos-arm64',) if platform == 'macos' else ('ios-arm64', 'ios-arm64-simulator')
+    required = {'MarmotKit.xcframework/' + part + '/' + leaf for part in slices
+                for leaf in ('libmarmot_uniffi.a', 'Headers/marmot_uniffiFFI.h', 'Headers/module.modulemap')}
+    policy.require(required <= native and len([name for name in native if name.endswith('.a')]) == len(slices),
+                   'required-qualified-native-sdk-inputs')
+    original_swift = regular(receipt['original_swift_relative_path']).read_text()
+    normalized = ('\n'.join(line.rstrip() for line in original_swift.splitlines()) + '\n').encode()
+    installed = regular('Sources/MarmotKit/MarmotKit.swift')
+    policy.require(installed.read_bytes() == normalized and file_sha(installed) == manifest['installed_swift_sha256'],
+                   'exact-installed-normalized-sdk-swift')
     for name in ('MARMOT_VERSION', 'Package.swift', 'Sources/MarmotKit/MarmotKit.swift',
                  'Sources/MarmotKit/MarmotKitVersion.swift'):
-        frozen[name] = file_sha(package / name)
+        frozen[name] = file_sha(regular(name))
     return frozen
 
 
@@ -187,6 +267,9 @@ def main(args):
     policy.require(sdk_manifest['source_sha'] == sdk_manifest['builder_sha'] == admitted['sdk_source']
                    and str(sdk_manifest['workflow_run_id']) == admitted['sdk_run_id']
                    and sdk_manifest['features'] == cohort.FEATURES[args.profile], 'exact-installed-profile-sdk')
+    policy.require(sdk_manifest['qualification_receipt']['qualification_sha256'] == admitted['qualification_sha256']
+                   and sdk_manifest['qualification_receipt']['platform'] == args.platform,
+                   'admitted-installed-sdk-qualification-anchor')
     sdk = sdk_state(package, sdk_manifest)
     initial = source_state(app)
     temp = Path(os.environ['RUNNER_TEMP'])
@@ -246,13 +329,23 @@ def main(args):
                                        and not build_issues['failures'], 'entire-compiler-build-must-pass')
                         configuration = 'Debug' if args.platform == 'macos' else 'Debug-Staging-iphonesimulator'
                         sdk_slice = 'macos-arm64' if args.platform == 'macos' else 'ios-arm64-simulator'
-                        for file, native in [('libmarmot_uniffi.a', 'libmarmot_uniffi.a'),
-                                             ('include/marmot_uniffiFFI.h', 'Headers/marmot_uniffiFFI.h')]:
-                            policy.require(file_sha(products / configuration / file)
-                                == sdk['MarmotKit.xcframework/' + sdk_slice + '/' + native], 'compiled-sdk-input-matches')
+                        row['qualified_input_presence'] = {}
+                        for label, file, native in [('archive', 'libmarmot_uniffi.a', 'libmarmot_uniffi.a'),
+                                ('header', 'include/marmot_uniffiFFI.h', 'Headers/marmot_uniffiFFI.h')]:
+                            row['stage'] = 'compiled-' + label
+                            key = 'MarmotKit.xcframework/' + sdk_slice + '/' + native
+                            row['qualified_input_presence'][label] = key in sdk
+                            save()
+                            policy.require(key in sdk, 'qualified-compiled-' + label + '-required')
+                            policy.require(file_sha(products / configuration / file) == sdk[key],
+                                           'compiled-sdk-input-matches')
                         if args.platform == 'macos':
                             host = products / 'Debug/White Noise Unit Host.app'
+                            row['stage'] = 'temporary-host-identity'
                             identity = plistlib.loads((host / 'Contents/Info.plist').read_bytes())
+                            row['host_identity_key_present'] = 'CFBundleIdentifier' in identity
+                            save()
+                            policy.require(row['host_identity_key_present'], 'temporary-host-identity-key-required')
                             policy.require(identity['CFBundleIdentifier'] == 'dev.ipf.whitenoise.mac.tests',
                                            'exact-temporary-unit-host-identity')
                         frozen_products = products_state(products)
