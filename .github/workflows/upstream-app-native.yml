@@ -198,6 +198,7 @@ jobs:
           python3 scripts/upstream_apple_ci/test_current_factory_metadata.py
           python3 scripts/upstream_apple_ci/test_factory_semantics.py
           python3 scripts/upstream_apple_ci/test_native_prefix_layout.py --result "$RUNNER_TEMP/tools-preflight/native-prefix-layout-result.json"
+          python3 scripts/upstream_apple_ci/native_prefix_layout_pfp.py --result "$RUNNER_TEMP/tools-preflight/native-prefix-layout-pfp.json"
           python3 scripts/upstream_apple_ci/test_package_metadata.py --result "$RUNNER_TEMP/tools-preflight/package-metadata-result.json"
           python3 scripts/upstream_apple_ci/package_metadata_pfp.py --result "$RUNNER_TEMP/tools-preflight/package-metadata-pfp.json"
           bash -n scripts/upstream_apple_ci/build-hosted-simulator-agent.sh
@@ -213,7 +214,7 @@ jobs:
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py',
                  'summarize.py','test_summarize.py','factory_semantic_oracle.py','factory_semantic_mutation.py',
-                 'factory_xcresult.py','factory_semantic_runner.py','factory-semantic-sources.json','test_factory_semantics.py','test_native_prefix_layout.py','package_metadata.py','test_package_metadata.py','package_metadata_pfp.py']
+                 'factory_xcresult.py','factory_semantic_runner.py','factory-semantic-sources.json','test_factory_semantics.py','test_native_prefix_layout.py','native_prefix_layout_pfp.py','package_metadata.py','test_package_metadata.py','package_metadata_pfp.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]
           manifest_path=Path('scripts/upstream_apple_ci/HOSTED-SOURCE.json')
           manifest=json.loads(manifest_path.read_text())
@@ -238,6 +239,7 @@ jobs:
             ${{ runner.temp }}/tools-preflight/result.json
             ${{ runner.temp }}/tools-preflight/package-metadata-result.json
             ${{ runner.temp }}/tools-preflight/native-prefix-layout-result.json
+            ${{ runner.temp }}/tools-preflight/native-prefix-layout-pfp.json
             ${{ runner.temp }}/tools-preflight/package-metadata-pfp.json
           if-no-files-found: error
           retention-days: 7
