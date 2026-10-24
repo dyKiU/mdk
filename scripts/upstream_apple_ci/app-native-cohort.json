@@ -1,10 +1,10 @@
 {
   "scope": "app-format",
   "format_platforms": [
-    "macos"
+    "ios"
   ],
   "mac_sha": "c93fb5cf6a272448714b683d94a78beba9a7f4e1",
-  "ios_sha": "e934296b74ee9895aa7e3cad65a08f551f105651",
+  "ios_sha": "df33cd205e1dcdf2c02645992717d26ce3b596c7",
   "mac_baseline": "b8f71a6d17f934a34b5bda2243e31d3623ea7fb4",
-  "ios_baseline": "e5af54a638ef6a92e33c5b03516227ec659efbbf"
+  "ios_baseline": "e934296b74ee9895aa7e3cad65a08f551f105651"
 }
