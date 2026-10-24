@@ -816,7 +816,7 @@ async fn late_commit_700_recovers_case(extra_real_epoch: bool) {
         late_commit_stage_probe(
             &app,
             (&alice.label, &bob.label),
-            &cgka_traits::GroupId::new(group.clone()),
+            &group,
             &future,
             &_future_receipt,
         )
