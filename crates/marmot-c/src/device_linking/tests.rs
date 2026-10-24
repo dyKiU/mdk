@@ -46,12 +46,14 @@ impl marmot_uniffi::SecretStore for Secrets {
 }
 fn client(dir: &std::path::Path, relay: String) -> MarmotClient {
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let mut deployment = marmot_uniffi::marmot_deployment_white_noise();
+    deployment.discovery_indexer_relays = vec![relay.clone()];
     let marmot = marmot_uniffi::Marmot::new_with_options(
         dir.to_str().unwrap().into(),
         vec![relay],
         marmot_uniffi::RelayPolicyFfi::AllowLoopback,
         Some(Arc::new(Secrets::default())),
-        marmot_uniffi::marmot_deployment_white_noise(),
+        deployment,
     )
     .unwrap();
     MarmotClient { runtime, marmot }

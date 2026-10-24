@@ -225,13 +225,15 @@ fn open_files() -> Vec<PathBuf> {
 }
 
 fn open(root: &Path, relay_url: &str) -> Arc<Marmot> {
+    let mut deployment = marmot_uniffi::marmot_deployment_white_noise();
+    deployment.discovery_indexer_relays = vec![relay_url.to_owned()];
     Marmot::new_with_configuration(
         root.to_string_lossy().into_owned(),
         vec![relay_url.to_owned()],
         MarmotOptions {
             relay_policy: Some(RelayPolicyFfi::AllowLoopback),
             secret_store: Some(Arc::new(MemorySecretStore::default())),
-            ..MarmotOptions::for_deployment(marmot_uniffi::marmot_deployment_white_noise())
+            ..MarmotOptions::for_deployment(deployment)
         },
     )
     .expect("open marmot")
