@@ -21,15 +21,25 @@ impl SecretStore for Secrets {
         Ok(self.0.lock().unwrap().contains_key(&account))
     }
 
-    fn write_secret(&self, _label: String, account: String, key: String) -> Result<(), MarmotKitError> {
+    fn write_secret(
+        &self,
+        _label: String,
+        account: String,
+        key: String,
+    ) -> Result<(), MarmotKitError> {
         self.0.lock().unwrap().insert(account, key);
         Ok(())
     }
 
     fn load_secret(&self, _label: String, account: String) -> Result<String, MarmotKitError> {
-        self.0.lock().unwrap().get(&account).cloned().ok_or(MarmotKitError::SecretNotFound {
-            details: "fixture secret unavailable".into(),
-        })
+        self.0
+            .lock()
+            .unwrap()
+            .get(&account)
+            .cloned()
+            .ok_or(MarmotKitError::SecretNotFound {
+                details: "fixture secret unavailable".into(),
+            })
     }
 
     fn remove_secret(&self, _label: String, account: String) -> Result<(), MarmotKitError> {
@@ -55,7 +65,12 @@ struct LoginObservation {
     no_panic: bool,
 }
 
-fn login_once(healthy: &str, incomplete: &str, negative_control: bool, contacts: &AtomicUsize) -> LoginObservation {
+fn login_once(
+    healthy: &str,
+    incomplete: &str,
+    negative_control: bool,
+    contacts: &AtomicUsize,
+) -> LoginObservation {
     let root = tempfile::tempdir().unwrap();
     let keys = nostr::prelude::Keys::generate();
     let expected_account = keys.public_key().to_hex();
@@ -69,7 +84,8 @@ fn login_once(healthy: &str, incomplete: &str, negative_control: bool, contacts:
             secret_store: Some(Arc::new(Secrets::default())),
             ..MarmotOptions::for_deployment(deployment)
         },
-    ).expect("open actual directory fixture");
+    )
+    .expect("open actual directory fixture");
     let before = contacts.load(Ordering::SeqCst);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         block_on(kit.__ffi_login(
@@ -87,17 +103,31 @@ fn login_once(healthy: &str, incomplete: &str, negative_control: bool, contacts:
         let _ = root.keep();
     }
     let succeeded = matches!(&result, Ok(Ok(_)));
-    let typed_incomplete = matches!(&result, Ok(Err(MarmotKitError::DirectoryLookupIncomplete { .. })));
+    let typed_incomplete = matches!(
+        &result,
+        Ok(Err(MarmotKitError::DirectoryLookupIncomplete { .. }))
+    );
     let account_bound = match &result {
         Ok(Ok(account)) => account.account_id_hex == expected_account,
-        Ok(Err(MarmotKitError::DirectoryLookupIncomplete { account })) => account == &expected_account,
+        Ok(Err(MarmotKitError::DirectoryLookupIncomplete { account })) => {
+            account == &expected_account
+        }
         _ => false,
     };
-    LoginObservation { succeeded, typed_incomplete, account_bound, owned_contact, shutdown_complete, no_panic: result.is_ok() }
+    LoginObservation {
+        succeeded,
+        typed_incomplete,
+        account_bound,
+        owned_contact,
+        shutdown_complete,
+        no_panic: result.is_ok(),
+    }
 }
 
 async fn incomplete_indexer() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
     let url = format!("ws://{}", listener.local_addr().unwrap());
     let contacts = Arc::new(AtomicUsize::new(0));
     let observed = Arc::clone(&contacts);
@@ -121,7 +151,12 @@ fn directory_discovery_coverage_remains_fail_closed_for_owned_incomplete_indexer
     let (relay, healthy, negative_endpoint, positive_endpoint) = runtime.block_on(async {
         let relay = MockRelay::run().await.unwrap();
         let healthy = relay.url().await.to_string();
-        (relay, healthy, incomplete_indexer().await, incomplete_indexer().await)
+        (
+            relay,
+            healthy,
+            incomplete_indexer().await,
+            incomplete_indexer().await,
+        )
     });
     let (negative_url, negative_contacts, negative_task) = negative_endpoint;
     let (positive_url, positive_contacts, positive_task) = positive_endpoint;
@@ -130,7 +165,12 @@ fn directory_discovery_coverage_remains_fail_closed_for_owned_incomplete_indexer
         // Separate identities, roots, and refusing endpoints prevent cache or reconnect contamination.
         let negative = login_once(&healthy, &negative_url, true, &negative_contacts);
         let positive = login_once(&healthy, &positive_url, false, &positive_contacts);
-        (host_without_tokio, negative, positive, tokio::runtime::Handle::try_current().is_err())
+        (
+            host_without_tokio,
+            negative,
+            positive,
+            tokio::runtime::Handle::try_current().is_err(),
+        )
     });
     let outcome = host.join();
     negative_task.abort();
@@ -142,18 +182,43 @@ fn directory_discovery_coverage_remains_fail_closed_for_owned_incomplete_indexer
     });
     drop(relay);
     drop(runtime);
-    let (host_without_tokio, negative, positive, host_still_without_tokio) = outcome.expect("actual directory host completed");
-    let prerequisites = host_without_tokio && host_still_without_tokio && endpoints_joined
-        && negative.no_panic && positive.no_panic && negative.typed_incomplete && !negative.succeeded
-        && negative.account_bound && negative.owned_contact && negative.shutdown_complete
-        && positive.account_bound && positive.shutdown_complete;
+    let (host_without_tokio, negative, positive, host_still_without_tokio) =
+        outcome.expect("actual directory host completed");
+    let prerequisites = host_without_tokio
+        && host_still_without_tokio
+        && endpoints_joined
+        && negative.no_panic
+        && positive.no_panic
+        && negative.typed_incomplete
+        && !negative.succeeded
+        && negative.account_bound
+        && negative.owned_contact
+        && negative.shutdown_complete
+        && positive.account_bound
+        && positive.shutdown_complete;
     eprintln!(
         "owned-directory-fixture {{\"host_without_tokio\":{},\"host_still_without_tokio\":{},\"endpoints_joined\":{},\"negative_no_panic\":{},\"negative_typed_incomplete\":{},\"negative_rejected\":{},\"negative_account_bound\":{},\"negative_owned_contact\":{},\"negative_shutdown_complete\":{},\"positive_no_panic\":{},\"positive_account_bound\":{},\"positive_shutdown_complete\":{},\"positive_login_succeeded\":{},\"positive_typed_incomplete\":{},\"positive_owned_contact\":{}}}",
-        host_without_tokio, host_still_without_tokio, endpoints_joined, negative.no_panic,
-        negative.typed_incomplete, !negative.succeeded, negative.account_bound, negative.owned_contact,
-        negative.shutdown_complete, positive.no_panic, positive.account_bound, positive.shutdown_complete,
-        positive.succeeded, positive.typed_incomplete, positive.owned_contact,
+        host_without_tokio,
+        host_still_without_tokio,
+        endpoints_joined,
+        negative.no_panic,
+        negative.typed_incomplete,
+        !negative.succeeded,
+        negative.account_bound,
+        negative.owned_contact,
+        negative.shutdown_complete,
+        positive.no_panic,
+        positive.account_bound,
+        positive.shutdown_complete,
+        positive.succeeded,
+        positive.typed_incomplete,
+        positive.owned_contact,
     );
-    assert!(prerequisites && positive.succeeded && !positive.typed_incomplete && !positive.owned_contact,
-        "owned complete discovery must permit real login while incomplete discovery stays fail closed");
+    assert!(
+        prerequisites
+            && positive.succeeded
+            && !positive.typed_incomplete
+            && !positive.owned_contact,
+        "owned complete discovery must permit real login while incomplete discovery stays fail closed"
+    );
 }

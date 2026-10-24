@@ -1,6 +1,6 @@
 //! Genuine authenticated Body0 versus eight finite real watch hints; no publication results are invented.
-use super::*;
 use super::recipient_sibling_admission_acceptance::owned_loopback_listener_is_closed;
+use super::*;
 use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -453,7 +453,6 @@ fn emit_queue(queue: QueueFacts) {
         queue.pause_rx_len, queue.target, queue.own_id_bound, queue.own
     );
 }
-
 
 // Mechanism regression for this fixture's actual owned listener. Omitting an
 // initial stop models an open listener; it does not diagnose the earlier run.
