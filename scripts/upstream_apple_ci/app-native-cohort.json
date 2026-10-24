@@ -3,8 +3,8 @@
   "format_platforms": [
     "macos"
   ],
-  "mac_sha": "3e931ce78c3c10b64feeee6268995a2b9fbb4352",
+  "mac_sha": "200ff4a248a920bf54d662126f5f6591c3ec6f47",
   "ios_sha": "1cff30dab6cf96802085fabc08468ade55e6ac0c",
-  "mac_baseline": "fdadbb2c329ec87619b58dbc86ee8f7730f16981",
+  "mac_baseline": "3e931ce78c3c10b64feeee6268995a2b9fbb4352",
   "ios_baseline": "347a1398f2c59e1fc6fe0b0afb07a4cbf0463333"
 }
