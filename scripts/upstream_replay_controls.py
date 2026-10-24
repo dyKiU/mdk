@@ -517,6 +517,8 @@ def four_device_diagnostic_controls(site):
             'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+WATCH_HELD_CASE = 'native-watch-held-counterpart'
+WATCH_HELD_TEST = 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::eight_watch_services_complete_while_actual_peer_proof_is_held'
 WATCH_CLEANUP_CASE = 'native-watch-owned-cleanup'
 WATCH_CLEANUP_TEST = 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::watch_owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop'
 WATCH_CLEANUP_PATH = 'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'
@@ -904,7 +906,7 @@ AUTOMATIC_SCAN_EXPIRY_PREREQUISITES = {
 }
 AUTOMATIC_SCAN_EXPIRY_FIELDS = AUTOMATIC_SCAN_EXPIRY_PREREQUISITES | {'expired_scan_rejected'}
 AUTOMATIC_SCAN_EXPIRY_CASES = {AUTOMATIC_SCAN_EXPIRY_CASE, AUTOMATIC_SCAN_EXPIRY_RED_CASE}
-AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE, WATCH_CLEANUP_CASE}
+AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE, WATCH_CLEANUP_CASE, WATCH_HELD_CASE}
 
 
 def automatic_scan_expiry_probe(raw):
@@ -1432,6 +1434,7 @@ BOUNDED_CASES |= AUTOMATIC_NATIVE_CASES
 
 
 CASES[WATCH_CLEANUP_CASE] = ('marmot_app', WATCH_CLEANUP_TEST, WATCH_CLEANUP_PATH)
+CASES[WATCH_HELD_CASE] = ('marmot_app', WATCH_HELD_TEST, WATCH_CLEANUP_PATH)
 CASES[SQLITE_CACHE_CASE] = ('storage_sqlite', SQLITE_CACHE_TEST, SQLITE_CACHE_PATH)
 
 
@@ -5159,6 +5162,10 @@ def positive(args):
             del report['expected_test']
             report['expected_tests'] = list(AUTOMATIC_NEGOTIATION_TESTS)
             report['expected_runtime_count'] = len(AUTOMATIC_NEGOTIATION_TESTS)
+    if args.case == WATCH_HELD_CASE:
+        report.update(evidence_scope='actual-Rust-SDK-held-peer-proof-eight-watch-counterpart-only',
+                      native_protocol_qualification=False, apple_native_acceptance=False,
+                      full_suite_qualification=False, mutation_qualification=False)
     if args.case == FOUR_DEVICE_MUTATIONS_CASE:
         report.update(evidence_scope='real-Rust-SDK-four-device-message-mutations-and-disk-reopen-only',
                       apple_native_acceptance=False, native_host_ui_acceptance=False,
@@ -5358,7 +5365,7 @@ def positive(args):
                 selection += ' & binary(=storage_sqlite)'
             if args.case == AUTOMATIC_NEGOTIATION_CASE:
                 selection = automatic_negotiation_selection()
-            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {WATCH_CLEANUP_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
+            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {WATCH_CLEANUP_CASE, WATCH_HELD_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
                 selection += ' & binary(=marmot_app)'
             if args.case in PRIVATE_MAINTENANCE_COHORTS:
                 selection = automatic_negotiation_selection(maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
@@ -5381,7 +5388,7 @@ def positive(args):
                 report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
             elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
-            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {WATCH_CLEANUP_CASE, SQLITE_CACHE_CASE, PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
+            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {WATCH_CLEANUP_CASE, WATCH_HELD_CASE, SQLITE_CACHE_CASE, PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
                 selected_case(inventory, test)
                 matched_suites = [suite for suite in inventory['rust-suites'].values()
                     if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
@@ -5450,6 +5457,10 @@ def positive(args):
                 report['body']['mutation_admission_runtime'] = automatic_negotiation_runtime(raw,
                     {MUTATION_ADMISSION_TEST: MUTATION_ADMISSION_PATH})
                 report['body']['own_runtime_failure'] = mutation_admission_failure(raw, mutation_admission_source_site)
+                save()
+            if args.case == WATCH_HELD_CASE:
+                report['body']['watch_held_runtime'] = automatic_negotiation_runtime(raw,
+                    {WATCH_HELD_TEST: WATCH_CLEANUP_PATH})
                 save()
             if args.case == WATCH_CLEANUP_CASE:
                 report['body']['watch_cleanup_runtime'] = automatic_negotiation_runtime(raw,
@@ -5636,6 +5647,8 @@ def positive(args):
                                        for part in (report['inventory'], report['body']))
                 if args.case == AUTOMATIC_NEGOTIATION_CASE:
                     command_accepted = command_accepted and report['body']['automatic_negotiation_runtime']['complete']
+                elif args.case == WATCH_HELD_CASE:
+                    command_accepted = command_accepted and report['body']['watch_held_runtime']['complete']
                 elif args.case == MUTATION_ADMISSION_CASE:
                     command_accepted = (command_accepted
                         and report['body']['mutation_admission_runtime']['complete']
@@ -5978,6 +5991,8 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
+    if args.case == WATCH_HELD_CASE and args.stage != 'positive':
+        raise ValueError('watch-held-positive-only')
     if args.case == WATCH_CLEANUP_CASE and args.stage != 'positive':
         raise ValueError('watch-cleanup-positive-only')
     if args.case == SQLITE_CACHE_CASE and args.stage not in {'positive', 'pfp'}:
