@@ -34,16 +34,16 @@ impl<S: StorageProvider> Engine<S> {
         group_id: &GroupId,
     ) -> Result<(), EngineError> {
         let retired = self.storage.with_transaction(|storage| {
+            if !self.with_mls_group(group_id, |group| {
+                crate::device_group_genesis::has_private_component(group)
+            })? {
+                return Ok::<_, EngineError>(Vec::new());
+            }
             let queued = storage.list_queued_outbound_intents(group_id)?;
             if !queued.iter().any(|record| {
                 matches!(&record.intent, SendIntent::SelfUpdate { .. })
                     && !self.queued_outbound_intent_in_flight(group_id, &record.id)
             }) {
-                return Ok::<_, EngineError>(Vec::new());
-            }
-            if !self.with_mls_group(group_id, |group| {
-                crate::device_group_genesis::has_private_component(group)
-            })? {
                 return Ok::<_, EngineError>(Vec::new());
             }
             let mut retired = Vec::new();
