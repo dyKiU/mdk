@@ -107,6 +107,10 @@ class AppCohortEvidenceBoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             cohort.suite_inventory_gate(inventory, counts, 'macos')
         inventory, counts = self.inventory('ios')
+        ios_only = 'NativePairingQRCodeTests/testActualThreeDevicePacketsPassAppCodecAndOriginalSdkAuthentication()'
+        self.assertIn(ios_only, cohort.KNOWN_SKIPS['ios'])
+        self.assertNotIn(ios_only, cohort.KNOWN_SKIPS['macos'])
+        inventory['skipped_tests'][0]['identifier'] = ios_only
         with self.assertRaises(ValueError):
             cohort.suite_inventory_gate(inventory, counts, 'macos')
 
