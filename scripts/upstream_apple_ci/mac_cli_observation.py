@@ -1,4 +1,4 @@
-"""One unchanged Mac unit command observation; never strict qualification."""
+"""One current Mac unit command observation; never strict qualification."""
 import argparse
 import collections
 import json
@@ -44,7 +44,7 @@ def message_facts(message, identifiers=()):
 
 def unit_command(settings, case, result):
     return ['xcodebuild', 'test-without-building'] + settings + [
-        '-parallel-testing-enabled', 'NO', '-test-iterations', '1',
+        '-parallel-testing-enabled', 'NO',
         '-only-testing:' + case['selector'], '-resultBundlePath', str(result)]
 
 

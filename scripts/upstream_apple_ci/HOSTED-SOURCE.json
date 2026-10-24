@@ -145,7 +145,7 @@
     },
     "compatibility_policy_pfp.py": {
       "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
-      "sha256": "dc8834687a96e0d22d8ed07e157f353e1b2ae93eb397d28ee77770b256d9c017",
+      "sha256": "b4e90b5274302d55c522c720249bf29b7cd1c3a9ab8f794cf167321410c1f938",
       "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
     },
     "compatibility-policy-sources.json": {

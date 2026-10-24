@@ -15,11 +15,11 @@ class MacCliObservationMetadataTests(unittest.TestCase):
         self.assertEqual(value['observed_categories'], ['other-unclassified'])
         self.assertEqual(value['known_identifiers'], [])
         self.assertNotIn('PRIVATE_UNKNOWN', str(value))
-    def test_exact_unchanged_unit_flags(self):
+    def test_exact_single_execution_unit_flags(self):
         settings = ['-project', '/synthetic/project']
         self.assertEqual(observer.unit_command(settings, {'selector':'Target/Suite/test()'}, Path('/synthetic/result')),
             ['xcodebuild','test-without-building','-project','/synthetic/project','-parallel-testing-enabled','NO',
-             '-test-iterations','1','-only-testing:Target/Suite/test()','-resultBundlePath','/synthetic/result'])
+             '-only-testing:Target/Suite/test()','-resultBundlePath','/synthetic/result'])
     def test_oversized_or_untyped_message_rejected(self):
         for value in (None, 1, 'x' * 8193):
             with self.subTest(value_type=type(value).__name__), self.assertRaises(ValueError):

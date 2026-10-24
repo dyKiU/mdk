@@ -405,7 +405,7 @@ def main(args):
                         save()
                         try:
                             row['unit_exit_code'] = invoke(['xcodebuild', 'test-without-building'] + command_settings
-                                + ['-parallel-testing-enabled', 'NO', '-test-iterations', '1',
+                                + ['-parallel-testing-enabled', 'NO',
                                    '-only-testing:' + case['selector'], '-resultBundlePath', str(result)],
                                 folder / 'unit-private.log', environment=environment, timeout=1200)
                         finally:
