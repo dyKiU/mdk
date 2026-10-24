@@ -168,6 +168,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+      # Metadata only: inspect the same completed assembly's exact profile/source
+      # without downloading the companion binary SDK archives.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ needs.identity.outputs.artifact_name }}-qualification
+          path: packages/qualification.json
+          if-no-files-found: error
+          retention-days: 7
 
   apps:
     needs: [identity, assemble]
