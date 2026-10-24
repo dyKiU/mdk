@@ -13,6 +13,8 @@ from urllib.parse import unquote, urlsplit
 
 import factory_xcresult as xcresult
 
+import compatibility_policy
+
 from summarize import summary_counts, test_inventory, export_tests, skip_reason_evidence, export_skip_details
 
 HISTORICAL_SOURCE = '891ab34980ee9dc2ef45bf690733a6e31d3e6778'
@@ -519,6 +521,17 @@ def finalize(args):
     proof = json.loads(args.output.read_text())
     proof['passed_sdk_compatibility_cohort'] = False
     proof['api_mutations'] = []
+    compatibility = None
+    proof['compatibility_policy_mutations'] = {'status': 'not-applicable-published-sdk' if args.profile == 'historical' else 'pending'}
+    if args.profile != 'historical':
+        path = Path(os.environ['RUNNER_TEMP']) / 'cohort-evidence/compatibility-policy.json'
+        try:
+            raw = path.read_bytes()
+            require(len(raw) <= 1024 * 1024, 'Bounded compatibility policy receipt required')
+            compatibility = json.loads(raw)
+        except (OSError, ValueError):
+            pass
+        proof['compatibility_policy_execution'] = compatibility_policy.observed_execution(compatibility)
     app = Path('mac' if args.platform == 'macos' else 'ios').resolve(strict=True)
     try:
         require(proof['profile'] == args.profile and proof['platform'] == args.platform
@@ -554,6 +567,9 @@ def finalize(args):
                 accepted.append(mutation_row_gate(rows[(name, relative, selector)], definition, facts))
             proof['api_mutations'].append({'gate': gate, 'identity_matches': True, 'accepted': True,
                                           'mutants': accepted})
+        if args.profile != 'historical':
+            proof['compatibility_policy_mutations'] = compatibility_policy.receipt(
+                compatibility, proof, args.platform, args.profile, os.environ['GITHUB_SHA'])
         require(proof.get('release_analysis_passed') is True
                 and counts['failedTests'] == 0 and counts['passedTests'] > 0,
                 'Suite or Release/analysis remains unqualified')

@@ -89,7 +89,7 @@
     },
     "app-sdk-cohort.py": {
       "source": "existing authenticated SDK profile cohort helper",
-      "sha256": "2beb4893c0baa485cf0110df2bb3b20543ca21052ef4fe3a5f7273931d355062",
+      "sha256": "60f4e123d2bd2a6bb4e95179b686e2f905e13fff452afcdcdcdac633c7aa32d2",
       "scope": "Shared authenticated experimental app guard and exact compiler array; no SDK or historical cohort behavior change"
     },
     "current-factory-commands.swift.txt": {
@@ -137,6 +137,26 @@
       "source": "new hosted current automatic factory causal mutation qualification",
       "sha256": "19fd7937bde8e22d792383b61448f20fd826c9fcfdf2a97ae50d0484396886c8",
       "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
+    },
+    "compatibility_policy.py": {
+      "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
+      "sha256": "b97a68b35feeb438cba9659222004680cd0982be6bb5a31fb2b068a0617c0f42",
+      "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
+    },
+    "compatibility_policy_pfp.py": {
+      "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
+      "sha256": "66c7761bbf7c7e1c27c469e75b556f0a548cd6bdd8d46974720d9680c90fe8b8",
+      "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
+    },
+    "compatibility-policy-sources.json": {
+      "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
+      "sha256": "5a6e53dfa172fde833b61fe3dbf8b5aebb6dc6f55e4e846e9810cd0b813fbbf1",
+      "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
+    },
+    "test_compatibility_policy.py": {
+      "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
+      "sha256": "6115f65654d839520d6ce909951866f5128fe0b5b7e0b9c1da194b5dd551ea48",
+      "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

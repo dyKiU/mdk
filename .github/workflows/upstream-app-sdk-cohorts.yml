@@ -6,6 +6,10 @@ on:
       - .github/workflows/upstream-app-sdk-cohorts.yml
       - scripts/upstream_apple_ci/app-sdk-cohort.py
       - scripts/upstream_apple_ci/test_app_sdk_cohort.py
+      - scripts/upstream_apple_ci/compatibility_policy.py
+      - scripts/upstream_apple_ci/compatibility_policy_pfp.py
+      - scripts/upstream_apple_ci/compatibility-policy-sources.json
+      - scripts/upstream_apple_ci/test_compatibility_policy.py
       - scripts/upstream_apple_ci/attachment-storage-mutation.py
       - scripts/upstream_apple_ci/ios-storage-mutations.py
       - scripts/upstream_apple_ci/missing-key-mutations.py
@@ -129,6 +133,10 @@ jobs:
           bash -n scripts/upstream_apple_ci/published-interop.sh
       - name: Synthetic routing and strict evidence-boundary metadata controls; no SDK/product execution
         run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_app_sdk_cohort.py -v
+      - name: Closed compatibility policy metadata controls; no app, SDK or Xcode execution
+        run: |
+          python3 -m py_compile scripts/upstream_apple_ci/compatibility_policy.py scripts/upstream_apple_ci/compatibility_policy_pfp.py
+          python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_compatibility_policy.py -v
       - name: Closed test and skip metadata controls; no Xcode or SDK execution
         run: python3 -B scripts/upstream_apple_ci/test_summarize.py
       - name: Six synthetic cross-profile receipt/parser controls; no SDK or fixture execution
@@ -285,6 +293,13 @@ jobs:
         run: |
           python3 scripts/upstream_apple_ci/ios-storage-mutations.py
           python3 scripts/upstream_apple_ci/missing-key-mutations.py --platform ios
+      - name: Current SDK compatibility policy runtime PFP with complete source and compiler inventories
+        if: matrix.profile != 'historical'
+        run: |
+          python3 scripts/upstream_apple_ci/compatibility_policy_pfp.py \
+            --platform '${{ matrix.platform }}' --profile "$SDK_PROFILE" \
+            --cohort-evidence "$RUNNER_TEMP/cohort-evidence/cohort.json" \
+            --output "$RUNNER_TEMP/cohort-evidence/compatibility-policy.json"
       - name: Close cohort evidence without private logs or raw XCResult
         if: always()
         run: |
@@ -299,5 +314,6 @@ jobs:
           path: |
             ${{ runner.temp }}/cohort-evidence/cohort.json
             ${{ runner.temp }}/cohort-evidence/build-diagnostics.json
+            ${{ runner.temp }}/cohort-evidence/compatibility-policy.json
           if-no-files-found: error
           retention-days: 7

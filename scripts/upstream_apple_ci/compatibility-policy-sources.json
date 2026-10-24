@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "apps": {
+    "macos": {
+      "commit": "7e572f47c70c1254288c2623091bc542ef4c132d",
+      "cases": [
+        {
+          "id": "mac-cleaned-rearm",
+          "source": "whitenoise-mac/Features/Attachments/AttachmentViewModel.swift",
+          "old": "            case .cleanedBySetting:\n                // Reacquisition after retention cleanup is explicit, just as after Remove.\n                true",
+          "new": "            case .cleanedBySetting:\n                // Reacquisition after retention cleanup is explicit, just as after Remove.\n                false",
+          "selector": "whitenoise-macTests/AttachmentStorageAdmissionTests/retentionCleanupRequiresDeliberateDownloadAgain()",
+          "test_source": "whitenoise-macTests/AttachmentStorageAdmissionTests.swift",
+          "original_sha256": "7274bc06cb030999e91df9e4f04e64ce0c15a7b35112e04eb632efa7243d68c9",
+          "mutant_sha256": "62ce9ffa59a426a1a8eb33341dbbe66ab03c98d37c9fa36ffbddc8ca61bab9af",
+          "test_source_sha256": "aacb9a157afbb2af1142d189936b83f894d8b4e0e296c0204fd96043fc9cf046",
+          "owner_start": "    var needsRearmToDownload: Bool {",
+          "owner_end": "\n    }\n}",
+          "method": "retentionCleanupRequiresDeliberateDownloadAgain",
+          "identifier_aliases": [
+            "AttachmentStorageAdmissionTests/retentionCleanupRequiresDeliberateDownloadAgain()",
+            "whitenoise-macTests/AttachmentStorageAdmissionTests/retentionCleanupRequiresDeliberateDownloadAgain()"
+          ],
+          "issues": [
+            {
+              "line": 29,
+              "column": 17,
+              "source_expression": "#expect(status.state.needsRearmToDownload)",
+              "expression_id": "mac-cleaned-rearm-1",
+              "message_tokens": [
+                "needsRearmToDownload"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "mac-inspection-readiness",
+          "source": "whitenoise-mac/Features/Onboarding/AccountSetupGuide.swift",
+          "old": "        } else if snapshot?.ready == true {",
+          "new": "        } else if snapshot?.ready == true || snapshot?.steps.contains(where: { $0.findings.contains(where: { $0.issue == .inspectionCompleted }) }) == true {",
+          "selector": "whitenoise-macTests/AccountSetupGuideTests/aCompletedInspectionDoesNotCompleteTheStepOrGrantReadiness()",
+          "test_source": "whitenoise-macTests/AccountSetupGuideTests.swift",
+          "original_sha256": "4d9866c9a234c9f15fde8ebad3c82b057f8936be62ad5d259391810525add9b3",
+          "mutant_sha256": "173ab561d9c46959630913bfff30b51e9f08b1e3d8fc504935b2c4096f30d4a1",
+          "test_source_sha256": "2c5749a730cbde04d5641f8bfacfa200425a717a9cb1a5c3804d417c10740ab7",
+          "owner_start": "    init(snapshot: OnboardingSnapshotFfi?, recoveryRequired: Bool) {",
+          "owner_end": "\n    }\n\n    /// The one step",
+          "method": "aCompletedInspectionDoesNotCompleteTheStepOrGrantReadiness",
+          "identifier_aliases": [
+            "AccountSetupGuideTests/aCompletedInspectionDoesNotCompleteTheStepOrGrantReadiness()",
+            "whitenoise-macTests/AccountSetupGuideTests/aCompletedInspectionDoesNotCompleteTheStepOrGrantReadiness()"
+          ],
+          "issues": [
+            {
+              "line": 93,
+              "column": 13,
+              "source_expression": "#expect(guide.phase == .attention(step))",
+              "expression_id": "mac-inspection-readiness-1",
+              "message_tokens": [
+                "guide.phase",
+                "attention"
+              ]
+            },
+            {
+              "line": 94,
+              "column": 13,
+              "source_expression": "#expect(guide.reviewStep == .relays)",
+              "expression_id": "mac-inspection-readiness-2",
+              "message_tokens": [
+                "guide.reviewStep",
+                "relays"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "ios": {
+      "commit": "e5af54a638ef6a92e33c5b03516227ec659efbbf",
+      "cases": [
+        {
+          "id": "ios-cleaned-await",
+          "source": "whitenoise-ios/Core/MarmotClient+Attachments.swift",
+          "old": "        case .cleanedBySetting: false",
+          "new": "        case .cleanedBySetting: true",
+          "selector": "whitenoise-iosTests/Marmot0104BindingTests/terminalAttachmentStatesDoNotWaitOrRetryAutomatically()",
+          "test_source": "whitenoise-iosTests/Marmot0104BindingTests.swift",
+          "original_sha256": "e63c3f551b9022ebba83b4255ed6d2a1983b4988239f975142e49e60c0313c72",
+          "mutant_sha256": "37d79c834ecc18bcf2550c0b29c172b049d99237d38abfb8f19e3f4cf9d3b911",
+          "test_source_sha256": "679cc9a4832b00815f1c59d70c214349d7331bda8b9fd91026498c98f4f3fd07",
+          "owner_start": "    static func canAwait(_ state: AttachmentTransferStateFfi) -> Bool {",
+          "owner_end": "\n    }\n}",
+          "method": "terminalAttachmentStatesDoNotWaitOrRetryAutomatically",
+          "identifier_aliases": [
+            "Marmot0104BindingTests/terminalAttachmentStatesDoNotWaitOrRetryAutomatically()",
+            "whitenoise-iosTests/Marmot0104BindingTests/terminalAttachmentStatesDoNotWaitOrRetryAutomatically()"
+          ],
+          "issues": [
+            {
+              "line": 229,
+              "column": 9,
+              "source_expression": "#expect(!AttachmentAcquisitionPresentation.canAwait(.cleanedBySetting))",
+              "expression_id": "ios-cleaned-await-1",
+              "message_tokens": [
+                "canAwait",
+                "cleanedBySetting"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ios-inspection-approval",
+          "source": "whitenoise-ios/Onboarding/AccountSetupModel.swift",
+          "old": "        guard !snapshot.cancellationPending else { return nil }",
+          "new": "        guard !snapshot.cancellationPending else { return nil }; if snapshot.steps.contains(where: { $0.findings.contains(where: { $0.issue == .inspectionCompleted }) }) { return .acknowledge(snapshot.revision, recoveryEpoch: snapshot.recoveryEpoch) }",
+          "selector": "whitenoise-iosTests/AccountSetupTests/completedInspectionDoesNotAcknowledgeOrFinishSetup()",
+          "test_source": "whitenoise-iosTests/AccountSetupTests.swift",
+          "original_sha256": "38189c8b17652954f0e1833c589542d79d9363bc8cb66901485595ed7fe77452",
+          "mutant_sha256": "ef437283ebc5ad0b4d6eef045aeee0ff755b582c536065dc32db4da1a71ca347",
+          "test_source_sha256": "188c61a844a404621aea74734a0cb44572920a4a9ad13fa067851e6210288b3a",
+          "owner_start": "    static func automaticAction(_ snapshot: OnboardingSnapshotFfi) -> AccountSetupCommand? {",
+          "owner_end": "\n    }\n}",
+          "method": "completedInspectionDoesNotAcknowledgeOrFinishSetup",
+          "identifier_aliases": [
+            "AccountSetupTests/completedInspectionDoesNotAcknowledgeOrFinishSetup()",
+            "whitenoise-iosTests/AccountSetupTests/completedInspectionDoesNotAcknowledgeOrFinishSetup()"
+          ],
+          "issues": [
+            {
+              "line": 358,
+              "column": 9,
+              "source_expression": "#expect(AccountSetupPolicy.automaticAction(unfinished) == nil)",
+              "expression_id": "ios-inspection-approval-1",
+              "message_tokens": [
+                "automaticAction",
+                "nil"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
