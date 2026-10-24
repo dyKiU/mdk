@@ -2982,6 +2982,7 @@ async fn an_unreadable_intent_queue_still_schedules_the_drain() {
 #[tokio::test]
 async fn an_unreadable_intent_queue_at_pass_close_still_rearms_and_drains() {
     let inner = SqliteAccountStorage::in_memory().unwrap();
+    let witness = inner.clone();
     let queued_intent_list_fault = ProcessedFault::default();
     let clock = ManualConvergenceClock::new(1_000, 10_000);
     let mut alice = EngineBuilder::new(FaultStorage {
@@ -3039,11 +3040,28 @@ async fn an_unreadable_intent_queue_at_pass_close_still_rearms_and_drains() {
 
     clock.advance_ms(1_500);
     queued_intent_list_fault.arm(1);
+    let before_epoch = witness.get_group(&group_id).ok().map(|group| group.epoch);
+    let before_pass = witness.convergence_pass(&group_id);
+    let advance = alice
+        .advance_convergence_inputs_until_settled(&group_id, 2_500)
+        .await;
+    let after_epoch = witness.get_group(&group_id).ok().map(|group| group.epoch);
+    let after_pass = witness.convergence_pass(&group_id);
+    eprintln!(
+        "pass-close-queue-fault before_epoch_available={} after_epoch_available={} epoch_advanced={} before_pass_readable={} after_pass_readable={} before_active={} after_active={} fault_consumed={} result_storage_busy={} result_settled={}",
+        before_epoch.is_some(),
+        after_epoch.is_some(),
+        before_epoch.zip(after_epoch).is_some_and(|(before, after)| after > before),
+        before_pass.is_ok(),
+        after_pass.is_ok(),
+        before_pass.as_ref().ok().and_then(Option::as_ref).is_some_and(|pass| pass.is_active()),
+        after_pass.as_ref().ok().and_then(Option::as_ref).is_some_and(|pass| pass.is_active()),
+        queued_intent_list_fault.0.load(Ordering::SeqCst) == 0,
+        matches!(&advance, Err(EngineError::Storage(StorageError::Busy(_)))),
+        matches!(&advance, Ok(true)),
+    );
     assert!(
-        alice
-            .advance_convergence_inputs_until_settled(&group_id, 2_500)
-            .await
-            .expect("a failed post-close queue read must not fail a durable convergence apply"),
+        advance.expect("a failed post-close queue read must not fail a durable convergence apply"),
         "the pass must settle despite the injected queue-read failure"
     );
     assert!(
