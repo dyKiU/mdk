@@ -57,6 +57,9 @@ pub(crate) struct MlsGroupCache {
     taken: Mutex<HashMap<GroupId, u64>>,
     #[cfg(test)]
     hits: std::sync::atomic::AtomicU64,
+    /// Actual calls to MlsGroup::load, independent of cached accessor reads.
+    #[cfg(test)]
+    load_attempts: std::sync::atomic::AtomicU64,
 }
 
 impl MlsGroupCache {
@@ -128,6 +131,10 @@ impl<S: StorageProvider> Engine<S> {
             self.storage.mls_storage(),
         );
         let mls_gid = openmls::group::GroupId::from_slice(group_id.as_slice());
+        #[cfg(test)]
+        self.mls_group_cache
+            .load_attempts
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         MlsGroup::load(
             <crate::provider::EngineOpenMlsProvider<'_, S> as openmls_traits::OpenMlsProvider>::storage(&provider),
             &mls_gid,
@@ -184,7 +191,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use cgka_traits::app_event::{MARMOT_APP_EVENT_KIND_CHAT, MarmotAppEvent};
-    use cgka_traits::engine::{CgkaEngine, CreateGroupRequest, SendIntent};
+    use cgka_traits::engine::{CgkaEngine, CreateGroupRequest, SendIntent, SendResult};
     use cgka_traits::error::EngineError;
     use cgka_traits::storage::StorageProvider;
 
@@ -217,7 +224,7 @@ mod tests {
             engine: &mut crate::Engine<storage_sqlite::SqliteAccountStorage>,
             group_id: &cgka_traits::types::GroupId,
             payload: &[u8],
-        ) -> Result<(), EngineError> {
+        ) -> Result<bool, EngineError> {
             engine
                 .send(SendIntent::AppMessage {
                     group_id: group_id.clone(),
@@ -225,27 +232,26 @@ mod tests {
                     expected_epoch: None,
                 })
                 .await
-                .map(|_| ())
+                .map(|result| {
+                    matches!(result, SendResult::ApplicationMessage { group_id: actual, .. } if actual == *group_id)
+                })
         }
-        let hits = |engine: &crate::Engine<storage_sqlite::SqliteAccountStorage>| {
-            engine.mls_group_cache.hits.load(Ordering::Relaxed)
+        let loads = |engine: &crate::Engine<storage_sqlite::SqliteAccountStorage>| {
+            engine.mls_group_cache.load_attempts.load(Ordering::Relaxed)
         };
         let cached = |engine: &crate::Engine<storage_sqlite::SqliteAccountStorage>| {
             engine.mls_group_cache.entries.lock().unwrap().len()
         };
 
-        // Group creation reads the new group back through a cached accessor,
-        // so the entry may already exist; measure hits relative to here.
-        send(&mut engine, &group_id, &payload).await.unwrap();
-        assert_eq!(cached(&engine), 1, "a successful send stores the group");
-        let after_first_send = hits(&engine);
+        // Private-group admission can legitimately read the cached group more
+        // than once. Count real MLS loads instead of incidental accessor hits.
+        let first_application = send(&mut engine, &group_id, &payload).await.unwrap();
+        let initial_cached_groups = cached(&engine);
+        assert_eq!(initial_cached_groups, 1, "a successful send stores the group");
+        let after_first_send = loads(&engine);
 
-        send(&mut engine, &group_id, &payload).await.unwrap();
-        assert_eq!(
-            hits(&engine),
-            after_first_send + 1,
-            "the next send reuses it"
-        );
+        let second_application = send(&mut engine, &group_id, &payload).await.unwrap();
+        let after_second_send = loads(&engine);
 
         // A rolled-back transaction counts as a write: whatever the cached
         // object believes about storage can no longer be trusted.
@@ -254,15 +260,42 @@ mod tests {
             .storage
             .with_transaction(|_| Err::<(), EngineError>(EngineError::Other("abort".into())))
             .unwrap_err();
-        assert_ne!(engine.storage.mls_write_generation().unwrap(), generation);
+        let rollback_changed_generation =
+            engine.storage.mls_write_generation().unwrap() != generation;
+        assert!(rollback_changed_generation);
 
-        send(&mut engine, &group_id, &payload).await.unwrap();
-        assert_eq!(
-            hits(&engine),
-            after_first_send + 1,
-            "a foreign write forces a reload"
+        let third_application = send(&mut engine, &group_id, &payload).await.unwrap();
+        let after_third_send = loads(&engine);
+        let fourth_application = send(&mut engine, &group_id, &payload).await.unwrap();
+        let after_fourth_send = loads(&engine);
+        let application_sends = [
+            first_application,
+            second_application,
+            third_application,
+            fourth_application,
+        ];
+        let load_deltas = [
+            after_second_send - after_first_send,
+            after_third_send - after_second_send,
+            after_fourth_send - after_third_send,
+        ];
+        eprintln!(
+            "mls-cache-actual-load {}",
+            serde_json::json!({
+                "application_sends": application_sends,
+                "initial_cached_groups": initial_cached_groups,
+                "rollback_changed_generation": rollback_changed_generation,
+                "load_deltas": load_deltas,
+            })
         );
-        send(&mut engine, &group_id, &payload).await.unwrap();
-        assert_eq!(hits(&engine), after_first_send + 2);
+        assert!(
+            application_sends.into_iter().all(|actual| actual),
+            "all four real sends must produce application messages for the exact group"
+        );
+        assert_eq!(
+            load_deltas,
+            [0, 1, 0],
+            "cached sends avoid real MLS loads and rollback forces exactly one reload"
+        );
     }
 }
