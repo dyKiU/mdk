@@ -50,3 +50,27 @@ class CameraOwnerMetadataTests(unittest.TestCase):
             with self.subTest(label=label, code=code):
                 with self.assertRaises(ValueError):
                     probe.validate_identity_streams(label, code, stdout, stderr)
+
+    def test_two_actual_clean_compiler_phases_and_closure_required(self):
+        clean = {'exit_code': 0, **probe.diagnostics(b'', b'')}
+        phases = {name: dict(invoked=True, actual_invocation_count=1, result=dict(clean)) for name in probe.PHASES}
+        proof = dict(source_unchanged=True, tools_unchanged=True, compiler_phases=phases)
+        self.assertTrue(probe.final_pass(proof))
+        import copy
+        for name in probe.PHASES:
+            for change in [dict(invoked=False), dict(actual_invocation_count=None),
+                           dict(actual_invocation_count=0), dict(actual_invocation_count=True), dict(result=None)]:
+                bad = copy.deepcopy(proof); bad['compiler_phases'][name].update(change)
+                self.assertFalse(probe.final_pass(bad))
+            for change in [dict(exit_code=1), dict(exit_code=True), dict(stdout_bytes=1), dict(stderr_bytes=1),
+                           dict(diagnostic_count=1), dict(other_line_count=1), dict(stdout_sha256='wrong')]:
+                bad = copy.deepcopy(proof); bad['compiler_phases'][name]['result'].update(change)
+                self.assertFalse(probe.final_pass(bad))
+            bad = copy.deepcopy(proof); del bad['compiler_phases'][name]
+            self.assertFalse(probe.final_pass(bad))
+        for field in ('source_unchanged', 'tools_unchanged'):
+            self.assertFalse(probe.final_pass(proof | {field: False}))
+        self.assertFalse(probe.final_pass(proof | dict(failure_kind='ValueError')))
+        pending = copy.deepcopy(phases); pending['emit_sil']['actual_invocation_count'] = None
+        self.assertEqual(probe.compiler_counts(pending), dict(known_completed_invocations=1,
+                         completed_invocations=None, unknown_phases=['emit_sil']))

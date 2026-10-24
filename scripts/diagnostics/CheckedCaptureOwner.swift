@@ -1,4 +1,4 @@
-// Compile-only AVFoundation isolation probe. Never execute this capsule.
+// Compile-only MainActor preview bridge hypothesis. Never execute this capsule.
 import AVFoundation
 import Foundation
 import Synchronization
@@ -8,7 +8,7 @@ nonisolated final class CheckedCaptureOwner: Sendable {
     private let session = Mutex(AVCaptureSession())
 
     @MainActor
-    func configureAndMakePreview() -> AVCaptureVideoPreviewLayer {
+    fileprivate func configureAndMakePreview() -> AVCaptureVideoPreviewLayer {
         session.withLock { protectedSession in
             protectedSession.beginConfiguration()
             protectedSession.sessionPreset = .high
@@ -31,17 +31,37 @@ nonisolated final class CheckedCaptureOwner: Sendable {
     }
 }
 
+@MainActor
+private final class MainActorPreviewBridge {
+    private let owner: CheckedCaptureOwner
+    private let preview: AVCaptureVideoPreviewLayer
+    private let queue = DispatchQueue(label: "diagnostic.capture-owner.preview-bridge")
+
+    init() {
+        let owner = CheckedCaptureOwner()
+        self.owner = owner
+        self.preview = owner.configureAndMakePreview()
+    }
+
+    func mountAndLayout(in view: UIView) {
+        view.layer.addSublayer(preview)
+        preview.videoGravity = .resizeAspectFill
+        preview.frame = view.bounds
+    }
+
+    func enqueueStartThenStop() {
+        let owner = owner
+        queue.async { owner.start() }
+        queue.async { owner.stop() }
+    }
+}
+
 private func requireCheckedSendable<T: Sendable>(_ value: T) {}
 
 @MainActor
-private func compileOnlyConsumer() {
-    let owner = CheckedCaptureOwner()
-    requireCheckedSendable(owner)
-    let preview = owner.configureAndMakePreview()
-    requireCheckedSendable(preview)
-    preview.videoGravity = .resizeAspectFill
-    preview.frame = CGRect(x: 0, y: 0, width: 320, height: 480)
-    let queue = DispatchQueue(label: "diagnostic.capture-owner.typeprobe")
-    queue.async { owner.start() }
-    queue.async { owner.stop() }
+private func compileOnlyConsumer(view: UIView) {
+    requireCheckedSendable(CheckedCaptureOwner())
+    let bridge = MainActorPreviewBridge()
+    bridge.mountAndLayout(in: view)
+    bridge.enqueueStartThenStop()
 }

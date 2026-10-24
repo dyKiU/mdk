@@ -10,7 +10,7 @@ import signal
 import subprocess
 import time
 
-SOURCE_SHA = 'f6687c58dab235a237da421ca60129731870bc113d1cf42d4aa09eb112b7e10f'
+SOURCE_SHA = '8268dd25c4d1d830e15af13d6dcfee64ac581a4bf304d7ed0e4707b5725eaecb'
 SOURCE = Path(__file__).with_name('CheckedCaptureOwner.swift')
 DEVELOPER = Path('/Applications/Xcode_26.6.app/Contents/Developer')
 CAP = 256 * 1024
@@ -28,6 +28,8 @@ DRIVER_STDERR = b'swift-driver version: 1.148.6 '
 DIAGNOSTIC_FACTS = {
     'checked_owner_identifier': b'CheckedCaptureOwner',
     'mutex_identifier': b'Mutex',
+    'main_actor_preview_bridge_identifier': b'MainActorPreviewBridge',
+    'calayer_identifier': b'CALayer',
     'capture_session_identifier': b'AVCaptureSession',
     'preview_layer_identifier': b'AVCaptureVideoPreviewLayer',
     'protected_session_identifier': b'protectedSession',
@@ -104,12 +106,50 @@ def bounded(command, env):
         process.stderr.close()
 
 
+PHASES = ('typecheck', 'emit_sil')
+
+
+def compiler_counts(phases):
+    unknown = [name for name in PHASES if phases[name]['invoked'] is True
+               and phases[name]['actual_invocation_count'] is None]
+    known = sum(row['actual_invocation_count'] for row in phases.values()
+                if type(row.get('actual_invocation_count')) is int)
+    return {'known_completed_invocations': known, 'completed_invocations': None if unknown else known,
+            'unknown_phases': unknown}
+
+
+def final_pass(proof):
+    phases = proof.get('compiler_phases')
+    if type(phases) is not dict or set(phases) != set(PHASES):
+        return False
+    for name in PHASES:
+        row = phases[name]
+        if (type(row) is not dict or row.get('invoked') is not True
+                or type(row.get('actual_invocation_count')) is not int or row['actual_invocation_count'] != 1):
+            return False
+        result = row.get('result')
+        if (type(result) is not dict or type(result.get('exit_code')) is not int or result['exit_code'] != 0
+                or any(type(result.get(key)) is not int or result[key] != 0
+                       for key in ('stdout_bytes', 'stderr_bytes', 'diagnostic_count', 'other_line_count'))
+                or result.get('diagnostic_rows') != []
+                or result.get('stdout_sha256') != sha(b'') or result.get('stderr_sha256') != sha(b'')):
+            return False
+    return (proof.get('source_unchanged') is True and proof.get('tools_unchanged') is True
+            and 'failure_kind' not in proof
+            and compiler_counts(phases) == {'known_completed_invocations': 2,
+                'completed_invocations': 2, 'unknown_phases': []})
+
+
 def main(output):
     proof = {'schema': 1, 'diagnostic_only': True, 'qualification_credit': False,
              'behavioral_credit': False, 'product_tests_executed': 0, 'native_tests_executed': 0,
              'tools_sha': os.environ.get('GITHUB_SHA'), 'passed': False, 'compiler_invoked': False,
-             'source_sha256': sha(SOURCE.read_bytes()), 'commands': [], 'typecheck': None}
+             'source_sha256': sha(SOURCE.read_bytes()), 'commands': [], 'typecheck': None, 'emit_sil': None,
+             'preview_sendable_claim': False,
+             'compiler_phases': {name: {'invoked': False, 'actual_invocation_count': 0, 'result': None}
+                                 for name in PHASES}}
     def save():
+        proof['compiler_counts'] = compiler_counts(proof['compiler_phases'])
         output.write_text(json.dumps(proof, indent=2)+'\n')
     try:
         if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'macOS':
@@ -156,20 +196,37 @@ def main(output):
         if not re.fullmatch(r'iPhoneSimulator(?:[0-9]+(?:\.[0-9]+)*)?\.sdk', sdk.name):
             raise ValueError('closed-simulator-SDK-directory-name-required')
         proof['sdk_directory_name'] = sdk.name
-        proof['compiler_invoked'] = True; save()
-        command = ['/usr/bin/xcrun', 'swiftc', '-typecheck', '-parse-as-library', '-swift-version', '6',
-                   '-strict-concurrency=complete', '-warnings-as-errors', '-default-isolation', 'MainActor',
-                   '-sdk', str(sdk), '-target', 'arm64-apple-ios18.0-simulator', str(SOURCE)]
-        code, stdout, stderr = bounded(command, env)
-        proof['typecheck'] = {'exit_code': code, **diagnostics(stdout, stderr)}
-        proof['source_unchanged'] = sha(SOURCE.read_bytes()) == SOURCE_SHA
-        proof['tools_unchanged'] = subprocess.check_output(['/usr/bin/git', 'rev-parse', 'HEAD'], timeout=10).decode().strip() == head and not subprocess.check_output(['/usr/bin/git', 'status', '--porcelain'], timeout=10)
-        proof['passed'] = code == 0 and stdout == stderr == b'' and proof['source_unchanged'] and proof['tools_unchanged']
+        common = ['-parse-as-library', '-swift-version', '6', '-strict-concurrency=complete',
+                  '-warnings-as-errors', '-default-isolation', 'MainActor', '-sdk', str(sdk),
+                  '-target', 'arm64-apple-ios18.0-simulator', str(SOURCE)]
+        for name in PHASES:
+            if sha(SOURCE.read_bytes()) != SOURCE_SHA or subprocess.check_output(
+                    ['/usr/bin/git', 'rev-parse', 'HEAD'], timeout=10).decode().strip() != head or subprocess.check_output(
+                    ['/usr/bin/git', 'status', '--porcelain'], timeout=10):
+                raise ValueError('same-source-tools-before-each-compiler-phase')
+            flags = ['-typecheck'] if name == 'typecheck' else ['-emit-sil', '-o', '/dev/null']
+            row = proof['compiler_phases'][name]
+            row['invoked'] = True; row['actual_invocation_count'] = None
+            proof['compiler_invoked'] = True; save()
+            code, stdout, stderr = bounded(['/usr/bin/xcrun', 'swiftc'] + flags + common, env)
+            row['actual_invocation_count'] = 1
+            row['result'] = {'exit_code': code, **diagnostics(stdout, stderr)}
+            proof[name] = row['result']
+            save()
     except Exception as error:
         proof['failure_kind'] = type(error).__name__
         if isinstance(error, ValueError) and re.fullmatch('[A-Za-z0-9-]+', str(error)):
             proof['failure_label'] = str(error)
     finally:
+        try:
+            proof['source_unchanged'] = sha(SOURCE.read_bytes()) == SOURCE_SHA
+            proof['tools_unchanged'] = ('head' in locals() and subprocess.check_output(
+                ['/usr/bin/git', 'rev-parse', 'HEAD'], timeout=10).decode().strip() == head
+                and not subprocess.check_output(['/usr/bin/git', 'status', '--porcelain'], timeout=10))
+        except Exception as error:
+            proof['closure_error_kind'] = type(error).__name__
+            proof['source_unchanged'] = False; proof['tools_unchanged'] = False
+        proof['passed'] = final_pass(proof)
         save()
     return 0 if proof['passed'] else 1
 

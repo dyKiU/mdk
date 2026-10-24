@@ -47,7 +47,7 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
         with:
           xcode-version: '26.6'
-      - name: One exact strict typecheck; never link or execute capsule
+      - name: Strict typecheck then SIL emission; never link or execute capsule
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -B scripts/diagnostics/camera_owner_typeprobe.py --output "$RUNNER_TEMP/camera-owner-typeprobe.json"
@@ -62,7 +62,11 @@ jobs:
               target.write_text(json.dumps({'schema': 1, 'tools_sha': os.environ['GITHUB_SHA'],
                   'diagnostic_only': True, 'qualification_credit': False, 'behavioral_credit': False,
                   'product_tests_executed': 0, 'native_tests_executed': 0,
-                  'passed': False, 'compiler_invoked': None, 'typecheck': None,
+                  'passed': False, 'compiler_invoked': None, 'typecheck': None, 'emit_sil': None,
+                  'compiler_phases': {name: {'invoked': None, 'actual_invocation_count': None, 'result': None}
+                                      for name in ('typecheck', 'emit_sil')},
+                  'compiler_counts': {'known_completed_invocations': 0, 'completed_invocations': None,
+                                      'unknown_phases': ['typecheck', 'emit_sil']},
                   'failure_label': 'compiler-probe-report-not-produced'}) + '\n')
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
