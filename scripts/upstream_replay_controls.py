@@ -3731,7 +3731,12 @@ def inverse(case):
         end = text.index('                                #[cfg(test)]', owner)
         if text.count(old) != 1 or old not in text[owner:end]:
             raise ValueError('inverse-command-dispatch-owner')
-    if case == 'command-owned-cleanup':
+    if case in OWNED_CLEANUP_NAMESPACES:
+        if case == WATCH_CLEANUP_CASE:
+            fixture = Path(WATCH_CLEANUP_PATH).read_text()
+            if ('use super::recipient_sibling_admission_acceptance::owned_loopback_listener_is_closed;' not in fixture
+                    or 'async fn owned_loopback_listener_is_closed(' in fixture):
+                raise ValueError('watch-cleanup-must-use-qualified-shared-helper')
         start = text.index('// OWNED_MOCK_RELAY_CLEANUP_BEGIN')
         end = text.index('// OWNED_MOCK_RELAY_CLEANUP_END', start)
         if old not in text[start:end]:
@@ -3796,6 +3801,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == WATCH_CLEANUP_CASE:
+        return watch_cleanup_controls(site)
     if case == SQLITE_CACHE_CASE:
         return sqlite_cache_controls(site)
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
@@ -4372,8 +4379,11 @@ def pfp(args):
     if args.case in CURSOR_CASES:
         report.update(evidence_scope='cursor-router-pin-fixture-mechanism-only', native_protocol_qualification=False,
                       historical_full_failure_cause_proven=False)
-    if args.case == 'command-owned-cleanup':
+    if args.case in OWNED_CLEANUP_NAMESPACES:
         report.update(evidence_scope='owned-mock-relay-cleanup-mechanism-only', native_protocol_qualification=False)
+        if args.case == WATCH_CLEANUP_CASE:
+            report.update(evidence_scope='actual-watch-owned-loopback-stop-omission-only',
+                apple_native_acceptance=False, full_suite_qualification=False)
     if args.case in WORKER_INPUT_CASES:
         report.update(evidence_scope='worker-input-selection-mechanism-only', native_protocol_qualification=False)
     if args.case == 'sdk-private-capture-control':
@@ -4425,7 +4435,7 @@ def pfp(args):
         selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
         if phase_case == SQLITE_CACHE_CASE:
             selection += ' & binary(=storage_sqlite)'
-        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE}:
+        if phase_case in {WATCH_CLEANUP_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE}:
             selection += ' & binary(=marmot_app)'
         if phase_case in QUIET_CONTRACT_CASES:
             selection += ' & binary(=relay_limit_subscriptions)'
@@ -4445,14 +4455,14 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SQLITE_CACHE_CASE, SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {WATCH_CLEANUP_CASE, SQLITE_CACHE_CASE, SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         inventory = json.loads(raw, object_pairs_hook=unique)
         if phase_case in PRIVATE_MAINTENANCE_COHORTS:
             row['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(phase_case), 'cgka-engine', 'cgka_engine')
         else:
             selected_case(inventory, CASES[phase_case][1])
-        if phase_case in {SQLITE_CACHE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
+        if phase_case in {WATCH_CLEANUP_CASE, SQLITE_CACHE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             matched_suites = [suite for suite in inventory['rust-suites'].values()
                 if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
             if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != CASES[phase_case][0] or matched_suites[0].get('kind') != 'lib':
@@ -4479,7 +4489,7 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case in {SQLITE_CACHE_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
+        if phase_case in {WATCH_CLEANUP_CASE, SQLITE_CACHE_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
         if phase_case == SQLITE_CACHE_CASE:
@@ -4544,9 +4554,13 @@ def pfp(args):
             watch_accepted = cursor_pfp_oracle(row['body']['fixture_observation'], label == 'mutant')
             row['cursor_prerequisites_accepted'] = watch_accepted
             save()
-        if args.case == 'command-owned-cleanup':
-            row['body']['owned_cleanup_observation'] = owned_cleanup_marker(raw)
+        if args.case in OWNED_CLEANUP_NAMESPACES:
+            row['body']['owned_cleanup_observation'] = owned_cleanup_marker(raw, args.case)
             watch_accepted = owned_cleanup_oracle(row['body']['owned_cleanup_observation'], label == 'mutant')
+            if args.case == WATCH_CLEANUP_CASE:
+                runtime = automatic_negotiation_runtime(raw, {WATCH_CLEANUP_TEST: WATCH_CLEANUP_PATH})
+                row['body']['watch_cleanup_runtime'] = runtime
+                watch_accepted = watch_accepted and runtime['complete']
             row['cleanup_prerequisites_accepted'] = watch_accepted
             save()
         if args.case == 'watch-pressure':
@@ -4567,6 +4581,8 @@ def pfp(args):
             save()
         if label == 'mutant':
             row['own_runtime_failure'] = own_failure(raw, phase_case, site)
+            if phase_case == WATCH_CLEANUP_CASE:
+                row['own_runtime_failure'] = owned_cleanup_runtime_failure(raw, phase_case, site)
             row['accepted'] = (code == 100 and row['body']['counts']['failed'] == (2 if phase_case == PRIVATE_MAINTENANCE_CASE else 1)
                                and clean_compile and watch_accepted and row['own_runtime_failure']
                                and row['source_exact_after_body'])
@@ -5993,8 +6009,8 @@ def main():
     args = parser.parse_args()
     if args.case == WATCH_HELD_CASE and args.stage != 'positive':
         raise ValueError('watch-held-positive-only')
-    if args.case == WATCH_CLEANUP_CASE and args.stage != 'positive':
-        raise ValueError('watch-cleanup-positive-only')
+    if args.case == WATCH_CLEANUP_CASE and args.stage not in {'positive', 'pfp'}:
+        raise ValueError('watch-cleanup-positive-or-pfp-only')
     if args.case == SQLITE_CACHE_CASE and args.stage not in {'positive', 'pfp'}:
         raise ValueError('sqlite-cache-positive-or-pfp-only')
     if args.case == PENDING_REQUEST_CASE:
@@ -6002,7 +6018,7 @@ def main():
     if args.case in QUIET_CONTRACT_CASES:
         quiet_contract_stage(args.stage)
     if (args.case in AUTOMATIC_NATIVE_CASES and args.stage != 'positive'
-            and not (args.case in {AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE} and args.stage == 'pfp')):
+            and not (args.case in {WATCH_CLEANUP_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE} and args.stage == 'pfp')):
         raise ValueError('automatic-native-positive-or-expiry-pfp-only')
     if args.case in PRIVATE_MAINTENANCE_COHORTS and args.stage not in {'positive', 'pfp'}:
         raise ValueError('private-maintenance-positive-or-pfp-only')
