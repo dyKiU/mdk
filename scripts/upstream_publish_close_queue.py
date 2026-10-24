@@ -15,7 +15,7 @@ from upstream_apple_ci.package_metadata_pfp import snapshot
 SOURCE = 'crates/cgka-engine/tests/publish_lifecycle.rs'
 SOURCE_SHA = 'de87ad2cacc63ca0405ff707b7f5feb310bc79794dbac3904cf299deffd9510e'
 PRODUCT = 'crates/cgka-engine/src/message_processor/send.rs'
-PRODUCT_SHA = '210ef8a48e71eb354dbb449eba993e3381e3d0bd8eaa8814693c04b7eaf5951f'
+PRODUCT_SHA = 'dc82f4346b36e172610c8ee50d6df748af8abfa4412dd56b97c059ab30a866fb'
 TEST = 'an_unreadable_intent_queue_at_pass_close_still_rearms_and_drains'
 MESSAGE = 'a failed post-close queue read must not fail a durable convergence apply'
 PREFIX = 'pass-close-queue-fault '
