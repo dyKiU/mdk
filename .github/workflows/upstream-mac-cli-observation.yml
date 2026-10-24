@@ -1,0 +1,112 @@
+name: Mac original unit CLI observation only
+on:
+  push:
+    branches: ["ci/upstream-mac-cli-observation-*"]
+    paths:
+      - .github/workflows/upstream-mac-cli-observation.yml
+      - scripts/upstream_apple_ci/mac_cli_observation.py
+      - scripts/upstream_apple_ci/test_mac_cli_observation.py
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: mac-cli-observation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - name: Collector and strict policy metadata only
+        run: python3 -B -m unittest discover -s scripts/upstream_apple_ci -p test_mac_cli_observation.py -v
+  policy:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/ci/upstream-mac-cli-observation-run-')
+    needs: metadata
+    runs-on: macos-26
+    timeout-minutes: 150
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SDK_F: 6b8d9ea18406a6a0f588de91bece0cf6b29ef129
+      SOURCE_SHA: 6b8d9ea18406a6a0f588de91bece0cf6b29ef129
+      SDK_PROFILE: experimental
+      SDK_RUN_ID: '40036892229'
+      WN_SDK_PROFILE: experimental
+      WN_EXPERIMENTAL_DEVICE_SYNC: '1'
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
+      MAC_SHA: b8f71a6d17f934a34b5bda2243e31d3623ea7fb4
+      IOS_SHA: e5af54a638ef6a92e33c5b03516227ec659efbbf
+      APP_SHA: b8f71a6d17f934a34b5bda2243e31d3623ea7fb4
+      COHORT_PLATFORMS: '["macos"]'
+      WN_TEST_JOBS: '2'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 6b8d9ea18406a6a0f588de91bece0cf6b29ef129
+          path: sdk-source
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: e5af54a638ef6a92e33c5b03516227ec659efbbf
+          path: ios
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-mac
+          ref: b8f71a6d17f934a34b5bda2243e31d3623ea7fb4
+          path: mac
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: '26'
+      - name: Declare diagnostic scope; no full qualification credit
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          folder=pathlib.Path(os.environ['RUNNER_TEMP'])/'cohort-evidence'
+          folder.mkdir(mode=0o700)
+          result={'tools_sha':os.environ['GITHUB_SHA'],'scope':'Original unit CLI observation only',
+                  'sdk_source':os.environ['SDK_F'],'sdk_run_id':os.environ['SDK_RUN_ID'],
+                  'app_sha':os.environ['APP_SHA'],'final_qualification_credit':False,
+                  'full_suite_executed':False,'release_analysis_executed':False,
+                  'original_API_mutations_executed':False,'native_acceptance_credit':False}
+          (folder/'scope.json').write_text(json.dumps(result,indent=2)+'\n')
+          PY
+      - name: Download only the exact pre-existing experimental SDK; no build or publication
+        run: gh run download "$SDK_RUN_ID" --repo dyKiU/mdk --name "upstream-experimental-apple-$SDK_F" --dir packages
+      - name: Preserve existing authenticated app SDK preparation
+        run: |
+          python3 scripts/upstream_apple_ci/app-sdk-cohort.py prepare \
+            --profile experimental --platform macos --app-sha "$APP_SHA" \
+            --sdk-source "$SDK_F" --sdk-run-id "$SDK_RUN_ID" \
+            --output "$RUNNER_TEMP/cohort-evidence/cohort.json"
+      - name: Build only the pinned owned relay fixture
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
+      - name: Observe exact original unit command despite nonqualifying build warnings
+        run: |
+          python3 scripts/upstream_apple_ci/mac_cli_observation.py \
+            --cohort-evidence "$RUNNER_TEMP/cohort-evidence/cohort.json" \
+            --output "$RUNNER_TEMP/cohort-evidence/compatibility-policy.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: mac-policy-diagnostic-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/cohort-evidence/scope.json
+            ${{ runner.temp }}/cohort-evidence/cohort.json
+            ${{ runner.temp }}/cohort-evidence/compatibility-policy.json
+          if-no-files-found: error
+          retention-days: 7
