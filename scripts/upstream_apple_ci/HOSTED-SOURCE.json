@@ -89,7 +89,7 @@
     },
     "app-sdk-cohort.py": {
       "source": "existing authenticated SDK profile cohort helper",
-      "sha256": "2dba9cacd14ff42508c026fc4bf423d43222a45cfc70b275cee20be04edf23c8",
+      "sha256": "2beb4893c0baa485cf0110df2bb3b20543ca21052ef4fe3a5f7273931d355062",
       "scope": "Shared authenticated experimental app guard and exact compiler array; no SDK or historical cohort behavior change"
     },
     "current-factory-commands.swift.txt": {

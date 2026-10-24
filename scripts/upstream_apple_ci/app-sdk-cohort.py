@@ -9,6 +9,9 @@ import re
 import subprocess
 import stat
 import sys
+from urllib.parse import unquote, urlsplit
+
+import factory_xcresult as xcresult
 
 from summarize import summary_counts, test_inventory, export_tests, skip_reason_evidence, export_skip_details
 
@@ -397,6 +400,77 @@ def release(args):
     args.output.write_text(json.dumps(proof, indent=2) + '\n')
 
 
+def build_compiler_inventory(record, app, tracked):
+    """Complete inventories; export only static categories and tracked coordinates."""
+    require(type(record) is dict and 'issues' in record, 'Actual build issue inventory required')
+    sets = xcresult.issue_sets(record)
+    require(sets and record['issues'] in sets, 'Complete typed build issue inventories required')
+    groups = [xcresult.raw_groups(item) for item in sets]
+    counts = [{key: len(rows) for key, rows in item.items()} for item in groups]
+    entries = [(key, raw) for item in groups for key in
+               ('analyzerWarningSummaries', 'errorSummaries', 'warningSummaries')
+               for raw in item.get(key, [])]
+    require(len(entries) <= 2048, 'Bounded complete compiler issue inventory required')
+    known = {'Swift Compiler Error', 'Swift Compiler Warning', 'Semantic Issue', 'Build System Failure'}
+    messages = {'Switch must be exhaustive': 'non-exhaustive-switch',
+                'switch must be exhaustive': 'non-exhaustive-switch'}
+    sites = []
+    for key, raw in entries:
+        row = {'inventory': key, 'raw_sha256': hashlib.sha256(json.dumps(raw, sort_keys=True).encode()).hexdigest(),
+               'kind': 'unclassified-compiler-issue', 'static_message': None,
+               'file': None, 'line': None, 'column': None}
+        try:
+            kind = xcresult.scalar(raw['issueType'])
+            if kind in known:
+                row['kind'] = kind
+            row['static_message'] = messages.get(xcresult.scalar(raw['message']))
+        except (KeyError, ValueError, TypeError):
+            pass  # Unknown is not an empty inventory; never export arbitrary text.
+        try:
+            url = urlsplit(xcresult.scalar(raw['documentLocationInCreatingWorkspace']['url']))
+            source = Path(unquote(url.path)).resolve(strict=True)
+            relative = source.relative_to(app).as_posix()
+            require(url.scheme == 'file' and url.netloc in ('', 'localhost') and not url.query
+                    and relative in tracked, 'Actual tracked compiler source required')
+            row['line'], row['column'] = xcresult.location(raw, source)
+            row['file'] = relative
+        except (KeyError, ValueError, TypeError, OSError):
+            pass
+        sites.append(row)
+    return {'issue_inventory_counts': counts, 'compiler_row_count': len(entries), 'compiler_sites': sites}
+
+
+def build_diagnostics(args):
+    # Supplemental evidence only. Existing runtime and qualification gates remain unchanged.
+    proof = {'schema': 1, 'stage': 'build-for-testing', 'profile': args.profile,
+             'platform': args.platform, 'app_sha': args.app_sha,
+             'tooling_sha': os.environ['GITHUB_SHA'], 'status': 'unavailable',
+             'qualification_credit': False, 'compiler_inventory_complete': False}
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        require(args.platform == 'ios', 'Only the separate iOS build bundle is supported')
+        app = Path('ios').resolve(strict=True)
+        require(git_output(app, 'rev-parse', 'HEAD').decode().strip() == args.app_sha,
+                'Exact iOS compiler source required')
+        proof['app_tree'] = git_output(app, 'rev-parse', 'HEAD^{tree}').decode().strip()
+        bundle = Path(os.environ['RUNNER_TEMP']) / 'final-ios-build.xcresult'
+        if not bundle.is_dir():
+            proof['reason'] = 'build-result-bundle-not-produced'
+            return
+        raw = xcresult.output(['xcrun', 'xcresulttool', 'get', 'object', '--legacy',
+                               '--format', 'json', '--path', str(bundle)])
+        proof.update(inventory_bytes=len(raw), inventory_sha256=hashlib.sha256(raw).hexdigest())
+        record = json.loads(raw)
+        tracked = set(git_output(app, 'ls-files', '-z').decode().split('\0')) - {''}
+        proof.update(build_compiler_inventory(record, app, tracked))
+        proof.update(status='observed', compiler_inventory_complete=True)
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        proof['reason'] = 'build-result-inventory-unavailable-or-invalid'
+        raise
+    finally:
+        args.output.write_text(json.dumps(proof, indent=2) + '\n')
+
+
 def summary(args):
     proof = json.loads(args.output.read_text())
     bundle = Path(os.environ['RUNNER_TEMP']) / ('final-mac.xcresult' if args.platform == 'macos' else 'final-ios.xcresult')
@@ -491,7 +565,7 @@ def finalize(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('stage', choices=['prepare', 'release', 'summary', 'finalize'])
+    parser.add_argument('stage', choices=['prepare', 'release', 'summary', 'finalize', 'build-diagnostics'])
     parser.add_argument('--profile', choices=list(FEATURES), required=True)
     parser.add_argument('--platform', choices=['macos', 'ios'], required=True)
     parser.add_argument('--app-sha', required=True)
@@ -501,4 +575,4 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     require(re.fullmatch('[0-9a-f]{40}', args.app_sha), 'Exact app commit required')
-    {'prepare': prepare, 'release': release, 'summary': summary, 'finalize': finalize}[args.stage](args)
+    {'prepare': prepare, 'release': release, 'summary': summary, 'finalize': finalize, 'build-diagnostics': build_diagnostics}[args.stage](args)

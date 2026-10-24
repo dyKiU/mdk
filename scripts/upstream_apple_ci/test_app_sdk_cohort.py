@@ -209,5 +209,59 @@ class AppCohortEvidenceBoundaryTests(unittest.TestCase):
                 cohort.mutation_row_gate(row, definition, changed)
 
 
+
+class BuildCompilerInventoryTests(unittest.TestCase):
+    @staticmethod
+    def record(rows):
+        return {'issues': {'_type': {'_name': 'ResultIssueSummaries'},
+                           'errorSummaries': {'_type': {'_name': 'Array'}, '_values': rows}}}
+
+    @staticmethod
+    def string(value):
+        return {'_type': {'_name': 'String'}, '_value': value}
+
+    def test_actual_tracked_coordinates_and_closed_static_message(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            app = Path(folder).resolve()
+            source = app / 'Example.swift'
+            source.write_text('switch example {}\n')
+            row = {'issueType': self.string('Swift Compiler Error'),
+                   'message': self.string('Switch must be exhaustive'),
+                   'documentLocationInCreatingWorkspace': {'url': self.string(
+                       source.as_uri() + '#StartingLineNumber=0&StartingColumnNumber=3')}}
+            proof = cohort.build_compiler_inventory(self.record([row]), app, {'Example.swift'})
+            self.assertEqual(proof['compiler_row_count'], 1)
+            self.assertEqual(proof['compiler_sites'][0]['file'], 'Example.swift')
+            self.assertEqual(proof['compiler_sites'][0]['line'], 1)
+            self.assertEqual(proof['compiler_sites'][0]['column'], 4)
+            self.assertEqual(proof['compiler_sites'][0]['static_message'], 'non-exhaustive-switch')
+
+    def test_unknown_message_and_missing_location_remain_counted_private(self):
+        row = {'issueType': self.string('New compiler category'),
+               'message': self.string('PRIVATE_SENTINEL_NEVER_EXPORT')}
+        proof = cohort.build_compiler_inventory(self.record([row]), Path('/'), set())
+        self.assertEqual(proof['compiler_row_count'], 1)
+        self.assertEqual(proof['compiler_sites'][0]['kind'], 'unclassified-compiler-issue')
+        self.assertIsNone(proof['compiler_sites'][0]['file'])
+        self.assertIsNone(proof['compiler_sites'][0]['static_message'])
+        self.assertNotIn('PRIVATE_SENTINEL_NEVER_EXPORT', str(proof))
+
+    def test_untracked_location_cannot_supply_source_coordinates(self):
+        row = {'issueType': self.string('Swift Compiler Error'), 'message': self.string('unknown'),
+               'documentLocationInCreatingWorkspace': {'url': self.string(
+                   Path(__file__).resolve().as_uri() + '#StartingLineNumber=0')}}
+        proof = cohort.build_compiler_inventory(self.record([row]), Path(__file__).parent.resolve(), set())
+        self.assertEqual(proof['compiler_row_count'], 1)
+        self.assertIsNone(proof['compiler_sites'][0]['file'])
+        self.assertIsNone(proof['compiler_sites'][0]['line'])
+
+    def test_malformed_or_missing_typed_inventory_cannot_be_empty_success(self):
+        for record in ({}, {'issues': {}}, {'issues': {'_type': {'_name': 'ResultIssueSummaries'},
+                'errorSummaries': {'_type': {'_name': 'String'}, '_value': 'not-an-array'}}}):
+            with self.subTest(record=record), self.assertRaises(ValueError):
+                cohort.build_compiler_inventory(record, Path('/'), set())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

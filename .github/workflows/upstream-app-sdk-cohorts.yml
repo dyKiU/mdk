@@ -250,8 +250,15 @@ jobs:
           WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-ios-derived-data
           WN_TEST_SOURCE_PACKAGES: ${{ runner.temp }}/final-ios-packages
           WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/final-ios.xcresult
+          WN_TEST_BUILD_RESULT_BUNDLE: ${{ runner.temp }}/final-ios-build.xcresult
           TEST_RUNNER_WN_RUN_ATTENTION_CREATION_DIAGNOSTIC: '1'
         run: bash scripts/test-with-relay.sh
+      - name: Preserve source-only iOS build compiler diagnostics
+        if: always() && matrix.platform == 'ios'
+        run: |
+          python3 scripts/upstream_apple_ci/app-sdk-cohort.py build-diagnostics \
+            --profile "$SDK_PROFILE" --platform ios --app-sha "$APP_SHA" \
+            --output "$RUNNER_TEMP/cohort-evidence/build-diagnostics.json"
       - name: Preserve actual full-suite counts and source-only skip inventory
         if: always()
         run: |
@@ -289,6 +296,8 @@ jobs:
         if: always()
         with:
           name: app-sdk-cohort-${{ matrix.platform }}-${{ matrix.profile }}-${{ env.APP_SHA }}-${{ github.sha }}
-          path: ${{ runner.temp }}/cohort-evidence/cohort.json
+          path: |
+            ${{ runner.temp }}/cohort-evidence/cohort.json
+            ${{ runner.temp }}/cohort-evidence/build-diagnostics.json
           if-no-files-found: error
           retention-days: 7
