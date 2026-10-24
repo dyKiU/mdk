@@ -130,7 +130,7 @@
     },
     "test_factory_semantics.py": {
       "source": "new hosted current automatic factory causal mutation qualification",
-      "sha256": "a053460eb6adab83a3aea2668fd8220fcc43e63228f1f9efddf37a018faa3d0b",
+      "sha256": "58def664613837e057abe39a0e59e0aef5f3996648a5e52752da21043348f588",
       "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
     },
     "factory_semantic_oracle.py": {

@@ -29,6 +29,32 @@ def inventory(rows):
 
 
 class CompleteIssues(unittest.TestCase):
+    def test_unknown_failure_type_preserves_observations_before_strict_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'Fixture.swift'
+            source.write_text('// metadata only\n' * 9 + '#expect(false)\n')
+            own = issue(source, message='Expectation failed: synthetic-private-sentinel')
+            own['issueType']['_value'] = 'Issue'
+            record = {'issues': inventory([own]), 'actions': [{'issues': inventory([own])}]}
+            raw = json.dumps(record).encode()
+            audit = {}
+            with patch.object(xcresult, 'output', return_value=raw):
+                with self.assertRaisesRegex(ValueError, '^actual-assertion-type-required$'):
+                    xcresult.read(Path('metadata-only.xcresult'), source=source,
+                                  relative='Tests/Fixture.swift', audit=audit)
+            observed = audit.get('failure_observations')
+            self.assertIsInstance(observed, dict, 'complete safe failure observations must survive strict type rejection')
+            self.assertEqual(observed['root_failure_count'], 1)
+            self.assertEqual(observed['compiler_count'], 0)
+            self.assertEqual(observed['root_failures'][0]['issue_type'], 'Issue')
+            self.assertEqual(observed['root_failures'][0]['file'], 'Tests/Fixture.swift')
+            self.assertEqual(observed['root_failures'][0]['line'], 10)
+            self.assertEqual(observed['root_failures'][0]['column'], 13)
+            self.assertEqual(observed['root_failures'][0]['source_line_sha256'],
+                             hashlib.sha256(b'#expect(false)').hexdigest())
+            self.assertTrue(observed['root_failures'][0]['expectation_failed_prefix'])
+            self.assertNotIn('synthetic-private-sentinel', json.dumps(observed))
+
     def test_complete_failures_columns_and_action_closure(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'Fixture.swift'; source.write_text('// metadata only\n')
