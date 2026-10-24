@@ -200,7 +200,7 @@ mod tests {
     #[tokio::test]
     async fn cached_group_is_reused_until_storage_is_written_behind_it() {
         let mut engine = test_engine();
-        let (group_id, _) = engine
+        let (group_id, created) = engine
             .create_group(CreateGroupRequest {
                 name: "cache".into(),
                 description: String::new(),
@@ -211,6 +211,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let SendResult::GroupCreated { pending, welcomes } = created else {
+            panic!("the real legacy fixture must return its pending creation")
+        };
+        assert!(welcomes.is_empty(), "the solo fixture has no delivery obligations");
+        engine.confirm_published(pending).await.unwrap();
         let payload = MarmotAppEvent::new(
             hex::encode(engine.self_id().as_slice()),
             1_700_000_000,
