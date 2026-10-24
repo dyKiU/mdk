@@ -1,0 +1,214 @@
+name: Xcode source-free iteration CLI rule observation
+on:
+  push:
+    branches: ["ci/upstream-xcode-cli-rule-*"]
+    paths: [".github/workflows/upstream-xcode-cli-rule.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: xcode-cli-rule-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - name: Parse embedded source and test pure redaction only; no CLI execution
+        run: |
+          python3 - <<'PY'
+          import ast, pathlib, re, textwrap
+          source=pathlib.Path('.github/workflows/upstream-xcode-cli-rule.yml').read_text()
+          body=source.split('          # CLI_PROBE_PYTHON_BEGIN\n',1)[1].split('          # CLI_PROBE_PYTHON_END',1)[0]
+          body=textwrap.dedent(body)
+          tree=ast.parse(body)
+          selected=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='safe_error']
+          assert len(selected)==1
+          namespace={'re':re}
+          exec(compile(ast.Module(body=selected,type_ignores=[]),'<pure-sanitizer>','exec'),namespace)
+          sanitize=namespace['safe_error']
+          assert sanitize('The directory /synthetic/private/case has no project.',['/synthetic/private/case'])=='The directory <EMPTY_PRIVATE_DIR> has no project.'
+          assert sanitize('The -test-iterations option has invalid value 1',[])=='The -test-iterations option has invalid value 1'
+          assert sanitize('Unexpected /unowned/private/file',[]) is None
+          assert sanitize('https://example.invalid/private',[]) is None
+          assert sanitize('private@example.invalid',[]) is None
+          assert sanitize('PRIVATE\nLINE',[]) is None
+          assert sanitize('x'*4097,[]) is None
+          assert "if: github.event_name == 'workflow_dispatch'" in source
+          print('AST parsed; 7 pure sanitizer controls passed; zero CLI/SDK/app/tests executed')
+          PY
+  observe:
+    if: github.event_name == 'workflow_dispatch'
+    needs: metadata
+    runs-on: macos-26
+    timeout-minutes: 8
+    steps:
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: '26.6'
+      - name: Observe source-free versions and iteration option validation once
+        run: |
+          python3 - <<'PY'
+          # CLI_PROBE_PYTHON_BEGIN
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import select
+          import signal
+          import subprocess
+          import tempfile
+          import time
+
+
+          def safe_error(message, known_paths):
+              if type(message) is not str or len(message.encode()) > 4096:
+                  return None
+              for path in sorted(known_paths, key=len, reverse=True):
+                  message = message.replace(path, '<EMPTY_PRIVATE_DIR>')
+              # All context is an empty synthetic directory and a cleared environment.
+              # Withhold any path, URL, email or unreviewed control/unicode content remaining.
+              if not re.fullmatch(r'[ -~]{1,4096}', message) or any(token in message for token in ('/', '\\', '@')):
+                  return None
+              return message
+
+
+          def capture(command, cwd, environment, cap=65536):
+              process = subprocess.Popen(command, cwd=cwd, env=environment, stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT, start_new_session=True)
+              chunks, size, complete, reason = [], 0, True, None
+              deadline = time.monotonic() + 30
+              try:
+                  while True:
+                      if time.monotonic() >= deadline:
+                          complete, reason = False, 'timeout-30s'
+                          break
+                      ready = select.select([process.stdout], [], [], min(.25, max(0, deadline-time.monotonic())))[0]
+                      if not ready: continue
+                      data = os.read(process.stdout.fileno(), min(65536, cap + 1 - size))
+                      if not data: break
+                      chunks.append(data); size += len(data)
+                      if size > cap:
+                          complete, reason = False, 'output-cap'
+                          break
+                  if complete:
+                      process.wait(timeout=max(.01, deadline-time.monotonic()))
+              except subprocess.TimeoutExpired:
+                  complete, reason = False, 'timeout-30s'
+              finally:
+                  if process.poll() is None:
+                      os.killpg(process.pid, signal.SIGTERM)
+                      try: process.wait(timeout=3)
+                      except subprocess.TimeoutExpired:
+                          os.killpg(process.pid, signal.SIGKILL); process.wait(timeout=3)
+                  process.stdout.close()
+              raw = b''.join(chunks)[:cap]
+              return raw, {'exit_code':process.returncode, 'complete':complete, 'reason':reason,
+                           'captured_bytes':len(raw), 'captured_sha256':hashlib.sha256(raw).hexdigest()}
+
+
+          root = Path(os.environ['RUNNER_TEMP']) / 'xcode-cli-rule'
+          root.mkdir(mode=0o700)
+          output = root / 'result.json'
+          assert not output.exists()
+          EXPECTED_DEVELOPER = '/Applications/Xcode_26.6.app/Contents/Developer'
+          RETAINED_ERROR_SHA256 = '19e3aeca158d8108987557cec9b720890617bd8c6443eea62ae87148898bc0c3'
+          report = {'diagnostic_only':True, 'qualification_credit':False, 'tools_sha':os.environ['GITHUB_SHA'],
+                    'SDK_builds':0, 'app_builds':0, 'tests_qualified':0, 'probes':[], 'versions':[],
+                    'input_scope':'No project/app/SDK/source checkout supplied to CLI; private empty directories only.'}
+          def save(): output.write_text(json.dumps(report, indent=2)+'\n')
+          report['developer_identity_confirmed'] = os.environ.get('DEVELOPER_DIR') == EXPECTED_DEVELOPER and Path(EXPECTED_DEVELOPER).is_dir()
+          report['toolchain_identity_confirmed'] = False
+          save()
+          if not report['developer_identity_confirmed']:
+              report['interpretation'] = 'inconclusive-developer-selection-mismatch'; save()
+              raise SystemExit(1)
+          with tempfile.TemporaryDirectory(prefix='private-', dir=root) as private:
+              private = Path(private)
+              home, tmp = private/'home', private/'tmp'
+              home.mkdir(mode=0o700); tmp.mkdir(mode=0o700)
+              environment = {'PATH':'/usr/bin:/bin:/usr/sbin:/sbin', 'HOME':str(home), 'TMPDIR':str(tmp)+'/',
+                             'LANG':'C', 'LC_ALL':'C', 'DEVELOPER_DIR':EXPECTED_DEVELOPER}
+              for alias, command in [('xcodebuild',['/usr/bin/xcodebuild','-version']),
+                                     ('swiftc',['/usr/bin/swiftc','--version'])]:
+                  cwd=private/('version-'+alias); cwd.mkdir(mode=0o700)
+                  raw, row=capture(command,cwd,environment)
+                  row['tool']=alias; row['public_version_lines']=[]
+                  try:
+                      for line in raw.decode('utf-8', errors='strict').splitlines():
+                          if re.fullmatch(r'(?:Xcode [0-9][A-Za-z0-9. -]*|Build version [A-Za-z0-9]+|Apple Swift version [A-Za-z0-9 .()_-]{1,240}|Target: [A-Za-z0-9_.-]+)',line):
+                              row['public_version_lines'].append(line)
+                  except UnicodeError: row['decode_status']='unknown-invalid-utf8'
+                  report['versions'].append(row); save()
+              version = report['versions'][0]
+              report['toolchain_identity_confirmed'] = version['complete'] and version['exit_code'] == 0 and version['public_version_lines'] == ['Xcode 26.6', 'Build version 17F113']
+              save()
+              if not report['toolchain_identity_confirmed']:
+                  report['interpretation'] = 'inconclusive-Xcode-version-mismatch'; save()
+                  raise SystemExit(1)
+              for alias, options in [('iterations-1',['-test-iterations','1']),
+                                     ('iterations-2',['-test-iterations','2']), ('omitted',[])]:
+                  cwd=private/alias; cwd.mkdir(mode=0o700)
+                  assert list(cwd.iterdir())==[]
+                  command=['/usr/bin/xcodebuild','test-without-building']+options
+                  raw, row=capture(command,cwd,environment)
+                  row.update(case=alias, command=['xcodebuild','test-without-building']+options,
+                             cwd_initially_empty=True, cleared_environment=True, usage_errors=[],
+                             outcome='inconclusive-no-known-usage-error', tests_executed=None)
+                  try:
+                      text=raw.decode('utf-8',errors='strict')
+                      for line in text.splitlines():
+                          match=re.fullmatch(r'xcodebuild: error: (.{1,4096})',line)
+                          if not match: continue
+                          message=match.group(1)
+                          sanitized=safe_error(message,[str(cwd),str(home),str(tmp),str(private),str(root)])
+                          item={'message_sha256':hashlib.sha256(message.encode()).hexdigest(),
+                                'static_usage_error':sanitized, 'redaction_status':'source-free-static' if sanitized else 'withheld',
+                                'matches_retained_failure_message':hashlib.sha256(message.encode()).hexdigest() == RETAINED_ERROR_SHA256}
+                          lower=message.lower()
+                          item['observed_test_iteration_token']='-test-iterations' in message
+                          item['observed_project_token']=any(token in lower for token in ('project','workspace','xctestrun'))
+                          row['usage_errors'].append(item)
+                          if item['observed_test_iteration_token']: row['outcome']='observed-test-iterations-usage-error'
+                          elif item['observed_project_token'] and row['outcome']!='observed-test-iterations-usage-error':
+                              row['outcome']='inconclusive-project-preempts-validation'
+                      row['usage_error_count']=len(row['usage_errors'])
+                  except UnicodeError: row['decode_status']='unknown-invalid-utf8'
+                  row['project_inputs_absent_after']=not any(p.suffix in ('.xcodeproj','.xcworkspace','.xctestrun') for p in cwd.iterdir())
+                  report['probes'].append(row); save()
+              cwd=private/'help'; cwd.mkdir(mode=0o700)
+              raw,row=capture(['/usr/bin/xcodebuild','-help'],cwd,environment,cap=262144)
+              row['test_iterations_paragraph']=None
+              try:
+                  lines=raw.decode('utf-8',errors='strict').splitlines()
+                  starts=[i for i,line in enumerate(lines) if re.match(r'^\s*-test-iterations(?:\s|$)',line)]
+                  if len(starts)==1:
+                      picked=[]
+                      for line in lines[starts[0]:starts[0]+6]:
+                          if picked and re.match(r'^\s*-[A-Za-z]',line): break
+                          if not line.strip(): break
+                          clean=safe_error(line.strip(),[str(private),str(root)])
+                          if clean is None: picked=[]; break
+                          picked.append(clean)
+                      if picked and sum(len(s) for s in picked)<=2048: row['test_iterations_paragraph']=picked
+              except UnicodeError: row['decode_status']='unknown-invalid-utf8'
+              report['help']=row; save()
+          report['private_directories_removed']=not private.exists()
+          report['retained_failure_message_sha256'] = RETAINED_ERROR_SHA256
+          report['retained_error_reproduced'] = any(item['matches_retained_failure_message'] for row in report['probes'] for item in row['usage_errors'])
+          report['interpretation'] = 'source-free-same-error-message-observed' if report['retained_error_reproduced'] and report['toolchain_identity_confirmed'] else 'inconclusive-no-retained-error-reproduction'
+          save()
+          # No test/build qualification inferred from an option-validation observation.
+          # CLI_PROBE_PYTHON_END
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: xcode-cli-rule-${{ github.sha }}
+          path: ${{ runner.temp }}/xcode-cli-rule/result.json
+          if-no-files-found: error
+          retention-days: 7
