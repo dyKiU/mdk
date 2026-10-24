@@ -88,7 +88,7 @@ def main():
         proof['phases'].append(row)
         save()
         require(shutil.disk_usage(args.work).free >= 8 * 1024**3, 'eight-gib-build-reserve-required')
-        with (folder / 'build-private.log').open('x') as log:
+        with (folder / 'driver-build-private.log').open('x') as log:
             result = subprocess.run(build, stdout=log, stderr=subprocess.STDOUT, timeout=1900)
         row['build_exit_code'] = result.returncode
         save()

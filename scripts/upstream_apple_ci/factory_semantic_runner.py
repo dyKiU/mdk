@@ -180,7 +180,7 @@ def run(runner):
                          '--developer-dir', args.developer_dir, '--compiler-result-bundle', str(build_bundle)]
                 if platform == 'ios': build += ['--simulator', args.simulator]
                 if mode: build += ['--paired-direct-mutation', mode]
-                row['build_exit_code'] = invoke(build, folder / 'build-driver-private.log',
+                row['build_exit_code'] = invoke(build, folder / 'driver-build-private.log',
                                                 environment=runner.environment, timeout=1900)
                 row['build_inventory_audit'] = {}
                 if build_bundle.exists():
@@ -215,7 +215,7 @@ def run(runner):
             with runner.relay('factory-' + name):
                 row['unit_execution_invoked'] = True
                 try:
-                    row['unit_exit_code'] = invoke(command, folder / 'unit-driver-private.log', environment=runner.environment, timeout=1200)
+                    row['unit_exit_code'] = invoke(command, folder / 'driver-unit-private.log', environment=runner.environment, timeout=1200)
                 finally:
                     result_path = Path(str(unit_prefix) + '-result.json')
                     if result_path.exists():

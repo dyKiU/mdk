@@ -54,7 +54,7 @@
     },
     "paired-direct-mutations.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "4578edd5b9d7a7a7f8f9ecc2aea419a57c59c9f9e38f4821b0bc1b042ca1d6e6",
+      "sha256": "1bfcefcfabb77aea48d58dc9e9ca69a8f23590487661d7a11f8df6187f11f3a1",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     },
     "public-enrollment.py": {
@@ -110,7 +110,7 @@
     },
     "factory_semantic_runner.py": {
       "source": "new hosted current automatic factory causal mutation qualification",
-      "sha256": "d1228894cca8c8f600cbe03c8f96ec6262510b25694308979398b17e217c2317",
+      "sha256": "b89caaa21f2280d08e56b70facc74804782ca05953a06fd97c4e23e41615dd79",
       "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
     },
     "factory_xcresult.py": {
