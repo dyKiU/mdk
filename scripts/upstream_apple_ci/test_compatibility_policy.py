@@ -130,5 +130,96 @@ class CompatibilityPolicyTests(unittest.TestCase):
         self.assertIsNone(policy.observed_execution(None)['executed'])
 
 
+
+class InstalledSdkInventoryTests(unittest.TestCase):
+    @staticmethod
+    def producer_shaped_package(package):
+        """Synthetic bytes only; real Git identities, never an SDK/install qualification."""
+        import json
+        import os
+        from pathlib import Path
+        import subprocess
+        import sdk_profiles
+
+        repo = Path(__file__).resolve().parents[2]
+        source = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+        run = os.environ.get('GITHUB_RUN_ID', '123')
+        with patch.dict(os.environ, {'SDK_SOURCE_REPOSITORY': str(repo)}):
+            tree, lock, release = sdk_profiles.trusted_source_identity(source)
+        profile = 'experimental'
+        features = sdk_profiles.features(profile)
+        archive = 'MarmotKit.xcframework/macos-arm64/libmarmot_uniffi.a'
+        header = 'MarmotKit.xcframework/macos-arm64/Headers/marmot_uniffiFFI.h'
+        payloads = {archive: b'SYNTHETIC METADATA ARCHIVE; NEVER LINK OR EXECUTE',
+                    header: b'SYNTHETIC METADATA HEADER; NEVER COMPILE',
+                    'MarmotKit.xcframework/macos-arm64/Headers/module.modulemap': b'SYNTHETIC MODULEMAP',
+                    'MarmotKit.xcframework/Info.plist': b'SYNTHETIC PLIST',
+                    'MarmotKit.swift': b'SYNTHETIC GENERATED SOURCE\n',
+                    'PrivacyInfo.xcprivacy': b'SYNTHETIC PRIVACY'}
+        files = {key: policy.sha(value) for key, value in payloads.items()}
+        compiler = {'rustc': 'fixture rustc; NOT AN OBSERVED BUILD',
+                    'cargo': 'fixture cargo; NOT AN OBSERVED BUILD'}
+        original = {'source_sha': source, 'builder_sha': source, 'features': features,
+                    'cargo_lock_sha256': lock, **compiler,
+                    # Actual F1 producer schema: archive listed; header lives only in full files.
+                    'artifacts': {archive: {'sha256': files[archive], 'architecture': 'arm64'}}}
+        bundle = 'marmotkit-macos-' + sdk_profiles.release_id(profile, source) + '.zip'
+        bundle_sha = policy.sha(b'SYNTHETIC BUNDLE IDENTITY ONLY')
+        feature_set = dict(otlp_export=True, product_analytics_export=True, experimental_device_sync=True)
+        proof = {'schema_version': 2, 'synthetic_metadata_fixture_only': True,
+                 'source_sha': source, 'builder_sha': source, 'workflow_run_id': run,
+                 'source_tree': tree, 'cargo_lock_sha256': lock, 'release_profile_sha256': release,
+                 'sdk_profile': profile, 'features': features, 'compiler': compiler,
+                 'uniffi_version': '0.29.4',
+                 'input_provenance': {part: dict(part=part, source_sha=source, builder_sha=source,
+                    workflow_run_id=run, sdk_profile=profile, source_tree=tree, cargo_lock_sha256=lock,
+                    release_profile_sha256=release, feature_set=feature_set, **compiler)
+                    for part in sdk_profiles.PARTS},
+                 'platforms': {platform: dict(manifest=copy.deepcopy(original), bundle=bundle,
+                    sha256=bundle_sha, files=files) for platform in ('macos', 'ios')}}
+        raw_q = json.dumps(proof, sort_keys=True)
+        raw_manifest = json.dumps(original, sort_keys=True)
+        receipt = dict(qualification_json=raw_q, qualification_sha256=policy.sha(raw_q.encode()),
+                       manifest_json=raw_manifest, manifest_sha256=policy.sha(raw_manifest.encode()),
+                       platform='macos', bundle=bundle, bundle_sha256=bundle_sha,
+                       original_swift_relative_path='LOCAL_BUILD_INPUTS/MarmotKit.swift')
+        manifest = original | dict(installed_swift_sha256=files['MarmotKit.swift'], sdk_profile=profile,
+                                  workflow_run_id=run, uniffi_version='0.29.4',
+                                  installation='Ephemeral hosted CI overlay; never commit',
+                                  qualification_receipt=receipt)
+        for key, value in payloads.items():
+            if key.startswith('MarmotKit.xcframework/'):
+                target = package / 'Artifacts' / key
+            elif key == 'MarmotKit.swift':
+                target = package / 'Sources/MarmotKit/MarmotKit.swift'
+                original_swift = package / receipt['original_swift_relative_path']
+                original_swift.parent.mkdir(parents=True, exist_ok=True)
+                original_swift.write_bytes(value)
+            else:
+                target = package / 'Sources/MarmotKit/Resources/PrivacyInfo.xcprivacy'
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(value)
+        for key in ('MARMOT_VERSION', 'Package.swift', 'Sources/MarmotKit/MarmotKitVersion.swift'):
+            target = package / key
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('SYNTHETIC METADATA ONLY\n')
+        (package / 'LOCAL_BUILD.json').write_text(json.dumps(manifest, sort_keys=True))
+        return manifest, header, files[header]
+
+    def test_qualified_header_is_frozen_when_producer_artifacts_list_only_archive(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        import compatibility_policy_pfp as runner
+
+        with TemporaryDirectory() as folder:
+            package = Path(folder)
+            manifest, header, expected = self.producer_shaped_package(package)
+            repo = Path(__file__).resolve().parents[2]
+            with patch.dict(runner.os.environ, {'SDK_SOURCE_REPOSITORY': str(repo)}):
+                actual = runner.sdk_state(package, manifest)
+            self.assertEqual(actual.get(header), expected,
+                             'qualified complete inventory must freeze the compiled header')
+
+
 if __name__ == '__main__':
     unittest.main()
