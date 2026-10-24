@@ -9,6 +9,7 @@ import re
 import subprocess
 from upstream_avatar_ready_turn_chain import compiler_diagnostics
 from upstream_secondary_cutoff import runtime_panic_coordinates
+from upstream_publication_mutation_anchors import cancellation_compiler_inventory
 from upstream_publication_mutation_anchors import PROPOSAL_RECEIPT_SAFETY_SPECS, proposal_receipt_safety_oracle, PROPOSAL_HANDOFF_CASE, PROPOSAL_HANDOFF_NAME, proposal_handoff_control_oracle, PROPOSAL_ORIGINAL_NAME, proposal_original_positive_oracle, PROPOSAL_CANCEL_GREEN, PROPOSAL_CANCEL_PFP, PROPOSAL_RECEIPT_PATH, PROPOSAL_RECEIPT_CONDITION, PROPOSAL_RECEIPT_INVERSE, proposal_retirement_inverse, PROPOSAL_CANCEL_CASE, PROPOSAL_CANCEL_NAME, PROPOSAL_CANCEL_FILE, proposal_only_cancel_oracle, EXPLICIT_LIFECYCLE_CASES, EXPLICIT_PROGRESS_CASES, EXPLICIT_LIFECYCLE_NAME, EXPLICIT_LIFECYCLE_FIXTURE, EXPLICIT_ELIGIBILITY, EXPLICIT_INVERSE, EXPLICIT_PROGRESS_NAMES, explicit_sync_lifecycle_oracle, explicit_sync_progress_oracle, explicit_sync_original_relay_positive_oracle, AUTOMATIC_BODY_CASE, automatic_body_pfp_oracle, PEER_TIMER_CASES, PEER_TIMER_NAMES, peer_leave_timer_control_oracle, CANONICAL_CASES, CANONICAL_FIXTURE, CANONICAL_NAMES, CANONICAL_SIBLINGS, CANONICAL_CLEANUP, CANONICAL_EMPTY, canonical_leaf_oracle, publication_mutation_anchor, publication_mutant, publication_runtime_oracle, FIXTURE, retry_priority_oracle, PRIORITY_FIXTURE, PRIORITY_NAME, SECONDARY_CASES, SECONDARY_FIXTURE, secondary_scheduler_oracle, CANCEL_MAINTENANCE_FIXTURE, CANCEL_MAINTENANCE_NAME, cancel_maintenance_oracle, ExactCancellationMutation, SECONDARY_PREFIX_INSERT, SECONDARY_PREFIX_OMISSION, secondary_prefix_omission, REAL_GUARD_NAME, REAL_GUARD_CHECK, REAL_GUARD_OMISSION, real_guard_oracle, LATE_FIRST_NAME, late_first_revoke_oracle, late_first_fixed_oracle, late_first_counter_inverse
 
 from upstream_publication_mutation_anchors import LOCAL_HIDE_CASE, LOCAL_HIDE_FIXTURE, LOCAL_HIDE_NAMES, LOCAL_HIDE_ENQUEUE, local_hide_restoration_oracle
@@ -373,6 +374,8 @@ def execute(phase):
                           and 'running 1 test' in output and test in output)
     row = {'phase': phase, 'exit_code': result.returncode, 'counts': counts, 'log': path.name}
     row['compiler_diagnostics'] = compiler_diagnostics(output.encode())
+    if args.case in cancellation_pfp_cases:
+        row.update(cancellation_compiler_inventory(output.encode(), phase, phase_command))
     if args.case in PEER_TIMER_CASES:
         row.update(peer_leave_timer_control_oracle(output))
     if args.case in CANONICAL_CASES:
@@ -439,6 +442,8 @@ def execute(phase):
         row.update(cancel_maintenance_oracle(output, Path(CANCEL_MAINTENANCE_FIXTURE).read_text(), phase == 'mutant'))
     if args.case == 'cancel-maintenance-real-guard-pfp':
         row.update(real_guard_oracle(output, Path(CANCEL_MAINTENANCE_FIXTURE).read_text(), phase == 'mutant'))
+    if args.case in cancellation_pfp_cases:
+        row['evidence_passed'] &= row['compiler_inventory_qualified']
     if args.case in cancellation_cases - cancellation_pfp_cases:
         expected_names = ([test + name for name in ['first_revocation_is_not_renewed_by_repeats', 'foreign_gate_and_later_revision_cannot_acknowledge', 'shutdown_and_inherited_install_cannot_refresh_witness', 'exact_current_slot_is_consumed_only_once']]
                           if args.case == 'cancel-maintenance-slot-controls' else [test])

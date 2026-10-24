@@ -276,6 +276,26 @@ CANCEL_MAINTENANCE_CHAIN = '''                    workers
 CANCEL_MAINTENANCE_MESSAGE = 'called `Result::unwrap()` on an `Err` value: Owner(Verifier(StaleFlow))'
 
 
+def cancellation_compiler_inventory(raw, phase, command):
+    """Closed Cargo-lib inventory for the three existing cancellation PFPs."""
+    from upstream_avatar_ready_turn_chain import compiler_diagnostics
+    if phase not in {'baseline', 'mutant', 'restored-control'}:
+        raise ValueError('unsupported-cancellation-compiler-phase')
+    if command[:6] != ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib']:
+        raise ValueError('unsupported-cancellation-compiler-command')
+    diagnostics = compiler_diagnostics(raw, cargo_test_context=('marmot-app', '--lib'))
+    expected_wrappers = 1 if phase == 'mutant' else 0
+    return {
+        'compiler_diagnostics': diagnostics,
+        'compiler_inventory_context': 'cargo-test-marmot-app-lib',
+        'compiler_expected_runtime_wrappers': expected_wrappers,
+        'compiler_inventory_qualified': (
+            not diagnostics['compiler_codes']
+            and diagnostics['compiler_header_count'] == 0
+            and diagnostics['runtime_wrapper_count'] == expected_wrappers),
+    }
+
+
 def cancel_maintenance_oracle(output, fixture, expect_failure=True):
     import json
     if fixture.count(CANCEL_MAINTENANCE_MARKER) != 1:

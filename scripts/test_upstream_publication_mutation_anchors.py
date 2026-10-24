@@ -973,5 +973,44 @@ class LocalHideRestorationControls(unittest.TestCase):
         fixture, green = self.shape('baseline')
         self.assertFalse(local_hide_restoration_oracle(green.replace('group_present=true', 'group_present=false', 1), fixture, 'baseline', 0)['evidence_passed'])
 
+class CancellationCompilerInventoryControls(unittest.TestCase):
+    command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', 'exact_test']
+
+    def test_positive_controls_and_both_exact_terminal_wrappers(self):
+        from upstream_publication_mutation_anchors import cancellation_compiler_inventory
+        for phase in ['baseline', 'restored-control']:
+            row = cancellation_compiler_inventory(b'test result: ok. 1 passed; 0 failed; 0 ignored\n', phase, self.command)
+            self.assertTrue(row['compiler_inventory_qualified'])
+            self.assertEqual(row['compiler_diagnostics']['runtime_wrapper_count'], 0)
+        for suffix in [b'error: test failed, to rerun pass `--lib`\n', b'error: test failed, to rerun pass `-p marmot-app --lib`\n']:
+            row = cancellation_compiler_inventory(b'test result: FAILED. 0 passed; 1 failed; 0 ignored\n' + suffix, 'mutant', self.command)
+            self.assertTrue(row['compiler_inventory_qualified'])
+            self.assertEqual(row['compiler_diagnostics']['compiler_header_count'], 0)
+            self.assertEqual(row['compiler_diagnostics']['runtime_wrapper_count'], 1)
+
+    def test_unknown_nonterminal_duplicate_and_missing_wrappers_reject(self):
+        from upstream_publication_mutation_anchors import cancellation_compiler_inventory
+        wrapper = b'error: test failed, to rerun pass `-p marmot-app --lib`\n'
+        for raw in [b'', wrapper + b'later nonempty output\n', wrapper + wrapper,
+                    b'error: unknown compilation failure\n' + wrapper,
+                    b'error[E0308]: mismatched types\n' + wrapper,
+                    b'error: test failed, to rerun pass `-p foreign --lib`\n',
+                    b'error: test failed, to rerun pass `-p marmot-app --lib` PRIVATE_VALUE\n']:
+            row = cancellation_compiler_inventory(raw, 'mutant', self.command)
+            self.assertFalse(row['compiler_inventory_qualified'])
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(row))
+        for phase in ['baseline', 'restored-control']:
+            self.assertFalse(cancellation_compiler_inventory(wrapper, phase, self.command)['compiler_inventory_qualified'])
+
+    def test_context_is_bound_to_actual_command_and_closed_phase(self):
+        from upstream_publication_mutation_anchors import cancellation_compiler_inventory
+        for command in [[], ['cargo', 'nextest'], self.command[:4] + ['cgka-engine', '--lib'],
+                        self.command[:5] + ['--test']]:
+            with self.assertRaises(ValueError):
+                cancellation_compiler_inventory(b'', 'baseline', command)
+        with self.assertRaises(ValueError):
+            cancellation_compiler_inventory(b'', 'unknown', self.command)
+
+
 if __name__ == '__main__':
     unittest.main()
