@@ -517,6 +517,14 @@ def four_device_diagnostic_controls(site):
             'synthetic_metadata_only': True, 'product_bodies': 0}
 
 
+WATCH_CLEANUP_CASE = 'native-watch-owned-cleanup'
+WATCH_CLEANUP_TEST = 'native_device_linking::automatic_pairing_acceptance::watch_pressure_acceptance::watch_owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop'
+WATCH_CLEANUP_PATH = 'crates/marmot-app/src/native_device_linking/tests/watch_pressure_acceptance.rs'
+WATCH_CLEANUP_MESSAGE = 'watch owned MockRelay cleanup must finish without an observed initial stop'
+OWNED_CLEANUP_NAMESPACES = {'command-owned-cleanup': 'command-backlog-owned-cleanup',
+                          WATCH_CLEANUP_CASE: 'watch-owned-cleanup'}
+
+
 SQLITE_CACHE_CASE = 'storage-modifier-statement-cache'
 SQLITE_CACHE_TEST = 'app::timeline::tests::modifier_lookups_reuse_their_compiled_statements'
 SQLITE_CACHE_PATH = 'crates/storage-sqlite/src/app/timeline/tests.rs'
@@ -896,7 +904,7 @@ AUTOMATIC_SCAN_EXPIRY_PREREQUISITES = {
 }
 AUTOMATIC_SCAN_EXPIRY_FIELDS = AUTOMATIC_SCAN_EXPIRY_PREREQUISITES | {'expired_scan_rejected'}
 AUTOMATIC_SCAN_EXPIRY_CASES = {AUTOMATIC_SCAN_EXPIRY_CASE, AUTOMATIC_SCAN_EXPIRY_RED_CASE}
-AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}
+AUTOMATIC_NATIVE_CASES = AUTOMATIC_SCAN_EXPIRY_CASES | {AUTOMATIC_NEGOTIATION_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE, WATCH_CLEANUP_CASE}
 
 
 def automatic_scan_expiry_probe(raw):
@@ -1423,6 +1431,7 @@ EXPERIMENTAL_CASES |= AUTOMATIC_NATIVE_CASES
 BOUNDED_CASES |= AUTOMATIC_NATIVE_CASES
 
 
+CASES[WATCH_CLEANUP_CASE] = ('marmot_app', WATCH_CLEANUP_TEST, WATCH_CLEANUP_PATH)
 CASES[SQLITE_CACHE_CASE] = ('storage_sqlite', SQLITE_CACHE_TEST, SQLITE_CACHE_PATH)
 
 
@@ -3661,6 +3670,10 @@ def live_seal_controls(case, site):
 PFP[SQLITE_CACHE_CASE] = (SQLITE_CACHE_SQL_PATH, '', '', '', '')
 
 
+PFP[WATCH_CLEANUP_CASE] = (*PFP['command-owned-cleanup'][:3],
+    WATCH_CLEANUP_MESSAGE, PFP['command-owned-cleanup'][4])
+
+
 def inverse(case):
     if case == SQLITE_CACHE_CASE:
         path, original, mutants, site = sqlite_cache_inverses()
@@ -3824,6 +3837,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == WATCH_CLEANUP_CASE:
+        return positive_configuration(case)
     if case == SQLITE_CACHE_CASE:
         return positive_configuration(case)
     if case == MUTATION_ADMISSION_CASE:
@@ -4179,9 +4194,9 @@ def quiet_contract_controls(site):
         'configuration_controls': 4, 'product_bodies': 0, 'synthetic_metadata_only': True}
 
 
-def owned_cleanup_marker(raw):
-    prefix = b'command-backlog-owned-cleanup '
-    namespace = b'command-backlog-owned-cleanup'
+def owned_cleanup_marker(raw, case='command-owned-cleanup'):
+    namespace = OWNED_CLEANUP_NAMESPACES[case].encode()
+    prefix = namespace + b' '
     if len(raw) > 16 * 1024 * 1024 or raw.count(namespace) != 1:
         raise ValueError('owned-cleanup-namespace')
     rows = re.findall(rb'(?m)^[ \t]{0,8}' + re.escape(prefix) + rb'([^\r\n]{1,1024})\r?$', raw)
@@ -4198,8 +4213,7 @@ def owned_cleanup_oracle(value, mutant):
     return value == {'listener_started': True, 'closed_in_original_bound': not mutant, 'owned_cleanup_completed': True}
 
 
-def owned_cleanup_site():
-    case = 'command-owned-cleanup'
+def owned_cleanup_site(case='command-owned-cleanup'):
     text = Path(CASES[case][2]).read_text()
     pattern = PFP[case][4].replace('{message}', re.escape(PFP[case][3]))
     matches = list(re.finditer(pattern, text))
@@ -4209,28 +4223,67 @@ def owned_cleanup_site():
             'column': matches[0].start() - text.rfind('\n', 0, matches[0].start())}
 
 
-def owned_cleanup_controls(site):
-    case = 'command-owned-cleanup'
+def owned_cleanup_runtime_failure(raw, case, site):
+    observation = owned_cleanup_marker(raw, case)
+    if not owned_cleanup_oracle(observation, True) or not own_failure(raw, case, site):
+        return False
+    if panic_facts(raw, case) != {'sites': [{'expected_thread': True, 'expected_source': True,
+            'line': site['line'], 'column': site['column']}], 'unknown_or_excess_headers': 0}:
+        return False
+    text = ANSI.sub('', raw.decode('utf-8', errors='strict')).replace('\r\n', '\n')
+    namespace = OWNED_CLEANUP_NAMESPACES[case]
+    return text.index(namespace + ' ') < text.index('panicked at ')
+
+
+def watch_cleanup_controls(site):
+    shared = owned_cleanup_controls(site, WATCH_CLEANUP_CASE)
+    red = {'listener_started': True, 'closed_in_original_bound': False, 'owned_cleanup_completed': True}
+    marker = ('watch-owned-cleanup ' + json.dumps(red) + '\n').encode()
+    header = ("thread '" + WATCH_CLEANUP_TEST + "' (7) panicked at " + WATCH_CLEANUP_PATH
+        + ':' + str(site['line']) + ':' + str(site['column']) + ':\n'
+        + WATCH_CLEANUP_MESSAGE + '\n').encode()
+    good = marker + header
+    assert owned_cleanup_runtime_failure(good, WATCH_CLEANUP_CASE, site)
+    invalid = [header + marker, good + marker, good + header,
+        good.replace(WATCH_CLEANUP_TEST.encode(), b'PRIVATE'),
+        good.replace(WATCH_CLEANUP_PATH.encode(), b'PRIVATE.rs'),
+        good.replace(WATCH_CLEANUP_MESSAGE.encode(), b'PRIVATE'),
+        good.replace(b'"listener_started": true', b'"listener_started": false'),
+        good.replace(b'"owned_cleanup_completed": true', b'"owned_cleanup_completed": false'),
+        good.replace(b'"closed_in_original_bound": false', b'"closed_in_original_bound": true')]
+    for raw in invalid:
+        try:
+            accepted = owned_cleanup_runtime_failure(raw, WATCH_CLEANUP_CASE, site)
+        except (ValueError, UnicodeError):
+            accepted = False
+        assert not accepted
+    return {'shared': shared, 'own_order_positive': 1, 'own_order_negative': len(invalid),
+            'synthetic_metadata_only': True, 'product_bodies': 0}
+
+
+def owned_cleanup_controls(site, case='command-owned-cleanup'):
+    namespace = OWNED_CLEANUP_NAMESPACES[case]
+    prefix = (namespace + ' ').encode()
     green = {'listener_started': True, 'closed_in_original_bound': True, 'owned_cleanup_completed': True}
     red = dict(green, closed_in_original_bound=False)
-    raw = b'command-backlog-owned-cleanup ' + json.dumps(green).encode() + b'\n'
+    raw = prefix + json.dumps(green).encode() + b'\n'
     positives = 0
     for good in [raw, b' '*4 + raw, b' '*8 + raw, raw.replace(b'\n', b'\r\n')]:
-        assert owned_cleanup_marker(good) == green
+        assert owned_cleanup_marker(good, case) == green
         positives += 1
-    assert owned_cleanup_marker(b'command-backlog-owned-cleanup ' + json.dumps(red).encode() + b'\n') == red
+    assert owned_cleanup_marker(prefix + json.dumps(red).encode() + b'\n', case) == red
     positives += 1
     bad_values = [dict(green, extra=False), dict(green, listener_started=1), dict(green, owned_cleanup_completed=None),
                   {key: value for key, value in green.items() if key != 'listener_started'}, []]
-    bad = [b'command-backlog-owned-cleanup ' + json.dumps(value).encode() + b'\n' for value in bad_values]
+    bad = [prefix + json.dumps(value).encode() + b'\n' for value in bad_values]
     bad += [raw + raw, b'PRIVATE ' + raw, b' '*9 + raw,
             raw.replace(b'"listener_started": true', b'"listener_started": true, "listener_started": true'),
-            b'command-backlog-owned-cleanup-unknown {}\n', raw + b'command-backlog-owned-cleanup-unknown {}\n',
-            b'command-backlog-owned-cleanup ' + b'x'*1025 + b'\n']
+            (namespace + '-unknown {}\n').encode(), raw + (namespace + '-unknown {}\n').encode(),
+            prefix + b'x'*1025 + b'\n']
     negatives = 0
     for invalid in bad:
         try:
-            owned_cleanup_marker(invalid)
+            owned_cleanup_marker(invalid, case)
         except (ValueError, json.JSONDecodeError):
             negatives += 1
         else:
@@ -5111,6 +5164,10 @@ def positive(args):
                       apple_native_acceptance=False, native_host_ui_acceptance=False,
                       public_relay_qualification=False, full_suite_qualification=False,
                       mutation_qualification=False)
+    if args.case == WATCH_CLEANUP_CASE:
+        report.update(evidence_scope='actual-watch-owned-loopback-cleanup-only',
+                      native_protocol_qualification=False, apple_native_acceptance=False,
+                      full_suite_qualification=False, mutation_qualification=False)
     if args.case == MUTATION_ADMISSION_CASE:
         report.update(evidence_scope='actual-runtime-edit-admission-scripted-transport-only',
                       scripted_transport_only=True, actual_sdk_relay_qualification=False,
@@ -5255,6 +5312,9 @@ def positive(args):
         if args.case == MUTATION_ADMISSION_CASE:
             mutation_admission_source_site = mutation_admission_site()
             report['mutation_admission_controls'] = mutation_admission_controls(mutation_admission_source_site)
+        if args.case == WATCH_CLEANUP_CASE:
+            watch_cleanup_site = owned_cleanup_site(WATCH_CLEANUP_CASE)
+            report['watch_cleanup_controls'] = watch_cleanup_controls(watch_cleanup_site)
         if args.case == FOUR_DEVICE_MUTATIONS_CASE:
             report['four_device_diagnostic_controls'] = four_device_diagnostic_controls(four_device_diagnostic_site())
         if args.case == FAMILY_STABILITY_CASE:
@@ -5298,7 +5358,7 @@ def positive(args):
                 selection += ' & binary(=storage_sqlite)'
             if args.case == AUTOMATIC_NEGOTIATION_CASE:
                 selection = automatic_negotiation_selection()
-            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
+            if args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {WATCH_CLEANUP_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
                 selection += ' & binary(=marmot_app)'
             if args.case in PRIVATE_MAINTENANCE_COHORTS:
                 selection = automatic_negotiation_selection(maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
@@ -5321,7 +5381,7 @@ def positive(args):
                 report['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(args.case), 'cgka-engine', 'cgka_engine')
             elif args.case == AUTOMATIC_NEGOTIATION_CASE:
                 report['automatic_negotiation_inventory'] = selected_automatic_negotiation(inventory)
-            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {SQLITE_CACHE_CASE, PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
+            elif args.case in AUTOMATIC_SCAN_EXPIRY_CASES | {WATCH_CLEANUP_CASE, SQLITE_CACHE_CASE, PRIVATE_SEND_CASE, FOUR_DEVICE_MUTATIONS_CASE, MUTATION_ADMISSION_CASE}:
                 selected_case(inventory, test)
                 matched_suites = [suite for suite in inventory['rust-suites'].values()
                     if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
@@ -5390,6 +5450,12 @@ def positive(args):
                 report['body']['mutation_admission_runtime'] = automatic_negotiation_runtime(raw,
                     {MUTATION_ADMISSION_TEST: MUTATION_ADMISSION_PATH})
                 report['body']['own_runtime_failure'] = mutation_admission_failure(raw, mutation_admission_source_site)
+                save()
+            if args.case == WATCH_CLEANUP_CASE:
+                report['body']['watch_cleanup_runtime'] = automatic_negotiation_runtime(raw,
+                    {WATCH_CLEANUP_TEST: WATCH_CLEANUP_PATH})
+                report['body']['owned_cleanup_observation'] = owned_cleanup_marker(raw, WATCH_CLEANUP_CASE)
+                report['body']['own_runtime_failure'] = owned_cleanup_runtime_failure(raw, WATCH_CLEANUP_CASE, watch_cleanup_site)
                 save()
             if args.case == FOUR_DEVICE_MUTATIONS_CASE:
                 # Original runtime counts/panics/compiler facts are already durable.
@@ -5667,6 +5733,16 @@ def positive(args):
                 stage = 'diagnostic'
                 report['body']['observation'] = marker(raw)
                 save()
+            if args.case == WATCH_CLEANUP_CASE:
+                clean = all(part['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
+                            for part in (report['inventory'], report['body']))
+                complete = report['body']['watch_cleanup_runtime']['complete']
+                report['expected_watch_cleanup_runtime_red_before_closure'] = (
+                    clean and complete and code == 100
+                    and report['inventory']['selected_nonignored'] == 1 and report['inventory']['selected_ignored'] == 0
+                    and report['body']['counts']['executed'] == 1 and report['body']['counts']['failed'] == 1
+                    and report['body']['counts']['passed'] == 0 and report['body']['own_runtime_failure'])
+                command_accepted = clean and complete and owned_cleanup_oracle(report['body']['owned_cleanup_observation'], False)
             stage = 'body-not-passed'
             report['body_passed'] = (command_accepted and code == 0 and report['body']['counts']['passed'] == (2 if args.case in PRIVATE_MAINTENANCE_COHORTS else len(AUTOMATIC_NEGOTIATION_TESTS) if args.case == AUTOMATIC_NEGOTIATION_CASE else 1)
                                      and report['body']['compiler']['header_count'] == 0
@@ -5730,6 +5806,9 @@ def positive(args):
                 result = 1
                 if report['expected_automatic_scan_expiry_runtime_red']:
                     report['failure_category'] = 'expected-own-runtime-red'
+        if args.case == WATCH_CLEANUP_CASE:
+            report['expected_watch_cleanup_runtime_red'] = (args.mode == 'run' and report['source_closure_exact'] is True
+                and report.get('expected_watch_cleanup_runtime_red_before_closure') is True)
         report['preflight_passed'] = args.mode == 'preflight' and result == 0
         report['scoped_control_passed'] = args.mode == 'run' and result == 0 and args.case != AUTOMATIC_SCAN_EXPIRY_RED_CASE
         save()
@@ -5899,6 +5978,8 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
+    if args.case == WATCH_CLEANUP_CASE and args.stage != 'positive':
+        raise ValueError('watch-cleanup-positive-only')
     if args.case == SQLITE_CACHE_CASE and args.stage not in {'positive', 'pfp'}:
         raise ValueError('sqlite-cache-positive-or-pfp-only')
     if args.case == PENDING_REQUEST_CASE:

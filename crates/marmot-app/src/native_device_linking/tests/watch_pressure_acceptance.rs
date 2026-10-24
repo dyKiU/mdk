@@ -379,7 +379,7 @@ async fn run_watch_scenario(mode: ScenarioMode) -> ScenarioOutcome {
     }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
-    let relay_closed = owned_loopback_listener_is_closed(address).await;
+    let relay_closed = owned_loopback_listener_is_closed(address, &relay).await;
     // Copy only fixed aggregate facts after the original verdict and cleanup.
     crate::test_support::emit_line(format_args!(
         "watch-selection-observation {}",
@@ -455,7 +455,10 @@ fn emit_queue(queue: QueueFacts) {
 
 // Probe only this fixture's owned loopback MockRelay listener.
 #[allow(clippy::disallowed_methods)]
-async fn owned_loopback_listener_is_closed(address: &str) -> bool {
+async fn owned_loopback_listener_is_closed(
+    address: &str,
+    _relay: &nostr_relay_builder::MockRelay,
+) -> bool {
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
             drop(socket);
@@ -464,4 +467,41 @@ async fn owned_loopback_listener_is_closed(address: &str) -> bool {
     })
     .await
     .is_ok()
+}
+
+// Mechanism regression for this fixture's actual owned listener. Omitting an
+// initial stop models an open listener; it does not diagnose the earlier run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods)]
+async fn watch_owned_mock_relay_cleanup_finishes_without_an_observed_initial_stop() {
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
+    let listener_started = match tokio::net::TcpStream::connect(address).await {
+        Ok(socket) => {
+            drop(socket);
+            true
+        }
+        Err(_) => false,
+    };
+    let closed_in_original_bound = owned_loopback_listener_is_closed(address, &relay).await;
+    // Freeze that result, then finish independent real cleanup before asserting.
+    relay.shutdown();
+    let owned_cleanup_completed = tokio::time::timeout(Duration::from_secs(3), async {
+        while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
+            drop(socket);
+            relay.shutdown();
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .is_ok();
+    crate::test_support::emit_line(format_args!(
+        "watch-owned-cleanup {{\"listener_started\":{},\"closed_in_original_bound\":{},\"owned_cleanup_completed\":{}}}",
+        listener_started, closed_in_original_bound, owned_cleanup_completed
+    ));
+    assert!(
+        listener_started && closed_in_original_bound && owned_cleanup_completed,
+        "watch owned MockRelay cleanup must finish without an observed initial stop"
+    );
 }
