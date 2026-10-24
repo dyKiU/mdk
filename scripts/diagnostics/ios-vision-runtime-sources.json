@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "diagnostic_only": true,
+  "qualification_credit": false,
+  "app_sha": "e236ae8668cea2bd76f1e100609106182cfcc590",
+  "sdk_source": "6b8d9ea18406a6a0f588de91bece0cf6b29ef129",
+  "sdk_run_id": "40036892229",
+  "profile": "experimental",
+  "cases": {
+    "earliest": {
+      "id": "earliest",
+      "method": "simulatorFallbackUsesEarliestAdvertisedRevision",
+      "selector": "whitenoise-iosTests/QRScannerRevisionTests/simulatorFallbackUsesEarliestAdvertisedRevision()",
+      "identifier_aliases": [
+        "QRScannerRevisionTests/simulatorFallbackUsesEarliestAdvertisedRevision()",
+        "whitenoise-iosTests/QRScannerRevisionTests/simulatorFallbackUsesEarliestAdvertisedRevision()"
+      ],
+      "source": "whitenoise-ios/Profile/QRScannerFrameDetector.swift",
+      "test_source": "whitenoise-iosTests/OnboardingQRScannerTests.swift",
+      "original_sha256": "64687381f5d3f7da05623a476fe226bdffa77181041271b2dad45062ba0c2653",
+      "test_source_sha256": "4cf35ba570993d08e4418e5947a870ecff899ebd38329a580c82755c42478ab2",
+      "issues": [
+        {
+          "source_expression": "#expect(try QRScannerFrameDetector.earliestSupportedBarcodeRevision(supported) == 3)",
+          "line": 219,
+          "column": 9,
+          "message_tokens": [
+            "earliestSupportedBarcodeRevision",
+            "3"
+          ],
+          "expression_id": "earliest-contract"
+        }
+      ],
+      "old": "        guard let revision = supported.first else {",
+      "new": "        guard let revision = supported.last else {",
+      "owner_start": "    static func earliestSupportedBarcodeRevision(",
+      "owner_end": "\n    static func payloads(",
+      "mutant_sha256": "dce27478cc72ebeb7321e50e2c68f65badea313c837aae3c560a44d79b1c91fa"
+    },
+    "empty": {
+      "id": "empty",
+      "method": "missingSupportedRevisionRefusesDefaultInference",
+      "selector": "whitenoise-iosTests/QRScannerRevisionTests/missingSupportedRevisionRefusesDefaultInference()",
+      "identifier_aliases": [
+        "QRScannerRevisionTests/missingSupportedRevisionRefusesDefaultInference()",
+        "whitenoise-iosTests/QRScannerRevisionTests/missingSupportedRevisionRefusesDefaultInference()"
+      ],
+      "source": "whitenoise-ios/Profile/QRScannerFrameDetector.swift",
+      "test_source": "whitenoise-iosTests/OnboardingQRScannerTests.swift",
+      "original_sha256": "64687381f5d3f7da05623a476fe226bdffa77181041271b2dad45062ba0c2653",
+      "test_source_sha256": "4cf35ba570993d08e4418e5947a870ecff899ebd38329a580c82755c42478ab2",
+      "issues": [
+        {
+          "source_expression": "#expect(throws: QRScannerFrameDetector.BarcodeRevisionFailure.noSupportedRevisions)",
+          "line": 223,
+          "column": 9,
+          "message_tokens": [
+            "an error was expected but none was thrown"
+          ],
+          "expression_id": "empty-contract"
+        }
+      ],
+      "old": "            throw BarcodeRevisionFailure.noSupportedRevisions",
+      "new": "            return VNDetectBarcodesRequest.defaultRevision",
+      "owner_start": "    static func earliestSupportedBarcodeRevision(",
+      "owner_end": "\n    static func payloads(",
+      "mutant_sha256": "7e19ba1f05471a7a16dc290e21f2c5b15707ccf1cc0d200b08f83b9c1cf44194"
+    },
+    "pixel": {
+      "id": "pixel",
+      "method": "decodedCameraImagesClearInvalidFeedbackWhenTheCodeLeaves",
+      "selector": "whitenoise-iosTests/ContinuousQRScannerTests/decodedCameraImagesClearInvalidFeedbackWhenTheCodeLeaves()",
+      "identifier_aliases": [
+        "ContinuousQRScannerTests/decodedCameraImagesClearInvalidFeedbackWhenTheCodeLeaves()",
+        "whitenoise-iosTests/ContinuousQRScannerTests/decodedCameraImagesClearInvalidFeedbackWhenTheCodeLeaves()"
+      ],
+      "source": "whitenoise-ios/Profile/QRScannerFrameDetector.swift",
+      "test_source": "whitenoise-iosTests/OnboardingQRScannerTests.swift",
+      "original_sha256": "64687381f5d3f7da05623a476fe226bdffa77181041271b2dad45062ba0c2653",
+      "test_source_sha256": "4cf35ba570993d08e4418e5947a870ecff899ebd38329a580c82755c42478ab2",
+      "issues": []
+    }
+  },
+  "helper_sha256": {
+    "scripts/diagnostics/ios_runtime_diagnostic.py": "4d38d1eae7391b6a97d931c4d81952233277ae74d2a2ea2452380d05f4aa7e22",
+    "scripts/upstream_apple_ci/app-sdk-cohort.py": "60f4e123d2bd2a6bb4e95179b686e2f905e13fff452afcdcdcdac633c7aa32d2",
+    "scripts/upstream_apple_ci/compatibility_policy.py": "b97a68b35feeb438cba9659222004680cd0982be6bb5a31fb2b068a0617c0f42",
+    "scripts/upstream_apple_ci/compatibility_policy_pfp.py": "b4e90b5274302d55c522c720249bf29b7cd1c3a9ab8f794cf167321410c1f938",
+    "scripts/upstream_apple_ci/factory_semantic_runner.py": "b89caaa21f2280d08e56b70facc74804782ca05953a06fd97c4e23e41615dd79",
+    "scripts/upstream_apple_ci/factory_xcresult.py": "6487594187b0c5902442f4cb1f7d8892d2e3ed152e9c11edaa82aa1824e655b6",
+    "scripts/upstream_apple_ci/summarize.py": "10e001a87d7478501c8d156eb1db7d431af21f892f09d33c92c5abe30109fa80",
+    "scripts/upstream_apple_ci/sdk_profiles.py": "15c176c3b049032d857c05c0ff5e86952dbc81cb06efbff81f8dcf3efabfdd7f"
+  }
+}
