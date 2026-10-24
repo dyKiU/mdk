@@ -158,7 +158,7 @@ def main():
         before = snapshot(); require(before['status'] == sha(b''), 'clean-committed-source-required')
         require(all(before['files'][path][0] == digest for path, digest in INPUTS.items()), 'exact-reviewed-metadata-inputs')
         manifest = json.loads((HERE / 'HOSTED-SOURCE.json').read_text())
-        require(len(manifest['files']) == 27 and manifest['files']['factory_semantic_runner.py']['sha256'] == INPUTS[RUNNER]
+        require(len(manifest['files']) == 31 and manifest['files']['factory_semantic_runner.py']['sha256'] == INPUTS[RUNNER]
                 and manifest['files']['paired-direct-mutations.py']['sha256'] == INPUTS[ADAPTER], 'current-versioned-hosted-hashes-required')
         proof.update(source=before['head'], input_sha256=INPUTS,
                      hosted_manifest_sha256=before['files']['scripts/upstream_apple_ci/HOSTED-SOURCE.json'][0])
