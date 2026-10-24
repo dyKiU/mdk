@@ -214,7 +214,10 @@ mod tests {
         let SendResult::GroupCreated { pending, welcomes } = created else {
             panic!("the real legacy fixture must return its pending creation")
         };
-        assert!(welcomes.is_empty(), "the solo fixture has no delivery obligations");
+        assert!(
+            welcomes.is_empty(),
+            "the solo fixture has no delivery obligations"
+        );
         engine.confirm_published(pending).await.unwrap();
         let payload = MarmotAppEvent::new(
             hex::encode(engine.self_id().as_slice()),
