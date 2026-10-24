@@ -24,7 +24,7 @@ on:
       replay_case:
         description: One exact replay or terminal-storage control
         type: choice
-        options: [native-watch-owned-cleanup, storage-modifier-statement-cache, native-mutation-admission-contract, native-four-device-mutations, engine-private-maintenance-hydration, engine-private-maintenance-pending-order, engine-private-maintenance-recovery, engine-private-send-admission, native-automatic-negotiation-cohort, native-automatic-scan-expiry, native-automatic-scan-expiry-red, sdk-private-family-partial, sdk-private-role-transition, sdk-private-configuration-aba, sdk-private-family-refresh-pfp, sdk-private-family-ordinary-pfp, sdk-private-missing-route, sdk-private-family-stability, sdk-scoped-reporting, live-seal-spill-default, live-seal-spill-experimental, fresh-rejoin-observation, sibling-send-default, sibling-send-experimental, pending-restart-request-observation, request-cleanup-experimental, priority-cleanup-experimental, recipient-admission-experimental, cursor-promotion-observation, cursor-promotion-experimental, peer-leave-observation, private-classifier-authentication, private-classifier-kinds, offline-experimental, uniffi-conversation, uniffi-list, uniffi-conversation-stale, wrong-recipient-routing, command-owned-cleanup, late-commit-default, late-commit-extra-epoch, sdk-private-capture-control, offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, command-backlog-held, adapter-thousand, adapter-thousand-default, adapter-clamped, adapter-clamped-default, adapter-quiet-pending-contract, adapter-quiet-pending-contract-default, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
+        options: [directory-login-fixtures, native-watch-owned-cleanup, storage-modifier-statement-cache, native-mutation-admission-contract, native-four-device-mutations, engine-private-maintenance-hydration, engine-private-maintenance-pending-order, engine-private-maintenance-recovery, engine-private-send-admission, native-automatic-negotiation-cohort, native-automatic-scan-expiry, native-automatic-scan-expiry-red, sdk-private-family-partial, sdk-private-role-transition, sdk-private-configuration-aba, sdk-private-family-refresh-pfp, sdk-private-family-ordinary-pfp, sdk-private-missing-route, sdk-private-family-stability, sdk-scoped-reporting, live-seal-spill-default, live-seal-spill-experimental, fresh-rejoin-observation, sibling-send-default, sibling-send-experimental, pending-restart-request-observation, request-cleanup-experimental, priority-cleanup-experimental, recipient-admission-experimental, cursor-promotion-observation, cursor-promotion-experimental, peer-leave-observation, private-classifier-authentication, private-classifier-kinds, offline-experimental, uniffi-conversation, uniffi-list, uniffi-conversation-stale, wrong-recipient-routing, command-owned-cleanup, late-commit-default, late-commit-extra-epoch, sdk-private-capture-control, offline, inline, input-only, spill, revoked-anchor, sharing-policy, late-consent, spill-experimental, watch-pressure, higher-source, mirrored-catalog, mirrored-messages, adapter-cancelled, adapter-failed-route, existing-anchor, command-backlog, command-backlog-held, adapter-thousand, adapter-thousand-default, adapter-clamped, adapter-clamped-default, adapter-quiet-pending-contract, adapter-quiet-pending-contract-default, hidden-echo, departure-native, worker-input-offer, worker-input-replay-first, worker-input-pending, worker-input-disabled]
         default: offline
       reviewed_baseline:
         description: Explicit reviewed full source SHA including passive test observations
@@ -338,22 +338,31 @@ jobs:
           REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
           REPLAY_CASE: ${{ inputs.replay_case }}
           REPLAY_STAGE: ${{ inputs.replay_stage }}
-        run: >-
-          python3 scripts/upstream_replay_controls.py --mode preflight
-          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE"
-          --output replay-probe/preflight.json
+        run: |
+          set -euo pipefail
+          driver=scripts/upstream_replay_controls.py
+          output=replay-probe/preflight.json
+          if [ "$REPLAY_CASE" = directory-login-fixtures ]; then
+            driver=scripts/upstream_directory_login_controls.py
+            output="$RUNNER_TEMP/directory-fixtures-preflight.json"
+          fi
+          python3 "$driver" --mode preflight \
+            --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE" \
+            --output "$output"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: replay-preflight-${{ inputs.replay_stage }}-${{ inputs.replay_case }}-${{ github.sha }}
-          path: replay-probe/*.json
+          path: |
+            replay-probe/*.json
+            ${{ runner.temp }}/directory-fixtures-preflight.json
           if-no-files-found: error
           retention-days: 7
 
   replay-controls-body:
     needs: replay-controls-preflight
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.replay_stage == 'pfp' && 105 || 45 }}
+    timeout-minutes: ${{ inputs.replay_case == 'directory-login-fixtures' && 180 || inputs.replay_stage == 'pfp' && 105 || 45 }}
     env:
       CARGO_INCREMENTAL: "1"
       CARGO_BUILD_JOBS: "2"
@@ -394,16 +403,24 @@ jobs:
           REVIEWED_BASELINE: ${{ inputs.reviewed_baseline }}
           REPLAY_CASE: ${{ inputs.replay_case }}
           REPLAY_STAGE: ${{ inputs.replay_stage }}
-        run: >-
-          python3 scripts/upstream_replay_controls.py --mode run
-          --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE"
-          --output replay-probe/result.json
+        run: |
+          set -euo pipefail
+          driver=scripts/upstream_replay_controls.py
+          output=replay-probe/result.json
+          if [ "$REPLAY_CASE" = directory-login-fixtures ]; then
+            driver=scripts/upstream_directory_login_controls.py
+            output="$RUNNER_TEMP/directory-fixtures-result.json"
+          fi
+          python3 "$driver" --mode run \
+            --case "$REPLAY_CASE" --baseline "$REVIEWED_BASELINE" --stage "$REPLAY_STAGE" \
+            --output "$output"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: replay-body-${{ inputs.replay_stage }}-${{ inputs.replay_case }}-${{ github.sha }}
           path: |
             replay-probe/*.json
+            ${{ runner.temp }}/directory-fixtures-result.json
             ${{ runner.temp }}/replay-capacity.json
           if-no-files-found: error
           retention-days: 7
