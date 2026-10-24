@@ -1,5 +1,6 @@
 //! Genuine authenticated Body0 versus eight finite real watch hints; no publication results are invented.
 use super::*;
+use super::recipient_sibling_admission_acceptance::owned_loopback_listener_is_closed;
 use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -453,21 +454,6 @@ fn emit_queue(queue: QueueFacts) {
     );
 }
 
-// Probe only this fixture's owned loopback MockRelay listener.
-#[allow(clippy::disallowed_methods)]
-async fn owned_loopback_listener_is_closed(
-    address: &str,
-    _relay: &nostr_relay_builder::MockRelay,
-) -> bool {
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
-            drop(socket);
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .is_ok()
-}
 
 // Mechanism regression for this fixture's actual owned listener. Omitting an
 // initial stop models an open listener; it does not diagnose the earlier run.
