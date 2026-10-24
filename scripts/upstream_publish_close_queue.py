@@ -10,12 +10,15 @@ from upstream_current_backend_probe import ANSI, capture
 from upstream_directory_login_controls import EMPTY_COMPILER, environment, observed_counts, require, runtime, sha
 from upstream_extraction_cohort import git, reviewed_cohort
 from upstream_replay_controls import compiler, selected_case, summary_counts, unique
-from upstream_apple_ci.package_metadata_pfp import snapshot
+from upstream_apple_ci.package_metadata_pfp import HeldSource, snapshot
 
 SOURCE = 'crates/cgka-engine/tests/publish_lifecycle.rs'
 SOURCE_SHA = 'de87ad2cacc63ca0405ff707b7f5feb310bc79794dbac3904cf299deffd9510e'
 PRODUCT = 'crates/cgka-engine/src/message_processor/send.rs'
 PRODUCT_SHA = 'dc82f4346b36e172610c8ee50d6df748af8abfa4412dd56b97c059ab30a866fb'
+RED_PRODUCT_SHA = '210ef8a48e71eb354dbb449eba993e3381e3d0bd8eaa8814693c04b7eaf5951f'
+GREEN = '        let retired = self.storage.with_transaction(|storage| {\n            if !self.with_mls_group(group_id, |group| {\n                crate::device_group_genesis::has_private_component(group)\n            })? {\n                return Ok::<_, EngineError>(Vec::new());\n            }\n            let queued = storage.list_queued_outbound_intents(group_id)?;\n            if !queued.iter().any(|record| {\n                matches!(&record.intent, SendIntent::SelfUpdate { .. })\n                    && !self.queued_outbound_intent_in_flight(group_id, &record.id)\n            }) {\n                return Ok::<_, EngineError>(Vec::new());\n            }\n'
+INVERSE = '        let retired = self.storage.with_transaction(|storage| {\n            let queued = storage.list_queued_outbound_intents(group_id)?;\n            if !queued.iter().any(|record| {\n                matches!(&record.intent, SendIntent::SelfUpdate { .. })\n                    && !self.queued_outbound_intent_in_flight(group_id, &record.id)\n            }) {\n                return Ok::<_, EngineError>(Vec::new());\n            }\n            if !self.with_mls_group(group_id, |group| {\n                crate::device_group_genesis::has_private_component(group)\n            })? {\n                return Ok::<_, EngineError>(Vec::new());\n            }\n'
 TEST = 'an_unreadable_intent_queue_at_pass_close_still_rearms_and_drains'
 MESSAGE = 'a failed post-close queue read must not fail a durable convergence apply'
 PREFIX = 'pass-close-queue-fault '
@@ -75,6 +78,15 @@ def own_failure(raw, site):
             'fixed_message_sha256': sha(site['fixed'].encode()), 'typed_storage_busy': True, 'expected_thread': True}
 
 
+
+def execution_totals(phases):
+    unknown = [row['label'] for row in phases if row.get('body_invoked') and row.get('observed_counts') is None]
+    known = sum(row['observed_counts']['executed'] for row in phases if row.get('observed_counts') is not None)
+    return {'known_executed_product_bodies': known,
+            'executed_product_bodies': None if unknown else known,
+            'invoked_phases_with_unknown_counts': unknown}
+
+
 def controls(site):
     def raw(value): return (PREFIX + ' '.join(key + '=' + str(value[key]).lower() for key in FIELDS) + '\n').encode()
     green = dict.fromkeys(FIELDS, True); green.update(after_active=False, result_storage_busy=False)
@@ -104,14 +116,69 @@ def controls(site):
         try: own_failure(item, site)
         except ValueError: negative += 1
         else: raise AssertionError('pass-close-wrong-owned-panic-accepted')
-    return {'positive': 4, 'negative': negative, 'product_bodies': 0, 'synthetic_metadata_only': True}
+    assert execution_totals([]) == dict(known_executed_product_bodies=0, executed_product_bodies=0, invoked_phases_with_unknown_counts=[])
+    pending = {'label': 'pending', 'body_invoked': True}
+    assert execution_totals([pending]) == dict(known_executed_product_bodies=0, executed_product_bodies=None, invoked_phases_with_unknown_counts=['pending'])
+    completed = {'label': 'completed', 'body_invoked': True, 'observed_counts': dict(executed=1, passed=0, failed=1, skipped=24)}
+    assert execution_totals([completed, pending]) == dict(known_executed_product_bodies=1, executed_product_bodies=None, invoked_phases_with_unknown_counts=['pending'])
+    assert execution_totals([completed]) == dict(known_executed_product_bodies=1, executed_product_bodies=1, invoked_phases_with_unknown_counts=[])
+    return {'positive': 8, 'negative': negative, 'product_bodies': 0, 'synthetic_metadata_only': True}
 
+
+
+def execute_phase(proof, save, before, source_closure, site, features, profile, stack, experimental, label, expected_red):
+    row = {'label': label, 'expected_runtime_red': expected_red, 'causal_red_verified': False}
+    proof['phases'].append(row); save()
+    source_closure('whole-source-before-pass-close-phase')
+    environment(os.environ, stack)
+    flags = ['--locked', '-p', 'cgka-engine', '--test', 'publish_lifecycle', '--profile', profile,
+             '--features', ','.join(features)]
+    selection = 'package(cgka-engine) & binary(=publish_lifecycle) & test(=' + TEST + ')'
+    code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags
+        + ['--message-format', 'json', '-E', selection], 1800, separate=True)
+    row['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'stdout_sha256': sha(raw),
+                          'stderr_sha256': sha(stderr), 'compiler': compiler(stderr, before['files'])}; save()
+    require(code == 0 and row['inventory']['compiler'] == EMPTY_COMPILER, 'clean-actual-inventory-compiler')
+    inventory = json.loads(raw, object_pairs_hook=unique); selected_case(inventory, TEST)
+    suites = [suite for suite in inventory['rust-suites'].values()
+        if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
+    require(len(suites) == 1 and suites[0]['binary-name'] == 'publish_lifecycle' and suites[0]['kind'] == 'test', 'exact-original-integration-binary')
+    row['inventory'].update(selected_nonignored=1, selected_ignored=0); save()
+    source_closure('whole-source-after-inventory')
+    row['body_invoked'] = True; row['executed_product_bodies'] = None; save()
+    code, raw, elapsed, _ = capture(['cargo', 'nextest', 'run'] + flags
+        + ['--retries', '0', '--test-threads', '1', '--status-level', 'pass', '--final-status-level', 'none',
+           '--no-fail-fast', '--success-output', 'immediate', '--failure-output', 'immediate', '-E', selection], 1800)
+    row['body'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'raw_sha256': sha(raw), 'raw_bytes': len(raw),
+                     'compiler': compiler(raw, before['files']), 'summary': summary_counts(raw)}
+    row['observed_counts'] = observed_counts(raw)
+    if row['observed_counts'] is not None: row['executed_product_bodies'] = row['observed_counts']['executed']
+    row['counts_identity_validated'] = False; save()
+    row['counts'] = runtime(raw, 'cgka-engine', 'publish_lifecycle', 'test', TEST)
+    row['counts_identity_validated'] = True; save()
+    require(row['body']['compiler'] == EMPTY_COMPILER, 'entire-runtime-compiler-empty')
+    row['probe'] = probe(raw); save()
+    is_red = row['counts']['failed'] == 1
+    vector(row['probe'], is_red)
+    if is_red:
+        require(code == 100 and experimental, 'only-experimental-own-runtime-RED')
+        row['owned_failure'] = own_failure(raw, site)
+        row['causal_red_verified'] = True
+    else:
+        require(code == 0 and row['counts']['passed'] == 1 and b'panicked at ' not in raw, 'one-original-positive-with-no-panic')
+    source_closure('whole-source-after-original-body')
+    row['diagnostic_valid'] = True
+    # This records the actual body verdict; only an explicitly planned PFP phase can qualify an inverse.
+    row['actual_body_passed'] = not is_red
+    if expected_red is not None:
+        require(is_red is expected_red, 'exact-planned-pass-close-phase-verdict')
+    row['phase_qualified'] = expected_red is not None and is_red is expected_red
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['preflight', 'run'], required=True)
     parser.add_argument('--case', choices=sorted(CASES), required=True)
-    parser.add_argument('--stage', choices=['sample', 'positive'], required=True)
+    parser.add_argument('--stage', choices=['sample', 'positive', 'pfp'], required=True)
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -125,74 +192,103 @@ def main():
              'mode': args.mode, 'case': args.case, 'stage': args.stage, 'features': features,
              'profile': profile, 'rust_min_stack': stack, 'test': TEST, 'automatic_retries': 0,
              'test_threads': 1, 'historical_evidence_reused': False, 'full_suite_qualification': False,
-             'native_acceptance_qualification': False, 'executed_product_bodies': 0}
+             'native_acceptance_qualification': False, 'executed_product_bodies': 0, 'phases': []}
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    def save(): args.output.write_text(json.dumps(proof, indent=2) + '\n')
-    before = None
+    def save():
+        proof.update(execution_totals(proof['phases']))
+        args.output.write_text(json.dumps(proof, indent=2) + '\n')
+    before, held, original = None, None, None
     try:
         require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('RUNNER_OS') == 'Linux', 'remote-Linux-required')
         require(args.baseline == proof['source'], 'explicit-reviewed-self-baseline')
         proof['cohort'] = reviewed_cohort(args.baseline)
         before = snapshot()
+        product_pin = RED_PRODUCT_SHA if args.stage == 'sample' else PRODUCT_SHA
         require(before['status'] == sha(b'') and before['files'][SOURCE][0] == SOURCE_SHA
-                and before['files'][PRODUCT][0] == PRODUCT_SHA, 'clean-exact-diagnostic-test-and-unfixed-product')
+                and before['files'][PRODUCT][0] == product_pin, 'clean-exact-test-and-reviewed-stage-product')
         site = source_site(Path(SOURCE).read_text())
-        proof['inputs'] = {SOURCE: SOURCE_SHA, PRODUCT: PRODUCT_SHA}
+        proof['inputs'] = {SOURCE: SOURCE_SHA, PRODUCT: product_pin}
         proof['metadata_controls'] = controls(site)
         if args.mode == 'preflight':
+            if args.stage == 'pfp':
+                source = Path(PRODUCT).read_text()
+                begin = source.index('    pub(crate) fn retire_queued_private_maintenance(')
+                end = source.index('\n    pub(crate) async fn do_send_ready(', begin)
+                require(source.count(GREEN) == 1 and source[begin:end].count(GREEN) == 1
+                        and GREEN.count('\n') == INVERSE.count('\n')
+                        and sha(source.replace(GREEN, INVERSE, 1).encode()) == RED_PRODUCT_SHA,
+                        'exact-source-owned-guard-order-counterfactual')
             proof['passed'] = True
         else:
             environment(os.environ, stack)
-            flags = ['--locked', '-p', 'cgka-engine', '--test', 'publish_lifecycle', '--profile', profile,
-                     '--features', ','.join(features)]
-            selection = 'package(cgka-engine) & binary(=publish_lifecycle) & test(=' + TEST + ')'
-            code, raw, elapsed, stderr = capture(['cargo', 'nextest', 'list'] + flags
-                + ['--message-format', 'json', '-E', selection], 1800, separate=True)
-            proof['inventory'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'stdout_sha256': sha(raw),
-                                  'stderr_sha256': sha(stderr), 'compiler': compiler(stderr, before['files'])}; save()
-            require(code == 0 and proof['inventory']['compiler'] == EMPTY_COMPILER, 'clean-actual-inventory-compiler')
-            inventory = json.loads(raw, object_pairs_hook=unique); selected_case(inventory, TEST)
-            suites = [suite for suite in inventory['rust-suites'].values()
-                if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
-            require(len(suites) == 1 and suites[0]['binary-name'] == 'publish_lifecycle' and suites[0]['kind'] == 'test', 'exact-original-integration-binary')
-            proof['inventory'].update(selected_nonignored=1, selected_ignored=0); save()
-            require(snapshot() == before, 'whole-source-after-inventory')
-            proof['body_invoked'] = True; proof['executed_product_bodies'] = None; save()
-            code, raw, elapsed, _ = capture(['cargo', 'nextest', 'run'] + flags
-                + ['--retries', '0', '--test-threads', '1', '--status-level', 'pass', '--final-status-level', 'none',
-                   '--no-fail-fast', '--success-output', 'immediate', '--failure-output', 'immediate', '-E', selection], 1800)
-            proof['body'] = {'exit_code': code, 'elapsed_seconds': elapsed, 'raw_sha256': sha(raw), 'raw_bytes': len(raw),
-                             'compiler': compiler(raw, before['files']), 'summary': summary_counts(raw)}
-            proof['observed_counts'] = observed_counts(raw)
-            if proof['observed_counts'] is not None: proof['executed_product_bodies'] = proof['observed_counts']['executed']
-            proof['counts_identity_validated'] = False; save()
-            proof['counts'] = runtime(raw, 'cgka-engine', 'publish_lifecycle', 'test', TEST)
-            proof['counts_identity_validated'] = True; save()
-            require(proof['body']['compiler'] == EMPTY_COMPILER, 'entire-runtime-compiler-empty')
-            proof['probe'] = probe(raw); save()
-            is_red = proof['counts']['failed'] == 1
-            vector(proof['probe'], is_red)
-            if is_red:
-                require(code == 100 and experimental, 'only-experimental-own-runtime-RED')
-                proof['owned_failure'] = own_failure(raw, site)
-                proof['causal_red_verified'] = True
-            else:
-                require(code == 0 and proof['counts']['passed'] == 1 and b'panicked at ' not in raw, 'one-original-positive-with-no-panic')
-            require(snapshot() == before, 'whole-source-after-original-body')
-            proof['diagnostic_valid'] = True
-            # Genuine runtime RED remains failed/nonzero, even when causally classified.
-            proof['passed'] = not is_red
-            proof['qualification_passed'] = not is_red
+            sequence = [('diagnostic', None)] if args.stage == 'sample' else (
+                [('positive', False)] if args.stage == 'positive' else
+                [('baseline', False), ('guard-order-mutant', experimental), ('restored', False)])
+            original = Path(PRODUCT).read_bytes()
+            mutant = None
+            if args.stage == 'pfp':
+                source = original.decode()
+                begin = source.index('    pub(crate) fn retire_queued_private_maintenance(')
+                end = source.index('\n    pub(crate) async fn do_send_ready(', begin)
+                require(source.count(GREEN) == 1 and source[begin:end].count(GREEN) == 1
+                        and GREEN.count('\n') == INVERSE.count('\n'), 'one-owned-newline-preserved-guard-order-inverse')
+                mutant = source.replace(GREEN, INVERSE, 1).encode()
+                require(sha(mutant) == RED_PRODUCT_SHA, 'exact-entire-original-bug-source')
+                held = HeldSource(Path(PRODUCT), original)
+            for label, expected_red in sequence:
+                intentional = label == 'guard-order-mutant'
+                wanted = mutant if intentional else original
+                if held is not None:
+                    if held.current != wanted: held.write(held.current, wanted)
+                    held.verify(wanted)
+                expected = {**before, 'files': dict(before['files'])}
+                if intentional:
+                    expected['files'][PRODUCT] = [sha(mutant), before['files'][PRODUCT][1]]
+                    expected['status'] = sha((' M ' + PRODUCT + '\0').encode())
+                def source_closure(note):
+                    if held is not None: held.verify(wanted)
+                    require(snapshot() == expected, note)
+                execute_phase(proof, save, before, source_closure, site, features, profile, stack, experimental, label, expected_red)
+                if held is not None: held.verify(wanted)
+                if intentional:
+                    held.write(wanted, original)
+                    require(snapshot() == before, 'immediate-exact-guard-order-restoration')
+            require([row['label'] for row in proof['phases']] == [label for label, _ in sequence],
+                    'complete-ordered-pass-close-phase-inventory')
+            totals = {key: sum(row['counts'][key] for row in proof['phases']) for key in ['executed', 'passed', 'failed']}
+            expected_failed = int(args.stage == 'pfp' and experimental) if args.stage != 'sample' else int(experimental)
+            if args.stage != 'sample':
+                require(totals == dict(executed=len(sequence), failed=expected_failed,
+                                      passed=len(sequence) - expected_failed), 'exact-complete-phase-runtime-totals')
+            proof['phase_totals'] = totals
+            proof['diagnostic_valid'] = all(row['diagnostic_valid'] for row in proof['phases'])
+            proof['causal_red_verified'] = any(row['causal_red_verified'] for row in proof['phases'])
+            proof['passed'] = (all(row['actual_body_passed'] for row in proof['phases']) if args.stage == 'sample'
+                               else all(row['phase_qualified'] for row in proof['phases']))
+            proof['qualification_passed'] = proof['passed'] and args.stage != 'sample'
+
     except (ValueError, KeyError, TypeError, OSError, UnicodeError, subprocess.SubprocessError, AssertionError) as error:
         proof['failure_category'] = type(error).__name__
         if isinstance(error, ValueError) and re.fullmatch('[A-Za-z0-9_-]{1,160}', str(error)):
             proof['failure_label'] = str(error)
     finally:
+        fd_restored = True
+        if held is not None:
+            try:
+                if held.current != original: held.write(held.current, original)
+                held.verify(original)
+            except (ValueError, OSError):
+                fd_restored = False; proof['passed'] = False
+            finally:
+                try: held.close(); proof['source_fd_closed'] = True
+                except OSError:
+                    fd_restored = False; proof['passed'] = False; proof['source_fd_closed'] = False
+            proof['held_source_restored_exact'] = fd_restored
         if before is not None:
-            try: proof['source_restored_exact'] = snapshot() == before
+            try: proof['source_restored_exact'] = snapshot() == before and fd_restored
             except (OSError, subprocess.SubprocessError): proof['source_restored_exact'] = False
             proof['passed'] = proof['passed'] and proof['source_restored_exact']
-            proof['qualification_passed'] = proof['qualification_passed'] and proof['source_restored_exact']
+            proof['qualification_passed'] = proof['qualification_passed'] and proof['source_restored_exact'] and proof['passed']
             proof['diagnostic_valid'] = proof['diagnostic_valid'] and proof['source_restored_exact']
             proof['causal_red_verified'] = proof['causal_red_verified'] and proof['source_restored_exact']
         save()
