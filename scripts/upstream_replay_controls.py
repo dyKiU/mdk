@@ -523,6 +523,43 @@ SQLITE_CACHE_PATH = 'crates/storage-sqlite/src/app/timeline/tests.rs'
 SQLITE_CACHE_TEST_SHA256 = '80712a55f215a8710fc5535dd7556f71085c356bba0787d5ee869961c62177db'
 
 
+SQLITE_CACHE_SQL_PATH = 'crates/storage-sqlite/src/app/timeline.rs'
+SQLITE_CACHE_INVERSES = {
+    'app_events_targeting_message_tx': (
+        'fn app_events_targeting_message_tx(\n    tx: &Connection,\n    group_id_hex: &str,\n    kind: u64,\n    target_message_id_hex: &str,\n) -> StorageResult<Vec<RawAppEvent>> {\n    // The edge table encodes exactly the old `tag_values(tags, EVENT_REF_TAG)\n    // .any(|t| t == target)` relationship (one edge per "e" tag value), so the\n    // indexed join is equivalent to the former JSON `LIKE` scan plus Rust-side\n    // re-filter, without either. Ordering is preserved byte-for-byte.\n    // Keep the target index outermost; scanning history to avoid a small\n    // modifier sort makes even a message with no modifiers cost O(history).\n    // `kind` is a literal, not a parameter: the partial index\n    // `content_report_labels` (`WHERE kind=1985`) makes SQLite recompile a\n    // statement on every rebind of a parameter compared with its predicate.\n    // Callers pass constant kinds, so each kind keeps one cached plan.\n    let mut stmt = tx\n        .prepare_cached(&format!(\n            "SELECT app_events.group_id_hex, app_events.message_id_hex, app_events.source_message_id_hex,\n                    app_events.source_epoch, app_events.direction, app_events.sender,\n                    app_events.plaintext, app_events.kind, app_events.tags_json,\n                    app_events.recorded_at, app_events.received_at,\n                    app_events.invalidated, app_events.invalidation_reason,\n                    app_events.moderation_grant\n             FROM message_modifier_edges AS edges\n             CROSS JOIN app_events\n               ON app_events.group_id_hex = edges.group_id_hex\n              AND app_events.message_id_hex = edges.modifier_message_id_hex\n             WHERE edges.group_id_hex = ?1\n               AND edges.kind = {}\n               AND edges.target_message_id_hex = ?2\n               AND app_events.invalidated = 0\n             ORDER BY app_events.recorded_at, app_events.message_id_hex, app_events.insert_order",\n            u64_to_i64(kind)?\n        ))\n        .storage()?;\n    stmt.query_map(\n        params![group_id_hex, target_message_id_hex],\n        raw_event_from_row,\n    )\n    .storage()?\n    .collect::<Result<Vec<_>, _>>()\n    .storage()\n}\n\n',
+        'fn app_events_targeting_message_tx(\n    tx: &Connection,\n    group_id_hex: &str,\n    kind: u64,\n    target_message_id_hex: &str,\n) -> StorageResult<Vec<RawAppEvent>> {\n    // The edge table encodes exactly the old `tag_values(tags, EVENT_REF_TAG)\n    // .any(|t| t == target)` relationship (one edge per "e" tag value), so the\n    // indexed join is equivalent to the former JSON `LIKE` scan plus Rust-side\n    // re-filter, without either. Ordering is preserved byte-for-byte.\n    // Keep the target index outermost; scanning history to avoid a small\n    // modifier sort makes even a message with no modifiers cost O(history).\n    let mut stmt = tx\n        .prepare_cached(\n            "SELECT app_events.group_id_hex, app_events.message_id_hex, app_events.source_message_id_hex,\n                    app_events.source_epoch, app_events.direction, app_events.sender,\n                    app_events.plaintext, app_events.kind, app_events.tags_json,\n                    app_events.recorded_at, app_events.received_at,\n                    app_events.invalidated, app_events.invalidation_reason,\n                    app_events.moderation_grant\n             FROM message_modifier_edges AS edges\n             CROSS JOIN app_events\n               ON app_events.group_id_hex = edges.group_id_hex\n              AND app_events.message_id_hex = edges.modifier_message_id_hex\n             WHERE edges.group_id_hex = ?1\n               AND edges.kind = ?2\n               AND edges.target_message_id_hex = ?3\n               AND app_events.invalidated = 0\n             ORDER BY app_events.recorded_at, app_events.message_id_hex, app_events.insert_order",\n        )\n        .storage()?;\n    stmt.query_map(\n        params![group_id_hex, u64_to_i64(kind)?, target_message_id_hex],\n        raw_event_from_row,\n    )\n    .storage()?\n    .collect::<Result<Vec<_>, _>>()\n    .storage()\n}\n\n\n\n\n\n\n'),
+    'deleted_reaction_ids_for_target_tx': (
+        'fn deleted_reaction_ids_for_target_tx(\n    tx: &Connection,\n    group_id_hex: &str,\n    reactions: &[RawAppEvent],\n) -> StorageResult<HashSet<String>> {\n    if reactions.is_empty() {\n        return Ok(HashSet::new());\n    }\n    // Set-based queries collect every (reaction id, deleting sender) pair for\n    // the given reactions instead of issuing one lookup per reaction (N+1). A\n    // reaction is retracted only when a non-invalidated DELETE by the SAME\n    // sender targets it. Reaction ids are bound in fixed-size chunks so the\n    // placeholder count per statement stays well under SQLite\'s variable limit\n    // even on hot messages with very many reactions (same pattern as\n    // `delete_timeline_projection_rows_by_ids_tx`).\n    let mut delete_pairs = Vec::<(String, String)>::new();\n    // A literal kind keeps one cached plan; see `app_events_targeting_message_tx`.\n    let delete_kind = u64_to_i64(MARMOT_APP_EVENT_KIND_DELETE)?;\n    for chunk in reactions.chunks(SQLITE_BIND_PARAMETER_CHUNK) {\n        let placeholders = std::iter::repeat_n("?", chunk.len())\n            .collect::<Vec<_>>()\n            .join(", ");\n        let sql = format!(\n            "SELECT edges.target_message_id_hex, app_events.sender\n             FROM message_modifier_edges AS edges\n             JOIN app_events\n               ON app_events.group_id_hex = edges.group_id_hex\n              AND app_events.message_id_hex = edges.modifier_message_id_hex\n             WHERE edges.group_id_hex = ?\n               AND edges.kind = {delete_kind}\n               AND app_events.invalidated = 0\n               AND edges.target_message_id_hex IN ({placeholders})"\n        );\n        let mut values = Vec::<rusqlite::types::Value>::with_capacity(chunk.len() + 1);\n        values.push(rusqlite::types::Value::Text(group_id_hex.to_owned()));\n        values.extend(\n            chunk\n                .iter()\n                .map(|reaction| rusqlite::types::Value::Text(reaction.message_id_hex.clone())),\n        );\n        let mut stmt = tx.prepare_cached(&sql).storage()?;\n        let chunk_pairs = stmt\n            .query_map(params_from_iter(values.iter()), |row| {\n                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))\n            })\n            .storage()?\n            .collect::<Result<Vec<_>, _>>()\n            .storage()?;\n        delete_pairs.extend(chunk_pairs);\n    }\n\n    let reaction_senders: HashMap<&str, &str> = reactions\n        .iter()\n        .map(|reaction| (reaction.message_id_hex.as_str(), reaction.sender.as_str()))\n        .collect();\n    let mut deleted = HashSet::new();\n    for (target, delete_sender) in &delete_pairs {\n        if reaction_senders\n            .get(target.as_str())\n            .is_some_and(|reaction_sender| *reaction_sender == delete_sender.as_str())\n        {\n            deleted.insert(target.clone());\n        }\n    }\n    Ok(deleted)\n}\n\n',
+        'fn deleted_reaction_ids_for_target_tx(\n    tx: &Connection,\n    group_id_hex: &str,\n    reactions: &[RawAppEvent],\n) -> StorageResult<HashSet<String>> {\n    if reactions.is_empty() {\n        return Ok(HashSet::new());\n    }\n    // Set-based queries collect every (reaction id, deleting sender) pair for\n    // the given reactions instead of issuing one lookup per reaction (N+1). A\n    // reaction is retracted only when a non-invalidated DELETE by the SAME\n    // sender targets it. Reaction ids are bound in fixed-size chunks so the\n    // placeholder count per statement stays well under SQLite\'s variable limit\n    // even on hot messages with very many reactions (same pattern as\n    // `delete_timeline_projection_rows_by_ids_tx`).\n    let mut delete_pairs = Vec::<(String, String)>::new();\n    for chunk in reactions.chunks(SQLITE_BIND_PARAMETER_CHUNK) {\n        let placeholders = std::iter::repeat_n("?", chunk.len())\n            .collect::<Vec<_>>()\n            .join(", ");\n        let sql = format!(\n            "SELECT edges.target_message_id_hex, app_events.sender\n             FROM message_modifier_edges AS edges\n             JOIN app_events\n               ON app_events.group_id_hex = edges.group_id_hex\n              AND app_events.message_id_hex = edges.modifier_message_id_hex\n             WHERE edges.group_id_hex = ?\n               AND edges.kind = ?\n               AND app_events.invalidated = 0\n               AND edges.target_message_id_hex IN ({placeholders})"\n        );\n        let mut values = Vec::<rusqlite::types::Value>::with_capacity(chunk.len() + 2);\n        values.push(rusqlite::types::Value::Text(group_id_hex.to_owned()));\n        values.push(rusqlite::types::Value::Integer(u64_to_i64(MARMOT_APP_EVENT_KIND_DELETE)?));\n        values.extend(\n            chunk\n                .iter()\n                .map(|reaction| rusqlite::types::Value::Text(reaction.message_id_hex.clone())),\n        );\n        let mut stmt = tx.prepare_cached(&sql).storage()?;\n        let chunk_pairs = stmt\n            .query_map(params_from_iter(values.iter()), |row| {\n                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))\n            })\n            .storage()?\n            .collect::<Result<Vec<_>, _>>()\n            .storage()?;\n        delete_pairs.extend(chunk_pairs);\n    }\n\n    let reaction_senders: HashMap<&str, &str> = reactions\n        .iter()\n        .map(|reaction| (reaction.message_id_hex.as_str(), reaction.sender.as_str()))\n        .collect();\n    let mut deleted = HashSet::new();\n    for (target, delete_sender) in &delete_pairs {\n        if reaction_senders\n            .get(target.as_str())\n            .is_some_and(|reaction_sender| *reaction_sender == delete_sender.as_str())\n        {\n            deleted.insert(target.clone());\n        }\n    }\n    Ok(deleted)\n}\n\n\n'),
+    'effective_poll_votes': (
+        'fn effective_poll_votes(\n    conn: &Connection,\n    messages: &[TimelineMessageRecord],\n) -> StorageResult<Vec<(usize, PollDefinition, Vec<PollVote>)>> {\n    let mut definitions = HashMap::new();\n    for (index, message) in messages.iter().enumerate() {\n        if message.kind != MARMOT_APP_EVENT_KIND_POLL\n            || message.deleted\n            || message.invalidation_status.is_some()\n        {\n            continue;\n        }\n        let event = MarmotAppEvent {\n            id: message.message_id_hex.clone(),\n            pubkey: message.sender.clone(),\n            created_at: message.timeline_at,\n            kind: message.kind,\n            tags: message.tags.clone(),\n            content: message.plaintext.clone(),\n        };\n        if let Ok(definition) = parse_poll(&event) {\n            definitions.insert(\n                (message.group_id_hex.clone(), message.message_id_hex.clone()),\n                (index, definition, message.timeline_at),\n            );\n        }\n    }\n    if definitions.is_empty() {\n        return Ok(Vec::new());\n    }\n    let mut by_group = BTreeMap::<String, Vec<String>>::new();\n    for (group, poll_id) in definitions.keys() {\n        by_group\n            .entry(group.clone())\n            .or_default()\n            .push(poll_id.clone());\n    }\n    let mut responses = Vec::new();\n    // Literal kinds keep one cached plan; see `app_events_targeting_message_tx`.\n    let response_kind = u64_to_i64(MARMOT_APP_EVENT_KIND_POLL_RESPONSE)?;\n    let delete_kind = u64_to_i64(MARMOT_APP_EVENT_KIND_DELETE)?;\n    for (group, poll_ids) in by_group {\n        for chunk in poll_ids.chunks(SQLITE_BIND_PARAMETER_CHUNK) {\n            let placeholders = std::iter::repeat_n("?", chunk.len())\n                .collect::<Vec<_>>()\n                .join(", ");\n            let sql = format!(\n                "SELECT group_id_hex, message_id_hex, sender, tags_json, recorded_at\n                 FROM (\n                    SELECT app_events.*,\n                           ROW_NUMBER() OVER (\n                               PARTITION BY edges.target_message_id_hex, app_events.sender\n                               ORDER BY app_events.recorded_at DESC, app_events.message_id_hex DESC\n                           ) AS voter_rank\n                    FROM message_modifier_edges AS edges\n                    JOIN app_events\n                      ON app_events.group_id_hex = edges.group_id_hex\n                     AND app_events.message_id_hex = edges.modifier_message_id_hex\n                    WHERE edges.group_id_hex = ?\n                      AND edges.kind = {response_kind}\n                      AND app_events.invalidated = 0\n                      AND NOT EXISTS (\n                          SELECT 1\n                          FROM message_modifier_edges AS delete_edges\n                          JOIN app_events AS delete_events\n                            ON delete_events.group_id_hex = delete_edges.group_id_hex\n                           AND delete_events.message_id_hex = delete_edges.modifier_message_id_hex\n                          WHERE delete_edges.group_id_hex = app_events.group_id_hex\n                            AND delete_edges.kind = {delete_kind}\n                            AND delete_edges.target_message_id_hex = app_events.message_id_hex\n                            AND delete_events.invalidated = 0\n                            AND (\n                                delete_events.sender = app_events.sender\n                                OR delete_events.moderation_grant = 1\n                            )\n                      )\n                      AND edges.target_message_id_hex IN ({placeholders})\n                 )\n                 WHERE voter_rank <= ?"\n            );\n            let mut values = Vec::<rusqlite::types::Value>::with_capacity(chunk.len() + 2);\n            values.push(rusqlite::types::Value::Text(group.clone()));\n            values.extend(chunk.iter().cloned().map(rusqlite::types::Value::Text));\n            values.push(rusqlite::types::Value::Integer(\n                MAX_POLL_RESPONSES_PER_AUTHOR as i64,\n            ));\n            let mut stmt = conn.prepare_cached(&sql).storage()?;\n            responses.extend(\n                stmt.query_map(\n                    params_from_iter(values.iter()),\n                    poll_response_candidate_from_row,\n                )\n                .storage()?\n                .collect::<Result<Vec<_>, _>>()\n                .storage()?,\n            );\n        }\n    }\n\n    let mut effective = HashMap::<(String, String, String), (u64, String, Vec<String>)>::new();\n    for response in responses {\n        let event = MarmotAppEvent {\n            id: response.message_id_hex.clone(),\n            pubkey: response.sender.clone(),\n            created_at: response.recorded_at,\n            kind: MARMOT_APP_EVENT_KIND_POLL_RESPONSE,\n            tags: response.tags.clone(),\n            content: String::new(),\n        };\n        let Ok((poll_id, selections)) = parse_poll_response(&event) else {\n            continue;\n        };\n        let Some((_, poll, poll_created_at)) =\n            definitions.get(&(response.group_id_hex.clone(), poll_id.clone()))\n        else {\n            continue;\n        };\n        if validate_poll_response(poll, *poll_created_at, response.recorded_at, &selections)\n            .is_err()\n        {\n            continue;\n        }\n        let key = (\n            response.group_id_hex.clone(),\n            poll_id,\n            response.sender.clone(),\n        );\n        let order = (response.recorded_at, response.message_id_hex.as_str());\n        let replace = effective\n            .get(&key)\n            .is_none_or(|current| order > (current.0, current.1.as_str()));\n        if replace {\n            effective.insert(\n                key,\n                (response.recorded_at, response.message_id_hex, selections),\n            );\n        }\n    }\n\n    let mut effective_by_poll = HashMap::<(String, String), Vec<PollVote>>::new();\n    for ((group, poll_id, voter), (voted_at, _, option_ids)) in effective {\n        effective_by_poll\n            .entry((group, poll_id))\n            .or_default()\n            .push(PollVote {\n                voter,\n                option_ids,\n                voted_at,\n            });\n    }\n\n    Ok(definitions\n        .into_iter()\n        .map(|(key, (index, definition, _))| {\n            let mut votes = effective_by_poll.remove(&key).unwrap_or_default();\n            votes.sort_by(|a, b| (a.voted_at, &a.voter).cmp(&(b.voted_at, &b.voter)));\n            (index, definition, votes)\n        })\n        .collect())\n}\n\n',
+        'fn effective_poll_votes(\n    conn: &Connection,\n    messages: &[TimelineMessageRecord],\n) -> StorageResult<Vec<(usize, PollDefinition, Vec<PollVote>)>> {\n    let mut definitions = HashMap::new();\n    for (index, message) in messages.iter().enumerate() {\n        if message.kind != MARMOT_APP_EVENT_KIND_POLL\n            || message.deleted\n            || message.invalidation_status.is_some()\n        {\n            continue;\n        }\n        let event = MarmotAppEvent {\n            id: message.message_id_hex.clone(),\n            pubkey: message.sender.clone(),\n            created_at: message.timeline_at,\n            kind: message.kind,\n            tags: message.tags.clone(),\n            content: message.plaintext.clone(),\n        };\n        if let Ok(definition) = parse_poll(&event) {\n            definitions.insert(\n                (message.group_id_hex.clone(), message.message_id_hex.clone()),\n                (index, definition, message.timeline_at),\n            );\n        }\n    }\n    if definitions.is_empty() {\n        return Ok(Vec::new());\n    }\n    let mut by_group = BTreeMap::<String, Vec<String>>::new();\n    for (group, poll_id) in definitions.keys() {\n        by_group\n            .entry(group.clone())\n            .or_default()\n            .push(poll_id.clone());\n    }\n    let mut responses = Vec::new();\n    for (group, poll_ids) in by_group {\n        for chunk in poll_ids.chunks(SQLITE_BIND_PARAMETER_CHUNK) {\n            let placeholders = std::iter::repeat_n("?", chunk.len())\n                .collect::<Vec<_>>()\n                .join(", ");\n            let sql = format!(\n                "SELECT group_id_hex, message_id_hex, sender, tags_json, recorded_at\n                 FROM (\n                    SELECT app_events.*,\n                           ROW_NUMBER() OVER (\n                               PARTITION BY edges.target_message_id_hex, app_events.sender\n                               ORDER BY app_events.recorded_at DESC, app_events.message_id_hex DESC\n                           ) AS voter_rank\n                    FROM message_modifier_edges AS edges\n                    JOIN app_events\n                      ON app_events.group_id_hex = edges.group_id_hex\n                     AND app_events.message_id_hex = edges.modifier_message_id_hex\n                    WHERE edges.group_id_hex = ?\n                      AND edges.kind = ?\n                      AND app_events.invalidated = 0\n                      AND NOT EXISTS (\n                          SELECT 1\n                          FROM message_modifier_edges AS delete_edges\n                          JOIN app_events AS delete_events\n                            ON delete_events.group_id_hex = delete_edges.group_id_hex\n                           AND delete_events.message_id_hex = delete_edges.modifier_message_id_hex\n                          WHERE delete_edges.group_id_hex = app_events.group_id_hex\n                            AND delete_edges.kind = ?\n                            AND delete_edges.target_message_id_hex = app_events.message_id_hex\n                            AND delete_events.invalidated = 0\n                            AND (\n                                delete_events.sender = app_events.sender\n                                OR delete_events.moderation_grant = 1\n                            )\n                      )\n                      AND edges.target_message_id_hex IN ({placeholders})\n                 )\n                 WHERE voter_rank <= ?"\n            );\n            let mut values = Vec::<rusqlite::types::Value>::with_capacity(chunk.len() + 4);\n            values.push(rusqlite::types::Value::Text(group.clone()));\n            values.push(rusqlite::types::Value::Integer(u64_to_i64(MARMOT_APP_EVENT_KIND_POLL_RESPONSE)?));\n            values.push(rusqlite::types::Value::Integer(u64_to_i64(MARMOT_APP_EVENT_KIND_DELETE)?));\n            values.extend(chunk.iter().cloned().map(rusqlite::types::Value::Text));\n            values.push(rusqlite::types::Value::Integer(\n                MAX_POLL_RESPONSES_PER_AUTHOR as i64,\n            ));\n            let mut stmt = conn.prepare_cached(&sql).storage()?;\n            responses.extend(\n                stmt.query_map(\n                    params_from_iter(values.iter()),\n                    poll_response_candidate_from_row,\n                )\n                .storage()?\n                .collect::<Result<Vec<_>, _>>()\n                .storage()?,\n            );\n        }\n    }\n\n    let mut effective = HashMap::<(String, String, String), (u64, String, Vec<String>)>::new();\n    for response in responses {\n        let event = MarmotAppEvent {\n            id: response.message_id_hex.clone(),\n            pubkey: response.sender.clone(),\n            created_at: response.recorded_at,\n            kind: MARMOT_APP_EVENT_KIND_POLL_RESPONSE,\n            tags: response.tags.clone(),\n            content: String::new(),\n        };\n        let Ok((poll_id, selections)) = parse_poll_response(&event) else {\n            continue;\n        };\n        let Some((_, poll, poll_created_at)) =\n            definitions.get(&(response.group_id_hex.clone(), poll_id.clone()))\n        else {\n            continue;\n        };\n        if validate_poll_response(poll, *poll_created_at, response.recorded_at, &selections)\n            .is_err()\n        {\n            continue;\n        }\n        let key = (\n            response.group_id_hex.clone(),\n            poll_id,\n            response.sender.clone(),\n        );\n        let order = (response.recorded_at, response.message_id_hex.as_str());\n        let replace = effective\n            .get(&key)\n            .is_none_or(|current| order > (current.0, current.1.as_str()));\n        if replace {\n            effective.insert(\n                key,\n                (response.recorded_at, response.message_id_hex, selections),\n            );\n        }\n    }\n\n    let mut effective_by_poll = HashMap::<(String, String), Vec<PollVote>>::new();\n    for ((group, poll_id, voter), (voted_at, _, option_ids)) in effective {\n        effective_by_poll\n            .entry((group, poll_id))\n            .or_default()\n            .push(PollVote {\n                voter,\n                option_ids,\n                voted_at,\n            });\n    }\n\n    Ok(definitions\n        .into_iter()\n        .map(|(key, (index, definition, _))| {\n            let mut votes = effective_by_poll.remove(&key).unwrap_or_default();\n            votes.sort_by(|a, b| (a.voted_at, &a.voter).cmp(&(b.voted_at, &b.voter)));\n            (index, definition, votes)\n        })\n        .collect())\n}\n\n\n'),
+}
+
+
+def sqlite_cache_inverses():
+    original = Path(SQLITE_CACHE_SQL_PATH).read_bytes()
+    text = original.decode('utf-8')
+    mutants = []
+    for name, (green, old) in SQLITE_CACHE_INVERSES.items():
+        start = text.index('fn ' + name + '(')
+        later = re.search(r'^fn ', text[start + 1:], re.M)
+        if later is None:
+            raise ValueError('sqlite-cache-function-end')
+        end = start + 1 + later.start()
+        if (text[start:end] != green or text.count(green) != 1
+                or green == old or green.count('\n') != old.count('\n')
+                or not old.startswith('fn ' + name + '(')):
+            raise ValueError('sqlite-cache-function-owner')
+        mutant = (text[:start] + old + text[end:]).encode()
+        if mutant == original or mutant.count(b'\n') != original.count(b'\n'):
+            raise ValueError('sqlite-cache-inverse-shape')
+        mutants.append((name, mutant))
+    if len(mutants) != 3 or len({hashlib.sha256(data).hexdigest() for _, data in mutants}) != 3:
+        raise ValueError('sqlite-cache-three-distinct-inverses')
+    return SQLITE_CACHE_SQL_PATH, original, mutants, sqlite_cache_site()
+
+
 def sqlite_cache_site():
     source = Path(SQLITE_CACHE_PATH).read_text()
     begin = source.index('#[test]\nfn modifier_lookups_reuse_their_compiled_statements()')
@@ -3621,7 +3658,13 @@ def live_seal_controls(case, site):
             'configuration_controls': 2, 'product_bodies': 0, 'synthetic_metadata_only': True}
 
 
+PFP[SQLITE_CACHE_CASE] = (SQLITE_CACHE_SQL_PATH, '', '', '', '')
+
+
 def inverse(case):
+    if case == SQLITE_CACHE_CASE:
+        path, original, mutants, site = sqlite_cache_inverses()
+        return path, original, mutants[0][1], site
     path, old, new, message, pattern = PFP[case]
     original = Path(path).read_bytes()
     text = original.decode('utf-8')
@@ -3699,6 +3742,8 @@ def inverse(case):
 
 
 def own_failure(raw, case, site):
+    if case == SQLITE_CACHE_CASE:
+        return sqlite_cache_failure(raw, site)
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
         return private_maintenance_order_failure(raw, site)
     if case == PRIVATE_HYDRATION_CASE:
@@ -3735,6 +3780,8 @@ def own_failure(raw, case, site):
 
 
 def pfp_controls(case, site):
+    if case == SQLITE_CACHE_CASE:
+        return sqlite_cache_controls(site)
     if case == PRIVATE_MAINTENANCE_ORDER_CASE:
         return private_maintenance_order_controls(site)
     if case == PRIVATE_HYDRATION_CASE:
@@ -3777,6 +3824,8 @@ def pfp_controls(case, site):
 
 
 def pfp_configuration(case):
+    if case == SQLITE_CACHE_CASE:
+        return positive_configuration(case)
     if case == MUTATION_ADMISSION_CASE:
         return positive_configuration(case)
     if case == PRIVATE_HYDRATION_CASE:
@@ -4207,6 +4256,10 @@ def pfp(args):
               'baseline': args.baseline, 'qualification_passed': False, 'pfp_passed': False,
               'phases': [], 'automatic_retries': 0, 'profile': profile, 'features': features,
               'test_threads': 1, 'rust_min_stack': os.environ.get('RUST_MIN_STACK')}
+    if args.case == SQLITE_CACHE_CASE:
+        report.update(evidence_scope='actual-SQLite-three-query-cache-inverses-only',
+            native_qualification=False, full_suite_qualification=False,
+            expected_actual_bodies={'executed': 7, 'passed': 4, 'failed': 3})
     if args.case == PRIVATE_HYDRATION_CASE:
         report.update(expected_tests=list(PRIVATE_HYDRATION_TESTS), expected_runtime_count=2,
             expected_phase_counts={'baseline': {'executed': 2, 'passed': 2, 'failed': 0},
@@ -4296,7 +4349,7 @@ def pfp(args):
         os.ftruncate(fd, len(data))
         os.fchmod(fd, mode)
         os.fsync(fd)
-    def phase(label, expected, *, case=None):
+    def phase(label, expected, *, case=None, mutation=None):
         phase_case = args.case if case is None else case
         if case is not None and (args.case != 'command-backlog' or case != 'command-backlog-held' or label not in {'baseline-held', 'restored-held'}):
             raise ValueError('phase-case-scope')
@@ -4304,12 +4357,18 @@ def pfp(args):
             raise ValueError('phase-source')
         row = {'phase': label, 'case': phase_case, 'inventory_attempted': True,
                'source_manifest_sha256': hashlib.sha256(json.dumps(expected['inputs'], sort_keys=True).encode()).hexdigest()}
+        if mutation is not None:
+            if args.case != SQLITE_CACHE_CASE or mutation not in SQLITE_CACHE_INVERSES:
+                raise ValueError('sqlite-cache-phase-mutation')
+            row['mutation'] = mutation
         report['phases'].append(row)
         save()
         package = package_for(phase_case)
         flags = (['-p', package, '--test', CASES[phase_case][0]] if phase_case in QUIET_CONTRACT_CASES
-                 else ['-p', package, '--lib']) + ['--features', ','.join(features), '--locked', '--profile', profile]
+                 else ['-p', package, '--lib']) + (['--features', ','.join(features)] if features else []) + ['--locked', '--profile', profile]
         selection = 'package(' + package + ') & test(=' + CASES[phase_case][1] + ')'
+        if phase_case == SQLITE_CACHE_CASE:
+            selection += ' & binary(=storage_sqlite)'
         if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE}:
             selection += ' & binary(=marmot_app)'
         if phase_case in QUIET_CONTRACT_CASES:
@@ -4330,14 +4389,14 @@ def pfp(args):
         save()
         if code != 0 or row['inventory']['compiler']['header_count'] or row['inventory']['compiler']['codes']:
             raise ValueError('phase-inventory-command')
-        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
+        if phase_case in FAMILY_PFP_CASES | PRIVATE_ROLE_PFP_CASES | {SQLITE_CACHE_CASE, SCOPED_REPORT_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE} and row['inventory']['compiler'] != {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}:
             raise ValueError('scoped-report-inventory-compiler')
         inventory = json.loads(raw, object_pairs_hook=unique)
         if phase_case in PRIVATE_MAINTENANCE_COHORTS:
             row['private_maintenance_inventory'] = selected_automatic_negotiation(inventory, maintenance_tests_for(phase_case), 'cgka-engine', 'cgka_engine')
         else:
             selected_case(inventory, CASES[phase_case][1])
-        if phase_case in {AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
+        if phase_case in {SQLITE_CACHE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             matched_suites = [suite for suite in inventory['rust-suites'].values()
                 if any(item['filter-match']['status'] == 'matches' for item in suite['testcases'].values())]
             if len(matched_suites) != 1 or matched_suites[0].get('binary-name') != CASES[phase_case][0] or matched_suites[0].get('kind') != 'lib':
@@ -4364,9 +4423,14 @@ def pfp(args):
         save()
         row['source_exact_after_body'] = snapshot() == expected
         clean_compile = not row['body']['compiler']['codes'] and row['body']['compiler']['header_count'] == 0
-        if phase_case in {MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
+        if phase_case in {SQLITE_CACHE_CASE, MISSING_ROUTE_CASE, AUTOMATIC_SCAN_EXPIRY_CASE, MUTATION_ADMISSION_CASE, PRIVATE_SEND_CASE, PRIVATE_MAINTENANCE_CASE, PRIVATE_HYDRATION_CASE, PRIVATE_MAINTENANCE_ORDER_CASE}:
             clean_compile = row['body']['compiler'] == {'codes': [], 'header_count': 0, 'sites': [], 'unknown_or_excess_sites': 0}
         watch_accepted = True
+        if phase_case == SQLITE_CACHE_CASE:
+            runtime = automatic_negotiation_runtime(raw, {SQLITE_CACHE_TEST: SQLITE_CACHE_PATH}, 'storage-sqlite')
+            row['body']['sqlite_cache_runtime'] = runtime
+            watch_accepted = runtime['complete']
+            save()
         if phase_case in PRIVATE_MAINTENANCE_COHORTS:
             runtime = row['body']['private_maintenance_runtime']
             watch_accepted = (runtime['complete']
@@ -4473,6 +4537,11 @@ def pfp(args):
             raise ValueError('pfp-inputs')
         before = snapshot()
         path, original, mutant, site = inverse(args.case)
+        if args.case == SQLITE_CACHE_CASE:
+            checked_path, checked_original, sqlite_mutants, checked_site = sqlite_cache_inverses()
+            if (checked_path, checked_original, checked_site) != (path, original, site):
+                raise ValueError('sqlite-cache-inverse-recheck')
+            report['sqlite_mutations'] = [{'function': name, 'mutant_sha256': hashlib.sha256(data).hexdigest()} for name, data in sqlite_mutants]
         admitted_parents = parent_chain(path)
         report['mutated_source'] = {'path': path, 'original_sha256': hashlib.sha256(original).hexdigest(),
                                     'mutant_sha256': hashlib.sha256(mutant).hexdigest(), 'own_assert_site': site}
@@ -4523,33 +4592,38 @@ def pfp(args):
                 raise ValueError('inverse-original-fd')
             mode = info.st_mode & 0o777
             primary_failure = None
-            try:
-                stage = 'mutant'
-                write_source(path, mutant, mode)
-                expected = json.loads(json.dumps(before))
-                expected['inputs'][path]['sha256'] = hashlib.sha256(mutant).hexdigest()
-                expected['tracked_clean'] = False
-                phase('mutant', expected)
-            except Exception:
-                primary_failure = stage
-                report['primary_failure_category'] = primary_failure
-                save()
-            finally:
-                stage_before_restore = stage
-                stage = 'restore'
-                verify_target(path)
-                if Path(path).read_bytes() != original or (Path(path).stat().st_mode & 0o777) != mode:
-                    write_source(path, original, mode)
-                report['source_restored'] = snapshot() == before
-                save()
-                stage = stage_before_restore
-            if report.get('source_restored') is not True:
-                raise ValueError('restore-source-closure')
-            stage = 'restored'
-            phase('restored', before)
+            mutations = sqlite_mutants if args.case == SQLITE_CACHE_CASE else [(None, mutant)]
+            for mutation_name, mutant_bytes in mutations:
+                try:
+                    stage = 'mutant'
+                    write_source(path, mutant_bytes, mode)
+                    expected = json.loads(json.dumps(before))
+                    expected['inputs'][path]['sha256'] = hashlib.sha256(mutant_bytes).hexdigest()
+                    expected['tracked_clean'] = False
+                    phase('mutant', expected, mutation=mutation_name)
+                except Exception:
+                    primary_failure = stage
+                    report['primary_failure_category'] = primary_failure
+                    save()
+                finally:
+                    stage_before_restore = stage
+                    stage = 'restore'
+                    verify_target(path)
+                    if Path(path).read_bytes() != original or (Path(path).stat().st_mode & 0o777) != mode:
+                        write_source(path, original, mode)
+                    report['source_restored'] = snapshot() == before
+                    save()
+                    stage = stage_before_restore
+                if report.get('source_restored') is not True:
+                    raise ValueError('restore-source-closure')
+                stage = 'restored'
+                phase('restored', before, mutation=mutation_name)
+                if primary_failure is not None:
+                    break
             if args.case == 'command-backlog':
                 phase('restored-held', before, case='command-backlog-held')
-            report['pfp_passed'] = (primary_failure is None and len(report['phases']) == (5 if args.case == 'command-backlog' else 3)
+            expected_phase_total = 7 if args.case == SQLITE_CACHE_CASE else 5 if args.case == 'command-backlog' else 3
+            report['pfp_passed'] = (primary_failure is None and len(report['phases']) == expected_phase_total
                                     and all(row.get('accepted') is True for row in report['phases']))
             result = 0 if report['pfp_passed'] else 1
             if primary_failure is not None:
@@ -5825,8 +5899,8 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
-    if args.case == SQLITE_CACHE_CASE and args.stage != 'positive':
-        raise ValueError('sqlite-cache-positive-only')
+    if args.case == SQLITE_CACHE_CASE and args.stage not in {'positive', 'pfp'}:
+        raise ValueError('sqlite-cache-positive-or-pfp-only')
     if args.case == PENDING_REQUEST_CASE:
         pending_request_stage(args.stage)
     if args.case in QUIET_CONTRACT_CASES:
