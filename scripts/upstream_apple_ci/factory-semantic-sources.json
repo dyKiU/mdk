@@ -2,7 +2,7 @@
   "mdk_pin_snapshot": "c1ae548f2e60c41ade8ca98140fbb05f6c8e6937",
   "apps": {
     "macos": {
-      "commit": "7e572f47c70c1254288c2623091bc542ef4c132d",
+      "commit": "b8f71a6d17f934a34b5bda2243e31d3623ea7fb4",
       "test_path": "whitenoise-macTests/GenuineAutomaticHostFactoryTests.swift",
       "test_sha256": "400c1a522ff09f757be98f8cffd694f42549c5284a14c16fc93039c7e7d393f5",
       "adapter_path": "whitenoise-mac/Core/MarmotClient.swift",

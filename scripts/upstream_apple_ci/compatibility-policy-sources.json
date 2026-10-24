@@ -2,7 +2,7 @@
   "schema": 1,
   "apps": {
     "macos": {
-      "commit": "7e572f47c70c1254288c2623091bc542ef4c132d",
+      "commit": "b8f71a6d17f934a34b5bda2243e31d3623ea7fb4",
       "cases": [
         {
           "id": "mac-cleaned-rearm",

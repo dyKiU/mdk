@@ -125,7 +125,7 @@
     },
     "factory-semantic-sources.json": {
       "source": "new hosted current automatic factory causal mutation qualification",
-      "sha256": "ff334e4f4b7f3fd17efe5b46db2662f6984028d16157bf7172a31d4cd9856473",
+      "sha256": "4655e39272b0d72e88ebd6ab93a695ee8a9bd43d9e9b828cb551095d28f229ee",
       "scope": "Remote metadata or exact-cohort native PFP only; no frozen native source or positive36 replacement."
     },
     "test_factory_semantics.py": {
@@ -150,7 +150,7 @@
     },
     "compatibility-policy-sources.json": {
       "source": "new hosted-only strict compatibility policy metadata/runtime mutation qualification",
-      "sha256": "5a6e53dfa172fde833b61fe3dbf8b5aebb6dc6f55e4e846e9810cd0b813fbbf1",
+      "sha256": "f7051afeb5f40a9def7b16f2ac720a9911b0fcb507405dfc5a271a6baf7fed30",
       "scope": "Four exact source-bound current SDK compatibility P/F/P cases, both feature cohorts; published positive and native gates unchanged"
     },
     "test_compatibility_policy.py": {
