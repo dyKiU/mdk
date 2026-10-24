@@ -24,6 +24,35 @@ def xcode_identity(data):
     return re.fullmatch(rb'Xcode (26\.6(?:\.0)?)\nBuild version (17F113)\n?', data) is not None
 
 
+DRIVER_STDERR = b'swift-driver version: 1.148.6 '
+DIAGNOSTIC_FACTS = {
+    'checked_owner_identifier': b'CheckedCaptureOwner',
+    'mutex_identifier': b'Mutex',
+    'capture_session_identifier': b'AVCaptureSession',
+    'preview_layer_identifier': b'AVCaptureVideoPreviewLayer',
+    'protected_session_identifier': b'protectedSession',
+    'main_actor_isolated': b'main actor-isolated',
+    'nonisolated': b'nonisolated',
+    'non_sendable': b'non-Sendable',
+    'sendable': b'Sendable',
+    'sending': b'sending',
+    'data_race': b'data race',
+    'actor_boundary': b'actor boundary',
+    'cannot_be_sent': b'cannot be sent',
+    'task_isolated': b'task-isolated',
+}
+
+
+def validate_identity_streams(label, code, stdout, stderr):
+    if (label not in ('xcode-version', 'swift-version', 'simulator-sdk-version', 'simulator-sdk-path')
+            or type(code) is not int or code != 0 or type(stdout) is not bytes or not stdout
+            or type(stderr) is not bytes):
+        raise ValueError('identity-command-failed')
+    if stderr and (label != 'swift-version' or stderr != DRIVER_STDERR):
+        raise ValueError('identity-command-failed')
+    return {'driver_version': '1.148.6' if stderr == DRIVER_STDERR else None}
+
+
 def diagnostics(stdout, stderr):
     rows = []
     unknown = 0
@@ -33,7 +62,9 @@ def diagnostics(stdout, stderr):
             if match:
                 rows.append({'stream': stream, 'file': 'CheckedCaptureOwner.swift',
                              'line': int(match[1]), 'column': int(match[2]),
-                             'severity': match[3].decode('ascii'), 'row_sha256': sha(line)})
+                             'severity': match[3].decode('ascii'), 'row_sha256': sha(line),
+                             'fixed_message_facts': {name: token in line.split(b': ', 2)[-1]
+                                                     for name, token in DIAGNOSTIC_FACTS.items()}})
             else:
                 unknown += 1
     return {'diagnostic_rows': rows, 'diagnostic_count': len(rows), 'other_line_count': unknown,
@@ -100,8 +131,10 @@ def main(output):
                 'stdout_bytes': len(stdout), 'stderr_bytes': len(stderr),
                 'stdout_sha256': sha(stdout), 'stderr_sha256': sha(stderr)})
             save()
-            if code != 0 or stderr or not stdout:
-                raise ValueError('identity-command-failed')
+            identity_facts = validate_identity_streams(label, code, stdout, stderr)
+            if label == 'swift-version':
+                proof['driver_version'] = identity_facts['driver_version']
+                save()
             return stdout
         actual_xcode = identity('xcode-version', ['/usr/bin/xcodebuild', '-version'])
         if not xcode_identity(actual_xcode):
