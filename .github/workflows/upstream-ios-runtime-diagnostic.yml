@@ -1,0 +1,171 @@
+name: Focused original iOS runtime diagnostics
+
+on:
+  push:
+    branches: ["ci/upstream-ios-runtime-diagnostic-*"]
+    paths:
+      - .github/workflows/upstream-ios-runtime-diagnostic.yml
+      - scripts/diagnostics/ios_runtime_diagnostic.py
+      - scripts/diagnostics/ios-runtime-diagnostic-sources.json
+      - scripts/diagnostics/test_ios_runtime_diagnostic.py
+  workflow_dispatch:
+    inputs:
+      case:
+        description: Original unchanged regression bodies; both run sequentially with shared build inputs
+        type: choice
+        options: [both, retired-status, suspension-storage]
+        default: both
+      metadata_only:
+        description: Validate diagnostic metadata without SDK download or Xcode
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ios-runtime-diagnostic-${{ github.ref }}-${{ inputs.case || 'metadata' }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      cases: ${{ steps.identity.outputs.cases }}
+      app: ${{ steps.identity.outputs.app }}
+      sdk: ${{ steps.identity.outputs.sdk }}
+      run: ${{ steps.identity.outputs.run }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Closed immutable diagnostic inputs; push is metadata only
+        id: identity
+        env:
+          INPUT_CASE: ${{ inputs.case }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          sys.path.insert(0, 'scripts/diagnostics')
+          import ios_runtime_diagnostic as diagnostic
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-ios-runtime-diagnostic-')
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
+          config = diagnostic.bindings()
+          cases = diagnostic.selected_cases(os.environ.get('INPUT_CASE') or 'both')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, value in {'cases': json.dumps(cases), 'app': config['app_sha'],
+                                 'sdk': config['sdk_source'], 'run': config['sdk_run_id']}.items():
+                  output.write(key + '=' + value + '\n')
+          PY
+      - name: Synthetic routing, counts and complete private issue metadata controls
+        run: |
+          python3 -m py_compile scripts/diagnostics/ios_runtime_diagnostic.py
+          python3 -B -m unittest discover -s scripts/diagnostics -p test_ios_runtime_diagnostic.py -v
+
+  sdk:
+    if: github.event_name == 'workflow_dispatch' && inputs.metadata_only != true
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk }}
+      SDK_RUN_ID: ${{ needs.identity.outputs.run }}
+      SDK_PROFILE: experimental
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check only the already-existing exact producer; no builds or retries
+        run: |
+          python3 scripts/upstream_apple_ci/wait-sdk.py
+          python3 - <<'PY'
+          import json, os, subprocess
+          value = json.loads(subprocess.check_output(['gh', 'api', 'repos/dyKiU/mdk/actions/runs/' + os.environ['SDK_RUN_ID']]))
+          assert value['head_sha'] == os.environ['SOURCE_SHA']
+          assert value['path'] == '.github/workflows/upstream-experimental-apple.yml'
+          assert value['status'] == 'completed' and value['conclusion'] == 'success'
+          PY
+
+  diagnostic:
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.metadata_only != true && needs.identity.result == 'success' && needs.sdk.result == 'success'
+    needs: [identity, sdk]
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APP_SHA: ${{ needs.identity.outputs.app }}
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk }}
+      SDK_RUN_ID: ${{ needs.identity.outputs.run }}
+      SDK_PROFILE: experimental
+      SDK_SOURCE_REPOSITORY: ${{ github.workspace }}/sdk-source
+      COHORT_PLATFORMS: '["ios"]'
+      WN_TEST_JOBS: '2'
+      DIAGNOSTIC_SELECTION: ${{ inputs.case }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.identity.outputs.sdk }}
+          path: sdk-source
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ needs.identity.outputs.app }}
+          path: ios
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: '26'
+      - name: Install only verified immutable F1 experimental SDK using existing cohort preparation
+        run: |
+          gh run download "$SDK_RUN_ID" --repo dyKiU/mdk --name "upstream-experimental-apple-$SOURCE_SHA" --dir packages
+          python3 scripts/upstream_apple_ci/app-sdk-cohort.py prepare \
+            --profile experimental --platform ios --app-sha "$APP_SHA" \
+            --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" --packages packages \
+            --output "$RUNNER_TEMP/focused-ios-prepare.json"
+      - name: Build pinned original relay fixture and select existing supported simulator
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
+          destination=$(cd ios && bash scripts/pick-simulator.sh)
+          printf 'WN_TEST_DESTINATION=%s\n' "$destination" >> "$GITHUB_ENV"
+          defaults write com.apple.iphonesimulator PasteboardAutomaticSync -bool false
+      - name: Run both unchanged original bodies sequentially; keep any runtime failure red
+        run: |
+          python3 scripts/diagnostics/ios_runtime_diagnostic.py --selection "$DIAGNOSTIC_SELECTION" \
+            --cohort-evidence "$RUNNER_TEMP/focused-ios-prepare.json" \
+            --output "$RUNNER_TEMP/ios-runtime-diagnostic.json"
+      - name: Preserve unavailable evidence explicitly after preparation or collector failure
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'ios-runtime-diagnostic.json'
+          if not path.exists():
+              value = {'diagnostic_only': True, 'qualification_credit': False,
+                       'selection': os.environ['DIAGNOSTIC_SELECTION'], 'app_sha': os.environ['APP_SHA'],
+                       'sdk_source': os.environ['SOURCE_SHA'], 'sdk_run_id': os.environ['SDK_RUN_ID'],
+                       'tools_sha': os.environ['GITHUB_SHA'], 'counts': None,
+                       'reason': 'diagnostic-report-not-produced', 'execution_status': 'unknown'}
+              path.write_text(json.dumps(value, indent=2) + '\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ios-runtime-diagnostic-${{ inputs.case }}-${{ needs.identity.outputs.app }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ios-runtime-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7

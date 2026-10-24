@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "diagnostic_only": true,
+  "app_sha": "e5af54a638ef6a92e33c5b03516227ec659efbbf",
+  "sdk_source": "6b8d9ea18406a6a0f588de91bece0cf6b29ef129",
+  "sdk_run_id": "40036892229",
+  "profile": "experimental",
+  "cases": {
+    "retired-status": {
+      "selector": "whitenoise-iosTests/IOSAutomaticPendingSendTests/lateStatusCannotRepopulateRetiredAccountOwner()",
+      "identifier_aliases": [
+        "IOSAutomaticPendingSendTests/lateStatusCannotRepopulateRetiredAccountOwner()",
+        "whitenoise-iosTests/IOSAutomaticPendingSendTests/lateStatusCannotRepopulateRetiredAccountOwner()"
+      ],
+      "test_source": "whitenoise-iosTests/AutomaticPendingSendTests.swift",
+      "test_sha256": "c1ee55fd5b6a4089032ecd552e88b5dc9dc238ed47159e8e1ce302f3a2f64d22",
+      "method": "lateStatusCannotRepopulateRetiredAccountOwner",
+      "known_assertions": {
+        "197": {
+          "category": "fixture-snapshot-ready",
+          "source_line_sha256": "c4db4a33d99d1a1e035c8360296cc736a58a5102e3e354f3ca09ba2ff1ac8bdf"
+        },
+        "476": {
+          "category": "held-status-prerequisite",
+          "source_line_sha256": "f970b08138debc28345c6a2857b6940c1345d14b7d7f871ad93811174753afdb"
+        },
+        "481": {
+          "category": "retired-snapshot-empty",
+          "source_line_sha256": "d53f3daea5f7a47fec46f53820186962666e763f4203498194b14db40932c51c"
+        },
+        "482": {
+          "category": "retired-pending-empty",
+          "source_line_sha256": "3a43122c8312f9415f945bee5840487dc098bb42077252212ba325754ed696e6"
+        },
+        "483": {
+          "category": "retired-error-empty",
+          "source_line_sha256": "443bd0edc198097093ad0f5c720bb9a3400005c6e487d37e263c2e54729c4962"
+        }
+      }
+    },
+    "suspension-storage": {
+      "selector": "whitenoise-iosTests/AppStateBootstrapTests/suspensionClosesStorageBeforeConnectivityCatchUpDrains()",
+      "identifier_aliases": [
+        "AppStateBootstrapTests/suspensionClosesStorageBeforeConnectivityCatchUpDrains()",
+        "whitenoise-iosTests/AppStateBootstrapTests/suspensionClosesStorageBeforeConnectivityCatchUpDrains()"
+      ],
+      "test_source": "whitenoise-iosTests/whitenoise_iosTests.swift",
+      "test_sha256": "572e99a846db949b0ca43e9572f0c42def033081ac0d4f92ce4ad36bacce2486",
+      "method": "suspensionClosesStorageBeforeConnectivityCatchUpDrains",
+      "known_assertions": {
+        "1861": {
+          "category": "live-client-required",
+          "source_line_sha256": "3303205634d056e8fd309bb03396cd6ba129889e8b6d461e3d955e66124b643a"
+        },
+        "1874": {
+          "category": "suspension-still-waiting",
+          "source_line_sha256": "87d6ad95f70d7b799ac4b8fd7c2b78edc0775586df5469c70ea73e4274396673"
+        },
+        "1875": {
+          "category": "suspended-client-empty",
+          "source_line_sha256": "3bfd5fc99ff16aa3c22319c5965e4925e7971d00e8e9ae3a2204d049e0589062"
+        },
+        "1882": {
+          "category": "suspension-finished",
+          "source_line_sha256": "4d57635f91a03dd5d96587e280662da300fdfd61e5d4254ec358c73490ce66fc"
+        },
+        "1883": {
+          "category": "finished-client-empty",
+          "source_line_sha256": "3bfd5fc99ff16aa3c22319c5965e4925e7971d00e8e9ae3a2204d049e0589062"
+        },
+        "2424": {
+          "category": "bootstrap-fixture-onboarding",
+          "source_line_sha256": "bd8e5198a4ab4c6c64ced10d68c8c7d39cc83c3afc202794fba637d4240ed810"
+        },
+        "2426": {
+          "category": "bootstrap-fixture-ready",
+          "source_line_sha256": "9a206fe336e20bc1b2915a41a4462e88d15673f102e86fc31ad0587ee32a401f"
+        },
+        "15507": {
+          "category": "shared-wait-predicate",
+          "source_line_sha256": "d2a24f902c55b8134db94f33645fb624ba1e69427afb361c33959f59e7018720"
+        }
+      }
+    }
+  }
+}
