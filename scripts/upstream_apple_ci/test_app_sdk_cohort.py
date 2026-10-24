@@ -13,6 +13,16 @@ R = '123'
 
 
 class AppCohortRoutingTests(unittest.TestCase):
+    def test_closed_platform_selector_defaults_and_preview_subsets(self):
+        self.assertEqual(cohort.selected_platforms('both'), ['macos', 'ios'])
+        self.assertEqual(cohort.selected_platforms('macos'), ['macos'])
+        self.assertEqual(cohort.selected_platforms('ios'), ['ios'])
+
+    def test_platform_selector_refuses_unknown_or_untyped_choices(self):
+        for value in ('', 'all', 'mac', 'linux', None, True, ['macos'], {'platform': 'ios'}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                cohort.selected_platforms(value)
+
     def test_default_environment_cannot_inherit_private_opt_in(self):
         with patch.dict(cohort.os.environ, {'WN_EXPERIMENTAL_DEVICE_SYNC': '1'}):
             env = cohort.environment_for('default', F, R)

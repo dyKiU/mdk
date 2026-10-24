@@ -75,6 +75,11 @@ MUTANTS = {
 }
 
 
+def selected_platforms(value):
+    require(type(value) is str and value in ('both', 'macos', 'ios'), 'Closed app platform selection required')
+    return ['macos', 'ios'] if value == 'both' else [value]
+
+
 def digest_value(value):
     return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
 
@@ -299,9 +304,15 @@ def prepare(args):
     require(not subprocess.check_output(['git', '-C', str(app), 'status', '--porcelain']), 'Fresh app checkout required')
     package = app / ('Vendored/MarmotKit' if args.platform == 'macos' else 'Packages/MarmotKit')
     environment = environment_for(args.profile, args.sdk_source, args.sdk_run_id)
+    requested_platforms = json.loads(os.environ.get('COHORT_PLATFORMS', '["macos","ios"]'))
+    require(requested_platforms in (['macos'], ['ios'], ['macos', 'ios'])
+            and args.platform in requested_platforms, 'Closed requested app platform matrix required')
     proof = {'scope': 'SDK compatibility full suite, Release/analysis and API adaptation controls ONLY; repository PR/static/coverage/native gates remain separate', 'profile': args.profile, 'platform': args.platform, 'app_sha': head,
              'app_tree': subprocess.check_output(['git', '-C', str(app), 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
              'tools_sha': os.environ['GITHUB_SHA'], 'features': FEATURES[args.profile],
+             'requested_platforms': requested_platforms,
+             'both_platforms_requested': requested_platforms == ['macos', 'ios'],
+             'final_qualification_requires_both_platforms': True,
              'current_api': 0 if args.profile == 'historical' else 1,
              'private_sync': 1 if args.profile == 'experimental' else 0}
     if args.profile == 'historical':

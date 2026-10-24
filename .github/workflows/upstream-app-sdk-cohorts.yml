@@ -41,6 +41,12 @@ on:
         description: Exact qualified iOS capability candidate
         required: false
         type: string
+      platform:
+        description: Preview subset only; final qualification still requires both platforms
+        required: true
+        default: both
+        type: choice
+        options: [both, macos, ios]
       cohort:
         description: Select only missing qualification; all runs both apps across all three cohorts
         required: true
@@ -65,6 +71,7 @@ jobs:
       ios: ${{ steps.identity.outputs.ios }}
       profiles: ${{ steps.identity.outputs.profiles }}
       sdk_profiles: ${{ steps.identity.outputs.sdk_profiles }}
+      platforms: ${{ steps.identity.outputs.platforms }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -79,10 +86,16 @@ jobs:
           INPUT_MAC: ${{ inputs.mac_sha }}
           INPUT_IOS: ${{ inputs.ios_sha }}
           INPUT_COHORT: ${{ inputs.cohort }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
           INPUT_METADATA_ONLY: ${{ inputs.metadata_only }}
         run: |
           python3 - <<'PY'
-          import json,os,re
+          import importlib.util,json,os,re,sys
+          sys.path.insert(0,'scripts/upstream_apple_ci')
+          spec=importlib.util.spec_from_file_location('app_platform_selector','scripts/upstream_apple_ci/app-sdk-cohort.py')
+          routing=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(routing)
+          platforms=routing.selected_platforms(os.environ.get('INPUT_PLATFORM') or 'both')
           assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-app-sdk-cohorts-')
           metadata=os.environ.get('INPUT_METADATA_ONLY','')
           assert metadata in ('','false','true')
@@ -96,6 +109,7 @@ jobs:
               profiles=['default','experimental','historical'] if selected=='all' else [selected]
               values['profiles']=json.dumps(profiles)
               values['sdk_profiles']=json.dumps([p for p in profiles if p!='historical'])
+              values['platforms']=json.dumps(platforms)
               with open(os.environ['GITHUB_OUTPUT'],'a') as output:
                   for key,value in values.items():output.write(key+'='+value+'\n')
           PY
@@ -148,7 +162,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos, ios]
+        platform: ${{ fromJSON(needs.identity.outputs.platforms) }}
         profile: ${{ fromJSON(needs.identity.outputs.profiles) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -162,6 +176,7 @@ jobs:
       MAC_SHA: ${{ needs.identity.outputs.mac }}
       IOS_SHA: ${{ needs.identity.outputs.ios }}
       APP_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac || needs.identity.outputs.ios }}
+      COHORT_PLATFORMS: ${{ needs.identity.outputs.platforms }}
       WN_TEST_JOBS: '2'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
