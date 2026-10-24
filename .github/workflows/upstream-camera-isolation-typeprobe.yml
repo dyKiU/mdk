@@ -1,0 +1,74 @@
+name: Checked camera owner compiler feasibility diagnostic
+on:
+  push:
+    branches: ['ci/upstream-camera-isolation-typeprobe-*']
+    paths:
+      - .github/workflows/upstream-camera-isolation-typeprobe.yml
+      - scripts/diagnostics/CheckedCaptureOwner.swift
+      - scripts/diagnostics/camera_owner_typeprobe.py
+      - scripts/diagnostics/test_camera_owner_typeprobe.py
+  workflow_dispatch:
+    inputs:
+      metadata_only:
+        description: Pure identity/projection checks only; no Swift compiler
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: camera-isolation-typeprobe-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Actual pure source identity and diagnostic projection checks
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "$GITHUB_REF" in refs/heads/ci/upstream-camera-isolation-typeprobe-*) ;; *) exit 1;; esac
+          python3 -B -m unittest discover -s scripts/diagnostics -p test_camera_owner_typeprobe.py -v
+  typecheck:
+    if: github.event_name == 'workflow_dispatch' && inputs.metadata_only != true
+    needs: metadata
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: '26.6'
+      - name: One exact strict typecheck; never link or execute capsule
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B scripts/diagnostics/camera_owner_typeprobe.py --output "$RUNNER_TEMP/camera-owner-typeprobe.json"
+      - name: Preserve prerequisite failure as unknown, never zero compiler success
+        if: always()
+        run: |
+          python3 -B - <<'PY'
+          import json, os
+          from pathlib import Path
+          target = Path(os.environ['RUNNER_TEMP']) / 'camera-owner-typeprobe.json'
+          if not target.exists():
+              target.write_text(json.dumps({'schema': 1, 'tools_sha': os.environ['GITHUB_SHA'],
+                  'diagnostic_only': True, 'qualification_credit': False, 'behavioral_credit': False,
+                  'product_tests_executed': 0, 'native_tests_executed': 0,
+                  'passed': False, 'compiler_invoked': None, 'typecheck': None,
+                  'failure_label': 'compiler-probe-report-not-produced'}) + '\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: camera-owner-typeprobe-${{ github.sha }}
+          path: ${{ runner.temp }}/camera-owner-typeprobe.json
+          if-no-files-found: error
+          retention-days: 7
